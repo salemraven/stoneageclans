@@ -13,8 +13,10 @@ game_*.txt
 # Playtest reporter handoff (run_playtest.ps1)
 Tests/.playtest_reporter_path.txt
 
-# Cursor / local IDE
-.cursor/
+# Cursor / local IDE — ignore cache; keep `.cursor/rules/*.mdc` in repo
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 
 # Generated playtest sessions (large JSONL)
 Tests/playtest_*/
@@ -51,6 +53,3 @@ Tests/**/playtest_session.jsonl
 Tests/**/playtest_report.txt
 Tests/_godot*.txt
 Tests/.DS_Store
-
-# DragonBones prebuilt natives (80MB+ per platform; reinstall addon from Asset Library)
-addons/godot_dragon_bones.daylily-zeleen/bin/

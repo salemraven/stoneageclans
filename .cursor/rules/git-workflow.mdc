@@ -1,0 +1,20 @@
+---
+description: Always finish substantive changes with a git commit (message + steps)
+alwaysApply: true
+---
+
+# Git: commit is part of the workflow
+
+When you **finish a task** that changed files (code, docs, assets, config):
+
+1. **Check repo** — If not a git repo, tell the user to `git init` (or open the correct folder); don’t skip mentioning it.
+2. **`git status`** — Confirm what changed.
+3. **Stage** — `git add` only what belongs in this commit (or `git add -A` if the whole change set is one logical unit).
+4. **Commit** — Always propose and run a commit with a **clear message**:
+   - Prefer **Conventional Commits**: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`.
+   - One sentence; optional body only if the change is large or non-obvious.
+   - Example: `chore: remove 3d demo assets; update bible for 2D-only pipeline`
+
+**Do not** end the session with “optional: you could commit” — treat **commit (or explicit blocker)** as the default close-out for real edits.
+
+If the user **forbids** commits or is in read-only mode, say so once and skip.
