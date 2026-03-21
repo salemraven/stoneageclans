@@ -396,6 +396,9 @@ func _refresh_nearby_enemies() -> void:
 	for claim in all_claims:
 		if not is_instance_valid(claim) or claim == land_claim:
 			continue
+		# Campfire (and any duck-typed nodes) share group "land_claims" but are not LandClaim — threat/raid logic needs real claims only
+		if not (claim is LandClaim):
+			continue
 		
 		# Check if enemy (different clan)
 		var claim_clan: String = claim.get("clan_name") if "clan_name" in claim else ""
