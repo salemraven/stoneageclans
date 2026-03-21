@@ -1,0 +1,162 @@
+[gd_scene load_steps=22 format=3 uid="uid://hvghgq071t3q"]
+
+[ext_resource type="Script" uid="uid://kr2tfmtn5mcp" path="res://scripts/character.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/npc/components/combat_component.gd" id="2"]
+[ext_resource type="Texture2D" path="res://parts/Chest.png" id="3"]
+[ext_resource type="Texture2D" path="res://parts/FACE.png" id="4"]
+[ext_resource type="Texture2D" path="res://parts/L_Shoulder.png" id="5"]
+[ext_resource type="Texture2D" path="res://parts/L_Arm.png" id="6"]
+[ext_resource type="Texture2D" path="res://parts/L_Hand.png" id="7"]
+[ext_resource type="Texture2D" path="res://parts/R_Shoulder.png" id="8"]
+[ext_resource type="Texture2D" path="res://parts/R_Arm.png" id="9"]
+[ext_resource type="Texture2D" path="res://parts/R_Hand.png" id="10"]
+[ext_resource type="Texture2D" path="res://parts/R_Finger.png" id="11"]
+[ext_resource type="Texture2D" path="res://parts/R_Weapon.png" id="12"]
+[ext_resource type="Texture2D" path="res://parts/L_Thigh.png" id="13"]
+[ext_resource type="Texture2D" path="res://parts/L_Leg.png" id="14"]
+[ext_resource type="Texture2D" path="res://parts/L_Foot.png" id="15"]
+[ext_resource type="Texture2D" path="res://parts/R_Thigh.png" id="16"]
+[ext_resource type="Texture2D" path="res://parts/R_Leg.png" id="17"]
+[ext_resource type="Texture2D" path="res://parts/R_Foot.png" id="18"]
+
+[sub_resource type="RectangleShape2D" id="RectShape"]
+size = Vector2(40, 40)
+
+[sub_resource type="Animation" id="Animation_walk"]
+resource_name = "walk"
+length = 0.4
+loop_mode = 1
+step = 0.05
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("ArmPivot_L:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.2, 0.4),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [-0.261799, 0.261799, -0.261799]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("ArmPivot_R:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.2, 0.4),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [0.261799, -0.261799, 0.261799]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath(".:position:y")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.2, 0.4),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [0.0, 2.0, 0.0]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_default"]
+_data = {
+&"walk": SubResource("Animation_walk")
+}
+
+[node name="Character" type="CharacterBody2D"]
+script = ExtResource("1")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectShape")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture = ExtResource("3")
+
+[node name="HeadPivot" type="Node2D" parent="."]
+
+[node name="Head" type="Sprite2D" parent="HeadPivot"]
+texture = ExtResource("4")
+
+[node name="ArmPivot_L" type="Node2D" parent="."]
+
+[node name="L_Shoulder" type="Sprite2D" parent="ArmPivot_L"]
+texture = ExtResource("5")
+
+[node name="L_ArmPivot" type="Node2D" parent="ArmPivot_L"]
+
+[node name="L_Arm" type="Sprite2D" parent="ArmPivot_L/L_ArmPivot"]
+texture = ExtResource("6")
+
+[node name="L_HandPivot" type="Node2D" parent="ArmPivot_L/L_ArmPivot"]
+
+[node name="L_Hand" type="Sprite2D" parent="ArmPivot_L/L_ArmPivot/L_HandPivot"]
+texture = ExtResource("7")
+
+[node name="ArmPivot_R" type="Node2D" parent="."]
+z_index = -1
+
+[node name="R_Shoulder" type="Sprite2D" parent="ArmPivot_R"]
+texture = ExtResource("8")
+
+[node name="R_ArmPivot" type="Node2D" parent="ArmPivot_R"]
+
+[node name="R_Arm" type="Sprite2D" parent="ArmPivot_R/R_ArmPivot"]
+texture = ExtResource("9")
+
+[node name="R_HandPivot" type="Node2D" parent="ArmPivot_R/R_ArmPivot"]
+
+[node name="R_Hand" type="Sprite2D" parent="ArmPivot_R/R_ArmPivot/R_HandPivot"]
+texture = ExtResource("10")
+
+[node name="R_Finger" type="Sprite2D" parent="ArmPivot_R/R_ArmPivot/R_HandPivot"]
+texture = ExtResource("11")
+
+[node name="R_Weapon" type="Sprite2D" parent="ArmPivot_R/R_ArmPivot/R_HandPivot"]
+texture = ExtResource("12")
+
+[node name="LegPivot" type="Node2D" parent="."]
+
+[node name="L_ThighPivot" type="Node2D" parent="LegPivot"]
+
+[node name="L_Thigh" type="Sprite2D" parent="LegPivot/L_ThighPivot"]
+texture = ExtResource("13")
+
+[node name="L_LegPivot" type="Node2D" parent="LegPivot/L_ThighPivot"]
+
+[node name="L_Leg" type="Sprite2D" parent="LegPivot/L_ThighPivot/L_LegPivot"]
+texture = ExtResource("14")
+
+[node name="L_FootPivot" type="Node2D" parent="LegPivot/L_ThighPivot/L_LegPivot"]
+
+[node name="L_Foot" type="Sprite2D" parent="LegPivot/L_ThighPivot/L_LegPivot/L_FootPivot"]
+texture = ExtResource("15")
+
+[node name="R_ThighPivot" type="Node2D" parent="LegPivot"]
+z_index = -1
+
+[node name="R_Thigh" type="Sprite2D" parent="LegPivot/R_ThighPivot"]
+texture = ExtResource("16")
+
+[node name="R_LegPivot" type="Node2D" parent="LegPivot/R_ThighPivot"]
+
+[node name="R_Leg" type="Sprite2D" parent="LegPivot/R_ThighPivot/R_LegPivot"]
+texture = ExtResource("17")
+
+[node name="R_FootPivot" type="Node2D" parent="LegPivot/R_ThighPivot/R_LegPivot"]
+
+[node name="R_Foot" type="Sprite2D" parent="LegPivot/R_ThighPivot/R_LegPivot/R_FootPivot"]
+texture = ExtResource("18")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_default")
+}
+
+[node name="CombatComponent" type="Node" parent="."]
+script = ExtResource("2")

@@ -1,0 +1,1 @@
+maybe allow early game players without a clan and landclaim to join an exisiting clan, and then come up with a way for the player to usurp the leader and take over clan for himself. 

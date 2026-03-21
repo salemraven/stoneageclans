@@ -1,0 +1,56 @@
+# Godot
+.godot/
+*.translation
+.mono/
+data_*/
+mono_crash.*.json
+
+# Logs and crash dumps (large, machine-specific)
+game_*.log
+game_*.txt
+*.log
+
+# Playtest reporter handoff (run_playtest.ps1)
+Tests/.playtest_reporter_path.txt
+
+# Cursor / local IDE
+.cursor/
+
+# Generated playtest sessions (large JSONL)
+Tests/playtest_*/
+Tests/playtest_autorun_*/
+Tests/_godot*.txt
+
+# Local test artifacts
+test_output/
+
+# Godot temp locked native libs (Windows)
+**/addons/**/~*.dll
+
+# Bundled editor binaries (large; download locally — see tools/godot/README.txt)
+tools/godot/*.exe
+tools/godot/*.zip
+
+# Old playtest dumps (100MB+ CSVs — GitHub rejects; keep local only)
+# (Bare filename matches any folder — works on all Git versions.)
+npc_metrics.csv
+npc_metrics.csv.import
+Tests/ai_clan_test_*/
+Tests/ai_clan_auto_*/
+Tests/results/
+Tests/run_*/
+Tests/playtest_*/
+Tests/playtest_autorun_*/
+Tests/ai_clan_long_run/
+Tests/ai_clan_verify_deposit/
+Tests/**/*.csv
+
+# Logs / local dumps in Tests (do not ship)
+Tests/**/*.log
+Tests/**/playtest_session.jsonl
+Tests/**/playtest_report.txt
+Tests/_godot*.txt
+Tests/.DS_Store
+
+# DragonBones prebuilt natives (80MB+ per platform; reinstall addon from Asset Library)
+addons/godot_dragon_bones.daylily-zeleen/bin/

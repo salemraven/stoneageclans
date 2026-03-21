@@ -1,0 +1,52 @@
+[gd_scene load_steps=11 format=3 uid="uid://dc7btqt2p517f"]
+
+[ext_resource type="Script" uid="uid://m5r68wstuiud" path="res://scripts/main.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="2"]
+[ext_resource type="Script" uid="uid://mfhuqko3safe" path="res://scripts/world.gd" id="3"]
+[ext_resource type="Shader" uid="uid://biraj3so65rlw" path="res://assets/shaders/dirt_alternate.gdshader" id="4"]
+[ext_resource type="Texture2D" uid="uid://e7ro4mgcmkmd" path="res://assets/tiles/dirtgrassbase.png" id="5"]
+[ext_resource type="Texture2D" uid="uid://d1swekob5e0f8" path="res://assets/tiles/dirtgrassbase2.png" id="6"]
+[ext_resource type="Texture2D" uid="uid://c6xudloxi0car" path="res://assets/tiles/dirtgrassbase3.png" id="7"]
+[ext_resource type="Texture2D" uid="uid://7xq6brkpf7k1" path="res://assets/tiles/dirtgrassbase4.png" id="8"]
+[ext_resource type="Script" uid="uid://d0num85msbxkt" path="res://scripts/land_claim_circles_drawer.gd" id="9"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_dirt_alternate"]
+shader = ExtResource("4")
+shader_parameter/texture2 = ExtResource("6")
+shader_parameter/texture3 = ExtResource("7")
+shader_parameter/texture4 = ExtResource("8")
+shader_parameter/repeat_count = 80.0
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1")
+
+[node name="WorldLayer" type="Node2D" parent="."]
+
+[node name="DirtBase" type="Sprite2D" parent="WorldLayer"]
+material = SubResource("ShaderMaterial_dirt_alternate")
+position = Vector2(1427.9999, 907)
+scale = Vector2(50, 50)
+texture = ExtResource("5")
+
+[node name="World" type="TileMap" parent="WorldLayer"]
+format = 2
+script = ExtResource("3")
+
+[node name="LandClaimCircles" type="Node2D" parent="WorldLayer"]
+script = ExtResource("9")
+
+[node name="WorldObjects" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="Player" parent="WorldObjects" instance=ExtResource("2")]
+
+[node name="Camera2D" type="Camera2D" parent="WorldObjects/Player"]
+
+[node name="Resources" type="Node2D" parent="WorldObjects"]
+
+[node name="LandClaims" type="Node2D" parent="WorldObjects"]
+
+[node name="WorldArea" type="Area2D" parent="."]
+position = Vector2(13003, 10217)
+
+[node name="UI" type="CanvasLayer" parent="."]

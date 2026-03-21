@@ -1,0 +1,1 @@
+use hominid names as starting names and for sake of keeping track of genetics and traits but this will be a genetic melting pot of a simulator 

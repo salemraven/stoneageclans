@@ -1,0 +1,4 @@
+totally animated rituals, we need a rituals menu screen that will allow different rituals to be preformed. the more population the clan the bigger the rituals they unlock. rituals will give big buffs, this way players will cunduct rituals and things like feasts before a big raid, this is amazing immersion ! amazing rpg! amazing sim! you need to help come up with this kinda stuff 
+
+the idea is to rely heavily on animating everything 
+and adding music, drums, horns, just all over the place, make this this an auditory exoirence too, pixel art shamans dancing around to primitive drums and music buffs stacking, fueling up the player before he goes out to wipe a clan and loot. 

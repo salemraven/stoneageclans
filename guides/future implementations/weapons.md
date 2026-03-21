@@ -1,0 +1,1 @@
+allow naming of weapons, and have them gain buffs over time or with kills.

@@ -1,0 +1,2 @@
+research will be small things we all take for granted like in the begining the npcs will be given the need to eat and deficate. they will begin deficating just anywhere until the research is learned to defecate outside the vilage area.
+just an idea, consider all the things we do today and imagine a intresting way to gameify them like the defication example

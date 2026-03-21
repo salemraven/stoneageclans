@@ -1,0 +1,1 @@
+defense drums can be occupied to provide defence buff and war drums
