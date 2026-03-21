@@ -85,11 +85,10 @@ func _draw_radius() -> void:
 		line.add_point(Vector2(cos(a), sin(a)) * radius)
 	radius_indicator.add_child(line)
 
-func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var main = get_tree().get_first_node_in_group("main")
-		if main and main.has_method("_on_campfire_clicked"):
-			main._on_campfire_clicked(self)
+func _on_input_event(_viewport: Node, _event: InputEvent, _shape_idx: int) -> void:
+	# Same as LandClaim: do not open inventory on LMB — Main closes building UI on every LMB release,
+	# which would instantly undo a press-to-open. Use right-click → INFO (context menu) on the campfire.
+	pass
 
 func _process(delta: float) -> void:
 	# Abandonment: when extinguished, timer runs if player far

@@ -374,8 +374,6 @@ func _ready() -> void:
 	
 	add_to_group("main")
 	
-	# P2: Manager nodes for future god-class split (main delegates incrementally)
-	_add_manager_nodes()
 	_configure_input()
 	_setup_world_area()
 	_setup_inventory_ui()
@@ -418,33 +416,6 @@ func _ready() -> void:
 	var pi = get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("is_playtest_timed") and pi.is_playtest_timed():
 		_playtest_2min_start_time = Time.get_ticks_msec() / 1000.0
-
-func _add_manager_nodes() -> void:
-	"""Add manager nodes for future extraction from main.gd."""
-	var SpawnManagerScript = load("res://scripts/managers/spawn_manager.gd") as GDScript
-	var PlayerInteractionScript = load("res://scripts/managers/player_interaction_manager.gd") as GDScript
-	var UIOrchestratorScript = load("res://scripts/managers/ui_orchestrator.gd") as GDScript
-	var BuildingPlacementScript = load("res://scripts/managers/building_placement_manager.gd") as GDScript
-	if SpawnManagerScript:
-		var m = Node.new()
-		m.set_script(SpawnManagerScript)
-		m.name = "SpawnManager"
-		add_child(m)
-	if PlayerInteractionScript:
-		var m = Node.new()
-		m.set_script(PlayerInteractionScript)
-		m.name = "PlayerInteractionManager"
-		add_child(m)
-	if UIOrchestratorScript:
-		var m = Node.new()
-		m.set_script(UIOrchestratorScript)
-		m.name = "UIOrchestrator"
-		add_child(m)
-	if BuildingPlacementScript:
-		var m = Node.new()
-		m.set_script(BuildingPlacementScript)
-		m.name = "BuildingPlacementManager"
-		add_child(m)
 
 func _connect_emergency_defend_horns() -> void:
 	"""Connect emergency_defend_triggered signal on all player-owned land claims."""
@@ -2143,7 +2114,12 @@ func _on_dropdown_option_selected(id: String) -> void:
 	var target = dropdown_menu_ui.get_target() if dropdown_menu_ui else null
 	if id == "info" and target != null and is_instance_valid(target):
 		# INFO: NPCs → character menu; buildings/land claims → inventory
-		if target is LandClaim or target is BuildingBase:
+		if target is CampfireScript:
+			if building_inventory_ui:
+				building_inventory_ui.setup_campfire(target)
+				building_inventory_ui.show_inventory()
+				nearby_building = target
+		elif target is LandClaim or target is BuildingBase:
 			if building_inventory_ui:
 				if target is LandClaim:
 					building_inventory_ui.setup_land_claim(target)
@@ -2834,7 +2810,15 @@ func _resolve_click_target() -> Dictionary:
 				result["target_type"] = "building"
 				return result
 
+	# Campfires are in group "land_claims" but are not LandClaim — tight hit first (same ~32px as InteractionArea)
 	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim) or not (claim is CampfireScript):
+			continue
+		if claim.global_position.distance_to(world_pos) <= CONTEXT_MENU_CLICK_RADIUS:
+			result["target"] = claim
+			result["target_type"] = "campfire"
+			return result
 	for claim in land_claims:
 		if not is_instance_valid(claim) or not (claim is LandClaim):
 			continue
@@ -2887,6 +2871,8 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 		var claim := target as LandClaim
 		if claim and claim.player_owned:
 			opts.append({ "id": "call_defend", "label": "DEFEND" })
+	elif target_type == "campfire":
+		opts = [{ "id": "info", "label": "INFO" }]
 	return opts
 
 func _animate_building_placement(building: Node2D) -> void:
@@ -3170,6 +3156,7 @@ func _on_building_clicked(building_ref: BuildingBase) -> void:
 		nearby_building = building_ref
 
 func _on_campfire_clicked(campfire: CampfireScript) -> void:
+	# Prefer right-click → INFO (_resolve_click_target "campfire"); kept for callers/tests.
 	if building_inventory_ui and is_instance_valid(campfire):
 		building_inventory_ui.setup_campfire(campfire)
 		building_inventory_ui.show_inventory()
