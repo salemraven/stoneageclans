@@ -813,11 +813,12 @@ func _input(event: InputEvent) -> void:
 							if _is_building_occupation_drag_allowed():
 								UnifiedLogger.write_log_entry("Occupation drag start (map)", UnifiedLogger.Category.DRAG_DROP, UnifiedLogger.Level.DEBUG, {"npc_type": npc.get("npc_type")})
 						elif not _is_building_occupation_drag_allowed():
-							# Start selection box (RTS drag-box) only when NOT in occupation drag mode
-							selection_box_start = mp
-							selection_box_end = mp
-							selection_box_active = true
-							_selection_box_show()
+							# Don't start RTS box on campfire (LMB opens building inventory there)
+							if _get_campfire_under_cursor_world() == null:
+								selection_box_start = mp
+								selection_box_end = mp
+								selection_box_active = true
+								_selection_box_show()
 			else:
 				# LMB release
 				if selection_box_active:
@@ -874,15 +875,28 @@ func _input(event: InputEvent) -> void:
 				if character_menu_ui and character_menu_ui.is_open:
 					character_menu_ui.hide_menu()
 				
-				# Hide building inventory (NPC inventory is now in character menu)
-				if building_inventory_ui:
-					building_inventory_ui.hide_inventory()
-				# Phase 6: Clear occupation drag state when closing inventory
+				# Phase 6: Clear occupation / NPC click state on LMB release
 				clicked_npc = null
 				set("dragged_occupation_building", null)
 				set("dragged_occupation_slot_index", -1)
 				set("dragged_occupation_is_woman", false)
-				nearby_building = null
+				
+				# Hide building inventory unless release was over the panel, or still over the campfire we opened (same click)
+				var mp_release: Vector2 = get_viewport().get_mouse_position()
+				var keep_building_ui_open: bool = false
+				if building_inventory_ui and building_inventory_ui.visible and _is_mouse_over_ui(mp_release):
+					keep_building_ui_open = true
+				elif building_inventory_ui and building_inventory_ui.visible:
+					var claim_node: Node = nearby_building
+					if claim_node == null or not is_instance_valid(claim_node):
+						claim_node = building_inventory_ui.campfire
+					if claim_node is CampfireScript and is_instance_valid(claim_node):
+						var world_r: Vector2 = _get_world_mouse_position()
+						if world_r.distance_to(claim_node.global_position) <= CONTEXT_MENU_CLICK_RADIUS * 2.5:
+							keep_building_ui_open = true
+				if not keep_building_ui_open and building_inventory_ui:
+					building_inventory_ui.hide_inventory()
+					nearby_building = null
 				
 				# Handle building placement from inventory
 				# This runs after inventory UI handles its input, so we check if drag is still active
@@ -2606,6 +2620,18 @@ func _get_npc_under_cursor() -> Node:
 			continue
 		if npc.global_position.distance_to(world_pos) < CONTEXT_MENU_CLICK_RADIUS:
 			return npc
+	return null
+
+func _get_campfire_under_cursor_world() -> CampfireScript:
+	"""Campfire under mouse (world). Skips starting RTS selection box when opening campfire UI."""
+	if not camera or not is_instance_valid(camera):
+		return null
+	var world_pos := _get_world_mouse_position()
+	for claim in get_tree().get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim) or not (claim is CampfireScript):
+			continue
+		if claim.global_position.distance_to(world_pos) <= CONTEXT_MENU_CLICK_RADIUS * 1.5:
+			return claim
 	return null
 
 func _get_enemy_building_under_cursor() -> Node:

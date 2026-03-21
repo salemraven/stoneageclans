@@ -475,6 +475,8 @@ func _update_title() -> void:
 	elif campfire:
 		title_label.text = "%s's Campfire" % campfire.clan_name
 		title_label.visible = true
+		if campfire_upgrade_button:
+			campfire_upgrade_button.visible = false
 		if character_info_label:
 			character_info_label.visible = false
 		if fire_button:
@@ -510,6 +512,8 @@ func _update_title() -> void:
 		if fire_button:
 			fire_button.visible = false
 			print("DEBUG _update_title: Hiding fire button for land claim")
+		if campfire_upgrade_button:
+			campfire_upgrade_button.visible = false
 		
 		# Hide production progress for land claims
 		if production_progress:
@@ -1154,6 +1158,11 @@ func _build_building_icons() -> void:
 	# Campfire: add "Upgrade to Land Claim" slot (drop LANDCLAIM item here)
 	if campfire:
 		_create_campfire_upgrade_slot()
+	var margin_lbl = inventory_panel.get_node_or_null("MarginContainer") if inventory_panel else null
+	var main_mc = margin_lbl.get_node_or_null("MainContainer") if margin_lbl else null
+	var buildings_lbl = main_mc.get_node_or_null("BuildingsLabel") if main_mc else null
+	if buildings_lbl:
+		buildings_lbl.text = "Living Hut & Land Claim upgrade:" if campfire else "Buildings:"
 	
 	# Update icon states based on resource availability
 	_update_building_icon_states()
@@ -1205,8 +1214,9 @@ func _create_campfire_upgrade_slot() -> void:
 	campfire_upgrade_slot = Panel.new()
 	campfire_upgrade_slot.name = "CampfireUpgradeSlot"
 	campfire_upgrade_slot.custom_minimum_size = Vector2(BUILDING_ICON_SIZE, BUILDING_ICON_SIZE)
-	campfire_upgrade_slot.tooltip_text = "Drop Land Claim to upgrade"
+	campfire_upgrade_slot.tooltip_text = "Upgrade to Land Claim: put 1× Cordage, Hide, Wood, Stone in campfire slots and click here — or drop a Land Claim item here."
 	campfire_upgrade_slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	campfire_upgrade_slot.gui_input.connect(_on_campfire_upgrade_slot_gui_input)
 	var style := UITheme.get_panel_style()
 	style.bg_color.a = 0.85
 	style.bg_color = Color(0.3, 0.5, 0.3, 0.9)  # Slightly green tint = upgrade
@@ -1231,6 +1241,49 @@ func _create_campfire_upgrade_slot() -> void:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	campfire_upgrade_slot.add_child(label)
 	buildings_container.add_child(campfire_upgrade_slot)
+	_refresh_campfire_upgrade_slot_style()
+
+func _campfire_has_upgrade_materials() -> bool:
+	if not campfire or not campfire.inventory:
+		return false
+	var inv: InventoryData = campfire.inventory
+	return inv.get_count(ResourceData.ResourceType.CORDAGE) >= 1 \
+		and inv.get_count(ResourceData.ResourceType.HIDE) >= 1 \
+		and inv.get_count(ResourceData.ResourceType.WOOD) >= 1 \
+		and inv.get_count(ResourceData.ResourceType.STONE) >= 1
+
+func _on_campfire_upgrade_slot_gui_input(event: InputEvent) -> void:
+	if not campfire or not is_instance_valid(campfire):
+		return
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	if _campfire_has_upgrade_materials():
+		var main_node: Node = get_tree().get_first_node_in_group("main")
+		if main_node and main_node.has_method("_on_campfire_upgrade_confirmed"):
+			main_node._on_campfire_upgrade_confirmed(campfire)
+			_update_all_slots()
+			_update_building_icon_states()
+	else:
+		print("Campfire: need 1× Cordage, Hide, Wood, Stone in these slots to upgrade — or drop a Land Claim on this tile.")
+	accept_event()
+
+func _refresh_campfire_upgrade_slot_style() -> void:
+	if not campfire_upgrade_slot or not is_instance_valid(campfire_upgrade_slot):
+		return
+	var style := UITheme.get_panel_style()
+	style.bg_color.a = 0.9
+	if _campfire_has_upgrade_materials():
+		style.bg_color = Color(0.25, 0.75, 0.35, 0.95)
+	else:
+		style.bg_color = Color(0.22, 0.38, 0.24, 0.75)
+	campfire_upgrade_slot.add_theme_stylebox_override("panel", style)
+	var tex_rect: TextureRect = null
+	for c in campfire_upgrade_slot.get_children():
+		if c is TextureRect:
+			tex_rect = c as TextureRect
+			break
+	if tex_rect:
+		tex_rect.modulate = Color.WHITE if _campfire_has_upgrade_materials() else Color(0.55, 0.55, 0.55, 0.85)
 
 func _on_icon_hovered(icon: Panel, is_hovered: bool) -> void:
 	if is_hovered:
@@ -1504,17 +1557,10 @@ func _update_campfire_fire_button() -> void:
 	fire_button.visible = true
 
 func _update_campfire_upgrade_icon() -> void:
-	if not campfire or not campfire_upgrade_button:
-		return
-	var inv = campfire.inventory
-	if not inv:
+	# Upgrade to Land Claim is only in the buildings row (land-claim tile): click with mats or drop Land Claim item.
+	if campfire and campfire_upgrade_button:
 		campfire_upgrade_button.visible = false
-		return
-	var has_cordage: bool = inv.get_count(ResourceData.ResourceType.CORDAGE) >= 1
-	var has_hide: bool = inv.get_count(ResourceData.ResourceType.HIDE) >= 1
-	var has_wood: bool = inv.get_count(ResourceData.ResourceType.WOOD) >= 1
-	var has_stone: bool = inv.get_count(ResourceData.ResourceType.STONE) >= 1
-	campfire_upgrade_button.visible = has_cordage and has_hide and has_wood and has_stone
+	_refresh_campfire_upgrade_slot_style()
 
 func _on_campfire_upgrade_pressed() -> void:
 	var tg = get_meta("travois_ground_ref") if has_meta("travois_ground_ref") else null
