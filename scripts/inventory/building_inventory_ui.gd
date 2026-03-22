@@ -759,7 +759,7 @@ func _input(event: InputEvent) -> void:
 								get_viewport().set_input_as_handled()
 								return
 						else:
-							print("Campfire: need 1× Cordage, Hide, Wood, Stone in campfire slots — or drop a Land Claim on this tile.")
+							print("Campfire: need upgrade materials in campfire slots (see BalanceConfig) — or drop a Land Claim on this tile.")
 							get_viewport().set_input_as_handled()
 							return
 			# Mouse button released - check if we're dragging
@@ -1231,7 +1231,7 @@ func _create_campfire_upgrade_slot() -> void:
 	campfire_upgrade_slot = Panel.new()
 	campfire_upgrade_slot.name = "CampfireUpgradeSlot"
 	campfire_upgrade_slot.custom_minimum_size = Vector2(BUILDING_ICON_SIZE, BUILDING_ICON_SIZE)
-	campfire_upgrade_slot.tooltip_text = "Upgrade to Land Claim: put 1× Cordage, Hide, Wood, Stone in campfire slots and click here — or drop a Land Claim item here."
+	campfire_upgrade_slot.tooltip_text = "Upgrade to Land Claim: meet costs in BalanceConfig (testing: 1 Wood + 1 Stone in campfire) — or drop a Land Claim item here."
 	campfire_upgrade_slot.mouse_filter = Control.MOUSE_FILTER_STOP
 	# Note: gui_input on nested panels is unreliable here; upgrade click is handled in _input (LMB release) like drag-drops.
 	var style := UITheme.get_panel_style()
@@ -1261,13 +1261,19 @@ func _create_campfire_upgrade_slot() -> void:
 	_refresh_campfire_upgrade_slot_style()
 
 func _campfire_has_upgrade_materials() -> bool:
-	if not campfire or not campfire.inventory:
+	if not campfire or not campfire.inventory or not BalanceConfig:
 		return false
 	var inv: InventoryData = campfire.inventory
-	return inv.get_count(ResourceData.ResourceType.CORDAGE) >= 1 \
-		and inv.get_count(ResourceData.ResourceType.HIDE) >= 1 \
-		and inv.get_count(ResourceData.ResourceType.WOOD) >= 1 \
-		and inv.get_count(ResourceData.ResourceType.STONE) >= 1
+	var bc = BalanceConfig
+	if bc.campfire_upgrade_cordage > 0 and inv.get_count(ResourceData.ResourceType.CORDAGE) < bc.campfire_upgrade_cordage:
+		return false
+	if bc.campfire_upgrade_hide > 0 and inv.get_count(ResourceData.ResourceType.HIDE) < bc.campfire_upgrade_hide:
+		return false
+	if bc.campfire_upgrade_wood > 0 and inv.get_count(ResourceData.ResourceType.WOOD) < bc.campfire_upgrade_wood:
+		return false
+	if bc.campfire_upgrade_stone > 0 and inv.get_count(ResourceData.ResourceType.STONE) < bc.campfire_upgrade_stone:
+		return false
+	return true
 
 func _refresh_campfire_upgrade_slot_style() -> void:
 	if not campfire_upgrade_slot or not is_instance_valid(campfire_upgrade_slot):

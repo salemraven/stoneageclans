@@ -73,3 +73,10 @@ var land_claim_min_edge_gap_px: float = 400.0  # Space between claim borders (ma
 
 func get_land_claim_min_center_distance() -> float:
 	return 2.0 * land_claim_radius + land_claim_min_edge_gap_px
+
+# Campfire -> Land Claim (click upgrade on building UI tile). Amounts 0 = not required.
+# TESTING: 1 wood + 1 stone only. For full recipe set cordage/hide/wood/stone each to 1.
+var campfire_upgrade_cordage: int = 0
+var campfire_upgrade_hide: int = 0
+var campfire_upgrade_wood: int = 1
+var campfire_upgrade_stone: int = 1

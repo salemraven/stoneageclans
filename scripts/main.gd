@@ -3210,22 +3210,32 @@ func _on_campfire_upgrade_confirmed(campfire_ref: CampfireScript) -> void:
 	if not campfire_ref or not is_instance_valid(campfire_ref) or not campfire_ref.inventory:
 		return
 	var inv = campfire_ref.inventory
-	if inv.get_count(ResourceData.ResourceType.CORDAGE) < 1 or inv.get_count(ResourceData.ResourceType.HIDE) < 1 or inv.get_count(ResourceData.ResourceType.WOOD) < 1 or inv.get_count(ResourceData.ResourceType.STONE) < 1:
-		print("Campfire upgrade: need 1× Cordage, Hide, Wood, and Stone in the campfire inventory slots.")
+	var bc = BalanceConfig
+	if bc.campfire_upgrade_cordage > 0 and inv.get_count(ResourceData.ResourceType.CORDAGE) < bc.campfire_upgrade_cordage:
+		print("Campfire upgrade: not enough Cordage (need %d in campfire slots)." % bc.campfire_upgrade_cordage)
+		return
+	if bc.campfire_upgrade_hide > 0 and inv.get_count(ResourceData.ResourceType.HIDE) < bc.campfire_upgrade_hide:
+		print("Campfire upgrade: not enough Hide (need %d)." % bc.campfire_upgrade_hide)
+		return
+	if bc.campfire_upgrade_wood > 0 and inv.get_count(ResourceData.ResourceType.WOOD) < bc.campfire_upgrade_wood:
+		print("Campfire upgrade: not enough Wood (need %d)." % bc.campfire_upgrade_wood)
+		return
+	if bc.campfire_upgrade_stone > 0 and inv.get_count(ResourceData.ResourceType.STONE) < bc.campfire_upgrade_stone:
+		print("Campfire upgrade: not enough Stone (need %d)." % bc.campfire_upgrade_stone)
 		return
 	var new_land_claim: LandClaim = _instantiate_land_claim_for_campfire_upgrade()
 	if not new_land_claim:
 		return
-	if not inv.remove_item(ResourceData.ResourceType.CORDAGE, 1):
+	if bc.campfire_upgrade_cordage > 0 and not inv.remove_item(ResourceData.ResourceType.CORDAGE, bc.campfire_upgrade_cordage):
 		new_land_claim.queue_free()
 		return
-	if not inv.remove_item(ResourceData.ResourceType.HIDE, 1):
+	if bc.campfire_upgrade_hide > 0 and not inv.remove_item(ResourceData.ResourceType.HIDE, bc.campfire_upgrade_hide):
 		new_land_claim.queue_free()
 		return
-	if not inv.remove_item(ResourceData.ResourceType.WOOD, 1):
+	if bc.campfire_upgrade_wood > 0 and not inv.remove_item(ResourceData.ResourceType.WOOD, bc.campfire_upgrade_wood):
 		new_land_claim.queue_free()
 		return
-	if not inv.remove_item(ResourceData.ResourceType.STONE, 1):
+	if bc.campfire_upgrade_stone > 0 and not inv.remove_item(ResourceData.ResourceType.STONE, bc.campfire_upgrade_stone):
 		new_land_claim.queue_free()
 		return
 	_apply_campfire_replaced_by_land_claim(campfire_ref, new_land_claim)
