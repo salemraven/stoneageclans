@@ -3188,30 +3188,55 @@ func _on_campfire_clicked(campfire: CampfireScript) -> void:
 		building_inventory_ui.show_inventory()
 		nearby_building = campfire
 
+func _instantiate_land_claim_for_campfire_upgrade() -> LandClaim:
+	var inst: Node = LAND_CLAIM_SCENE.instantiate()
+	if inst == null:
+		push_error("Campfire upgrade: LandClaim scene failed to instantiate (null). Check res://scenes/LandClaim.tscn exists.")
+		return null
+	if not (inst is LandClaim):
+		push_error("Campfire upgrade: LandClaim.tscn root must use land_claim.gd (class_name LandClaim). Got: %s" % inst)
+		inst.queue_free()
+		return null
+	return inst as LandClaim
+
 func _on_campfire_upgrade_with_landclaim(campfire_ref: CampfireScript) -> void:
 	"""Upgrade campfire using LANDCLAIM item (dropped in upgrade slot). Item already removed from player by drag."""
-	_perform_campfire_to_land_claim(campfire_ref, false)
+	var new_lc: LandClaim = _instantiate_land_claim_for_campfire_upgrade()
+	if not new_lc:
+		return
+	_apply_campfire_replaced_by_land_claim(campfire_ref, new_lc)
 
 func _on_campfire_upgrade_confirmed(campfire_ref: CampfireScript) -> void:
 	if not campfire_ref or not is_instance_valid(campfire_ref) or not campfire_ref.inventory:
 		return
 	var inv = campfire_ref.inventory
 	if inv.get_count(ResourceData.ResourceType.CORDAGE) < 1 or inv.get_count(ResourceData.ResourceType.HIDE) < 1 or inv.get_count(ResourceData.ResourceType.WOOD) < 1 or inv.get_count(ResourceData.ResourceType.STONE) < 1:
+		print("Campfire upgrade: need 1× Cordage, Hide, Wood, and Stone in the campfire inventory slots.")
 		return
-	inv.remove_item(ResourceData.ResourceType.CORDAGE, 1)
-	inv.remove_item(ResourceData.ResourceType.HIDE, 1)
-	inv.remove_item(ResourceData.ResourceType.WOOD, 1)
-	inv.remove_item(ResourceData.ResourceType.STONE, 1)
-	_perform_campfire_to_land_claim(campfire_ref, true)
+	var new_land_claim: LandClaim = _instantiate_land_claim_for_campfire_upgrade()
+	if not new_land_claim:
+		return
+	if not inv.remove_item(ResourceData.ResourceType.CORDAGE, 1):
+		new_land_claim.queue_free()
+		return
+	if not inv.remove_item(ResourceData.ResourceType.HIDE, 1):
+		new_land_claim.queue_free()
+		return
+	if not inv.remove_item(ResourceData.ResourceType.WOOD, 1):
+		new_land_claim.queue_free()
+		return
+	if not inv.remove_item(ResourceData.ResourceType.STONE, 1):
+		new_land_claim.queue_free()
+		return
+	_apply_campfire_replaced_by_land_claim(campfire_ref, new_land_claim)
 
-func _perform_campfire_to_land_claim(campfire_ref: CampfireScript, _consumed_materials: bool) -> void:
-	if not campfire_ref or not is_instance_valid(campfire_ref) or not campfire_ref.inventory:
+func _apply_campfire_replaced_by_land_claim(campfire_ref: CampfireScript, new_land_claim: LandClaim) -> void:
+	if not new_land_claim or not campfire_ref or not is_instance_valid(campfire_ref) or not campfire_ref.inventory:
+		if new_land_claim and is_instance_valid(new_land_claim):
+			new_land_claim.queue_free()
 		return
 	var world_pos := campfire_ref.global_position
 	var clan_name := campfire_ref.clan_name
-	var new_land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
-	if not new_land_claim:
-		return
 	new_land_claim.global_position = world_pos
 	new_land_claim.set_clan_name(clan_name)
 	new_land_claim.player_owned = true
@@ -3250,7 +3275,7 @@ func _perform_campfire_to_land_claim(campfire_ref: CampfireScript, _consumed_mat
 	_despawn_decorative_trees_near(world_pos, new_land_claim.radius)
 	register_land_claim(new_land_claim)
 	nearby_building = new_land_claim
-	print("✓ Campfire upgraded to Land Claim at ", world_pos, " clan: ", clan_name)
+	print("✓ Campfire upgraded to Land Claim at ", world_pos, " clan: ", clan_name, " (radius ", new_land_claim.radius, ")")
 
 var _last_placement_failure_message: String = ""  # Set when campfire rules fail; cleared after use
 

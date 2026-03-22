@@ -745,6 +745,23 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT and not mouse_event.pressed:
+			# Simple click (no drag) on campfire upgrade tile — same rect test as LANDCLAIM drop
+			if visible and campfire and is_instance_valid(campfire) and not (drag_manager and drag_manager.is_dragging):
+				if campfire_upgrade_slot and is_instance_valid(campfire_upgrade_slot):
+					var mp_click: Vector2 = get_viewport().get_mouse_position()
+					if Rect2(campfire_upgrade_slot.get_global_rect()).has_point(mp_click):
+						if _campfire_has_upgrade_materials():
+							var main_up: Node = get_tree().get_first_node_in_group("main")
+							if main_up and main_up.has_method("_on_campfire_upgrade_confirmed"):
+								main_up._on_campfire_upgrade_confirmed(campfire)
+								_update_all_slots()
+								_update_building_icon_states()
+								get_viewport().set_input_as_handled()
+								return
+						else:
+							print("Campfire: need 1× Cordage, Hide, Wood, Stone in campfire slots — or drop a Land Claim on this tile.")
+							get_viewport().set_input_as_handled()
+							return
 			# Mouse button released - check if we're dragging
 			if drag_manager and drag_manager.is_dragging and visible:
 				var mouse_pos: Vector2 = get_viewport().get_mouse_position()
@@ -1216,7 +1233,7 @@ func _create_campfire_upgrade_slot() -> void:
 	campfire_upgrade_slot.custom_minimum_size = Vector2(BUILDING_ICON_SIZE, BUILDING_ICON_SIZE)
 	campfire_upgrade_slot.tooltip_text = "Upgrade to Land Claim: put 1× Cordage, Hide, Wood, Stone in campfire slots and click here — or drop a Land Claim item here."
 	campfire_upgrade_slot.mouse_filter = Control.MOUSE_FILTER_STOP
-	campfire_upgrade_slot.gui_input.connect(_on_campfire_upgrade_slot_gui_input)
+	# Note: gui_input on nested panels is unreliable here; upgrade click is handled in _input (LMB release) like drag-drops.
 	var style := UITheme.get_panel_style()
 	style.bg_color.a = 0.85
 	style.bg_color = Color(0.3, 0.5, 0.3, 0.9)  # Slightly green tint = upgrade
@@ -1251,21 +1268,6 @@ func _campfire_has_upgrade_materials() -> bool:
 		and inv.get_count(ResourceData.ResourceType.HIDE) >= 1 \
 		and inv.get_count(ResourceData.ResourceType.WOOD) >= 1 \
 		and inv.get_count(ResourceData.ResourceType.STONE) >= 1
-
-func _on_campfire_upgrade_slot_gui_input(event: InputEvent) -> void:
-	if not campfire or not is_instance_valid(campfire):
-		return
-	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
-		return
-	if _campfire_has_upgrade_materials():
-		var main_node: Node = get_tree().get_first_node_in_group("main")
-		if main_node and main_node.has_method("_on_campfire_upgrade_confirmed"):
-			main_node._on_campfire_upgrade_confirmed(campfire)
-			_update_all_slots()
-			_update_building_icon_states()
-	else:
-		print("Campfire: need 1× Cordage, Hide, Wood, Stone in these slots to upgrade — or drop a Land Claim on this tile.")
-	accept_event()
 
 func _refresh_campfire_upgrade_slot_style() -> void:
 	if not campfire_upgrade_slot or not is_instance_valid(campfire_upgrade_slot):
