@@ -127,9 +127,72 @@ Campfire is the first step. Land claim is the second. Player can upgrade campfir
 
 ---
 
+## Nomadic Phase: More To Do Before Settling
+
+While on a **campfire** (no land claim buildings, tight radius, no production chains), the player should still have **meaningful loops** beyond “berries until Oldowan.” Goal: **stone-age foraging**, not a single optimal grind.
+
+### Intended Loops (Design Targets)
+
+| Activity | Feel | Notes |
+|----------|------|--------|
+| **Hand forage** | Berries, greens, grubs, loose fiber; quick but low yield | Keeps you moving; pairs with exploration |
+| **Dig / soft soil** | Roots, tubers; slower, better hunger | Small **rotten root** risk → minor poison/debuff |
+| **Shake bushes / small trees** | Nuts, seeds; stacks well, lower per-bite hunger | “Rattle” interaction; optional kick/shake animation |
+| **Trees (dual use)** | **No Oldowan or hafted axe:** hand-gather **honey** or **bird eggs** (RNG, nest read). **With chop tool:** **wood** (existing chop loop) | Avoids dead trees before tools; rewards returning with an axe |
+| **Risk picks** | Mushrooms (edible / poison / future medic), eggs near stings | Save tricky stuff for after first hut if desired |
+| **Scout & herd** | Find women/animals, claim with radius | Already part of nomad fantasy; keep UI clear |
+
+### Variety Levers (Same World, Different Jobs)
+
+- **Different verbs:** punch/hand-pick, shake, dig, reach/climb (later: eggs aloft, honey high)
+- **Risk vs reward:** fast + weak vs slow + filling vs risky + strong
+- **Location bias:** berries in open grass; roots at forest edge; clay/sap near water or specific trees; fish near water (later)
+- **Depletion & respawn:** keep **local exhaustion** so nomads **rotate camps** or **walk farther**—matches “move the campfire” fantasy
+
+### What Nomads Do *Not* Need On Day One
+
+Full ovens, farms, defender quotas, or raid economy. Those stay **land-claim** rewards. Nomads trade **mobility** for **breadth of small activities**.
+
+---
+
 ## Content to Add
 
 Planned systems and mechanics for the nomadic early game and beyond.
+
+### Wild Resources & Gathering (Phased)
+
+**Phase 1 — Early foods (hand / simple interact):**
+
+| Resource | Art (concept) | Method | Notes |
+|----------|----------------|--------|--------|
+| **Edible roots** | `wildroots.png`, `wildpotato.png` | Dig **soft soil** (`softsoil.png`); slower than berries, higher hunger restore | Chance of **rotten root** → minor poison/debuff |
+| **Nuts / seeds** | `nuts.png`, `seeds.png` | **Shake** small bushes or trees | Lower hunger per unit; **stacks** well; longer “good” life before spoil (when spoil exists) |
+| **Insects / grubs** | `grubs.png` | **Ground pickup** (like loose wood/stone—no dedicated node, or tiny pile) | Fast emergency protein; primitive vibe; optional **small morale** hook later |
+
+**Phase 2 — Useful non-foods:**
+
+| Resource | Source idea | Use |
+|----------|--------------|-----|
+| **Fiber / stalks** | Tall reeds, fibrous plants | Cordage path; later clothing/rope |
+| **Clay** | Riverbank / muddy patches | Pots, early craft once fire exists |
+| **Flint** | Rare roll while gathering **stone** | Better Oldowan / early sharp tools |
+| **Bones** | Old carcasses | Needles, awls, tips |
+| **Resin / sap** | Certain trees | Glue / fire-start boost |
+| **Mushrooms** | Forest floor | Mix of edible / poison / future medicinal |
+
+**Phase 3 — Later “reward” gathers (after first hut feels fair):**
+
+- **Eggs** (nest / tree hollow), **honey** (hive)—can overlap with **tree dual-yield** below
+- **Fish** — water-adjacent; more systems
+
+**Implementation order (suggested):** roots + nuts + grubs + wild greens (reuse/extend berry-style where needed) → **fiber + clay** → eggs/honey as **tree interaction** → biome/chunk hooks when world gen is stronger.
+
+### Trees: Chop vs Hand Forage (Design)
+
+- **Equipped: Oldowan or hafted axe** → current intent: **harvest wood** from tree **GatherableResource** nodes (slow with Oldowan vs axe).
+- **Neither equipped** → allow **hand** interaction on the **same** (or tagged) trees: roll **honey** and/or **bird eggs**; shorter or different timing; separate **cooldown** from lumber if trees feel bad when both share one exhaust meter.
+- **NPCs:** lumber AI should keep expecting **wood** from wood nodes; hand-forage is **player-first** unless a dedicated “forager” behavior is added later.
+- **Decorative-only trees** (visual `decorative_trees`) are not lootable until given an **interactable** child or a nearby **hidden gatherable**—don’t assume every painted tree drops loot without a node.
 
 ### Clansmen Carry Travois
 
