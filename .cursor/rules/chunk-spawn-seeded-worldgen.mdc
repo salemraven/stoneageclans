@@ -1,0 +1,28 @@
+---
+description: World content — chunk lifecycle + seeded gen (required pair); server owns mutations & NPC sim
+alwaysApply: true
+---
+
+# Chunk-scoped world + seeded generation (no deferring)
+
+Stone Age Clans targets a **bigger world**, **more players**, and **less lag**. **Do not put this off** for new or refactored systems: treat the pair below as the **default architecture**, not a future optional upgrade.
+
+## Required pair for static world content
+**Both** apply to props and layout that are part of the shared world (trees, grass, ground items, gatherables, decorative environment, etc.):
+
+1. **Chunk- or region-scoped lifecycle** — spawn when a chunk/region is active; **despawn or disable** when far enough away so off-screen work stays cheap (fewer nodes, physics, spatial queries).
+2. **Seeded generation** — placement and procedural rolls from **`world_seed + chunk_coords` (+ layer id)** via `RandomNumberGenerator` or stable hash → RNG. **No** world layout from bare `randf()` / `randi()` without that tie-in.
+
+Half-measures **cost** you: seed-only without streaming → still heavy node counts; streaming without determinism → **multiplayer desync** or forced full replication of every prop.
+
+## Server-owned deltas (what players change)
+The seed defines the **initial** world. **Mutations** — picked up, chopped, built, claimed, depleted, cooldowns — are **authoritative server state** (or single-player equivalent: persisted diffs), **replicated** to clients. Do not rely on “regenerate from seed alone” for those.
+
+## NPCs
+**Server sim** for behavior and combat-relevant state. **Spawn points / ambient placement** may use the same seeded chunk rules as other static content where appropriate; ongoing AI is not “every client runs unseeded rand each frame.”
+
+## Legacy
+One-shot mega-spawn in `main.gd`-style flows is **technical debt** — **do not extend** it for new features without a chunk + seed plan.
+
+## When touching spawn, world, chunks, or `ResourceIndex`
+Ask: Is this **per chunk**? Is RNG **deterministic** from seed + coordinates? Where do **post-spawn mutations** live (server / save)? What must **persist** after unload?
