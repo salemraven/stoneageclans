@@ -1,60 +1,129 @@
 extends Node
 
+const _DesignTokensParser = preload("res://scripts/ui/ui_design_tokens_parser.gd")
+
 # UITheme - Centralized UI styling for Stone Age Clans
-# Provides consistent colors, styles, and sizing across all UI elements
-# Use as autoload singleton: UITheme.get_panel_style()
+# Values default below; optional JSON at res://ui/design_tokens/design_tokens.json
+# overrides them (Figma Variables → export → same keys; see ui/figma/README.md).
+# Use: UITheme.get_panel_style() or UITheme.COLOR_TEXT_PRIMARY
 
-## Color Constants
+static var _tokens_applied: bool = false
 
-# Background colors
-const COLOR_BG_DARK_BROWN: Color = Color(0x1a / 255.0, 0x15 / 255.0, 0x12 / 255.0, 0.85)  # Dark brown, 85% opacity
-const COLOR_BG_OPACITY: float = 0.85
+## Color tokens (mutable — design_tokens.json may override)
+static var COLOR_BG_DARK_BROWN: Color = Color(0x1a / 255.0, 0x15 / 255.0, 0x12 / 255.0, 0.85)
+static var COLOR_BORDER_SADDLE_BROWN: Color = Color(0x8b / 255.0, 0x45 / 255.0, 0x13 / 255.0, 0.9)
+static var COLOR_SHADOW_BLACK: Color = Color(0, 0, 0, 0.25)
+static var COLOR_TEXT_PRIMARY: Color = Color(0xe8 / 255.0, 0xe8 / 255.0, 0xe8 / 255.0, 1.0)
+static var COLOR_TEXT_SECONDARY: Color = Color(0xb0 / 255.0, 0xb0 / 255.0, 0xb0 / 255.0, 1.0)
+static var COLOR_TEXT_ERROR: Color = Color(0xd3 / 255.0, 0x2f / 255.0, 0x2f / 255.0, 1.0)
+static var COLOR_TEXT_SUCCESS: Color = Color(0x66 / 255.0, 0xbb / 255.0, 0x6a / 255.0, 1.0)
+static var COLOR_TEXT_SELECTED: Color = Color(0xff / 255.0, 0xa7 / 255.0, 0x26 / 255.0, 1.0)
 
-# Border colors
-const COLOR_BORDER_SADDLE_BROWN: Color = Color(0x8b / 255.0, 0x45 / 255.0, 0x13 / 255.0, 0.9)  # Saddle brown, 90% opacity
-const COLOR_BORDER_OPACITY: float = 0.9
+## Layout / size tokens
+static var BORDER_WIDTH: int = 2
+static var CORNER_RADIUS: int = 12
+static var SHADOW_SIZE: int = 4
+static var SHADOW_OFFSET: Vector2 = Vector2(0, 5)
 
-# Shadow colors
-const COLOR_SHADOW_BLACK: Color = Color(0, 0, 0, 0.25)  # Black, 25% opacity
+static var PANEL_WIDTH_STANDARD: int = 320
+static var PANEL_HEIGHT_STANDARD: int = 400
+static var PANEL_PADDING_STANDARD: int = 8
+static var PANEL_PADDING_LARGE: int = 16
 
-# Text colors
-const COLOR_TEXT_PRIMARY: Color = Color(0xe8 / 255.0, 0xe8 / 255.0, 0xe8 / 255.0, 1.0)  # Off-white #e8e8e8
-const COLOR_TEXT_SECONDARY: Color = Color(0xb0 / 255.0, 0xb0 / 255.0, 0xb0 / 255.0, 1.0)  # Light gray #b0b0b0
-const COLOR_TEXT_ERROR: Color = Color(0xd3 / 255.0, 0x2f / 255.0, 0x2f / 255.0, 1.0)  # Red #d32f2f
-const COLOR_TEXT_SUCCESS: Color = Color(0x66 / 255.0, 0xbb / 255.0, 0x6a / 255.0, 1.0)  # Green #66bb6a
-const COLOR_TEXT_SELECTED: Color = Color(0xff / 255.0, 0xa7 / 255.0, 0x26 / 255.0, 1.0)  # Gold #ffa726
+static var SLOT_SIZE: int = 32
+static var SLOT_SPACING_VERTICAL: int = 0
+static var SLOT_SPACING_HORIZONTAL: int = 6
 
-## Style Constants
+static var HOTBAR_HEIGHT: int = 64
 
-const BORDER_WIDTH: int = 2
-const CORNER_RADIUS: int = 12
-const SHADOW_SIZE: int = 4
-const SHADOW_OFFSET: Vector2 = Vector2(0, 5)
+static var FONT_SIZE_TITLE: int = 18
+static var FONT_SIZE_BODY: int = 12
+static var FONT_SIZE_SECONDARY: int = 10
 
-## Size Constants
 
-const PANEL_WIDTH_STANDARD: int = 320
-const PANEL_HEIGHT_STANDARD: int = 400
-const PANEL_PADDING_STANDARD: int = 8
-const PANEL_PADDING_LARGE: int = 16
+static func _ensure_tokens_loaded() -> void:
+	if _tokens_applied:
+		return
+	_tokens_applied = true
+	var root: Dictionary = _DesignTokensParser.load_file()
+	if root.is_empty():
+		return
+	_apply_design_tokens(root)
 
-const SLOT_SIZE: int = 32
-const SLOT_SPACING_VERTICAL: int = 0
-const SLOT_SPACING_HORIZONTAL: int = 6
 
-const HOTBAR_HEIGHT: int = 64
+static func _apply_design_tokens(root: Dictionary) -> void:
+	var colors: Dictionary = root.get("colors", {}) as Dictionary
+	if not colors.is_empty():
+		if colors.has("bg_dark_brown"):
+			COLOR_BG_DARK_BROWN = _DesignTokensParser.parse_color(colors["bg_dark_brown"])
+		if colors.has("border_saddle_brown"):
+			COLOR_BORDER_SADDLE_BROWN = _DesignTokensParser.parse_color(colors["border_saddle_brown"])
+		if colors.has("shadow_black"):
+			COLOR_SHADOW_BLACK = _DesignTokensParser.parse_color(colors["shadow_black"])
+		if colors.has("text_primary"):
+			COLOR_TEXT_PRIMARY = _DesignTokensParser.parse_color(colors["text_primary"])
+		if colors.has("text_secondary"):
+			COLOR_TEXT_SECONDARY = _DesignTokensParser.parse_color(colors["text_secondary"])
+		if colors.has("text_error"):
+			COLOR_TEXT_ERROR = _DesignTokensParser.parse_color(colors["text_error"])
+		if colors.has("text_success"):
+			COLOR_TEXT_SUCCESS = _DesignTokensParser.parse_color(colors["text_success"])
+		if colors.has("text_selected"):
+			COLOR_TEXT_SELECTED = _DesignTokensParser.parse_color(colors["text_selected"])
 
-## Font Size Constants
+	var layout: Dictionary = root.get("layout", {}) as Dictionary
+	if not layout.is_empty():
+		if layout.has("border_width"):
+			BORDER_WIDTH = int(layout["border_width"])
+		if layout.has("corner_radius"):
+			CORNER_RADIUS = int(layout["corner_radius"])
+		if layout.has("shadow_size"):
+			SHADOW_SIZE = int(layout["shadow_size"])
+		if layout.has("shadow_offset") and layout["shadow_offset"] is Array:
+			var o: Array = layout["shadow_offset"] as Array
+			if o.size() >= 2:
+				SHADOW_OFFSET = Vector2(float(o[0]), float(o[1]))
 
-const FONT_SIZE_TITLE: int = 18  # 18-20px for titles/headers
-const FONT_SIZE_BODY: int = 12   # 12-14px for body text
-const FONT_SIZE_SECONDARY: int = 10  # 10-12px for secondary text
+	var sizes: Dictionary = root.get("sizes", {}) as Dictionary
+	if not sizes.is_empty():
+		if sizes.has("panel_width_standard"):
+			PANEL_WIDTH_STANDARD = int(sizes["panel_width_standard"])
+		if sizes.has("panel_height_standard"):
+			PANEL_HEIGHT_STANDARD = int(sizes["panel_height_standard"])
+		if sizes.has("panel_padding_standard"):
+			PANEL_PADDING_STANDARD = int(sizes["panel_padding_standard"])
+		if sizes.has("panel_padding_large"):
+			PANEL_PADDING_LARGE = int(sizes["panel_padding_large"])
+		if sizes.has("slot_size"):
+			SLOT_SIZE = int(sizes["slot_size"])
+		if sizes.has("slot_spacing_vertical"):
+			SLOT_SPACING_VERTICAL = int(sizes["slot_spacing_vertical"])
+		if sizes.has("slot_spacing_horizontal"):
+			SLOT_SPACING_HORIZONTAL = int(sizes["slot_spacing_horizontal"])
+		if sizes.has("hotbar_height"):
+			HOTBAR_HEIGHT = int(sizes["hotbar_height"])
 
-## Style Functions
+	var typo: Dictionary = root.get("typography", {}) as Dictionary
+	if not typo.is_empty():
+		if typo.has("font_size_title"):
+			FONT_SIZE_TITLE = int(typo["font_size_title"])
+		if typo.has("font_size_body"):
+			FONT_SIZE_BODY = int(typo["font_size_body"])
+		if typo.has("font_size_secondary"):
+			FONT_SIZE_SECONDARY = int(typo["font_size_secondary"])
 
-# Returns the standard panel style used across all UI elements
-# This is the default brown, semi-transparent panel style
+
+## Reload tokens at runtime (e.g. after editing JSON in dev)
+static func reload_design_tokens(path: String = "res://ui/design_tokens/design_tokens.json") -> bool:
+	var root: Dictionary = _DesignTokensParser.load_file(path)
+	if root.is_empty():
+		return false
+	_apply_design_tokens(root)
+	return true
+
+
 static func get_panel_style() -> StyleBoxFlat:
+	_ensure_tokens_loaded()
 	var style := StyleBoxFlat.new()
 	style.bg_color = COLOR_BG_DARK_BROWN
 	style.border_color = COLOR_BORDER_SADDLE_BROWN
@@ -68,45 +137,40 @@ static func get_panel_style() -> StyleBoxFlat:
 	style.shadow_offset = SHADOW_OFFSET
 	return style
 
-# Returns a custom panel style with modified opacity
-# opacity: 0.0 - 1.0 (default 0.85)
+
 static func get_panel_style_with_opacity(opacity: float = 0.85) -> StyleBoxFlat:
 	var style := get_panel_style()
 	style.bg_color.a = opacity
 	return style
 
-# Returns a panel style with custom border color
-# border_color: Color to use for border (defaults to saddle brown)
+
 static func get_panel_style_with_border(border_color: Color = COLOR_BORDER_SADDLE_BROWN) -> StyleBoxFlat:
 	var style := get_panel_style()
 	style.border_color = border_color
 	return style
 
-# Returns a highlighted panel style (e.g., for selected items)
-# Uses gold border color for selection
+
 static func get_panel_style_highlighted() -> StyleBoxFlat:
 	return get_panel_style_with_border(COLOR_TEXT_SELECTED)
 
-## Utility Functions
 
-# Applies standard panel style to a Panel node
-# panel: Panel node to style
 static func apply_panel_style(panel: Panel) -> void:
 	if not panel:
 		return
+	_ensure_tokens_loaded()
 	panel.add_theme_stylebox_override("panel", get_panel_style())
 
-# Creates a standard panel with style already applied
-# size: Vector2 size for panel (default 320x400)
+
 static func create_styled_panel(size: Vector2 = Vector2(PANEL_WIDTH_STANDARD, PANEL_HEIGHT_STANDARD)) -> Panel:
+	_ensure_tokens_loaded()
 	var panel := Panel.new()
 	panel.custom_minimum_size = size
 	apply_panel_style(panel)
 	return panel
 
-# Returns text color based on state
-# state: "primary", "secondary", "error", "success", "selected"
+
 static func get_text_color(state: String = "primary") -> Color:
+	_ensure_tokens_loaded()
 	match state:
 		"primary":
 			return COLOR_TEXT_PRIMARY
@@ -121,8 +185,10 @@ static func get_text_color(state: String = "primary") -> Color:
 		_:
 			return COLOR_TEXT_PRIMARY
 
-## Debug/Development
+
+func _init() -> void:
+	_ensure_tokens_loaded()
+
 
 func _ready() -> void:
-	# UITheme singleton loaded
 	pass
