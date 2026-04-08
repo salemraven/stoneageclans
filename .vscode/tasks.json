@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Godot: Headless smoke (3s)",
+      "type": "shell",
+      "command": "tools/godot/godot.cmd",
+      "args": [
+        "--headless",
+        "--path",
+        "${workspaceFolder}",
+        "--quit-after",
+        "180"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: Headless + playtest + RTS pack",
+      "type": "shell",
+      "command": "tools/godot/godot.cmd",
+      "args": [
+        "--headless",
+        "--path",
+        "${workspaceFolder}",
+        "--quit-after",
+        "180",
+        "--",
+        "--playtest-capture",
+        "--rts-playtest-spawn"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

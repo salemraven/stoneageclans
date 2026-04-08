@@ -1,6 +1,8 @@
 {
   "godotTools.editorPath.godot4": "tools/godot/Godot_v4.6.1-stable_win64.exe",
-  "godotTools.editorPath.godot4Windows": "tools/godot/Godot_v4.6.1-stable_win64.exe",
+  "godotTools.lsp.headless": true,
+  "godotTools.lsp.autoReconnect.enabled": true,
+  "godotTools.editor.revealTerminal": false,
   "files.watcherExclude": {
     "**/.godot/**": true,
     "**/import/**": true
@@ -10,6 +12,9 @@
     "**/.import": true
   },
   "[gdscript]": {
+    "editor.tabSize": 4
+  },
+  "[gdshader]": {
     "editor.tabSize": 4
   }
 }

@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play main scene",
+      "project": "${workspaceFolder}",
+      "scene": "main",
+      "editor_path": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe",
+      "additional_options": ""
+    },
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play current scene",
+      "project": "${workspaceFolder}",
+      "scene": "current",
+      "editor_path": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe",
+      "additional_options": ""
+    },
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play main + playtest JSONL",
+      "project": "${workspaceFolder}",
+      "scene": "main",
+      "editor_path": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe",
+      "additional_options": "-- --playtest-capture"
+    },
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play main + playtest + RTS spawn pack",
+      "project": "${workspaceFolder}",
+      "scene": "main",
+      "editor_path": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe",
+      "additional_options": "-- --playtest-capture --rts-playtest-spawn"
+    }
+  ]
+}

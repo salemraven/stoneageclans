@@ -15,7 +15,8 @@ foreach ($p in @(
 Write-Host "=== Cursor + Godot (Stone Age Clans) ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "1) In Cursor: install extension 'godot-tools' (geequlim) — or accept workspace recommendation."
-Write-Host "2) Workspace already sets godotTools.editorPath.godot4 -> bundled Godot 4.6.1."
+Write-Host "2) Workspace sets godotTools.editorPath.godot4 to a path relative to the project root"
+Write-Host "   (tools/godot/Godot_v4.6.1-stable_win64.exe) — required for godot-tools path resolution."
 Write-Host ""
 
 if (Test-Path -LiteralPath $Godot) {
