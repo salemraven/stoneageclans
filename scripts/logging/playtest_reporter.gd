@@ -15,6 +15,10 @@ var _snapshot_alive_final: int = -1
 var _raid_evaluated_max_score: float = -1.0  # For invariant: score >= 1.0 but no raid_started
 
 func _init() -> void:
+	if OS.get_name() == "Web":
+		print("Playtest reporter is not available on Web export.")
+		quit(0)
+		return
 	var path: String = ""
 	# 1) run_playtest.ps1 writes Tests/.playtest_reporter_path.txt (always; env can be missing on Windows)
 	var sentinel: String = ProjectSettings.globalize_path("res://Tests/.playtest_reporter_path.txt")

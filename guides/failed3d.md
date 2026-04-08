@@ -1,5 +1,7 @@
 # Failed 3D Attempt — Post-Mortem
 
+> **Repo note (2026):** The `3d/` folder (Test3D scenes, blender archive, helper scripts) was **removed** from the project to reduce clutter. **This document is kept on purpose** so we remember what went wrong. Checklist items below that reference `assets/characters/*.fbx` or on-disk paths may no longer exist — treat them as historical context.
+
 **Date:** March 2025  
 **Status:** Abandoned. Reverted to 2D sprites.  
 **Hardware:** NVIDIA RTX 5070, Godot 4.6.1

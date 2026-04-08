@@ -1,11 +1,13 @@
 # Stone Age Clans — Lore Bible
 
 **Single source of truth for lore, design, mechanics, code, and systems.**  
-Compiled from guides, GDD, and implementation docs. Covers both design intent and actual scripts/logic. Last consolidated: March 2026.
+Compiled from guides, GDD, and implementation docs. Covers both design intent and actual scripts/logic. Last consolidated: April 2026.
 
 ---
 
 ## Terminology
+
+**Canonical definitions:** `guides/game_dictionary.md` (updated for player-facing and design vocabulary). The table below is a quick index + implementation aliases; if anything conflicts, the dictionary wins.
 
 Definitions of project-specific terms used throughout design and code.
 
@@ -14,22 +16,27 @@ Definitions of project-specific terms used throughout design and code.
 | **AOP** | Area of Perception. Design term. Universal radius — what each NPC can sense. Implemented by PerceptionArea. |
 | **AOA** | Area of Agro. Inner zone within AOP. When hostile enters AOA, agro increases (fight-or-flight). |
 | **PerceptionArea** | Component (Area2D) that implements AOP. Tracks entities in range. Feeds AOA, combat, agro. |
-| **Herd** | Animals (sheep, goats) and women only. Being led/escorted by a herder; can be stolen, join clan when delivered. |
-| **Follow** | Clansmen (cavemen) only. Following the player or leader; formation, combat, not stealable. |
+| **Herd** | Wild herdables only (women, sheep, goats). FSM state **`herd`**: tethered follow; influence/steal; join clan when delivered. |
+| **Party** | Fighters (cavemen, clansmen) in **ordered follow** with stances Follow/Guard/Attack. FSM state **`party`**: same formations as player-led squads (`FormationUtils` + `formation_slots` on player or NPC leader). |
+| **Follow** | Stance/mode within a party (`command_context.mode`), not the FSM state name. |
 | **Herdable** | NPC that can be herded: animals, women. Has HerdInfluenceArea. |
 | **Herder** | NPC leading herdables: player or caveman. |
 | **Agro** | Aggro meter 0–100. Enter combat at 70, exit at 60. Triggers: intrusion, AOA, damage, herd steal. |
 | **ClanBrain** | AI strategy RefCounted on land claim. Defender/searcher quotas, raid intent. |
 | **Defender quota** | ClanBrain-assigned number of NPCs to patrol claim border. |
 | **Searcher quota** | ClanBrain-assigned number of NPCs to search for herdables (Herd Wild NPC state). |
-| **follow_is_ordered** | Player-ordered follow; unbreakable, prevents herd steal. |
+| **follow_is_ordered** | Ordered follow (player drag/menu, horn rally, or **ClanBrain raid party**); unbreakable for fighters; prevents herd steal on wild herdables. |
+| **command_context** | Dictionary on ordered fighters: `mode` (FOLLOW/GUARD/ATTACK), agro/chase tuning, `commander_id`, `issued_at_time`. Player path: `main.gd`; NPC leader path: **`PartyCommandUtils`**. |
+| **formation_slots** | Leader `meta` (player or NPC caveman/clansman): shared slot positions / steer targets (`main._update_formation_slots` for player; `FormationUtils.publish_slots_for_npc_leader` for NPC-led parties). |
+| **RTS_CONFIG** | `scripts/config/rts_formation_config.gd` — rally radius, horn cooldown, leash, catch-up multiplier, snapshot interval, etc. |
 | **Cavemen** | Wild humans; can place claims, become clan leaders; AI clans. |
 | **Clansmen** | Surplus babies promoted to permanent AI army; belong to a clan. |
 | **Village** | Land claim at scale: large radius, many huts; ClanBrain drives supply/demand and task assignment. |
 | **Supply/demand** | ClanBrain tracks what the clan needs (food, resources, buildings) and assigns work; see village.md. |
 | **Trait** | Inheritable bonus tied to hominid species (e.g. +20% Strength). Passed to offspring 50/50 per trait from mother/father. Max 6 per NPC. |
 | **Gene** | Optional allele (dominant/recessive) for a trait; used in the anthropological model in reproductiontraits.md. |
-| **Genome** | Visual morph data (261 values); child = average(parents) + mutation. Drives CharMorph/appearance. |
+| **Appearance (2D)** | NPC look = **sprite sheets / textures** (`AssetRegistry`, `DirectionalSpriteSheet`, walk/club paths in code). **Not** MakeHuman, CharMorph, Mixamo, or morph-vector genetics. |
+| **DragonBones** | **Not used.** Removed from the project; 2D uses sprite sheets / `DirectionalSpriteSheet` only. |
 
 ---
 
@@ -39,13 +46,13 @@ All major systems in one place. Each row links to the section where that system 
 
 | System | What it does | Detailed in |
 |--------|----------------|-------------|
-| **World & resources** | Infinite 2D world; trees, boulders, berries, wheat, fiber; respawn rules; resource nodes and gatherables. | §II World, §XIII Items & resources, §XIX Gather & deposit |
-| **Player** | Movement, hunger, hotbar consumables (9/0), direct control; speed modifiers (hunger, herding). | §III Player character, §IV Universal controls & UI |
+| **World & resources** | Infinite 2D world; trees, boulders, berries, wheat, fiber; respawn rules; gatherable hitboxes aligned to sprite art (berries). | §II World, §XIII Items & resources, §XIX Gather & deposit |
+| **Player** | Movement, hunger, hotbar consumables (9/0), direct control; speed modifiers (hunger, herding, **formation stance** debuff with ordered followers). | §III Player character, §IV Universal controls & UI |
 | **Land claim & territory** | Placement (craft recipe); radius 400px; campfire (250px, 3 huts max) vs land claim; inventory; destroy flag = wipe. | §V Land claim & territory |
 | **Buildings** | Placement (50px min, 128×128); Living Hut, Supply Hut, Shrine, Dairy, Oven; costs; woman slots; production. | §VI Buildings |
 | **Reproduction & housing** | 1 woman per Living Hut; pregnancy requires hut; birth timer in radius; baby growth → clansman; trait inheritance. | §VII Reproduction & housing |
 | **NPCs** | Types: women, sheep, goats, clansmen, cavemen; spawn sources; purpose (reproduction, herd, combat, work). | §VIII NPCs |
-| **Hominid species & genetics** | 5 species; traits; 50/50 hybridization; species/trait/stat/genome inheritance at birth. | §IX Hominid classes |
+| **Hominid species & genetics** | 5 species; traits; 50/50 hybridization; species/trait/stat inheritance at birth. (Visuals = 2D art, not morph genomes.) | §IX Hominid classes |
 | **Combat & healing** | Agro meter (70/60); CombatComponent (windup → hit → recovery); attack arc; stagger; death/corpse; Medic Hut planned. | §X Combat & healing |
 | **Raiding** | Loot buildings/flag; destroy flag = total wipe; ClanBrain sets raid_intent; NPCs self-assign to Raid state. | §XI Raiding |
 | **Food & production** | Oven (Wood + Grain → Bread); consumables (berries, grain, bread); wild wheat rule; Dairy/Meat planned. | §XII Food & production |
@@ -53,8 +60,8 @@ All major systems in one place. Each row links to the section where that system 
 | **Relics & shrine** | Rare items; place in Shrine → clan-wide buff; flag upgrades may require relics. | §XIV Relics & shrine |
 | **Herding** | HerdInfluenceArea on herdables; influence → attach to herder; follow; join clan in radius; cross-clan steal; follow_is_ordered. | §XV Herding system |
 | **ClanBrain (AI)** | One brain per claim; defender/searcher/raid quotas; strategic state (peaceful/defensive/aggressive/raiding/recovering); economic weights; alert decay. | §XVI ClanBrain |
-| **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; states: Agro, Combat, Herd, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
-| **RTS controls** | Right-click menu (Follow, Defend, Search, Work, Info); drag clansmen (player/claim/outside); formation (follow/guard). | §XVIII RTS controls |
+| **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; includes **`party`** (fighter formations), **`herd`** (wild herdables), Agro, Combat, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
+| **RTS controls** | War Horn **H**; stances **Follow / Guard / Attack**; line/rings formations; **Break** **B**; drag + box select; defend claim/campfire. | §XVIII RTS controls, **`guides/rts.md`** |
 | **Gather & deposit** | 40% slots → deposit; land claim generates GatherJob (ResourceIndex); MoveTo → GatherTask → MoveTo(claim); auto-deposit 100px. | §XIX Gather & deposit |
 | **Inventory & drag-drop** | Player, claim, building, NPC, corpse inventories; drag manager; slot rules; hotbar equipment and consumables. | §IV, §XIII, §XX (inventory/, drag_manager) |
 | **Occupation system** | Building slot assignment (woman to Living Hut/Dairy/etc.; animals to Farm); request_slot / confirm_arrival. | §VII, §XX (occupation_system.gd) |
@@ -70,6 +77,10 @@ All major systems in one place. Each row links to the section where that system 
 
 ### Design Mix
 - **Stoneshard** (tactical combat, survival, inventory) + **RimWorld** (colony management, emergent storytelling, permadeath).
+
+### Primitive command model (RTS scope)
+- **Lore constraint:** Early Sapiens are **not** modeled as giving **sophisticated verbal orders** or modern-style **army micromanagement**. There is no in-fiction “general barking complex tactics” — only **simple, bodily/social signals** the band can follow: **follow**, **guard** (stay close in a protective ring), **attack** (push forward with the leader), **defend** this territory, **rally** to the horn, **break** and return to chores.
+- **Code constraint:** Player → clansmen RTS stays **minimal and modular** — shared `command_context`, single formation slot pass, config-driven tuning (`RTS_CONFIG`, `STANCE_CONFIG`) — so behavior stays **maintainable and optimizable**. See **`guides/rts.md`** for the full RTS doc.
 
 ### Art Direction
 - **Gritty 64×64 pixel art**, top-down isometric (RimWorld angle: 30° tilt).
@@ -93,7 +104,7 @@ All major systems in one place. Each row links to the section where that system 
 - **Male only**, spawn at age 13 → natural death at 101.
 - Choose one of **5 hominid species** at bloodline start → full 50/50 hybridization every generation.
 - **Direct control** of player character only; clansmen are AI.
-- **Speed**: 200 base; hunger <30% = 0.7×; herding = 0.97× per herded NPC.
+- **Speed**: **~110** px/s base (`player.gd` `move_speed`, aligned with clansman pace for formation); hunger <30% = 0.7×; herding = 0.97× per herded NPC; with **ordered clansmen**, **`formation_speed_mult`** slows the leader to match the strictest stance (**Guard** 0.75×, **Attack** 0.85×, **Follow** 1.0×).
 
 ---
 
@@ -105,8 +116,12 @@ All major systems in one place. Each row links to the section where that system 
 | **Tab** | Stats panel (species mix, clansmen, women, raids, etc.) |
 | **9 / 0** | Consume item in hotbar slot 9 or 0 |
 | **Right-click NPC** | Herd (they follow you anywhere) |
-| **H** (War Horn) | Every idle clansman sprints to you and auto-herds (planned, not implemented) |
-| **Drag-and-drop** | Absolutely everything: player ↔ flag ↔ buildings ↔ clansmen ↔ ground |
+| **H** (War Horn) | Rally clansmen within **~1500 px**; ordered follow + **command_context**; clears herd on rallied herders so they join formation (see **`guides/rts.md`**) |
+| **B** | **Break** — dismiss ordered follow; clansmen return toward land claim / work |
+| **Space** | **Gather** active resource / ground item (must overlap hitbox; berries use sprite-aligned collision) |
+| **Drag-and-drop** | Player ↔ flag ↔ buildings ↔ clansmen ↔ ground; **drop clansman on player** = ordered follow |
+| **Drag box** | Multi-select clansmen (player clan must resolve) |
+| **Follow / Guard / Attack / Break** | Bottom HUD when clansmen selected — stances + break (see §XVIII) |
 
 ---
 
@@ -120,7 +135,7 @@ All major systems in one place. Each row links to the section where that system 
 
 ### Behavior
 - Own drag-and-drop storage inventory.
-- War Horn built-in (H key).
+- War Horn (**H**) — rally clansmen (RTS); see §XVIII and `guides/rts.md`.
 - **Destroy enemy flag = total wipe**: all inventories vanish, huts destroyed, clansmen drop dead, women/animals scatter as wild.
 
 ### Campfire vs Land Claim
@@ -242,7 +257,7 @@ Each has 3–4 unique traits. Base stats 50/100; traits add +X%.
 
 ### Genetics & hybridization (detailed)
 
-Genetics drive **species**, **traits**, **numeric stats**, and (optionally) **appearance (genome)**. They apply at **bloodline start** (player picks species) and at **every birth** (mother + father → baby).
+Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in-game is **2D sprites** (art pipeline), not a morph vector or CharMorph/MakeHuman/Mixamo stack. Rules apply at **bloodline start** (player picks species) and at **every birth** (mother + father → baby).
 
 #### When genetics run
 - **Bloodline start:** Player chooses one of the 5 hominid species; that is the founder’s species and trait pool.
@@ -262,14 +277,13 @@ Genetics drive **species**, **traits**, **numeric stats**, and (optionally) **ap
   `child_stat = (mother_stat + father_stat) / 2 + mutation`  
   where `mutation` is a small random offset (e.g. ±2% or ±1 point) so siblings differ slightly.
 
-#### Genome (appearance / CharMorph)
-- **Visual genetics:** `data/genome_baseline.json` (and female variant) define 261 morph values (0.0–1.0). For a child:  
-  `child_morph[i] = (mother_morph[i] + father_morph[i]) / 2 + mutation`  
-  then clamp to [0, 1]. Use the result to drive CharMorph sliders or blend shapes so children visually resemble both parents.
+#### Appearance (2D — current plan)
+- **Visuals:** Use shared sprite assets per species/role (e.g. woman vs caveman textures in `AssetRegistry` / scenes). Optional future: **variant indices** or **tint** for variety — still **not** a 261-morph genome file.
+- **Dropped (historical):** MakeHuman / CharMorph / Mixamo / `genome_baseline.json` morph pipelines were **removed** from the repo; do not document them as the active plan.
 
 #### Implementation hooks
-- **At birth:** ReproductionComponent (or the system that spawns the baby) has access to mother and father (e.g. `current_mate` as father). Call a single **resolve_child_genetics(mother, father) → { species, traits[], stats{}, genome{} }**; apply result to the new baby NPC.
-- **Storage:** Each NPC stores `species: String` (enum or id), `traits: Array` (trait ids or names), and optionally `stats: Dictionary`, `genome: Dictionary` (or a resource). Baby growth and character menu read from these.
+- **At birth:** ReproductionComponent (or the system that spawns the baby) has access to mother and father (e.g. `current_mate` as father). Call a single **resolve_child_genetics(mother, father) → { species, traits[], stats{} }**; apply result to the new baby NPC.
+- **Storage:** Each NPC stores `species: String` (enum or id), `traits: Array` (trait ids or names), and optionally `stats: Dictionary`. Baby growth and character menu read from these.
 - **Max traits per NPC:** Cap at 6 (or design max); if both parents contribute many traits, pick by priority or random until full.
 
 #### Summary table
@@ -278,7 +292,7 @@ Genetics drive **species**, **traits**, **numeric stats**, and (optionally) **ap
 | Baby species | 50/50 random from mother/father (or trait-weighted). |
 | Baby traits  | Per slot: 50% from mother, 50% from father; only traits from that parent’s species. Max 6. |
 | Baby stats   | Average of mother and father + small mutation. |
-| Baby appearance | Per-morph average of mother and father genome + mutation; clamp [0,1]. |
+| Baby appearance | **2D:** same species/role sprites unless you add explicit art variants (not morph blending). |
 
 ---
 
@@ -407,7 +421,7 @@ PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
 1. Agro (15.0)
 2. Combat (12.0)
 3. Herd Wild NPC leading (11.5)
-4. Herd / Follow (11.0)
+4. **Party** (ordered fighters: Follow/Guard/Attack formations) / **Herd** (wild herdables only) (11.0)
 5. Deposit moving (12.0 in wander)
 6. Defend (8.0)
 7. Raid (8.5)
@@ -415,30 +429,56 @@ PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
 9. Work at building (7–10)
 10. Gather (5.6–6.0)
 11. Herd Wild NPC searching (5.5)
-12. Wander (0.5–3.0)
+12. Wander (0.5–3.0); **returning_from_break** (after RTS **Break**) can evaluate **~13** so clansmen walk home before herd/gather steal the FSM.
 
 ---
 
 ## XVIII. RTS Controls (Player → Clansmen)
 
-### Context Menu (Right-Click)
-- **FOLLOW** — ordered follow (unbreakable)
-- **DEFEND** — patrol claim border
-- **SEARCH** — ant-style exploration
-- **WORK** — clear role, return to auto
-- **INFO** — character/building menu
+**Design premise:** Orders are **primitive** (gesture, horn, stance), not a modern command vocabulary — see **§I Primitive command model**. **Full detail:** `guides/rts.md` (controls, files, playtest flags, engineering rationale).
 
-### Drag-and-Drop (Clansmen)
-| Drop on | Result |
-|---------|--------|
-| Player | Ordered follow |
-| Inside claim | Clear role (Work) |
-| Outside claim | Assign Defend |
+### Selection & orders
+- **Right-click** clansman → context menu: **Follow**, **Defend** (claim), **Search**, **Work**, **Info** (exact set depends on target and clan resolution).
+- **Drag** clansman onto **player** → **ordered follow** (registers follower, builds `command_context`).
+- **Drag box** on screen → multi-select clansmen (requires player clan / territory to resolve).
 
-### Formation
-- **FOLLOW** — loose (50–150px behind)
-- **GUARD** — tight (28–80px around)
-- **Hostile** = weapon equipped (no separate toggle)
+### War Horn (**H**)
+- Cooldown ~1 s; rally radius **~1500 px** (`RTS_CONFIG`).
+- Idle / in-range clansmen sprint in; **ordered follow** + stance context applied.
+- **Herd break:** clansmen who were **herding** animals detach herd when rallied so they can form up.
+
+### Stances (HUD: **Follow | Guard | Attack**)
+Applied to **selected** ordered clansmen; stored in **`command_context.mode`** with stance-tuned **agro threshold**, **chase distance**, and **speed multiplier**:
+
+| Stance | Aggro threshold | Chase dist (px) | Clansman speed mult | Player formation mult |
+|--------|-----------------|-----------------|---------------------|------------------------|
+| **FOLLOW** | 0 | 0 | 1.0 | 1.0 |
+| **GUARD** | 70 | 150 | 0.75 | 0.75 |
+| **ATTACK** | 100 | 300 | 0.85 | 0.85 |
+
+### Hunt, raid, and long movement (recommended play)
+- **Cross terrain at full pace:** For **hunting**, **raiding**, or any **long** move with clansmen, use **Follow** — leader and followers run at **1.0×** formation speed and the group escorts **behind** you.
+- **Do not march far in Attack:** **Attack** slows the **player** (**0.85×**) and formation NPCs (**0.85×**); it is for **closing to fight** (line **ahead** of the leader), not for map-crossing. Switch to **Attack** when the **target is close**.
+- **Guard** (**0.75×**) is optional for a **tenser** approach; still slower than **Follow** for pure travel. Detail: **`guides/rts.md` §4.4**.
+
+### Formations (moving with a leader)
+- **Player-led:** `main._update_formation_slots()` delegates to **`FormationUtils.compute_formation_slots()`** → player **`formation_slots`** meta (per follower: slot position, steer target, facing, mode).
+- **NPC-led (same clan):** caveman/clansman leaders with ordered followers publish the same slot layout via **`FormationUtils.publish_slots_for_npc_leader()`** (`formation_velocity` on leader mirrors player). Followers use FSM **`party`** with identical stance tuning as the player path.
+- **FOLLOW** — loose group **behind** leader (rear arc).
+- **GUARD** — **ring** around leader (even spacing).
+- **ATTACK** — **horizontal line in front** of leader (perpendicular to facing).
+- **Catch-up:** clansmen farther than ~35 px from slot use **2×** speed until settled (`RTS_CONFIG.catchup_speed_mult`).
+- **Leash:** extreme distance (~1200 px) can break ordered follow.
+
+### Break (**B** or Break button)
+- Clears ordered follow / follower list; resets relevant combat-follow flags.
+- **`returning_from_break`** meta + high **wander** priority → steer to **land claim**, then resume normal jobs (gather, herd, etc.).
+
+### Defend (static)
+- **Defend land claim / campfire** = **defend_state** border patrol — not the same as **Guard** stance while moving with the player.
+
+### Hostile flag
+- Followers’ **`is_hostile`** can track player weapon for RTS combat alignment (sustain / UI); not a separate “attack move” key beyond **Attack** stance.
 
 ---
 
@@ -456,6 +496,10 @@ PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
 
 ### Resource Capacity
 - Trees: 3 | Boulders: 2 | Berries: 1 | Wheat: 1 | Fiber: 1 workers max
+
+### Player gather (Space)
+- One **active** gather target at a time (`main.active_collection_resource`); **stale freed refs** cleared each frame and on item pickup.
+- **Berry bushes:** sprite uses large texture + **feet-at-node** offset; **collision is aligned to the scaled sprite** (`gatherable_resource._align_gather_hitbox_to_sprite`) so overlap matches visible bush. Playtest: `gather_*` JSONL events when `--playtest-capture` is on.
 
 ---
 
@@ -493,7 +537,8 @@ scripts/
 │   │   ├── idle_state.gd
 │   │   ├── wander_state.gd # Deposit movement when moving_to_deposit
 │   │   ├── gather_state.gd # Pulls GatherJob from land_claim; no resource scanning
-│   │   ├── herd_state.gd   # Following herder
+│   │   ├── party_state.gd    # Ordered fighters: formations + stances (player or NPC leader)
+│   │   ├── herd_state.gd     # Wild herdables only (woman/sheep/goat); tethered follow + steal
 │   │   ├── herd_wildnpc_state.gd # Cavemen search/lead; searcher quota
 │   │   ├── combat_state.gd # Chase target; request_attack via CombatComponent
 │   │   ├── defend_state.gd # Patrol claim border; defender quota
@@ -515,6 +560,9 @@ scripts/
 │       ├── reproduction_component.gd
 │       └── baby_growth_component.gd
 ├── systems/
+│   ├── formation_utils.gd   # Shared formation slot math (player + NPC party leaders)
+│   ├── party_command_utils.gd # NPC leader command_context (stance dict shape matches main.gd)
+│   ├── herd_manager.gd      # Follower lists; party ordered followers helper
 │   ├── combat_scheduler.gd # Autoload: events[] sorted by time; schedules hit/recovery callables
 │   ├── combat_tick.gd      # Autoload: 25 Hz; agro events, decay, hysteresis 70/60
 │   ├── entity_registry.gd  # instance_id → entity_id; get_id(), resolve
@@ -532,7 +580,8 @@ scripts/
 │   ├── npc_config.gd       # Hunger, movement, herd, agro, gather, FSM priorities
 │   ├── balance_config.gd   # Spawn counts, production times, lease_expire_seconds
 │   ├── craft_registry.gd   # Recipes (Oldowan, Cordage, Campfire, Travois)
-│   ├── debug_config.gd    # --debug, --agro-combat-test, etc.
+│   ├── rts_formation_config.gd  # RTS_CONFIG: rally, horn CD, leash, catch-up, snapshots
+│   ├── debug_config.gd    # --debug, --agro-combat-test, playtest_capture_always, etc.
 │   └── corpse_config.gd
 ├── inventory/
 │   ├── drag_manager.gd     # Singleton; drag preview, drop validation
@@ -663,8 +712,7 @@ NPCs get: `FSM`, `SteeringAgent`, `CombatComponent`, `HealthComponent`, `WeaponC
 
 **Directional spritesheets:** `DirectionalSpriteSheet` loads PNG + JSON. Set `DIRECTIONAL_WALK_PATH`, `DIRECTIONAL_CLUB_PATH`, `DIRECTIONAL_WOMAN_PATH` in `walk_animation.gd` to enable 8-direction walk. Layout: rows = directions (S, SE, E, NE, N, NW, W, SW), columns = frames.
 
-**Genome baseline (CharMorph):** `data/genome_baseline.json` and `genome_baseline_female.json` define a "normal human" baseline: 261 Antonia L2 morphs, all at 0.5 (neutral). Use for genetics inheritance: `child_val = (mother_val + father_val) / 2 + mutation`. Feed genome dict to CharMorph morph sliders or Godot blend shapes. Regenerate with `python extract_baseline_genome.py` from project root.
-
+**Appearance assets:** 2D only — see `AssetRegistry`, `DirectionalSpriteSheet`, and `walk_animation.gd` paths. CharMorph / genome baseline JSON / MakeHuman / Mixamo are **out of scope** and were removed from the repo.
 
 ---
 
@@ -680,7 +728,7 @@ NPCs get: `FSM`, `SteeringAgent`, `CombatComponent`, `HealthComponent`, `WeaponC
 | GDD alignment | ~40% |
 | Generational permadeath | Not wired |
 | Hominid species | Not implemented |
-| War Horn | Not implemented |
+| War Horn (RTS rally + formations) | Implemented — see §XVIII, `guides/rts.md` |
 | Medic Hut / Wounds | Not implemented |
 | Predators / Horses | Not implemented |
 
@@ -736,8 +784,8 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **main.md** | Main game mechanics and vision (long). | Reference doc; not a single feature—use for alignment. |
 | **notes.md** | Dev notes (e.g. cleanup). | Ad-hoc; no direct code mapping. |
 | **COMBAT_TESTING_GUIDE.md** / **COMBAT_IMPLEMENTATION_SUMMARY.md** | Combat test procedures and implementation summary. | Testing and documentation; run tests when changing combat. |
-| **characergenerator.md** | Character generation. | Likely ties to genome/CharMorph and appearance; reference when adding new NPC visuals or inheritance. |
+| **characergenerator.md** | Character generation (historical / design notes). | **Not** the active 2D pipeline; use `AssetRegistry` + art when adding NPC visuals. |
 
 ---
 
-*Sources: gdd.md, main.md, hominids.md, traits.md, Buildings.md, items_guide.md, HERDING_SYSTEM_GUIDE.md, ai_clan_brain.md, phase1.md, phase2.md, earlygame.md, rtsguide.md, AgroGuide.md, GatherGuide.md, DragAndDropInventoryGuide.md, movement.md, SOSA.md, Art_Direction.md, village.md + scripts/ (fsm.gd, task_runner.gd, combat_scheduler.gd, combat_tick.gd, combat_component.gd, gather_job.gd, resource_index.gd, land_claim.gd, npc_config.gd, project.godot)*
+*Sources: gdd.md, main.md, hominids.md, traits.md, Buildings.md, items_guide.md, HERDING_SYSTEM_GUIDE.md, ai_clan_brain.md, phase1.md, phase2.md, earlygame.md, **guides/rts.md**, rtsguide.md, AgroGuide.md, GatherGuide.md, DragAndDropInventoryGuide.md, movement.md, SOSA.md, Art_Direction.md, village.md + scripts/ (main.gd, party_state.gd, herd_state.gd, formation_utils.gd, party_command_utils.gd, rts_formation_config.gd, fsm.gd, task_runner.gd, combat_scheduler.gd, combat_tick.gd, combat_component.gd, gather_job.gd, resource_index.gd, land_claim.gd, npc_config.gd, playtest_instrumentor.gd, project.godot)*

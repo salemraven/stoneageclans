@@ -26,6 +26,11 @@ var _max_herd_size: int = 8
 const BODY_RADIUS_BUFFER: float = 60.0
 
 func _ready() -> void:
+	# Multiplayer: only server resolves steals / HerdManager.try_transfer (plan §9.2).
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		monitoring = false
+		set_physics_process(false)
+		return
 	monitoring = true
 	monitorable = false
 	# Cavemen/clansmen use collision_layer 2; default mask=1 only detects player (layer 1)
@@ -150,6 +155,7 @@ func _physics_process(delta: float) -> void:
 			herd_locked = true
 
 	var current_time: float = Time.get_ticks_msec() / 1000.0
+	var is_server_or_offline: bool = (not multiplayer.has_multiplayer_peer()) or multiplayer.is_server()
 
 	# First pass: update influence for all herders
 	for instance_id in _herder_data:
@@ -158,9 +164,13 @@ func _physics_process(delta: float) -> void:
 		if not is_instance_valid(herder) or (herder.has_method("is_dead") and herder.is_dead()):
 			continue
 
-		# max_herd_size: don't accumulate for herder at cap
-		var herded_count: int = herder.get("herded_count") as int if herder.get("herded_count") != null else 0
-		if herded_count >= _max_herd_size and (not is_herded or herder != current_herder):
+		# max_herd_size: don't accumulate for herder at cap (HerdManager = herd animals only)
+		var herd_n: int = 0
+		if HerdManager:
+			herd_n = HerdManager.get_herd_animal_count(herder)
+		else:
+			herd_n = herder.get("herded_count") as int if herder.get("herded_count") != null else 0
+		if herd_n >= _max_herd_size and (not is_herded or herder != current_herder):
 			data.influence = 0.0
 			data.time_above_threshold = 0.0
 			continue
@@ -170,6 +180,19 @@ func _physics_process(delta: float) -> void:
 			data.influence = max(0.0, data.influence - _influence_decay_rate * delta)
 			data.time_above_threshold = 0.0
 			continue
+
+		# Don't accumulate on ordered followers or clansmen in ATTACK/GUARD
+		if herder.get("follow_is_ordered"):
+			data.influence = max(0.0, data.influence - _influence_decay_rate * delta)
+			data.time_above_threshold = 0.0
+			continue
+		if herder.get("npc_type") == "clansman":
+			var ctx_ia: Dictionary = herder.get("command_context") if herder.get("command_context") != null else {}
+			var mode_ia: String = ctx_ia.get("mode", "FOLLOW") as String
+			if mode_ia != "FOLLOW":
+				data.influence = max(0.0, data.influence - _influence_decay_rate * delta)
+				data.time_above_threshold = 0.0
+				continue
 
 		# Accumulate influence (closer = faster)
 		var proximity_factor: float = 1.0 - (dist / _influence_radius) * 0.5
@@ -226,11 +249,17 @@ func _physics_process(delta: float) -> void:
 			best_influence = data.influence
 			best_distance = dist
 
-	if best_herder and animal.has_method("_try_herd_chance"):
+	if best_herder:
+		var transferred: bool = false
+		if is_server_or_offline:
+			if HerdManager:
+				transferred = HerdManager.try_transfer(animal as Node2D, best_herder)
+			elif animal.has_method("_try_herd_chance"):
+				transferred = animal._try_herd_chance(best_herder, true)
 		var old_herder = animal.get("herder") if animal.get("herder") != null else null
 		var old_name: String = str(old_herder.get("npc_name")) if old_herder and is_instance_valid(old_herder) else "none"
 		var new_name: String = str(best_herder.get("npc_name")) if best_herder.get("npc_name") != null else (str(best_herder.name) if best_herder else "?")
-		if animal._try_herd_chance(best_herder, true):
+		if transferred:
 			var pi = get_node_or_null("/root/PlaytestInstrumentor")
 			if pi and pi.is_enabled():
 				var aname: String = str(animal.get("npc_name")) if animal.get("npc_name") != null else "?"

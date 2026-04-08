@@ -10,11 +10,13 @@ AI controller for NPC clans. It:
 - Sets **defender** and **searcher** quotas on the land claim (NPCs self-assign via pull-based model)
 - Requires **minimum land claim stock** (10 stone, 10 wood, 10 food) before allowing defenders, unless under alert
 - Runs full assignment logic only when clan has **2+ cavemen/clansmen** (single caveman stays free to herd/gather)
-- **Player clans:** Defender ratio comes from `player_defend_ratio`; no raid evaluation
+- **Player clans:** Quota = **max(n/4, defender pool size)**. Example: 4 fighters → base 1 defender; drag a second clansman to the **map outside** the claim → pool 2 → quota 2 (**2:2**). Drag **inside** the claim → work, pool drops, quota follows; no raid evaluation
 - **NPC clans:** Can set **raid intent**; raiders discover intent and self-assign via RaidState
 - Tracks resources, threats, strategic state, and alert level
 
 **Location:** `scripts/ai/clan_brain.gd` (RefCounted; no `_process`. Land claim calls `brain.update(delta)` each frame.)
+
+**Combat allies:** Friendly-fire rules (same clan, herder/party, shared defend/search claim, player-owned claim ties, `get_my_land_claim()` match) live in **`CombatAllyCheck.is_ally(a, b)`** (`scripts/systems/combat_ally_check.gd`). Perception, hostile index, agro, combat state, hit validation, and retaliation all call it—do not duplicate inline `clan_a == clan_b` checks elsewhere. Call sites use `const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")` so autoloads/CLI parse before the global class cache is built.
 
 ---
 
@@ -25,7 +27,7 @@ AI controller for NPC clans. It:
 - Every **EVALUATION_INTERVAL** (5s):
   1. `_evaluate_clan_state()` — refresh clan members, resources; **evaluate metrics**; update economic weights; update threat and pressures; update defender and searcher assignments
   2. For NPC clans only: `_make_strategic_decisions()` — update strategic state (PEACEFUL/DEFENSIVE/AGGRESSIVE/RAIDING/RECOVERING) and optionally evaluate raid
-  3. `_update_land_claim_ratios()` — write `defend_ratio` and `search_ratio` to land claim
+  3. `_update_land_claim_ratios()` — write `defend_ratio` (defender_quota / fighters) and `search_ratio` to land claim
 - **Threat cache** (enemy threat scores) is refreshed every **THREAT_CACHE_INTERVAL** (30s), NPC clans only.
 
 ---
@@ -45,7 +47,7 @@ AI controller for NPC clans. It:
 2. **Minimum stock:** If land claim has &lt; 10 stone, &lt; 10 wood, or &lt; 10 total food (berries + grain + bread), and **alert_level &lt; INTRUDER**, defender_quota = 0 and all defenders evicted. (When alert ≥ INTRUDER, the min-stock gate is skipped so threatened clans can defend even when poor.)
 3. **Player emergency defend:** If the player clicked DEFEND on the claim, quota = all fighters until **PLAYER_EMERGENCY_DEFEND_COOLDOWN** (30s) has passed since last intrusion.
 4. **RAID alert:** Quota = all fighters.
-5. **Otherwise:** `target_defenders = ceil(cavemen.size() * defend_pressure)` clamped to [0, cavemen.size()]. For player clans, the ratio is `player_defend_ratio` from the land claim. For player clan with 1 clansman and not emergency, target_defenders = 0.
+5. **Otherwise:** **Baseline** `target_defenders = cavemen.size() / 4` (3 workers : 1 defender per block of four). **AI only:** if **INTRUDER ≤ alert &lt; RAID**, `target_defenders = max(baseline, ceil(cavemen.size() * defend_pressure))`. **Player:** after pruning the defender pool, `target_defenders = max(baseline, assigned_defenders.size())` so drag-out extras keep a slot. Clamped to [0, cavemen.size()].
 
 ### Assignment
 
@@ -54,7 +56,7 @@ Pull-based. NPCs in **defend_state** `can_enter()` read `land_claim.get_meta("de
 ### Threat and pressure
 
 - **Threat level** (0.0–1.0): From cached enemy threat scores (distance, enemy strength, defender count, alert). Alert adds: INTRUDER +0.1, SKIRMISH +0.3, RAID +0.5.
-- **defend_pressure** starts at BASE_DEFENSE_RATIO (0.2), increased by threat and resource urgency, clamped to MIN_DEFENSE_RATIO (0.1) – MAX_DEFENSE_RATIO (0.6).
+- **defend_pressure** (AI) starts at BASE_DEFENSE_RATIO (0.2), increased by threat and resource urgency, clamped to MIN_DEFENSE_RATIO (0.1) – MAX_DEFENSE_RATIO (0.6). It scales **extra** defender slots above the **n/4** baseline when alert is INTRUDER or SKIRMISH (not RAID; RAID uses full quota earlier).
 - **search_pressure** and **gather_pressure** are set in `_update_pressures()` (metric-driven: +0.3 search when no breeding females; +0.2 gather when food_days_buffer &lt; 2; small clans get higher search pressure).
 
 ---
@@ -71,6 +73,10 @@ Pull-based. NPCs in **defend_state** `can_enter()` read `land_claim.get_meta("de
 ## Raiding system (NPC clans only)
 
 Pull-based: ClanBrain sets **raid_intent** on the land claim; NPCs in **raid_state** read it and self-organize.
+
+### Raid party (NPC-led formations)
+
+When **`_start_raid`** succeeds, **`_form_raid_party`** picks the first available non-defender fighter as **leader** and assigns up to **`raider_quota − 1`** followers with **`follow_is_ordered`**, **`herder` = leader**, **`PartyCommandUtils`** command context (default FOLLOW), **`HerdManager.register_follower`**, and FSM **`party`**. Followers use the same **`FormationUtils`** slot geometry as player-led squads. **`_complete_raid`** / **`_cancel_raid`** call **`_disband_raid_party`** to clear follow bindings and metas. Instrumentation: **`party_formed`**, **`party_disbanded`**, **`party_formation_tick`** (JSONL when capture is on).
 
 ### Raid intent (stored on ClanBrain and duplicated to land_claim meta)
 
@@ -239,7 +245,9 @@ NPCs do **not** receive direct orders. They read quotas and intent from the land
 3. If under quota, NPC calls `add_defender(npc)` / `add_searcher(npc)` and enters state.
 4. On exit, NPC calls `remove_defender(npc)` / `remove_searcher(npc)` (except when transitioning to combat).
 
-### Defend state (priority 8.0)
+### Defend state (priority **3.0** default; **11.0** if trait `protective` or `guardian`)
+
+Default matches cavemen: gather (~4–6), search (5.5), work (7–10), and herd_wildnpc (11.5) all **beat** defend so the clan works first; quota still fills when those states cannot `can_enter`.
 
 | Check | Action |
 |-------|--------|
@@ -291,7 +299,7 @@ Jobs are **pulled** by NPCs when entering state; no ClanBrain or land claim push
 
 ### Priority order (FSM, approximate)
 
-Combat (12.0) &gt; Defend when following (11.0) &gt; Herd/search (11.5–12.0) &gt; Raid (8.5) &gt; Reproduction (8.0) &gt; Work at building (7–10) &gt; Gather (4–6) &gt; Craft (2–12) &gt; Wander (0.01–12). Following (herd with herder) overrides raid; combat has highest priority.
+Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian (11.0) &gt; Raid (8.5) &gt; Reproduction (8.0) &gt; Work at building (7–10) &gt; Search (5.5) &gt; Gather (4–6) &gt; **Defend default (3.0)** &gt; Craft (2–12) &gt; Wander (0.01–12). Following (herd with herder) overrides raid; combat has highest priority.
 
 ---
 

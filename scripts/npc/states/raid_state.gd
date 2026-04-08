@@ -72,10 +72,13 @@ func update(delta: float) -> void:
 	if not npc:
 		return
 	
-	# CRITICAL: Exit if following - following takes priority
 	if _is_following():
 		if fsm:
-			fsm.change_state("herd")
+			var nt_rf: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt_rf == "caveman" or nt_rf == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
 		return
 	
 	# Check if raid is still active

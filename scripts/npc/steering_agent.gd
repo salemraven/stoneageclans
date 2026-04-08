@@ -265,7 +265,7 @@ func _refresh_cached_traits() -> void:
 	_cached.current_state = ""
 	if npc.fsm and npc.fsm.has_method("get_current_state_name"):
 		_cached.current_state = npc.fsm.get_current_state_name()
-	_cached.is_in_herd_mode = _cached.is_herded or _cached.current_state == "herd"
+	_cached.is_in_herd_mode = _cached.is_herded or _cached.current_state == "herd" or _cached.current_state == "party"
 	_cached.is_gathering = _cached.current_state == "gather"
 	
 	# Position

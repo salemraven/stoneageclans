@@ -1,5 +1,7 @@
 extends Node
 
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+
 # HostileEntityIndex - one spatial index for combat target candidates. Step 5.
 # Swap get_combat_target_candidates to use this instead of per-NPC DetectionArea.
 
@@ -12,7 +14,6 @@ func get_enemies_in_range(origin: Vector2, radius: float, npc: Node) -> Array:
 	var r2: float = radius * radius
 	var all_npcs: Array = tree.get_nodes_in_group("npcs")
 	var players: Array = tree.get_nodes_in_group("player")
-	var my_clan: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
 	for target in all_npcs + players:
 		if not is_instance_valid(target) or target == npc:
 			continue
@@ -20,17 +21,7 @@ func get_enemies_in_range(origin: Vector2, radius: float, npc: Node) -> Array:
 		var is_player: bool = target.is_in_group("player")
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
-		if is_player:
-			if npc.get("herder") == target:
-				continue
-			var dt = npc.get("defend_target")
-			var shc = npc.get("search_home_claim")
-			if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-				continue
-			var player_clan: String = target.get_clan_name() if target.has_method("get_clan_name") else ""
-			if my_clan != "" and player_clan != "" and my_clan == player_clan:
-				continue
-		if not is_player and target.has_method("get_clan_name") and target.get_clan_name() == my_clan and my_clan != "":
+		if CombatAllyCheck.is_ally(npc, target):
 			continue
 		var th: HealthComponent = target.get_node_or_null("HealthComponent")
 		if th and th.is_dead:

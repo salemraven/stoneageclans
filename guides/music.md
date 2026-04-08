@@ -601,4 +601,83 @@ If you want, next we can formalize:
 * A reusable RTS music template pack
 * Or a 5-track game soundtrack blueprint
 
-You’re building something cohesive now.
+You’re building something cohesive now.______________________________________________________________________             ------------------------- --------------------------------------- CHATGPT ---------------------------------------PROMP---------------------------------------------------------------------- FOR--- SUNO ----------------------------------------------MUSIC-----------------------______________________________________________________________________
+
+You are generating primitive Stone Age music for a video game using Suno.
+
+MISSION:
+Create immersive, primal, pre-linguistic music using proto-vocalizations and primitive instruments. The result must feel like real humans in the Stone Age performing together — not modern music.
+
+OUTPUT FORMAT (MANDATORY):
+1. First block = LYRICS (copy-ready code block)
+2. Second block = SUNO PROMPT (copy-ready code block)
+No extra text.
+
+CORE RULES:
+
+1. NO ENGLISH IN LYRICS
+- Only proto-phonetic vocalizations (e.g., vel, thaa, kraa, moru, shaa)
+- Create "word-like" phrases with internal consistency
+
+2. STRUCTURE IS IMPLIED (CRITICAL)
+- DO NOT label sections (no A, B, etc.)
+- Internally design using forms like ABC or AABA, but express them through sound changes
+- Sections must feel different through rhythm and phonetics
+
+3. PATTERN RECOGNITION
+- Use repeating phrases to establish identity
+- Reintroduce motifs later to create cohesion
+
+4. REPETITION + VARIATION
+- Repeat phrases, but evolve them slightly (e.g., vel → velaa → veluun)
+- Avoid exact repetition loops for too long
+
+5. RHYTHM IS IN THE SYLLABLES
+- Control beat using syllables:
+  - Short = fast (ka, tik, tak)
+  - Medium = groove (moru, vela)
+  - Long = slow (thraaa, ooooo)
+- Lyrics should “feel” like percussion
+
+6. MULTI-MODE VOCALS (REQUIRED)
+Include a mix of:
+- Flow phrases (ropapa-style)
+- Percussive hits (ka, tak)
+- Sustained sounds (roooo, haaa)
+- Breath/pause (hhh, shhh)
+
+7. DISTINCT RHYTHMIC SECTIONS
+Each section must contrast clearly:
+- Groove section
+- Percussion section
+- Chant/phrase section
+- Tension/release section
+
+8. PHONETIC FAMILIES
+- Use groups of related sounds per section (vel/mel/kel OR sha/tha/kra)
+- Switch families between sections for contrast
+
+9. CONTROLLED COMPLEXITY
+- Avoid low-IQ repetition
+- Use sentence-like structures
+- Include internal rhymes and evolving phrases
+
+10. HUMAN IMPERFECTION
+- Slight asymmetry is GOOD
+- Break patterns occasionally
+- Add extra hits, cut lines short, or stretch sounds
+
+11. TONE
+- Always primitive, ritualistic, tribal
+- Never modern, never pop, never electronic
+
+SUNO PROMPT REQUIREMENTS:
+- Describe ONLY primitive elements:
+  - hide drums, log drums, sticks, rattles, horns, didgeridoo, breath vocals
+- Describe vocal behavior (chanting, call-response, layered, rhythmic)
+- Mention rhythm feel (marching, pulsing, evolving, hypnotic)
+- Mention environment (cave, open land, ritual space)
+- Mention loopability for RTS gameplay
+
+GOAL:
+The output should feel like a real prehistoric ritual performance with evolving energy, strong rhythm, and immersive atmosphere.

@@ -9,6 +9,8 @@ signal campfire_despawned(campfire_node: Node2D)
 @export var clan_name: String = "CLAN"
 @export var radius: float = 250.0
 @export var player_owned: bool = false
+## Nomadic: max living huts before overcrowding (design: 6)
+const MAX_LIVING_HUTS_NOMADIC: int = 6
 
 var sprite: Sprite2D = null
 var radius_indicator: Node2D = null
@@ -28,12 +30,19 @@ var _abandonment_timer: float = 0.0
 var assigned_defenders: Array = []
 var assigned_searchers: Array = []
 
+## Match ClanBrain: no defender slots until this many cavemen/clansmen in the clan.
+const MIN_FIGHTERS_FOR_CAMPFIRE_DEFEND: int = 3
+const MAX_CAMPFIRE_DEFENDER_QUOTA: int = 10
+var _defender_pop_timer: float = 0.0
+
 func _ready() -> void:
 	sprite = get_node_or_null("Sprite") as Sprite2D
 	radius_indicator = get_node_or_null("RadiusIndicator") as Node2D
 	
 	if not inventory:
-		inventory = InventoryData.new(6, true, 999)
+		var n: int = BalanceConfig.campfire_inventory_slots if BalanceConfig else 20
+		var mx: int = BalanceConfig.campfire_inventory_max_stack if BalanceConfig else 999
+		inventory = InventoryData.new(n, true, mx)
 	
 	_setup_sprite()
 	_setup_collision()
@@ -47,9 +56,10 @@ func _ready() -> void:
 	add_to_group("buildings")
 	add_to_group("campfires")
 	add_to_group("land_claims")
-	# Nomadic: no defenders or searchers (per earlygame.md Campfire vs Land Claim)
+	# Nomadic: no searchers; defender quota follows population (see _refresh_defender_quota_for_fighter_count)
 	set_meta("searcher_quota", 0)
 	set_meta("defender_quota", 0)
+	call_deferred("_refresh_defender_quota_for_fighter_count")
 	
 	set_process(true)
 
@@ -92,6 +102,11 @@ func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> voi
 			main._on_campfire_clicked(self)
 
 func _process(delta: float) -> void:
+	_defender_pop_timer += delta
+	if _defender_pop_timer >= 0.5:
+		_defender_pop_timer = 0.0
+		_refresh_defender_quota_for_fighter_count()
+	_update_nomadic_crowding()
 	# Abandonment: when extinguished, timer runs if player far
 	if not is_fire_on:
 		var player = get_tree().get_first_node_in_group("player")
@@ -137,6 +152,64 @@ func _process(delta: float) -> void:
 		campfire_despawned.emit(self)
 		queue_free()
 
+func _update_nomadic_crowding() -> void:
+	var huts: int = 0
+	var cn: String = clan_name
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		if b is LandClaim:
+			continue
+		if not (b is BuildingBase):
+			continue
+		var bb: BuildingBase = b as BuildingBase
+		if bb.building_type != ResourceData.ResourceType.LIVING_HUT:
+			continue
+		if bb.get("clan_name") != cn:
+			continue
+		if global_position.distance_to(bb.global_position) > radius:
+			continue
+		huts += 1
+	var pen: float = 0.0
+	if huts >= 6:
+		pen = 0.35
+	elif huts >= 4:
+		pen = 0.15
+	set_meta("nomadic_crowding_penalty", pen)
+	set_meta("nomadic_living_hut_count", huts)
+
+
+func _count_clan_fighters() -> int:
+	var cnt: int = 0
+	var cn: String = clan_name
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc):
+			continue
+		var npc_clan: String = npc.get_clan_name() if npc.has_method("get_clan_name") else str(npc.get("clan_name") if npc.get("clan_name") != null else "")
+		if npc_clan.to_lower() != cn.to_lower():
+			continue
+		var nt: String = str(npc.get("npc_type") if npc.get("npc_type") != null else "")
+		if nt == "caveman" or nt == "clansman":
+			cnt += 1
+	return cnt
+
+
+func _refresh_defender_quota_for_fighter_count() -> void:
+	var n: int = _count_clan_fighters()
+	var want: int = MAX_CAMPFIRE_DEFENDER_QUOTA if n >= MIN_FIGHTERS_FOR_CAMPFIRE_DEFEND else 0
+	set_meta("defender_quota", want)
+	if want > 0:
+		return
+	var to_evict: Array = []
+	for d in assigned_defenders:
+		if is_instance_valid(d):
+			to_evict.append(d)
+	for d in to_evict:
+		d.set("defend_target", null)
+		remove_defender(d)
+	_prune_defenders()
+
+
 func set_fire_on(on: bool) -> void:
 	is_fire_on = on
 	_update_fire_visual()
@@ -146,11 +219,41 @@ func _update_fire_visual() -> void:
 		sprite.modulate = Color.WHITE if is_fire_on else Color(0.6, 0.6, 0.6)
 
 # LandClaim-compatible interface
+func _prune_defenders() -> void:
+	var valid: Array = []
+	for n in assigned_defenders:
+		if is_instance_valid(n) and not (n.has_method("is_dead") and n.is_dead()):
+			valid.append(n)
+	assigned_defenders = valid
+
 func add_defender(npc: Node) -> void:
-	if npc and is_instance_valid(npc) and npc not in assigned_defenders:
-		assigned_defenders.append(npc)
+	if not npc or not is_instance_valid(npc):
+		return
+	_prune_defenders()
+	if npc in assigned_defenders:
+		return
+	assigned_defenders.append(npc)
+
+func should_i_defend(npc: Node) -> bool:
+	if not npc or not is_instance_valid(npc):
+		return false
+	_prune_defenders()
+	if npc not in assigned_defenders:
+		return false
+	var quota: int = get_meta("defender_quota", 10)
+	var current_count: int = assigned_defenders.size()
+	if current_count > quota:
+		var npc_index: int = assigned_defenders.find(npc)
+		if npc_index >= quota:
+			return false
+	return true
+
+func start_player_emergency_defend() -> void:
+	"""Player clicked DEFEND on campfire — no ClanBrain; manual release only."""
+	pass
 
 func remove_defender(npc: Node) -> void:
+	_prune_defenders()
 	assigned_defenders.erase(npc)
 
 func _prune_searchers() -> void:

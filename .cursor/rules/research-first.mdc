@@ -1,0 +1,21 @@
+---
+description: Research before recommending — verify, cite, flag uncertainty
+alwaysApply: true
+---
+
+# Research-First Recommendations
+
+Before suggesting solutions (especially for animation, sprite sheets, game pipelines, or non-trivial mechanics):
+
+1. **Use web search** to verify best practices when unsure
+2. **Cite sources** for non-obvious choices
+3. **Flag uncertainty** — don't guess. Say "I'm uncertain" or "this may need verification"
+4. **Surface tradeoffs** — what could go wrong? downstream issues? not just quick fixes
+
+## When the user asks for recommendations
+- If you haven't researched: search first, then recommend
+- If you're guessing: say so explicitly
+- If the user gives a recommendation without sources or clear reasoning: ask "Did you research this or are you guessing?"
+
+## Trigger phrases
+User may say: "Research X before suggesting anything" — that means: search, cite, then respond.

@@ -51,7 +51,7 @@ func _get_living_hut_count(clan_name: String) -> int:
 	for building in all_buildings:
 		if not is_instance_valid(building):
 			continue
-		if building.has("building_type") and building.has("clan_name"):
+		if "building_type" in building and "clan_name" in building:
 			if building.building_type == ResourceData.ResourceType.LIVING_HUT:
 				if building.clan_name == clan_name:
 					count += 1

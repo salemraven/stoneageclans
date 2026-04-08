@@ -3,6 +3,8 @@ class_name NPCBase
 
 # Preload PerceptionArea so it resolves before npc_base (avoids "Could not find type" when run from CLI)
 const PerceptionArea = preload("res://scripts/npc/components/perception_area.gd")
+const HerdableComponentScript = preload("res://scripts/npc/components/herdable_component.gd")
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 
 # Uses global WalkAnimation (class_name in walk_animation.gd)
 
@@ -194,8 +196,9 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 					var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
 					pi.herd_delivery_cooldown(hname, cooldown)
 			_clear_herd()
-		if fsm and not skip_herd_release:
-			fsm.evaluation_timer = 0.0
+		if fsm and not skip_herd_release and fsm.has_method("change_state"):
+			if "evaluation_timer" in fsm:
+				fsm.evaluation_timer = 0.0
 			fsm.change_state("wander")
 		# CRITICAL: Sheep/goat/woman get building assignment immediately (clan block also runs, but immediate = smoother)
 		if (npc_type == "sheep" or npc_type == "goat" or npc_type == "woman") and not skip_herd_release:
@@ -255,13 +258,40 @@ var _distance_update_interval: float = 0.0  # When scale < 1, skip FSM until acc
 # State memory with validation: NPCs remember targets and resume after interruption (e.g. combat)
 var state_memory: Dictionary = {}  # state_name -> { target: Node2D, data: Dictionary }
 
+func get_herdable():
+	return get_node_or_null("HerdableComponent")
+
+
+func get_follow_mode_string() -> String:
+	match follow_mode:
+		FollowMode.GUARD:
+			return "GUARD"
+		FollowMode.ATTACK:
+			return "ATTACK"
+		_:
+			return "FOLLOW"
+
+
+func set_follow_mode_from_string(s: String) -> void:
+	var u := s.to_upper()
+	if u == "GUARD":
+		follow_mode = FollowMode.GUARD
+	elif u == "ATTACK":
+		follow_mode = FollowMode.ATTACK
+	else:
+		follow_mode = FollowMode.FOLLOW
+
+
 # Phase 3: Helper functions for herd management (keeps herded_count in sync)
 func _start_herd(new_herder: Node2D) -> void:
-	"""Start being herded by a new herder. Keeps herded_count in sync."""
+	"""Start being herded by a new herder. HerdableComponent owns woman/sheep/goat herd state."""
+	var hc = get_herdable()
+	if hc:
+		hc.attach(new_herder)
+		return
+	# Fallback: rare path without HerdableComponent
 	if is_herded and herder == new_herder:
-		return  # Already herded by this herder
-	
-	# If switching herders, decrement old herder's count
+		return
 	var old_count: int = 0
 	if is_herded and herder and is_instance_valid(herder) and herder != new_herder:
 		if "herded_count" in herder:
@@ -271,53 +301,57 @@ func _start_herd(new_herder: Node2D) -> void:
 			if pi and pi.is_enabled():
 				var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
 				pi.herd_count_change(hname, old_count, herder.herded_count, "switch_away")
-	
-	# Set new herder
 	is_herded = true
 	herder = new_herder
 	herd_mentality_active = true
-	
-	# Increment new herder's count
+	if HerdManager:
+		HerdManager.register_follower(new_herder, self)
 	if new_herder and is_instance_valid(new_herder) and "herded_count" in new_herder:
 		old_count = new_herder.herded_count
 		new_herder.herded_count += 1
-		var pi = get_node_or_null("/root/PlaytestInstrumentor")
-		if pi and pi.is_enabled():
-			var hname: String = str(new_herder.get("npc_name")) if new_herder.get("npc_name") != null else (str(new_herder.name) if new_herder else "?")
-			pi.herd_count_change(hname, old_count, new_herder.herded_count, "attach")
-		# Transport lock: force herder into herd_wildnpc immediately (no evaluation delay)
-		# Cavemen/clansmen must commit to transport when they gain a follower
+		var pi2 = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi2 and pi2.is_enabled():
+			var hname2: String = str(new_herder.get("npc_name")) if new_herder.get("npc_name") != null else (str(new_herder.name) if new_herder else "?")
+			pi2.herd_count_change(hname2, old_count, new_herder.herded_count, "attach")
 		if not new_herder.is_in_group("player"):
 			var herder_type: String = new_herder.get("npc_type") as String if new_herder.get("npc_type") != null else ""
 			if herder_type == "caveman" or herder_type == "clansman":
-				var herder_fsm = new_herder.get_node_or_null("FSM")
-				if herder_fsm and herder_fsm.has_method("change_state"):
-					herder_fsm.change_state("herd_wildnpc")
+				# Never force-enter herd_wildnpc if ordered to follow player or in ATTACK/GUARD
+				var blocked: bool = new_herder.get("follow_is_ordered") as bool if new_herder.get("follow_is_ordered") != null else false
+				if not blocked:
+					var ctx_nb: Dictionary = new_herder.get("command_context") if new_herder.get("command_context") != null else {}
+					var mode_nb: String = ctx_nb.get("mode", "FOLLOW") as String
+					if mode_nb != "FOLLOW":
+						blocked = true
+				if not blocked:
+					var herder_fsm = new_herder.get_node_or_null("FSM")
+					if herder_fsm and herder_fsm.has_method("change_state"):
+						herder_fsm.change_state("herd_wildnpc")
 
 func _clear_herd() -> void:
-	"""Stop being herded. Keeps herded_count in sync."""
-	if not is_herded:
-		return  # Not herded, nothing to clear
-	
-	# Decrement herder's count
-	if herder and is_instance_valid(herder) and "herded_count" in herder:
-		var old_c: int = herder.herded_count
-		herder.herded_count = max(0, herder.herded_count - 1)
-		var pi = get_node_or_null("/root/PlaytestInstrumentor")
-		if pi and pi.is_enabled():
-			var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
-			pi.herd_count_change(hname, old_c, herder.herded_count, "clear_herd")
-	
-	# Clear herd state
-	is_herded = false
-	herder = null
-	follow_is_ordered = false
-	herd_mentality_active = false
-
-	# When released, wild NPCs need chunk roaming reinit (position may have changed)
+	"""Stop being herded. HerdableComponent or manual for clansmen ordered follow."""
+	var hc = get_herdable()
+	if hc:
+		hc.detach()
+	else:
+		if not is_herded:
+			return
+		if herder and is_instance_valid(herder):
+			if HerdManager:
+				HerdManager.unregister_follower(herder, self)
+			if "herded_count" in herder:
+				var old_c: int = herder.herded_count
+				herder.herded_count = max(0, herder.herded_count - 1)
+				var pi = get_node_or_null("/root/PlaytestInstrumentor")
+				if pi and pi.is_enabled():
+					var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
+					pi.herd_count_change(hname, old_c, herder.herded_count, "clear_herd")
+		is_herded = false
+		herder = null
+		follow_is_ordered = false
+		herd_mentality_active = false
 	if clan_name == "" and ChunkUtils:
 		_init_chunk_roaming()
-	
 	print("🏠 %s: Herd cleared (no longer following)" % npc_name)
 
 
@@ -330,10 +364,13 @@ func become_wild() -> void:
 	assigned_to_search = false
 	search_home_claim = null
 	workplace_building = null
-	is_herded = false
-	herder = null
-	follow_is_ordered = false
-	herd_mentality_active = false
+	if get_herdable():
+		_clear_herd()
+	else:
+		is_herded = false
+		herder = null
+		follow_is_ordered = false
+		herd_mentality_active = false
 
 	_init_chunk_roaming()
 	if ChunkUtils:
@@ -362,8 +399,6 @@ func validate_state_memory_target(state_name: String) -> bool:
 var herd_mentality_active: bool = false  # True when following (herd mentality)
 var last_leader_switch_time: float = 0.0  # Time when last switched leaders (cooldown to prevent constant switching)
 var leader_switch_cooldown: float = 8.0  # Seconds before can switch again (prevents frequent switching) - increased from 4.0 to 8.0 for more loyalty
-var current_herder_candidate: Node2D = null  # Current candidate being considered
-var attraction_threshold: float = 100.0  # Attraction needed to start following (0-100)
 var workplace_building: Node2D = null  # OccupationSystem: building this NPC is assigned to (women + animals)
 var spawn_time: float = 0.0  # Time when NPC was spawned (for build cooldown)
 var build_cooldown_after_spawn: float = 30.0  # Seconds after spawn before cavemen can place land claims
@@ -376,7 +411,6 @@ var roam_radius: float = 0.0
 var time_in_current_chunk: float = 0.0
 
 # Caveman aggression tracking
-var previous_herd_size: int = 0  # Track previous herd size to detect when wild NPCs are lost from the herd
 var is_agro: bool = false  # True if caveman is in aggressive/hostile mode
 var agro_level: float = 0.0  # Agro intensity (0.0 to 100.0)
 var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) - for combat system
@@ -384,7 +418,11 @@ var agro_target: Node2D = null  # Target to attack when agro
 var combat_target: Node2D = null  # NPCBase or player when defending vs intruders (resolve from combat_target_id at edge)
 var combat_target_id: int = -1  # Step 3: logic uses ID; resolve to Node at edge only
 var combat_locked: bool = false  # True during windup/recovery (prevents FSM state switching)
-# Step 4: CommandContext (commander_id, mode FOLLOW|GUARD|NONE, is_hostile, issued_at_time)
+# Follow / Guard / Attack — persistent per clansman (ordered follow uses command_context.mode)
+enum FollowMode { FOLLOW = 0, GUARD = 1, ATTACK = 2 }
+var follow_mode: int = FollowMode.FOLLOW
+
+# Step 4: CommandContext (commander_id, mode FOLLOW|GUARD|ATTACK, is_hostile, issued_at_time)
 var command_context: Dictionary = {}  # Empty or { commander_id, mode, is_hostile, issued_at_time }
 var defend_target: Node2D = null  # Land claim to defend (Step 7); when set, NPC holds border
 var assigned_to_search: bool = false  # Step 11: player-assigned SEARCHING role
@@ -401,9 +439,24 @@ func resolve_combat_target() -> Node2D:
 	combat_target = n as Node2D
 	return combat_target
 
+func reset_agro_after_combat() -> void:
+	"""Mode-aware agro reset when leaving combat (FOLLOW/GUARD/ATTACK ordered followers)."""
+	var ctx: Dictionary = {}
+	if get("command_context") != null:
+		ctx = get("command_context") as Dictionary
+	var mode: String = str(ctx.get("mode", "FOLLOW"))
+	var v: float = 0.0
+	if mode == "GUARD":
+		v = 40.0
+	elif mode == "ATTACK":
+		v = 69.0
+	else:
+		v = 0.0
+	set("agro_meter", v)
+	agro_meter = v
+
 func _invalidate_combat_target() -> void:
-	set("agro_meter", 69.0)
-	agro_meter = 69.0
+	reset_agro_after_combat()
 	combat_target_id = -1
 	set("combat_target_id", -1)
 	combat_target = null
@@ -412,7 +465,8 @@ func _invalidate_combat_target() -> void:
 	if comp and comp.has_method("clear_target"):
 		comp.clear_target()
 	if fsm and fsm.has_method("_evaluate_states"):
-		fsm.evaluation_timer = 0.0
+		if "evaluation_timer" in fsm:
+			fsm.evaluation_timer = 0.0
 		fsm._evaluate_states()
 
 # Single source of truth for "work (tasks/jobs) should be aborted" - defending, combat, or ordered follow
@@ -468,8 +522,12 @@ func _ready() -> void:
 	fsm = get_node_or_null("FSM")
 	sprite = get_node_or_null("Sprite")
 	
-	# Create HerdInfluenceArea for herdables (woman, sheep, goat) - animal-authoritative influence
+	# HerdableComponent + HerdInfluenceArea for herdables (woman, sheep, goat)
 	if npc_type == "woman" or npc_type == "sheep" or npc_type == "goat":
+		if not get_node_or_null("HerdableComponent"):
+			var hcomp = HerdableComponentScript.new()
+			hcomp.name = "HerdableComponent"
+			add_child(hcomp)
 		var herd_influence = get_node_or_null("HerdInfluenceArea")
 		if not herd_influence:
 			var hi_script = load("res://scripts/npc/components/herd_influence_area.gd")
@@ -578,10 +636,14 @@ func _ready() -> void:
 			if weapon_comp and weapon_comp.has_method("initialize"):
 				weapon_comp.initialize(self)
 	
-	if steering_agent:
+	if steering_agent and steering_agent.has_method("initialize"):
 		steering_agent.initialize(self)
-	if fsm:
+	elif steering_agent:
+		push_warning("NPCBase: SteeringAgent missing initialize() — check scene script on %s" % name)
+	if fsm and fsm.has_method("initialize"):
 		fsm.initialize(self)
+	elif fsm:
+		push_warning("NPCBase: FSM missing initialize() — check scene script on %s" % name)
 	
 	# Task System - Step 17: Add TaskRunner component if it doesn't exist
 	if not task_runner:
@@ -731,7 +793,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				effective_delta = _distance_update_accumulator
 				_distance_update_accumulator = 0.0
-		if effective_delta > 0.0:
+		if effective_delta > 0.0 and fsm.has_method("update"):
 			fsm.update(effective_delta)
 	
 	# Safety check: Cavemen cannot be herded - they are leaders
@@ -924,7 +986,7 @@ func _physics_process(delta: float) -> void:
 	
 	# Check if in idle state - don't apply movement
 	var is_idle: bool = false
-	if fsm:
+	if fsm and fsm.has_method("get_current_state_name"):
 		var state_name: String = fsm.get_current_state_name()
 		if state_name == "idle":
 			is_idle = true
@@ -933,7 +995,7 @@ func _physics_process(delta: float) -> void:
 	# Skip when in agro (handles its own) or combat (we're fighting player, don't flee)
 	var should_flee_from_player: bool = false
 	var player_flee_target: Vector2 = Vector2.ZERO
-	if npc_type == "caveman" and fsm:
+	if npc_type == "caveman" and fsm and fsm.has_method("get_current_state_name"):
 		var flee_current_state: String = fsm.get_current_state_name()
 		if flee_current_state != "agro" and flee_current_state != "combat":
 			var player_nodes := get_tree().get_nodes_in_group("player")
@@ -985,6 +1047,11 @@ func _physics_process(delta: float) -> void:
 			desired_velocity = steering_agent.get_steering_force(delta)
 		else:
 			desired_velocity = steering_agent.get_steering_force(delta)
+		
+		# Party leader: match player formation_speed_mult so group moves as one unit
+		if HerdManager and HerdManager.has_party_ordered_followers(self):
+			var fsm_mult: float = get_meta("formation_speed_mult", 1.0)
+			desired_velocity *= fsm_mult
 		
 		# Stats/action/wild speed modifiers disabled - only herding debuff applies
 		
@@ -1057,7 +1124,7 @@ func _physics_process(delta: float) -> void:
 		if velocity.length() < 10.0 and desired_velocity.length() < 10.0:
 			# Both velocities are very small - might be oscillating
 			# Instead of forcing movement, just stop (allow idle in place)
-			if fsm and not is_herded:  # Only stop if not herded (herded NPCs must follow)
+			if fsm and not is_herded and fsm.has_method("get_current_state_name"):
 				var oscillation_state: String = fsm.get_current_state_name()
 				# FIX: Don't stop NPCs in combat state - they need to move to position for attacks
 				# Only apply if in wander or idle (states that might cause oscillation)
@@ -1148,7 +1215,7 @@ func _physics_process(delta: float) -> void:
 	
 	# Flip sprite based on movement direction (only if not in idle state)
 	# Use hysteresis and target-based flipping in combat to prevent rapid flipping
-	if sprite and fsm:
+	if sprite and fsm and fsm.has_method("get_current_state_name"):
 		var state_name: String = fsm.get_current_state_name()
 		# Mammoth and other animals: always flip based on movement (ensure they face movement direction)
 		var force_velocity_flip: bool = (npc_type == "mammoth")
@@ -1935,8 +2002,9 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 				old_herder.set("agro_target", leader)
 				old_herder.set("is_agro", true)
 				var old_fsm = old_herder.get("fsm")
-				if old_fsm:
+				if old_fsm and "evaluation_timer" in old_fsm:
 					old_fsm.evaluation_timer = 0.0
+
 			
 			var leader_name: String = str(leader.name) if leader else "unknown"
 			if old_herder_name != "":
@@ -1979,18 +2047,18 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 							print("🚨 HIGH PRIORITY FOLLOW: %s immediately entered herd state (following %s)" % [
 								npc_name, leader_name
 							])
-						else:
-							# Can't enter herd state - force FSM evaluation to find best state
-							fsm.evaluation_timer = 0.0
-							fsm._evaluate_states()
 					else:
-						# No herd state found - force FSM evaluation
-						fsm.evaluation_timer = 0.0
-						fsm._evaluate_states()
+						# Can't enter herd state - force FSM evaluation to find best state
+						if "evaluation_timer" in fsm: fsm.evaluation_timer = 0.0
+						if fsm.has_method("_evaluate_states"): fsm._evaluate_states()
 				else:
-					# Not properly herded - force FSM evaluation
-					fsm.evaluation_timer = 0.0
-					fsm._evaluate_states()
+					# No herd state found - force FSM evaluation
+					if "evaluation_timer" in fsm: fsm.evaluation_timer = 0.0
+					if fsm.has_method("_evaluate_states"): fsm._evaluate_states()
+			else:
+				# Not properly herded - force FSM evaluation
+				if "evaluation_timer" in fsm: fsm.evaluation_timer = 0.0
+				if fsm.has_method("_evaluate_states"): fsm._evaluate_states()
 		
 		return true
 	else:
@@ -2029,7 +2097,7 @@ func _check_herd_break_distance() -> void:
 			else:
 				print("🔄 %s released from herd - became wild (herder died)" % npc_name)
 		_clear_herd()
-		if fsm:
+		if fsm and "evaluation_timer" in fsm:
 			fsm.evaluation_timer = 0.0
 		return
 	
@@ -2072,7 +2140,7 @@ func _check_herd_break_distance() -> void:
 			"herd_break_distance": "%.1f" % herd_break_distance
 		})
 		_clear_herd()
-		if fsm:
+		if fsm and "evaluation_timer" in fsm:
 			fsm.evaluation_timer = 0.0
 
 # OLD HERD MENTALITY CODE REMOVED - Using direct trigger system instead
@@ -2277,13 +2345,13 @@ func _get_emergency_separation_force() -> Vector2:
 	return emergency_force
 
 func _count_herd_size(leader: Node2D) -> int:
-	# Count how many NPCs are currently following this leader
+	if HerdManager and leader and is_instance_valid(leader):
+		return HerdManager.get_herd_size(leader)
 	var count: int = 0
 	var all_npcs := get_tree().get_nodes_in_group("npcs")
 	for npc in all_npcs:
 		if not is_instance_valid(npc):
 			continue
-		# Skip dead NPCs
 		if npc.has_method("is_dead") and npc.is_dead():
 			continue
 		if npc.get("is_herded") != null and npc.is_herded:
@@ -2304,10 +2372,8 @@ func _check_caveman_aggression() -> void:
 	if npc_type != "caveman":
 		return
 	
-	# Just track herd size for reference (used elsewhere), but don't trigger agro based on wild NPCs
 	var _current_herd_size: int = _count_herd_size(self)
-	# Note: previous_herd_size is updated in _process() for tracking purposes
-	# But we no longer trigger agro when herd size decreases - only when another caveman intrudes
+	# Reference only — agro is from land claim intrusion, not herd size changes
 
 func _check_land_claim_defense() -> void:
 	# Cavemen who own a land claim go into agro when another caveman enters their land claim
@@ -2370,9 +2436,9 @@ func _check_land_claim_defense() -> void:
 				agro_target = null
 				set("agro_target", null)
 				
-				# Force FSM to evaluate and exit agro state
-				if fsm:
-					fsm.evaluation_timer = 0.0
+			# Force FSM to evaluate and exit agro state
+			if fsm and "evaluation_timer" in fsm:
+				fsm.evaluation_timer = 0.0
 		return
 	
 	# CRITICAL: Agro defend only works when caveman is in wander mode within own land claim
@@ -2460,32 +2526,29 @@ func _check_land_claim_defense() -> void:
 			continue
 		# Intruder in claim and within perception - go agro
 		if clan_name != "":
-				is_agro = true
-				agro_level = 15.0  # Higher agro for land claim defense
-				if NPCConfig:
-					agro_level = NPCConfig.agro_start_level * 1.5  # 1.5x for defense
-				agro_target = intruder
-				set("agro_target", agro_target)
-				
-				var intruder_name: String = "unknown"
-				if intruder.is_in_group("player"):
-					intruder_name = "Player"
-				else:
-					intruder_name = intruder.get("npc_name") if intruder else "unknown"
-				UnifiedLogger.log("Caveman agro triggered: land_claim_intruder (target: %s, level: %.1f)" % [intruder_name, agro_level], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
-					"npc": npc_name,
-					"trigger": "land_claim_intruder",
-					"target": intruder_name,
-					"agro_level": "%.1f" % agro_level
-				})
-				
-				print("Caveman %s detected intruder %s in land claim! Going AGRO!" % [npc_name, intruder_name])
-				
-				# Force FSM to evaluate and switch to agro state
-				if fsm:
-					fsm.evaluation_timer = 0.0  # Force immediate evaluation
-				# Only trigger for first intruder found
-				break
+			is_agro = true
+			agro_level = 15.0  # Higher agro for land claim defense
+			if NPCConfig:
+				agro_level = NPCConfig.agro_start_level * 1.5  # 1.5x for defense
+			agro_target = intruder
+			set("agro_target", agro_target)
+			var intruder_name: String = "unknown"
+			if intruder.is_in_group("player"):
+				intruder_name = "Player"
+			else:
+				intruder_name = intruder.get("npc_name") if intruder else "unknown"
+			UnifiedLogger.log("Caveman agro triggered: land_claim_intruder (target: %s, level: %.1f)" % [intruder_name, agro_level], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
+				"npc": npc_name,
+				"trigger": "land_claim_intruder",
+				"target": intruder_name,
+				"agro_level": "%.1f" % agro_level
+			})
+			print("Caveman %s detected intruder %s in land claim! Going AGRO!" % [npc_name, intruder_name])
+			# Force FSM to evaluate and switch to agro state
+			if fsm and "evaluation_timer" in fsm:
+				fsm.evaluation_timer = 0.0  # Force immediate evaluation
+			# Only trigger for first intruder found
+			break
 
 func _apply_defensive_herding_behavior(_delta: float) -> void:
 	# AGRO DISABLED: System not ready for implementation
@@ -2784,7 +2847,7 @@ func _check_and_deposit_items() -> void:
 	if (npc_type != "caveman" and npc_type != "clansman") or not inventory:
 		return
 	# Don't deposit while crafting - NPC needs stones to knap; deposit runs after exiting craft
-	if fsm and fsm.current_state_name == "craft":
+	if fsm and "current_state_name" in fsm and fsm.current_state_name == "craft":
 		return
 	
 	# SIMPLIFIED: Cooldown check (prevent multiple rapid deposits)
@@ -2952,8 +3015,9 @@ func _check_and_deposit_items() -> void:
 			remove_meta("is_depositing")
 		
 		# Force immediate state evaluation - caveman should go back to herding
-		if fsm:
+		if fsm and "evaluation_timer" in fsm:
 			fsm.evaluation_timer = 0.0  # Force immediate evaluation
+		if fsm and fsm.has_method("_evaluate_states"):
 			fsm._evaluate_states()  # Evaluate now - herd_wildnpc (10.6) should take priority
 	else:
 		# No items deposited - check if it's just 1 food item (expected behavior, don't warn)
@@ -3445,7 +3509,6 @@ func get_combat_target_candidates(center: Vector2, radius: float) -> Array:
 		return pa.get_enemies_in_range(center, radius, self)
 	# Legacy: no index
 	var out: Array = []
-	var my_clan: String = get_clan_name() if has_method("get_clan_name") else ""
 	var all_npcs = get_tree().get_nodes_in_group("npcs")
 	var player_nodes = get_tree().get_nodes_in_group("player")
 	for target in all_npcs + player_nodes:
@@ -3455,12 +3518,7 @@ func get_combat_target_candidates(center: Vector2, radius: float) -> Array:
 		var is_player: bool = target.is_in_group("player")
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
-		if is_player:
-			if get("herder") == target:
-				continue
-			if my_clan != "" and target.has_method("get_clan_name") and target.get_clan_name() == my_clan:
-				continue
-		if not is_player and target.has_method("get_clan_name") and target.get_clan_name() == my_clan and my_clan != "":
+		if CombatAllyCheck.is_ally(self, target):
 			continue
 		var th: HealthComponent = target.get_node_or_null("HealthComponent")
 		if th and th.is_dead:

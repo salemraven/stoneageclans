@@ -8,6 +8,9 @@ const LOCK_PORT := 45287
 var _lock: TCPServer
 
 func _ready() -> void:
+	# Web: no TCP server; multi-tab / multiplayer clients must not quit each other.
+	if OS.get_name() == "Web":
+		return
 	if OS.get_environment("SKIP_SINGLE_INSTANCE") == "1":
 		return
 	_lock = TCPServer.new()

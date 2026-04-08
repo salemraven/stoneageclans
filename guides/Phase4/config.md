@@ -39,7 +39,7 @@
 ### Changelog (movement)
 
 - Reduced from original 260/26 (and 320 default) in steps: ~2/3, then ~85%, then ~85% again, then ~76% for smoother map movement.
-- Current: **95** base, **9.5** agility multiplier (cavemen 95, women 85.5). Player: **200** (`player.gd` move_speed).
+- Current: **95** base, **9.5** agility multiplier (cavemen 95, women 85.5). Player: **110** (`player.gd` move_speed; matched to clansman pace so formation stays in sync).
 
 ---
 

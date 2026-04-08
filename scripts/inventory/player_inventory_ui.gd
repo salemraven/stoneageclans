@@ -9,6 +9,10 @@ const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
 
 const SLOT_COUNT := 5  # Main inventory slots (reduced from 10 per UI.md spec)
 const HOTBAR_COUNT := 10  # Equipment hotbar: 1=right hand, 2=left hand, 3=head, 4=body, 5=legs, 6=feet, 7=neck, 8=backpack, 9=consumable, 0=consumable
+## Hotbar indices 0–7 = labeled slots 1–8 (equipment/clothing only). Indices 8–9 = keys 9 and 0 (food only).
+const HOTBAR_EQUIP_MAX_INDEX := 7
+const HOTBAR_FOOD_MIN_INDEX := 8
+const HOTBAR_FOOD_MAX_INDEX := 9
 const RIGHT_HAND_SLOT_INDEX := 0   # Slot 1 (right hand) = index 0 — primary weapon (axe/pick)
 const LEFT_HAND_SLOT_INDEX := 1    # Slot 2 (left hand) = index 1
 const SLOT_SIZE := 32
@@ -16,6 +20,10 @@ const PANEL_WIDTH := 320
 const PANEL_HEIGHT := 444  # Inventory slots + craft icons (32 + 8 separation) below
 const HOTBAR_HEIGHT := 64  # Just enough for 32x32 slots with padding (no labels below)
 const HUNGER_BAR_HEIGHT := 12  # 8px bar + 4px separation (above hotbar)
+## MarginContainer inside HotbarPanel uses 12px top + bottom — must be included in panel min height or content clips
+const HOTBAR_MARGIN_VERTICAL := 24
+## Lift hotbar above viewport bottom (window frame / taskbar) — windowed mode
+const HOTBAR_SAFE_BOTTOM := 24.0
 const HEALTH_BAR_UPDATE_INTERVAL: int = 5  # Throttle hunger bar updates (match building_base)
 const CRAFT_ICON_SIZE := 32
 const CRAFT_ICON_SPACING := 4
@@ -52,6 +60,22 @@ func _ready() -> void:
 	
 	# Enable input processing for global mouse release detection
 	set_process_input(true)
+	var vp := get_viewport()
+	if vp:
+		vp.size_changed.connect(_position_inventory_for_viewport)
+	call_deferred("_position_inventory_for_viewport")
+
+
+func _position_inventory_for_viewport() -> void:
+	"""Keep inventory centered, shifted up so it clears hotbar + margin (reference 1920x1080)."""
+	if not inventory_panel or not is_instance_valid(inventory_panel):
+		return
+	var bottom_reserve: float = float(HOTBAR_HEIGHT + HUNGER_BAR_HEIGHT + HOTBAR_MARGIN_VERTICAL + HOTBAR_SAFE_BOTTOM + 24)
+	inventory_panel.offset_left = -PANEL_WIDTH / 2.0
+	inventory_panel.offset_right = PANEL_WIDTH / 2.0
+	inventory_panel.offset_top = -PANEL_HEIGHT / 2.0 - bottom_reserve
+	inventory_panel.offset_bottom = PANEL_HEIGHT / 2.0 - bottom_reserve
+
 
 func _setup_panels() -> void:
 	# Main inventory panel (centered, semi-transparent)
@@ -82,6 +106,7 @@ func _setup_panels() -> void:
 		inventory_vbox.name = "InventoryVBox"
 		inventory_vbox.add_theme_constant_override("separation", 8)
 		margin.add_child(inventory_vbox)
+		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		
 		inventory_container = VBoxContainer.new()
 		inventory_container.name = "SlotContainer"
@@ -101,21 +126,23 @@ func _setup_panels() -> void:
 	
 	# Calculate hotbar width: 10 slots * 32px + spacing + padding (accounting for labels)
 	var hotbar_width: float = (HOTBAR_COUNT * 32) + ((HOTBAR_COUNT - 1) * 6) + 24  # 6px spacing, 12px padding each side
-	hotbar_panel.custom_minimum_size = Vector2(hotbar_width, HOTBAR_HEIGHT + HUNGER_BAR_HEIGHT)
+	var hotbar_content_h: float = float(HOTBAR_HEIGHT + HUNGER_BAR_HEIGHT + HOTBAR_MARGIN_VERTICAL)
+	hotbar_panel.custom_minimum_size = Vector2(hotbar_width, hotbar_content_h)
 	
 	# Style hotbar using UITheme
 	UITheme.apply_panel_style(hotbar_panel)
 	
-	# Position hotbar at very bottom of screen, almost touching bottom edge
+	# Position hotbar above bottom edge (safe margin for windowed / taskbar); min height includes inner margins
 	hotbar_panel.anchors_preset = Control.PRESET_BOTTOM_WIDE
 	hotbar_panel.anchor_left = 0.5
 	hotbar_panel.anchor_top = 1.0
 	hotbar_panel.anchor_right = 0.5
 	hotbar_panel.anchor_bottom = 1.0
 	hotbar_panel.offset_left = -hotbar_width / 2.0  # Center horizontally
-	hotbar_panel.offset_top = -HOTBAR_HEIGHT - HUNGER_BAR_HEIGHT - 8  # 8px from bottom edge
+	hotbar_panel.offset_bottom = -HOTBAR_SAFE_BOTTOM
+	hotbar_panel.offset_top = hotbar_panel.offset_bottom - hotbar_content_h
 	hotbar_panel.offset_right = hotbar_width / 2.0
-	hotbar_panel.offset_bottom = -8
+	hotbar_panel.clip_contents = false
 	
 	# Hotbar container with padding; hunger bar above slots
 	if not hotbar_panel.has_node("MarginContainer"):
@@ -134,8 +161,8 @@ func _setup_panels() -> void:
 		# Hunger bar (above hotbar slots, same pattern as building health bar)
 		hunger_bar = Control.new()
 		hunger_bar.name = "HungerBar"
-		hunger_bar.custom_minimum_size = Vector2(80, 8)
-		hunger_bar.size = Vector2(80, 8)
+		hunger_bar.custom_minimum_size = Vector2(80, HUNGER_BAR_HEIGHT)
+		hunger_bar.size = Vector2(80, HUNGER_BAR_HEIGHT)
 		var hunger_bg: ColorRect = ColorRect.new()
 		hunger_bg.name = "Background"
 		hunger_bg.color = Color(0.3, 0.0, 0.0, 0.8)
@@ -146,7 +173,7 @@ func _setup_panels() -> void:
 		hunger_fill.color = Color(0.0, 1.0, 0.0, 0.8)
 		hunger_fill.set_anchors_preset(Control.PRESET_TOP_LEFT)
 		hunger_fill.position = Vector2(0, 0)
-		hunger_fill.size = Vector2(80, 8)
+		hunger_fill.size = Vector2(80, HUNGER_BAR_HEIGHT)
 		hunger_bar.add_child(hunger_fill)
 		hotbar_vbox.add_child(hunger_bar)
 		
@@ -155,6 +182,8 @@ func _setup_panels() -> void:
 		hotbar_container.add_theme_constant_override("separation", 6)
 		hotbar_vbox.add_child(hotbar_container)
 		hotbar_margin.add_child(hotbar_vbox)
+		# Fill the panel; without this the margin box can size wrong and clip content at the bottom
+		hotbar_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	
 	# Root control setup - center inventory panel, hotbar is positioned independently
 	# Make root control fill screen but don't interfere with hotbar positioning
@@ -176,10 +205,7 @@ func _setup_panels() -> void:
 	inventory_panel.anchor_top = 0.5
 	inventory_panel.anchor_right = 0.5
 	inventory_panel.anchor_bottom = 0.5
-	inventory_panel.offset_left = -PANEL_WIDTH / 2.0
-	inventory_panel.offset_top = -PANEL_HEIGHT / 2.0 - 120  # Offset up to leave room for hotbar
-	inventory_panel.offset_right = PANEL_WIDTH / 2.0
-	inventory_panel.offset_bottom = PANEL_HEIGHT / 2.0 - 120
+	_position_inventory_for_viewport()
 
 func _build_slots() -> void:
 	# Ensure containers exist - create them if needed
@@ -348,27 +374,25 @@ func _update_hotbar_slots() -> void:
 		main_node._update_equipment()
 
 func add_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
+	# Food never uses the main inventory strip — only hotbar 9 / 0 (indices 8–9).
+	if ResourceData.is_food(type):
+		return add_item_preferring_food_slots(type, amount)
 	return inventory_data.add_item(type, amount)
 
 func add_item_preferring_food_slots(type: ResourceData.ResourceType, amount: int = 1) -> bool:
-	"""Add items preferring consumable hotbar slots (8, 9) first, then inventory, then other hotbar."""
+	"""Food only: hotbar slots 9 and 0 (indices 8, 9). No equipment or main-inventory slots."""
+	if not ResourceData.is_food(type):
+		return add_item(type, amount)
 	var hotbar_data = get_meta("hotbar_data", null) as InventoryData
 	if not hotbar_data:
-		return inventory_data.add_item(type, amount)
-	# Preference order: (hotbar,8), (hotbar,9), (inv,0..4), (hotbar,0..7)
-	var slot_order: Array[Dictionary] = []
-	for idx in [8, 9]:
-		slot_order.append({"data": hotbar_data, "idx": idx})
-	for idx in range(SLOT_COUNT):
-		slot_order.append({"data": inventory_data, "idx": idx})
-	for idx in range(8):
-		slot_order.append({"data": hotbar_data, "idx": idx})
+		return false
+	var slot_order: Array[int] = [HOTBAR_FOOD_MIN_INDEX, HOTBAR_FOOD_MAX_INDEX]
 	for _iter in range(amount):
 		var added := false
-		for entry in slot_order:
-			var slot_data: Dictionary = entry.data.get_slot(entry.idx)
+		for idx in slot_order:
+			var slot_data: Dictionary = hotbar_data.get_slot(idx)
 			if slot_data.is_empty():
-				entry.data.set_slot(entry.idx, {"type": type, "count": 1})
+				hotbar_data.set_slot(idx, {"type": type, "count": 1})
 				added = true
 				break
 		if not added:
@@ -376,6 +400,18 @@ func add_item_preferring_food_slots(type: ResourceData.ResourceType, amount: int
 	_update_all_slots()
 	_update_hotbar_slots()
 	return true
+
+
+func _player_slot_accepts_item(slot: InventorySlot, t: ResourceData.ResourceType) -> bool:
+	var ti := int(t)
+	if ti < 0 or t == ResourceData.ResourceType.NONE:
+		return false
+	if slot.is_hotbar:
+		var i: int = slot.slot_index
+		if i >= HOTBAR_FOOD_MIN_INDEX and i <= HOTBAR_FOOD_MAX_INDEX:
+			return ResourceData.is_food(t)
+		return not ResourceData.is_food(t)
+	return not ResourceData.is_food(t)
 
 func get_hotbar_slot(index: int) -> Dictionary:
 	if index < 0 or index >= hotbar_slots.size():
@@ -559,6 +595,12 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				drag_manager.end_drag(true)  # Restore item to source
 			return
 	
+	# Hotbar 1–8 = equipment only; keys 9/0 = food only; main panel = no food
+	if not _player_slot_accepts_item(target_slot, dragged_type):
+		if drag_manager:
+			drag_manager.end_drag(true)
+		return
+	
 	# Handle the drop
 	
 	# First, try to stack with target slot if same type
@@ -619,6 +661,8 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 	if target_item.is_empty() and to_data.can_stack:
 		for check_slot in (slots if not target_slot.is_hotbar else hotbar_slots):
 			if check_slot == target_slot:
+				continue
+			if not _player_slot_accepts_item(check_slot, dragged_type):
 				continue
 			var check_item: Dictionary = check_slot.get_item()
 			if not check_item.is_empty():
@@ -685,9 +729,11 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 		# Target slot has an item - find an empty slot instead of swapping
 		var slot_list: Array = slots if not target_slot.is_hotbar else hotbar_slots
 		
-		# Find first empty slot in the appropriate inventory
+		# Find first empty slot in the appropriate inventory (respect food vs equipment rules)
 		for check_slot in slot_list:
 			if check_slot.is_empty() and check_slot != from_slot:
+				if not _player_slot_accepts_item(check_slot, dragged_type):
+					continue
 				empty_slot = check_slot
 				break
 	
@@ -843,7 +889,10 @@ func _on_craft_progress_completed(craft: CraftRegistryScript.CraftData) -> void:
 		_active_craft_overlay.queue_free()
 		_active_craft_overlay = null
 	_active_craft_data = null
-	inventory_data.add_item(craft.output_type, 1)
+	if ResourceData.is_food(craft.output_type):
+		add_item_preferring_food_slots(craft.output_type, 1)
+	else:
+		inventory_data.add_item(craft.output_type, 1)
 	_update_all_slots()
 	_update_hotbar_slots()
 	_update_craft_icon_states()

@@ -1,7 +1,7 @@
 extends Area2D
 class_name GroundItem
 
-# Ground items (stone.png, wood.png) that require gathering like other resources
+# Ground items (stone, wood, mushrooms) — walk up, Space + timer, then pickup (like loose wood/stone piles)
 # Players and NPCs must gather them with a timer before picking them up
 
 const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
@@ -63,6 +63,12 @@ func _setup_visuals() -> void:
 			sprite_path = "res://assets/sprites/stone.png"
 		ResourceData.ResourceType.WOOD:
 			sprite_path = "res://assets/sprites/wood.png"
+		ResourceData.ResourceType.MUSHROOM:
+			var mush_paths: Array[String] = [
+				"res://assets/sprites/mushroom.png",
+				"res://assets/sprites/mushroom2.png"
+			]
+			sprite_path = mush_paths[randi() % mush_paths.size()]
 		_:
 			return  # Not a valid ground item type
 	
@@ -72,7 +78,7 @@ func _setup_visuals() -> void:
 			var tex: Texture2D = loaded_texture as Texture2D
 			sprite.texture = tex
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.scale = Vector2.ONE
+			sprite.scale = Vector2(2.0 / 3.0, 2.0 / 3.0) if item_type == ResourceData.ResourceType.MUSHROOM else Vector2.ONE
 			sprite.centered = true
 			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
 			sprite.visible = true
@@ -109,6 +115,9 @@ func _setup_collection_progress() -> void:
 		collection_progress.visible = false
 
 func _exit_tree() -> void:
+	var main_node := get_tree().get_first_node_in_group("main")
+	if main_node and main_node.get("active_collection_resource") == self:
+		main_node.active_collection_resource = null
 	if ResourceIndex:
 		ResourceIndex.unregister(self)
 
@@ -185,13 +194,15 @@ func _collect_one_item() -> void:
 		print("Not the active resource, cannot collect")
 		return  # Not the active resource, don't collect
 	
-	# Start collection progress visual
+	# Start collection progress visual — use the same texture as the world sprite when set (mushroom1 vs mushroom2, etc.)
 	if collection_progress:
-		# Get icon for this item type
 		var icon: Texture2D = null
-		var icon_path: String = ResourceData.get_resource_icon_path(item_type)
-		if icon_path != "":
-			icon = load(icon_path) as Texture2D
+		if sprite and sprite.texture:
+			icon = sprite.texture
+		else:
+			var icon_path: String = ResourceData.get_resource_icon_path(item_type)
+			if icon_path != "":
+				icon = load(icon_path) as Texture2D
 		collection_progress.start_collection(icon)
 		collection_progress.collection_time = collection_time
 	
@@ -218,6 +229,8 @@ func _finish_collection() -> void:
 	# Make sprite disappear and remove from world
 	is_picked_up = true
 	sprite.visible = false
+	if main.active_collection_resource == self:
+		main.active_collection_resource = null
 	queue_free()
 	print("Player gathered %s" % ResourceData.get_resource_name(item_type))
 
@@ -228,8 +241,11 @@ func _stop_collection() -> void:
 
 # NPC interaction methods
 func is_harvestable() -> bool:
-	# Stone and wood ground items are harvestable
-	return item_type == ResourceData.ResourceType.STONE or item_type == ResourceData.ResourceType.WOOD
+	return (
+		item_type == ResourceData.ResourceType.STONE
+		or item_type == ResourceData.ResourceType.WOOD
+		or item_type == ResourceData.ResourceType.MUSHROOM
+	)
 
 func harvest() -> int:
 	# NPCs harvest ground items, returns yield amount

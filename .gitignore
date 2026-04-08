@@ -1,5 +1,8 @@
-# Godot
-.godot/
+# Godot — ignore cache; keep shared Game view prefs so Play uses a real OS window
+.godot/*
+!.godot/editor/
+.godot/editor/*
+!.godot/editor/project_metadata.cfg
 *.translation
 .mono/
 data_*/
@@ -53,3 +56,11 @@ Tests/**/playtest_session.jsonl
 Tests/**/playtest_report.txt
 Tests/_godot*.txt
 Tests/.DS_Store
+
+# Windows / macOS junk
+Thumbs.db
+desktop.ini
+.DS_Store
+.vs/
+*.suo
+*.user

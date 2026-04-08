@@ -7,6 +7,8 @@ const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
 @export var min_amount: int = 4
 @export var max_amount: int = 6
 @export var collection_time: float = 1.0
+## WOOD only: 0–14 = fixed frame on trees.png (5×3 sheet). -1 = random frame (default for scattered spawns).
+@export var tree_sheet_index: int = -1
 
 # RULE 1: Resources have worker capacity
 # Every gatherable resource must declare how many workers it can support
@@ -36,6 +38,10 @@ var original_modulate: Color = Color.WHITE  # Store original color for cooldown 
 # Bush sprites: swap texture instead of shading (bushon = gatherable, bushoff = cooldown)
 var _bush_on_texture: Texture2D = null
 var _bush_off_texture: Texture2D = null
+# Player searched a tree without axe/oldowan — timer only, no wood; may roll hidden nuts
+var _wood_nut_search: bool = false
+# Throttle playtest logs when Space is pressed near this node but another target is active
+var _gather_diag_wrong_target_last_t: float = -100.0
 
 # OPTIMIZATION: Lock system removed - capacity/reservation system handles resource access
 # Old lock system (locked_by, lock_for, unlock) has been migrated to capacity system
@@ -46,6 +52,8 @@ func _ready() -> void:
 	add_to_group("resources")
 	if ResourceIndex:
 		ResourceIndex.register(self)
+	monitoring = true
+	monitorable = false
 	_setup_visuals()
 	_setup_collision()
 	_setup_collection_progress()
@@ -70,6 +78,8 @@ func _ready() -> void:
 				max_workers = 1  # Wheat: 1 worker
 			ResourceData.ResourceType.FIBER:
 				max_workers = 1  # Fiber plants: 1 worker
+			ResourceData.ResourceType.BUGS, ResourceData.ResourceType.NUTS:
+				max_workers = 1
 			_:
 				max_workers = 2  # Default fallback
 	
@@ -88,7 +98,11 @@ func _setup_tree_from_sheet() -> void:
 	sprite.texture = tex
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.centered = true
-	var tree_idx := randi_range(0, 14)
+	var tree_idx: int
+	if tree_sheet_index >= 0 and tree_sheet_index <= 14:
+		tree_idx = tree_sheet_index
+	else:
+		tree_idx = randi_range(0, 14)
 	var cols := 5
 	var rows := 3
 	var cell_w := tex.get_width() / cols
@@ -117,6 +131,21 @@ func _setup_visuals() -> void:
 			sprite_path = "res://assets/sprites/wheat.png"
 		ResourceData.ResourceType.FIBER:
 			sprite_path = "res://assets/sprites/fiberplant.png"
+		ResourceData.ResourceType.BUGS:
+			var bug_paths: Array[String] = [
+				"res://assets/sprites/bugs.png",
+				"res://assets/sprites/bugs2.png",
+				"res://assets/sprites/bugs3.png"
+			]
+			sprite_path = bug_paths[randi() % bug_paths.size()]
+		ResourceData.ResourceType.NUTS:
+			var nut_paths: Array[String] = [
+				"res://assets/sprites/nuts1.png",
+				"res://assets/sprites/nuts2.png",
+				"res://assets/sprites/nuts3.png",
+				"res://assets/sprites/nuts4.png"
+			]
+			sprite_path = nut_paths[randi() % nut_paths.size()]
 	
 	if resource_type == ResourceData.ResourceType.WOOD:
 		return  # Already handled above
@@ -127,7 +156,12 @@ func _setup_visuals() -> void:
 			sprite.texture = tex
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			sprite.centered = true
-			sprite.scale = Vector2(1.0 / 3.0, 1.0 / 3.0) if resource_type == ResourceData.ResourceType.BERRIES else Vector2.ONE
+			var small_sprite: bool = (
+				resource_type == ResourceData.ResourceType.BERRIES
+				or resource_type == ResourceData.ResourceType.BUGS
+				or resource_type == ResourceData.ResourceType.NUTS
+			)
+			sprite.scale = Vector2(1.0 / 3.0, 1.0 / 3.0) if small_sprite else Vector2.ONE
 			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
 			return
 	
@@ -144,11 +178,184 @@ func _setup_collision() -> void:
 	# Make trees block a bit more space than other resources
 	if resource_type == ResourceData.ResourceType.WOOD:
 		shape.size = Vector2(72, 72)
+		collision.shape = shape
+		collision.position = Vector2.ZERO
+		return
+	elif resource_type == ResourceData.ResourceType.BUGS or resource_type == ResourceData.ResourceType.NUTS:
+		shape.size = Vector2(40, 40)
 	else:
 		shape.size = Vector2(48, 48)
 	collision.shape = shape
+	collision.position = Vector2.ZERO
+	# Berry bush / wheat / etc.: sprite is shifted up (feet at node) with get_grass_sprite_position_for_texture.
+	# A 48×48 rect at the node origin sits *under* a tall texture (e.g. bushon 406×215 @ ⅓ scale) — no overlap → cannot gather.
+	_align_gather_hitbox_to_sprite()
+	_emit_gather_hitbox_ready()
 
 var nearby_player: Node2D = null
+
+
+func _emit_gather_hitbox_ready() -> void:
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("gather_diagnostic") or not pi.has_method("is_enabled") or not pi.is_enabled():
+		return
+	if not collision or not collision.shape is RectangleShape2D or not sprite:
+		return
+	var sh: RectangleShape2D = collision.shape as RectangleShape2D
+	var tw: float = float(sprite.texture.get_width()) if sprite.texture else 0.0
+	var th: float = float(sprite.texture.get_height()) if sprite.texture else 0.0
+	if sprite.texture and sprite.region_enabled:
+		tw = sprite.region_rect.size.x
+		th = sprite.region_rect.size.y
+	var d: Dictionary = {
+		"evt": "gather_hitbox_ready",
+		"resource": ResourceData.get_resource_name(resource_type),
+		"resource_enum": int(resource_type),
+		"node_id": get_instance_id(),
+		"node_global_x": snappedf(global_position.x, 0.1),
+		"node_global_y": snappedf(global_position.y, 0.1),
+		"collision_local_x": snappedf(collision.position.x, 0.1),
+		"collision_local_y": snappedf(collision.position.y, 0.1),
+		"collision_w": sh.size.x,
+		"collision_h": sh.size.y,
+		"hitbox_center_global_x": snappedf(collision.global_position.x, 0.1),
+		"hitbox_center_global_y": snappedf(collision.global_position.y, 0.1),
+		"dist_node_origin_to_hitbox_center": snappedf(global_position.distance_to(collision.global_position), 0.1),
+		"sprite_local_x": snappedf(sprite.position.x, 0.1),
+		"sprite_local_y": snappedf(sprite.position.y, 0.1),
+		"sprite_scaled_w": snappedf(tw * absf(sprite.scale.x), 0.1),
+		"sprite_scaled_h": snappedf(th * absf(sprite.scale.y), 0.1),
+	}
+	pi.gather_diagnostic(d)
+
+
+func _align_gather_hitbox_to_sprite() -> void:
+	if not collision or not sprite or not sprite.texture:
+		return
+	if not collision.shape is RectangleShape2D:
+		return
+	var shape: RectangleShape2D = collision.shape as RectangleShape2D
+	var tex_w: float = float(sprite.texture.get_width())
+	var tex_h: float = float(sprite.texture.get_height())
+	if sprite.region_enabled:
+		tex_w = sprite.region_rect.size.x
+		tex_h = sprite.region_rect.size.y
+	var sx: float = absf(sprite.scale.x)
+	var sy: float = absf(sprite.scale.y)
+	var vis_w: float = tex_w * sx
+	var vis_h: float = tex_h * sy
+	if vis_w < 4.0 or vis_h < 4.0:
+		return
+	# Center pickup volume on the sprite; cover ~80% of visual so standing “on” the art registers.
+	var cover: float = 0.8
+	shape.size = Vector2(maxf(shape.size.x, vis_w * cover), maxf(shape.size.y, vis_h * cover))
+	collision.position = sprite.position
+
+
+func _emit_gather_diagnostic(evt: String, player: Node2D, main: Node, extra: Dictionary = {}) -> void:
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("gather_diagnostic") or not pi.has_method("is_enabled"):
+		return
+	if not pi.is_enabled():
+		return
+	var d: Dictionary = _gather_diagnostic_payload(evt, player, main)
+	for k in extra:
+		d[k] = extra[k]
+	pi.gather_diagnostic(d)
+
+
+func _gather_diagnostic_payload(evt: String, player: Node2D, main: Node) -> Dictionary:
+	var mouse_screen := Vector2.ZERO
+	var mouse_world := Vector2.ZERO
+	var vp := get_viewport()
+	if vp:
+		mouse_screen = vp.get_mouse_position()
+		var cam: Camera2D = vp.get_camera_2d()
+		if cam:
+			mouse_world = cam.get_global_mouse_position()
+	var coll_w := 0.0
+	var coll_h := 0.0
+	if collision and collision.shape is RectangleShape2D:
+		var rs: RectangleShape2D = collision.shape as RectangleShape2D
+		coll_w = rs.size.x
+		coll_h = rs.size.y
+	var spr_tex_w := 0.0
+	var spr_tex_h := 0.0
+	var spr_sc_x := 1.0
+	var spr_sc_y := 1.0
+	if sprite:
+		spr_sc_x = sprite.scale.x
+		spr_sc_y = sprite.scale.y
+		if sprite.texture:
+			spr_tex_w = float(sprite.texture.get_width())
+			spr_tex_h = float(sprite.texture.get_height())
+	var px := 0.0
+	var py := 0.0
+	if player and is_instance_valid(player):
+		px = player.global_position.x
+		py = player.global_position.y
+	var dist_center := global_position.distance_to(Vector2(px, py))
+	var active_valid := false
+	var active_id := -1
+	if main and is_instance_valid(main):
+		var ar: Variant = main.get("active_collection_resource")
+		if ar != null and ar is Node2D and is_instance_valid(ar):
+			active_valid = true
+			active_id = (ar as Object).get_instance_id()
+	var hcgx := 0.0
+	var hcgy := 0.0
+	var clx := 0.0
+	var cly := 0.0
+	var dist_player_to_hitbox := 0.0
+	var dist_node_to_hitbox := 0.0
+	if collision:
+		clx = collision.position.x
+		cly = collision.position.y
+		hcgx = collision.global_position.x
+		hcgy = collision.global_position.y
+		dist_node_to_hitbox = global_position.distance_to(collision.global_position)
+		if player and is_instance_valid(player):
+			dist_player_to_hitbox = player.global_position.distance_to(collision.global_position)
+	return {
+		"evt": evt,
+		"resource": ResourceData.get_resource_name(resource_type),
+		"resource_enum": int(resource_type),
+		"node_id": get_instance_id(),
+		"bush_x": snappedf(global_position.x, 0.1),
+		"bush_y": snappedf(global_position.y, 0.1),
+		"player_x": snappedf(px, 0.1),
+		"player_y": snappedf(py, 0.1),
+		"dist_player_to_node_center": snappedf(dist_center, 0.1),
+		"collision_local_x": snappedf(clx, 0.1),
+		"collision_local_y": snappedf(cly, 0.1),
+		"hitbox_center_global_x": snappedf(hcgx, 0.1),
+		"hitbox_center_global_y": snappedf(hcgy, 0.1),
+		"dist_player_to_hitbox_center": snappedf(dist_player_to_hitbox, 0.1),
+		"dist_node_origin_to_hitbox_center": snappedf(dist_node_to_hitbox, 0.1),
+		"collision_w": coll_w,
+		"collision_h": coll_h,
+		"collision_half_w": snappedf(coll_w * 0.5, 0.1),
+		"collision_half_h": snappedf(coll_h * 0.5, 0.1),
+		"sprite_tex_w": spr_tex_w,
+		"sprite_tex_h": spr_tex_h,
+		"sprite_scale_x": spr_sc_x,
+		"sprite_scale_y": spr_sc_y,
+		"approx_visual_w": snappedf(spr_tex_w * absf(spr_sc_x), 0.1),
+		"approx_visual_h": snappedf(spr_tex_h * absf(spr_sc_y), 0.1),
+		"mouse_screen_x": snappedf(mouse_screen.x, 0.1),
+		"mouse_screen_y": snappedf(mouse_screen.y, 0.1),
+		"mouse_world_x": snappedf(mouse_world.x, 0.1),
+		"mouse_world_y": snappedf(mouse_world.y, 0.1),
+		"dist_mouse_to_node_center": snappedf(mouse_world.distance_to(global_position), 0.1),
+		"player_in_gather_hitbox": player != null and is_instance_valid(player) and overlaps_body(player),
+		"active_target_valid": active_valid,
+		"active_target_id": active_id,
+		"this_is_active_target": main != null and is_instance_valid(main) and main.get("active_collection_resource") == self,
+		"is_cooldown": is_in_cooldown,
+		"gather_count": gather_count,
+		"move_cancel_threshold_px": MOVE_CANCEL_THRESHOLD,
+	}
+
 
 func _on_body_entered(body: Node2D) -> void:
 	if gathered:
@@ -165,9 +372,14 @@ func _on_body_entered(body: Node2D) -> void:
 			if main.active_collection_resource == null:
 				main.active_collection_resource = self
 			elif main.active_collection_resource != self:
-				var other_distance := player_pos.distance_to(main.active_collection_resource.global_position)
-				if this_distance < other_distance:
+				var other: Variant = main.active_collection_resource
+				if other == null or not is_instance_valid(other):
 					main.active_collection_resource = self
+				else:
+					var other_distance := player_pos.distance_to((other as Node2D).global_position)
+					if this_distance < other_distance:
+						main.active_collection_resource = self
+		_emit_gather_diagnostic("gather_body_entered", body, main)
 
 func _on_body_exited(body: Node2D) -> void:
 	if body == nearby_player:
@@ -177,7 +389,8 @@ func _on_body_exited(body: Node2D) -> void:
 		if main:
 			if main.active_collection_resource == self:
 				main.active_collection_resource = null
-		_stop_collection()
+		_emit_gather_diagnostic("gather_body_exited", body, main)
+		_stop_collection("player_left_hitbox")
 
 func _setup_collection_progress() -> void:
 	var progress_node := Node2D.new()
@@ -216,8 +429,11 @@ func _process(delta: float) -> void:
 	# Check for E key press (just pressed, not held) when player is nearby
 	if nearby_player:
 		# Make sure this resource is active if no other is active
-		var main := get_tree().get_first_node_in_group("main")
+		var main: Node = get_tree().get_first_node_in_group("main")
 		if main:
+			var ar: Variant = main.get("active_collection_resource")
+			if ar != null and not is_instance_valid(ar):
+				main.active_collection_resource = null
 			# If no resource is active, make this one active
 			if main.active_collection_resource == null:
 				main.active_collection_resource = self
@@ -225,14 +441,26 @@ func _process(delta: float) -> void:
 			elif main.active_collection_resource != self:
 				var player_pos := nearby_player.global_position
 				var this_distance := player_pos.distance_to(global_position)
-				var other_distance := player_pos.distance_to(main.active_collection_resource.global_position)
-				if this_distance < other_distance:
+				var other2: Variant = main.active_collection_resource
+				if other2 != null and is_instance_valid(other2):
+					var other_distance := player_pos.distance_to((other2 as Node2D).global_position)
+					if this_distance < other_distance:
+						main.active_collection_resource = self
+				else:
 					main.active_collection_resource = self
 		
 		# Check if this resource is the active collection resource
 		var is_active := false
 		if main:
 			is_active = (main.active_collection_resource == self)
+		
+		if Input.is_action_just_pressed("gather") and main and not is_active:
+			var now_sec: float = Time.get_ticks_msec() / 1000.0
+			if now_sec - _gather_diag_wrong_target_last_t >= 0.35:
+				_gather_diag_wrong_target_last_t = now_sec
+				_emit_gather_diagnostic("gather_space_wrong_active_target", nearby_player, main, {
+					"note": "Space while overlapping this hitbox but active_collection_resource is another node or null"
+				})
 		
 		# Only process if this is the active resource
 		if is_active:
@@ -246,10 +474,10 @@ func _process(delta: float) -> void:
 				# Player moved — cancel gather (must stay in place)
 				var moved := gathering_player.global_position.distance_to(collection_start_position)
 				if moved > MOVE_CANCEL_THRESHOLD:
-					_stop_collection()
+					_stop_collection("moved_while_collecting")
 	elif is_collecting:
 		# Player left area, stop collection
-		_stop_collection()
+		_stop_collection("left_hitbox_while_collecting")
 
 func _is_bumping(player: Node2D) -> bool:
 	# Check if player is very close (bump detection)
@@ -258,29 +486,34 @@ func _is_bumping(player: Node2D) -> bool:
 	return player_pos.distance_to(resource_pos) < 40.0
 
 func _collect_one_item() -> void:
+	var main: Node = get_tree().get_first_node_in_group("main")
 	# Check if resource is exhausted (in cooldown)
 	if is_in_cooldown:
+		_emit_gather_diagnostic("gather_blocked_cooldown", nearby_player, main)
 		print("Resource is exhausted, cannot collect")
 		return
 	
 	# Check if tool is required for this resource type
-	var main := get_tree().get_first_node_in_group("main")
 	if not main:
 		return
 	
 	# Tool requirements: WOOD needs Axe or Oldowan; STONE needs Pick or Oldowan
 	if main.has_method("has_tool_for_gather") and not main.has_tool_for_gather(resource_type):
-		var msg: String = ""
 		if resource_type == ResourceData.ResourceType.WOOD:
-			msg = "Need Oldowan or Axe for wood"
-		elif resource_type == ResourceData.ResourceType.STONE:
+			_emit_gather_diagnostic("gather_blocked_tool_wood_search", nearby_player, main, {"fallback": "wood_nut_search"})
+			_start_wood_nut_search(main)
+			return
+		var msg: String = ""
+		if resource_type == ResourceData.ResourceType.STONE:
 			msg = "Need Oldowan or Pick for stone"
+		_emit_gather_diagnostic("gather_blocked_tool", nearby_player, main, {"detail": msg})
 		if msg != "" and main.has_method("_show_placement_warning"):
 			main._show_placement_warning(msg)
 		return
 	
 	# This should already be the active resource, but double-check
 	if main.active_collection_resource != self:
+		_emit_gather_diagnostic("gather_blocked_not_active_target", nearby_player, main)
 		print("Not the active resource, cannot collect")
 		return  # Not the active resource, don't collect
 	
@@ -297,24 +530,74 @@ func _collect_one_item() -> void:
 	if gathering_player != null:
 		gathering_player.set("is_gathering", true)
 	if collection_progress:
-		# Get icon for this resource type
+		# Match timer icon to world sprite for multi-variant pickups (bugs1/2/3, nuts1–4). Trees use sheet — keep generic wood icon.
 		var icon: Texture2D = null
-		var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
-		if icon_path != "":
-			icon = load(icon_path) as Texture2D
+		match resource_type:
+			ResourceData.ResourceType.BUGS, ResourceData.ResourceType.NUTS:
+				if sprite and sprite.texture:
+					icon = sprite.texture
+		if icon == null:
+			var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
+			if icon_path != "":
+				icon = load(icon_path) as Texture2D
 		collection_progress.start_collection(icon)
 		collection_progress.collection_time = effective_time
 	
 	# Wait for collection time, then give item
 	is_collecting = true
+	_emit_gather_diagnostic("gather_started", nearby_player, main, {"effective_time": effective_time})
 	var timer := get_tree().create_timer(effective_time)
 	timer.timeout.connect(func(): _finish_collection())
 
+func _start_wood_nut_search(main: Node) -> void:
+	if is_in_cooldown:
+		return
+	if main.active_collection_resource != self:
+		return
+	if not nearby_player:
+		return
+	_wood_nut_search = true
+	collection_start_position = nearby_player.global_position
+	gathering_player = nearby_player
+	gathering_player.set("is_gathering", true)
+	var search_time: float = 0.9
+	if collection_progress:
+		collection_progress.collection_time = search_time
+		collection_progress.start_collection(null)
+	is_collecting = true
+	var timer := get_tree().create_timer(search_time)
+	timer.timeout.connect(func(): _finish_wood_nut_search())
+
+func _finish_wood_nut_search() -> void:
+	if not _wood_nut_search:
+		return
+	_wood_nut_search = false
+	var main := get_tree().get_first_node_in_group("main")
+	if gathering_player != null:
+		var moved := gathering_player.global_position.distance_to(collection_start_position)
+		if moved > MOVE_CANCEL_THRESHOLD:
+			is_collecting = false
+			if collection_progress:
+				collection_progress.stop_collection()
+			_clear_gathering_player()
+			return
+	is_collecting = false
+	if collection_progress:
+		collection_progress.stop_collection()
+	if main and main.has_method("add_to_inventory"):
+		if randf() < 0.25:
+			main.add_to_inventory(ResourceData.ResourceType.NUTS, 1)
+		elif main.has_method("_show_placement_warning"):
+			main._show_placement_warning("Nothing here")
+	_clear_gathering_player()
+
 func _finish_collection() -> void:
+	var main_finish: Node = get_tree().get_first_node_in_group("main")
 	# If player moved during collection, cancel (no item)
 	if gathering_player != null:
 		var moved := gathering_player.global_position.distance_to(collection_start_position)
 		if moved > MOVE_CANCEL_THRESHOLD:
+			_emit_gather_diagnostic("gather_cancelled_player_moved", gathering_player, main_finish, {"moved_px": moved})
 			gathering_player.set("is_gathering", false)
 			gathering_player = null
 			is_collecting = false
@@ -322,14 +605,13 @@ func _finish_collection() -> void:
 				collection_progress.stop_collection()
 			return
 	# Collection complete, give item to player
-	var main := get_tree().get_first_node_in_group("main")
-	if not main:
+	if not main_finish:
 		_clear_gathering_player()
 		return
 	
 	# Check if resource is in cooldown (exhausted)
 	if is_in_cooldown:
-		# Resource is exhausted - can't collect
+		_emit_gather_diagnostic("gather_blocked_cooldown_at_finish", gathering_player, main_finish)
 		is_collecting = false
 		if collection_progress:
 			collection_progress.stop_collection()
@@ -356,8 +638,14 @@ func _finish_collection() -> void:
 		item_type = ResourceData.ResourceType.FIBER
 	
 	# Give exactly 1 item
-	if main and main.has_method("add_to_inventory"):
-		main.add_to_inventory(item_type, 1)
+	if main_finish and main_finish.has_method("add_to_inventory"):
+		main_finish.add_to_inventory(item_type, 1)
+		_emit_gather_diagnostic("gather_complete", gathering_player, main_finish, {"item": ResourceData.get_resource_name(item_type)})
+		# Hidden nut find while chopping / working the tree (no extra spot on the map)
+		if resource_type == ResourceData.ResourceType.WOOD and randf() < 0.25:
+			main_finish.add_to_inventory(ResourceData.ResourceType.NUTS, 1)
+	else:
+		_emit_gather_diagnostic("gather_complete_no_inventory", gathering_player, main_finish, {"item": ResourceData.get_resource_name(item_type)})
 	
 	# Stop collection visual
 	is_collecting = false
@@ -370,10 +658,16 @@ func _clear_gathering_player() -> void:
 		gathering_player.set("is_gathering", false)
 		gathering_player = null
 
-func _stop_collection() -> void:
+func _stop_collection(reason: String = "unspecified") -> void:
+	var gp: Node2D = gathering_player
+	var was_collecting: bool = is_collecting or _wood_nut_search
+	_wood_nut_search = false
 	is_collecting = false
 	if collection_progress:
 		collection_progress.stop_collection()
+	if was_collecting and gp != null and is_instance_valid(gp):
+		var main_stop: Node = get_tree().get_first_node_in_group("main")
+		_emit_gather_diagnostic("gather_stopped", gp, main_stop, {"reason": reason})
 	_clear_gathering_player()
 
 # NPC interaction methods
@@ -394,7 +688,9 @@ func is_harvestable() -> bool:
 		resource_type == ResourceData.ResourceType.STONE or 
 		resource_type == ResourceData.ResourceType.BERRIES or
 		resource_type == ResourceData.ResourceType.WHEAT or
-		resource_type == ResourceData.ResourceType.FIBER)
+		resource_type == ResourceData.ResourceType.FIBER or
+		resource_type == ResourceData.ResourceType.BUGS or
+		resource_type == ResourceData.ResourceType.NUTS)
 
 # Task System - Check if resource is harvestable without checking locks (for internal use)
 func is_harvestable_ignore_lock() -> bool:
@@ -406,7 +702,9 @@ func is_harvestable_ignore_lock() -> bool:
 		resource_type == ResourceData.ResourceType.STONE or 
 		resource_type == ResourceData.ResourceType.BERRIES or
 		resource_type == ResourceData.ResourceType.WHEAT or
-		resource_type == ResourceData.ResourceType.FIBER)
+		resource_type == ResourceData.ResourceType.FIBER or
+		resource_type == ResourceData.ResourceType.BUGS or
+		resource_type == ResourceData.ResourceType.NUTS)
 
 # OPTIMIZATION: Lock system methods removed - migrated to capacity/reservation system
 # Use reserve()/release() methods instead of lock_for()/unlock()
@@ -519,6 +817,9 @@ func _prune_reserved_workers() -> void:
 	reserved_workers = valid_workers
 
 func _exit_tree() -> void:
+	var main_node := get_tree().get_first_node_in_group("main")
+	if main_node and main_node.get("active_collection_resource") == self:
+		main_node.active_collection_resource = null
 	if ResourceIndex:
 		ResourceIndex.unregister(self)
 	"""OPTIMIZATION: Cleanup when resource is destroyed - release all reservations and cancel affected jobs"""

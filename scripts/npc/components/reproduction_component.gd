@@ -22,6 +22,9 @@ func initialize(npc_ref: NPCBase) -> void:
 	
 	npc = npc_ref
 	config = ReproductionConfig.new()
+	if config and BalanceConfig:
+		config.birth_timer_base = BalanceConfig.pregnancy_seconds
+		config.birth_cooldown = BalanceConfig.birth_cooldown_seconds
 	
 	if not config:
 		UnifiedLogger.log_system("REPRODUCTION_INIT: ERROR - Failed to create ReproductionConfig for %s" % npc_name, {
@@ -47,6 +50,9 @@ func update(delta: float) -> void:
 			"npc": npc_name
 		})
 		config = ReproductionConfig.new()
+		if config and BalanceConfig:
+			config.birth_timer_base = BalanceConfig.pregnancy_seconds
+			config.birth_cooldown = BalanceConfig.birth_cooldown_seconds
 		if not config:
 			UnifiedLogger.log_system("REPRODUCTION_UPDATE: ERROR - Failed to create config for %s" % npc_name, {
 				"npc": npc_name

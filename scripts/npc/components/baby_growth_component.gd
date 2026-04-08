@@ -11,7 +11,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	npc = npc_ref
 	# Load config for growth time
 	var config = ReproductionConfig.new()
-	growth_time = config.baby_growth_time_testing
+	growth_time = BalanceConfig.baby_growth_seconds if BalanceConfig else config.baby_growth_time_testing
 
 func update(delta: float) -> void:
 	if not npc:

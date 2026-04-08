@@ -33,7 +33,7 @@ var assigned_searchers: Array = []
 var defend_ratio: float = 0.2
 var search_ratio: float = 0.2
 
-# Player-owned: slider-driven defend ratio (0.0 = all work, 1.0 = all defend). Default 0 so single clansman can leave.
+# Legacy export; defender quota is auto 3:1 (1 slot per 4 fighters) + drag out/in (see ClanBrain).
 @export var player_defend_ratio: float = 0.0
 var _player_quota_timer: float = 0.0
 const PLAYER_QUOTA_UPDATE_INTERVAL: float = 1.5  # Throttle NPC scans
@@ -67,7 +67,9 @@ func _ready() -> void:
 	# Create inventory (6 slots, stacking enabled, no stack limit for testing) if not already set
 	# CRITICAL: Only create if not already set (main.gd might have set it before _ready() runs)
 	if not inventory:
-		inventory = InventoryData.new(12, true, 999999)  # 12 slots for testing (was 6), stacking enabled
+		var n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
+		var mx: int = BalanceConfig.land_claim_inventory_max_stack if BalanceConfig else 999999
+		inventory = InventoryData.new(n, true, mx)
 		if DebugConfig.enable_debug_mode:
 			print("🔵 LAND_CLAIM._READY: Created NEW inventory for %s (inventory=%s)" % [clan_name, inventory])
 	else:
@@ -517,14 +519,16 @@ func _initialize_clan_brain() -> void:
 		push_error("Failed to load ClanBrain script for land claim: %s" % clan_name)
 
 func _update_player_defender_quota() -> void:
-	"""Request immediate defender quota update (e.g. when slider changes). Delegates to ClanBrain."""
+	"""Immediate quota from ClanBrain (drag defend/work, UI). Refreshes fighter list so n/4 matches current roster."""
+	if clan_brain and clan_brain.has_method("_refresh_clan_members"):
+		clan_brain._refresh_clan_members()
 	if clan_brain and clan_brain.has_method("_update_defender_assignments"):
 		clan_brain._update_defender_assignments()
 
 func _process(delta: float) -> void:
 	"""Process building decay and ClanBrain updates"""
 	
-	# Phase 3 Part C: Update ClanBrain (all clans - player mode uses player_defend_ratio)
+	# Phase 3 Part C: Update ClanBrain (all clans; player quota = n/4 + drag pool)
 	if clan_brain and not is_decaying:
 		clan_brain.update(delta)
 	

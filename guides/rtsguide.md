@@ -13,6 +13,8 @@ Stone Age Clans uses a **light RTS** model. You don’t micromanage every action
 - Modes block autonomous behavior (gather, wander, etc.)
 - All commands are cancelable
 
+**Code terms:** Fighters in ordered follow use FSM state **`party`** (Follow/Guard/Attack formations). Wild women/animals being escorted use FSM state **`herd`** — different rules (influence, steal). See **`guides/rts.md`** and **`bible.md` Terminology**.
+
 ---
 
 ## Core RTS Elements
@@ -95,38 +97,43 @@ When the **context menu is closed**, you can drag NPCs for quick commands.
 
 ---
 
-### 4. Follow and Guard Modes
+### 4. Follow, Guard, and Attack (HUD stances)
 
-When clansmen follow you, you choose formation style via HUD.
+When clansmen are on **ordered follow**, you set **stance** with the bottom HUD (exact geometry and speeds: **`guides/rts.md`** §4).
 
-**FOLLOW (loose formation)**
-- Distance: 50–150px behind leader (config)
-- In hostile: 40–120px
-- Max break distance: 300px (non-ordered herding); **ordered follow does not break by distance**
+**FOLLOW**
+- Loose escort **behind** the leader; **full** formation speed (**1.0×**) for player and clansmen when moving as a unit.
 
-**GUARD (tight formation)**
-- Distance: 28–80px around leader (ordered: ~45px)
-- In hostile: 32–45px
-- Max distance: 120px — if leader moves farther, followers break and stop following (unless in combat)
+**GUARD**
+- **Ring** around the leader; **slower** (**0.75×**) — better for “we might get hit” than for pure travel.
+
+**ATTACK**
+- **Line in front** of the leader; higher aggression tuning; **slower** march (**0.85×** player + formation NPCs vs Follow).
+
+**Hunt, raid, long movement — recommended**
+- **Most efficient** way to move the **group** across the map (hunt approach, march to a raid): stay in **Follow** until you are **close** to the prey or objective.
+- **Do not** use **Attack** for long cross-country travel: it **slows** you and the line is meant for **closing into combat**, not marching.
+- When the **target is near**, switch to **Attack** so clansmen fan **ahead** and engage. Optional: **Guard** for a tense approach if you accept slower travel than Follow.
 
 **HUD controls**
-- **FOLLOW** button — loose formation
-- **GUARD** button — tight formation
-- **Break Follow** — clear ordered follow from all followers
+- **FOLLOW** / **GUARD** / **ATTACK** — stances (applies to **selection**)
+- **Break** — clear ordered follow (see below)
 
 ---
 
 ### 5. Ordered Follow vs Herding
 
 **Ordered follow** (`follow_is_ordered = true`)
-- Trigger: context menu **FOLLOW** or drag clansman → player
-- Unbreakable until **Break Follow**, **Work**, **Defend**, or death
+- Trigger: context menu **FOLLOW** or drag clansman → player (or **ClanBrain** forming an NPC raid party: same-clan caveman leader + followers)
+- Fighters use FSM state **`party`** (not **`herd`**): Follow/Guard/Attack formations and speeds match the player-led path (`FormationUtils` + `formation_slots` on the leader).
+- Unbreakable until **Break Follow**, **Work**, **Defend**, raid cleanup, or death (exact break rules depend on source of the order)
 - Ignores distance break (except GUARD mode at 120px)
 - Cannot be stolen by other herders
-- Mirrors leader’s hostile state (weapon = hostile)
+- Mirrors leader’s hostile state (weapon for player; NPC leader `is_hostile` for AI parties)
 
 **Herding (right-click wild NPCs)**
-- Right-click woman/sheep/goat/caveman → they follow
+- Right-click woman/sheep/goat → they attach as **wild herdables**; FSM **`herd`** (tethered follow, influence/steal, `NPCConfig` follow refresh + speed mult)
+- Cavemen/clansmen are **not** in **`herd`** for formations — only the wild types above
 - Uses normal herd rules: breaks if you go >300px; can be stolen
 - Bringing them into land claim radius claims them for your clan
 
@@ -185,7 +192,7 @@ When clansmen follow you, you choose formation style via HUD.
 | Defend | Context menu DEFEND, or drag clansman → world (outside claim) |
 | Search | Context menu SEARCH |
 | Work (clear role) | Context menu WORK, or drag clansman → inside land claim |
-| Formation | HUD: FOLLOW (loose) / GUARD (tight) |
+| Stances | HUD: FOLLOW (travel) / GUARD / ATTACK (close to fight) — see §4 |
 | Break follow | HUD: Break Follow |
 | Hostile | Equip weapon (automatic) |
 
@@ -193,6 +200,7 @@ When clansmen follow you, you choose formation style via HUD.
 
 ## Related Guides
 
+- **`rts.md`** — Authoritative RTS doc: formations, speeds, horn, break, playtest (`guides/rts.md`)
 - `Task_system.md` — Tasks, modes, pull-based work
 - `HERDING_SYSTEM_GUIDE.md` — Herding, influence, stealing
 - `phase2.md` — Defend, Search, FSM states

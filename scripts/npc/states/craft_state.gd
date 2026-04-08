@@ -47,7 +47,11 @@ func update(_delta: float) -> void:
 
 	if _is_following():
 		if fsm:
-			fsm.change_state("herd")
+			var nt_cf: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt_cf == "caveman" or nt_cf == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
 		return
 
 	# Task system: if TaskRunner has a job, delegate to it
@@ -114,7 +118,7 @@ func can_enter() -> bool:
 		return false
 
 	# Crafting unlocked only when clan has 2+ clansmen (cavemen focus on gather/herd until then)
-	if _count_clan_fighters() < MIN_CLANSMEN_FOR_CRAFT:
+	if _count_clansmen_in_clan() < MIN_CLANSMEN_FOR_CRAFT:
 		return false
 
 	var claim_inv = claim.get("inventory")
@@ -136,7 +140,7 @@ func can_enter() -> bool:
 
 func get_priority() -> float:
 	# Craft only competitive when unlocked (2+ clansmen, safe food stock) and claim needs blades
-	if _count_clan_fighters() < MIN_CLANSMEN_FOR_CRAFT:
+	if _count_clansmen_in_clan() < MIN_CLANSMEN_FOR_CRAFT:
 		return 2.0  # Below gather (4-6) and herd_wildnpc (10.9) - focus on gather/herd first
 	var claim: Node2D = _get_land_claim()
 	if not claim:
@@ -156,8 +160,8 @@ func get_data() -> Dictionary:
 		"land_claim": land_claim.get("clan_name") if land_claim else "",
 	}
 
-func _count_clan_fighters() -> int:
-	"""Count cavemen + clansmen in the same clan (matches ClanBrain logic)."""
+func _count_clansmen_in_clan() -> int:
+	"""Male NPCs in this clan (`npc_type` caveman or clansman); see guides/game_dictionary.md."""
 	if not npc:
 		return 0
 	var clan: String = npc.get_clan_name() if npc else ""

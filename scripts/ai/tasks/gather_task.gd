@@ -231,6 +231,10 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			resource_node.release(npc)
 		return TaskStatus.SUCCESS  # Inventory full, stop gathering
 
+	# Hidden nut find while chopping wood (matches player forage-on-tree)
+	if resource_type == ResourceData.ResourceType.WOOD and randf() < 0.25:
+		npc.inventory.add_item(ResourceData.ResourceType.NUTS, 1)
+
 	var resource_name: String = ResourceData.get_resource_name(resource_type)
 	UnifiedLogger.log_npc("GATHER_TASK: %s gathered %d %s" % [npc.npc_name, yield_amount, resource_name], {
 		"npc": npc.npc_name,

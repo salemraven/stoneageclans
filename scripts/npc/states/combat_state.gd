@@ -2,6 +2,7 @@ extends "res://scripts/npc/states/base_state.gd"
 
 # Preload PerceptionArea so it resolves (avoids "Could not find type" when run from CLI)
 const PerceptionArea = preload("res://scripts/npc/components/perception_area.gd")
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 
 # Combat State - NPCs attack enemies when agro_meter >= 70
 # Agro meter increases when attacked, decreases over time when not in combat
@@ -56,29 +57,10 @@ func enter() -> void:
 	if target_prop != null and target_prop is Node2D:
 		combat_target = target_prop as Node2D
 	
-	# Player-specific validation: never attack herder, defender/searcher of player's claim, or same-clan
-	if combat_target and npc and is_instance_valid(combat_target) and combat_target.is_in_group("player"):
-		var herder_val = npc.get("herder")
-		if herder_val == combat_target:
-			_clear_combat_target_and_exit()
-			return
-		var dt = npc.get("defend_target")
-		var shc = npc.get("search_home_claim")
-		if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-			_clear_combat_target_and_exit()
-			return
-	
-	# Same-clan check: never attack allies (prevents friendly fire)
-	if combat_target and npc and is_instance_valid(combat_target):
-		var my_clan: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
-		var tgt_clan: String = ""
-		if combat_target.has_method("get_clan_name"):
-			tgt_clan = combat_target.get_clan_name()
-		elif "clan_name" in combat_target:
-			tgt_clan = str(combat_target.get("clan_name"))
-		if my_clan != "" and tgt_clan != "" and my_clan == tgt_clan:
-			_clear_combat_target_and_exit()
-			return  # Exit without entering combat
+	# Never enter combat vs allies (clan, herder, shared claim, player membership — see CombatAllyCheck)
+	if combat_target and npc and is_instance_valid(combat_target) and CombatAllyCheck.is_ally(npc, combat_target):
+		_clear_combat_target_and_exit()
+		return
 	
 	# Set target in combat component
 	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
@@ -117,10 +99,14 @@ func enter() -> void:
 			npc.set_meta("last_combat_entry_logged", combat_target)
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled():
-			pi.combat_started(npc_name_safe, target_name)
+			var ff: bool = combat_target != null and is_instance_valid(combat_target) and CombatAllyCheck.is_ally(npc, combat_target)
+			pi.combat_started(npc_name_safe, target_name, npc_clan, target_clan, ff)
 	
 	if npc.hostile_indicator:
 		npc.hostile_indicator.visible = true
+	
+	if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
+		npc.steering_agent.restore_original_speed()
 
 func exit() -> void:
 	_cancel_tasks_if_active()
@@ -137,6 +123,14 @@ func exit() -> void:
 			npc.combat_target_id = -1
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
+		if npc.has_method("reset_agro_after_combat"):
+			npc.reset_agro_after_combat()
+			var pi_ar: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_ar and pi_ar.is_enabled():
+				var _ctx_ar: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+				var _mode_ar: String = str(_ctx_ar.get("mode", "NONE"))
+				var _new_agro: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
+				pi_ar.clansman_agro_reset(str(npc.get("npc_name")), _mode_ar, _new_agro)
 		# Clear combat entry logging meta when exiting
 		if npc.has_meta("last_combat_entry_logged"):
 			npc.remove_meta("last_combat_entry_logged")
@@ -186,6 +180,24 @@ func update(_delta: float) -> void:
 				if fsm and fsm.has_method("force_evaluation"):
 					fsm.force_evaluation()
 				return
+	
+	# Ordered followers: don't chase beyond mode-specific distance from leader
+	if npc.get("follow_is_ordered") and npc.get("herder") and is_instance_valid(npc.get("herder")):
+		var leader_pos: Vector2 = npc.herder.global_position
+		var dist_from_leader: float = npc.global_position.distance_to(leader_pos)
+		var ctx_leash: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+		var mode_leash: String = str(ctx_leash.get("mode", "FOLLOW"))
+		var max_chase: float = 150.0
+		if mode_leash == "GUARD":
+			max_chase = 200.0
+		elif mode_leash == "ATTACK":
+			max_chase = 400.0
+		if dist_from_leader > max_chase:
+			var pi_lb: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_lb and pi_lb.is_enabled():
+				pi_lb.clansman_leash_break(str(npc.get("npc_name")), mode_leash, dist_from_leader, max_chase)
+			_clear_combat_target_and_exit()
+			return
 	
 	# CRITICAL: Combat takes priority over following - life over orders
 	# Even if NPC is following, combat (12.0) beats following (11.0)
@@ -462,8 +474,27 @@ func _is_target_still_valid(t: Node2D) -> bool:
 		if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
 			return false
 		return true  # Player is valid target (not following, different clan, not player's clansman)
+	# NPC target: same-clan allies invalid (e.g. joined clan mid-fight)
+	if not t.is_in_group("player") and npc:
+		if npc.has_method("get_clan_name") and t.has_method("get_clan_name"):
+			var my_c: String = npc.get_clan_name()
+			var tgt_c: String = t.get_clan_name()
+			if my_c != "" and tgt_c != "" and my_c == tgt_c:
+				return false
 	var target_health: HealthComponent = t.get_node_or_null("HealthComponent")
 	return target_health != null and not target_health.is_dead
+
+func _stance_combat_agro_threshold() -> float:
+	"""Defenders / non-ordered: 70. Ordered: FOLLOW 90, GUARD 70, ATTACK 50."""
+	if not npc or not npc.get("follow_is_ordered"):
+		return 70.0
+	var ctx: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+	var mode: String = str(ctx.get("mode", "FOLLOW"))
+	if mode == "GUARD":
+		return 70.0
+	elif mode == "ATTACK":
+		return 50.0
+	return 90.0
 
 func can_enter() -> bool:
 	if not npc:
@@ -494,15 +525,24 @@ func can_enter() -> bool:
 	if NPCConfig and NPCConfig.get("combat_disabled"):
 		return false
 	
-	# Check if agro_meter >= 70 (normal gameplay - agro must build up naturally)
+	# Check if agro meets stance threshold (ordered followers: FOLLOW 90 / GUARD 70 / ATTACK 50)
 	var agro_meter_prop = npc.get("agro_meter")
 	var agro_meter: float = agro_meter_prop as float if agro_meter_prop != null else 0.0
+	var agro_thr: float = _stance_combat_agro_threshold()
 	
 	# Debug logging (disabled to reduce console spam)
 	# var npc_name = npc.get("npc_name") if npc else "unknown"
 	# print("🔍 COMBAT_STATE: can_enter() check for %s - agro_meter=%.1f" % [npc_name, agro_meter])
 	
-	if agro_meter >= 70.0:
+	if agro_meter < agro_thr and npc.get("follow_is_ordered"):
+		var _last_blocked_agro: float = npc.get_meta("_combat_blocked_last_agro", -1.0) if npc.has_meta("_combat_blocked_last_agro") else -1.0
+		if abs(agro_meter - _last_blocked_agro) > 2.0:
+			npc.set_meta("_combat_blocked_last_agro", agro_meter)
+			var pi_cb: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_cb and pi_cb.is_enabled():
+				var _ctx_cb: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+				pi_cb.clansman_combat_blocked(str(npc.get("npc_name")), str(_ctx_cb.get("mode", "FOLLOW")), agro_meter, agro_thr)
+	if agro_meter >= agro_thr:
 		# Use PerceptionArea (AOP) - node name "DetectionArea" in NPC.tscn
 		var pa: PerceptionArea = npc.get_node_or_null("DetectionArea") as PerceptionArea
 		if pa:
@@ -531,6 +571,9 @@ func can_enter() -> bool:
 	if not raid_allow and DebugConfig and DebugConfig.get("enable_agro_combat_test") and DebugConfig.get("test_overrides") is Dictionary:
 		raid_allow = DebugConfig.test_overrides.get("allow_raid_without_player", true)
 	var raid_ok: bool = hostile and h != null and is_instance_valid(h) and ordered and raid_allow
+	if raid_ok and npc.get("follow_is_ordered"):
+		if agro_meter < _stance_combat_agro_threshold():
+			raid_ok = false
 	if DebugConfig and DebugConfig.get("enable_agro_combat_test") and raid_allow and ordered and h != null and is_instance_valid(h) and not hostile:
 		if not _raid_blocked_logged:
 			_raid_blocked_logged = true

@@ -5,6 +5,10 @@ alwaysApply: true
 
 # Godot ↔ Cursor / VS Code
 
+## Project folder on disk (no spaces)
+
+Prefer the project directory name **`StoneAgeClans`** so Windows shells never split `--path`. If the folder is still **`Stone Age Clans`**, close Cursor and Godot, then run **`tools/rename_this_folder_to_StoneAgeClans.ps1`** (or `stoneageclans/rename_project_folder.ps1` if you use the parent wrapper layout).
+
 ## `godotTools.editorPath.godot4` (workspace `.vscode/settings.json`)
 
 - Use a path **relative to the project root**, e.g. `tools/godot/Godot_v4.6.1-stable_win64.exe`.
@@ -21,3 +25,7 @@ alwaysApply: true
 Run the VS Code task **`Godot: Verify Cursor/VS Code setup`**, or:
 
 `powershell -NoProfile -File tools/verify_vscode_godot_setup.ps1`
+
+## Cursor AI + Godot (runs & scene/script changes)
+
+Agent policy lives in **`godot-agent-godot-control.mdc`** (always applied): run Godot via CLI, edit project files, do not offload to the user unless they ask to drive the editor.

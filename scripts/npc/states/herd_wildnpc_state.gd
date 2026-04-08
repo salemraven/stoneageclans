@@ -81,6 +81,18 @@ func exit() -> void:
 				if claim_clan == clan_name_val:
 					claim.remove_searcher(npc)
 					break
+	# Detach any animals that are still following this NPC so they don't chase a rallied clansman
+	if npc and is_instance_valid(npc):
+		for animal in npc.get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(animal):
+				continue
+			if animal.get("herder") == npc and animal.get("is_herded") == true:
+				var hc_a = animal.get_node_or_null("HerdableComponent")
+				if hc_a and hc_a.has_method("detach"):
+					hc_a.detach()
+				else:
+					animal.set("is_herded", false)
+					animal.set("herder", null)
 	if npc and npc.steering_agent:
 		if npc.steering_agent.has_method("restore_original_speed"):
 			npc.steering_agent.restore_original_speed()
@@ -213,6 +225,20 @@ func update(delta: float) -> void:
 
 func can_enter() -> bool:
 	if not npc:
+		return false
+	# Ordered followers never herd wild animals — they follow the player
+	if npc.get("follow_is_ordered"):
+		var pi_o = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_o and pi_o.is_enabled():
+			pi_o.herd_wildnpc_can_enter(npc.npc_name, false, "follow_is_ordered")
+		return false
+	# Clansmen in ATTACK or GUARD mode never herd — only FOLLOW mode allows herding
+	var ctx_wn: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+	var mode_wn: String = ctx_wn.get("mode", "FOLLOW") as String
+	if npc.get("npc_type") == "clansman" and mode_wn != "FOLLOW":
+		var pi_m = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_m and pi_m.is_enabled():
+			pi_m.herd_wildnpc_can_enter(npc.npc_name, false, "mode_" + mode_wn)
 		return false
 	var current_time: float = Time.get_ticks_msec() / 1000.0
 	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")

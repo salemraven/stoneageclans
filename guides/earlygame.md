@@ -63,7 +63,7 @@ The core cycle is:
 ### Night & Exposure
 - Without shelter or fire, night cold drains health steadily.  
 - **Living Hut** provides shelter (wind and cold protection).  
-- Fire (campfire or land claim) provides warmth in a radius and enables cooking. See [shelter_and_warmth.md](shelter_and_warmth.md).
+- Fire (campfire or flag territory) provides warmth in a radius and enables cooking. See [shelter_and_warmth.md](shelter_and_warmth.md).
 
 ### Weekly Pressure
 Around Day 6, stars shift to hint at approaching winter. Stockpile dried tubers and cooked meat (Oldowan harvest + hearth drying/cooking) or prepare to migrate.
@@ -79,51 +79,54 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 
 ---
 
-## Campfire vs Land Claim: Nomadic vs Stationary
+## Territory tiers: one family, multiple claim types
 
-Clear design line separating two playstyles.
+**Land claim** is the **category**: every player base is a claim—same role in systems (clan identity, radius, inventory, NPCs, buildings allowed by tier). We avoid treating the campfire as a totally separate pipeline from “the real base.”
 
-| Dimension | Campfire (Nomadic) | Land Claim (Stationary) |
-|-----------|--------------------|--------------------------|
-| **Identity** | Temporary base | Permanent settlement |
-| **Capacity** | 6 slots | 12 slots |
-| **Radius** | 250px | 400px |
-| **Buildings** | None | Oven, dairy, farm, huts, etc. |
-| **Production** | None | Bread, cheese, crops |
-| **ClanBrain** | No | Yes (defenders, searchers, raids) |
-| **Defender quota** | 0 | Yes |
-| **Searcher quota** | 0 | Yes |
-| **Raid target** | Yes | Yes |
-| **Decay** | Despawns when extinguished + player far | Decays when clan dies |
-| **Upgrade path** | Can become land claim | N/A |
+| Tier | Name (player-facing) | Role | Notes |
+|------|----------------------|------|--------|
+| **1** | **Campfire** | Early-game / nomadic claim | Smaller radius, tighter building rules, **packable or abandonable** and rebuildable elsewhere **without disbanding the clan**. |
+| **2** | **Flag** | Mid-game stationary claim | What the codebase historically called `LandClaim`: full radius, production buildings, **ClanBrain**, defenders/searchers. **Sprite / read: flag** at the anchor. |
+| **3–4** | *TBD* (e.g. tower, keep) | Late upgrades | Larger territory, storage, relic gates, etc.—same claim family, stricter placement / costs. |
 
-### Campfire Does
+### Comparison (rules differ; systems align)
 
-- Deposit (shared storage)
-- Reproduction (babies)
-- Clan join (herd into radius)
-- Cooking (fire on)
-- Warmth
-- Basic "home" for clan
+| Dimension | Campfire (Tier 1) | Flag (Tier 2) | Tier 3+ (planned) |
+|-----------|-------------------|---------------|-------------------|
+| **Identity** | Nomadic home | Settled home | Upgraded settlement |
+| **Inventory slots** | Fewer (e.g. 6) | More (e.g. 12) | TBD |
+| **Radius** | Smaller (e.g. 250px) | Larger (e.g. 400px) | TBD |
+| **Buildings** | Limited (e.g. Living Huts only until upgrade) | Oven, dairy, farm, huts, etc. | Full building set + upgrades |
+| **Production** | Minimal / fire-based only | Bread, cheese, crops, … | TBD |
+| **ClanBrain** | Light or off until upgrade | Full (defenders, searchers, raids) | Full + scaling |
+| **Move / abandon** | **Yes** — pack up, relocate, or abandon and place a new campfire; **clan persists** | Typically fixed; upgrade chain, not nomadic pack-up | Fixed |
+| **Upgrade path** | Campfire → **Flag** (place/replace with flag claim) | Flag → Tier 3 → Tier 4 | N/A |
 
-### Campfire Does Not
+### What every tier shares (target code + design)
 
-- Place buildings
-- Run ClanBrain (no defender/searcher quotas)
-- Have production chains
-- Assign defenders or searchers
+- Same **logical** base: holds clan, NPCs, shared storage, building placement **within that tier’s allow-list**.
+- **UI / RTS / context menus** should key off **player-owned territory** (campfire **or** flag), not “only `LandClaim` type”—so FOLLOW, box select, clan checks, and horn behave the same at the campfire phase.
+- **Differences** are **data/rules**: radius, allowed `ResourceData` building types, whether `ClanBrain` runs full AI, and whether the node can be **packed** or only **upgraded**.
 
-### Design Principle
+### Campfire-specific (Tier 1 only)
 
-**Campfire = survival and mobility.**  
-**Land claim = production and territory.**
+- **Pack / move / abandon:** Remove or itemize the campfire, spawn a new one elsewhere; **do not** wipe `clan_name`, roster, or bloodline—clan is not the stone circle, it’s the people + persistent clan state.
+- **Rebuild:** Placing a new campfire reattaches the same clan the way placing a flag does.
 
-- **Nomadic:** Gather, herd, reproduce, move. Lower risk (can flee). Smaller scale.
-- **Stationary:** Build, produce, defend, raid. Higher risk (raids). Larger scale.
+### Design principle (short)
+
+**Campfire = early land claim (mobility).**  
+**Flag = mid land claim (production + territory).**  
+Later tiers = same family, bigger stakes.
+
+- **Nomadic:** Gather, herd, reproduce, **move the claim**. Smaller footprint, fewer buildings.
+- **Settled:** Build, produce, defend, raid. Larger footprint, full brain.
 
 ### Progression
 
-Campfire is the first step. Land claim is the second. Player can upgrade campfire → land claim when ready to settle.
+1. Start on a **campfire** (Tier 1).  
+2. When ready, **upgrade to a Flag** (Tier 2)—mid-game stationary claim.  
+3. Later, **Tier 3 / 4** upgrades on the flag line (art + data + costs).
 
 ---
 
@@ -151,7 +154,7 @@ While on a **campfire** (no land claim buildings, tight radius, no production ch
 
 ### What Nomads Do *Not* Need On Day One
 
-Full ovens, farms, defender quotas, or raid economy. Those stay **land-claim** rewards. Nomads trade **mobility** for **breadth of small activities**.
+Full ovens, farms, defender quotas, or raid economy. Those stay **flag-tier (settled)** rewards. Nomads trade **mobility** for **breadth of small activities**.
 
 ---
 
@@ -205,7 +208,7 @@ Planned systems and mechanics for the nomadic early game and beyond.
 - `PlaceTravoisTask` – MoveTo(pos) → spawn TravoisGround → transfer inventory → clear carried state
 - `carried_by: NPCBase` on TravoisGround – reservation to prevent two NPCs grabbing same travois
 
-**AI:** TransportJob chains MoveTo + PickUpTravois + item transfers. Clan brain or land claim generates jobs when transport is needed.
+**AI:** TransportJob chains MoveTo + PickUpTravois + item transfers. ClanBrain or territory (flag-tier when brain is active) generates jobs when transport is needed.
 
 ### Delegation & Aggregate Carry Capacity
 
@@ -227,13 +230,13 @@ Planned systems and mechanics for the nomadic early game and beyond.
 
 **Implementation:** Single `get_pack_into_travois_result()` using CraftRegistry recipes. Data-driven; works for multiple hut tiers (thatch, hide) as long as hut materials satisfy travois cost.
 
-### Decay for Abandoned Buildings & Campfire Land Claims
+### Decay for Abandoned Buildings & Territory (Campfire / Flag)
 
 **Concept:** Abandoned structures decay over time. In-use structures do not.
 
 **"In use" definition:**
-- Land claim / campfire: has living clan members, has items in inventory, had deposit/interaction recently, has assigned NPCs
-- Building: has occupant, has items, belongs to active land claim
+- **Territory** (campfire or flag): has living clan members, has items in inventory, had deposit/interaction recently, has assigned NPCs
+- Building: has occupant, has items, belongs to an active claim (campfire or flag)
 
 **Decay trigger:** `last_activity_time` per object. Decay when `Time.now - last_activity_time > ABANDON_THRESHOLD` AND not in use.
 

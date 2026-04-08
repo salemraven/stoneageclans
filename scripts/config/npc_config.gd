@@ -134,6 +134,8 @@ extends Node
 @export var herd_mentality_closer_bonus: float = 0.4  # Bonus to follow chance if new leader is closer than current leader (0.0-1.0) - increased for minigame
 @export var herd_catchup_priority: float = 15.0  # Priority when catching up to herder (very high, higher than eat state)
 @export var herd_max_distance_before_break: float = 300.0  # Distance from herder before herd breaks - reduced from 600px to match NPC perception range (~200-300px)
+@export var herd_follow_refresh_interval: float = 0.3  # Seconds between steering target updates for wild herdables (party uses tighter intervals)
+@export var herd_follower_speed_multiplier: float = 0.85  # Wild herdable follow speed — between party FOLLOW (1.0) and GUARD (0.75)
 @export var herdable_attraction_multiplier: float = 1.0  # Multiplier for sheep/goat attraction threshold (1.0 = same as women, making them herdable)
 @export var herdable_switch_attraction_difference: float = 25.0  # Attraction difference needed for sheep/goats to switch leaders (harder to steal than women)
 # Influence system (HerdInfluenceArea) - alias/override for attraction when using Area2D

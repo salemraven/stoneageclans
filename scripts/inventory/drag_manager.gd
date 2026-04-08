@@ -161,7 +161,7 @@ func end_drag(restore_item: bool = true) -> void:
 	dragged_item = {}
 	from_slot = null
 
-func complete_drop(to_slot: InventorySlot) -> void:
+func complete_drop(to_slot: InventorySlot = null) -> void:
 	if not is_dragging:
 		return
 	

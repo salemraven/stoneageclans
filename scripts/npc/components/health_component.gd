@@ -1,6 +1,8 @@
 extends Node
 class_name HealthComponent
 
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+
 # Health Component - tracks HP, handles death, sets corpse sprite
 
 var npc: Node = null  # NPCBase; use Node to avoid circular parse dependency
@@ -33,24 +35,8 @@ func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.R
 			if not (NPCConfig and NPCConfig.get("combat_disabled")):
 				if CombatTick:
 					CombatTick.push_agro_event(npc, 50.0, "hit", attacker)
-			# Set combat target to attacker ONLY if attacker is a valid enemy (not our herder/leader, not same-clan)
-			var should_target_attacker: bool = true
-			if attacker.is_in_group("player"):
-				var herder_val = npc.get("herder")
-				if herder_val == attacker:
-					should_target_attacker = false  # Don't attack our leader (friendly fire)
-				# Same clan - don't attack player (handles empty player_clan when defending player's claim)
-				elif npc.has_method("get_clan_name") and attacker.has_method("get_clan_name"):
-					var npc_clan: String = npc.get_clan_name()
-					var attacker_clan: String = attacker.get_clan_name()
-					if npc_clan != "" and attacker_clan != "" and npc_clan == attacker_clan:
-						should_target_attacker = false
-				# Defending or searching player's claim = player's clansman, never attack player
-				if should_target_attacker:
-					var dt = npc.get("defend_target")
-					var shc = npc.get("search_home_claim")
-					if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-						should_target_attacker = false
+			# Set combat target to attacker only if not an ally (CombatAllyCheck)
+			var should_target_attacker: bool = not CombatAllyCheck.is_ally(npc, attacker)
 			if should_target_attacker:
 				var tid: int = EntityRegistry.get_id(attacker) if EntityRegistry else -1
 				npc.set("combat_target_id", tid)
@@ -281,13 +267,14 @@ func _break_herd_relationships() -> void:
 		if other_npc == npc:
 			continue
 		
-		# Check if this NPC is their herder
 		var other_herder = other_npc.get("herder")
 		if other_herder == npc:
-			# This NPC was herding them - break the relationship
-			other_npc.set("is_herded", false)
-			other_npc.set("herder", null)
-			other_npc.set("herd_mentality_active", false)
+			if other_npc.has_method("_clear_herd"):
+				other_npc._clear_herd()
+			else:
+				other_npc.set("is_herded", false)
+				other_npc.set("herder", null)
+				other_npc.set("herd_mentality_active", false)
 			
 			# If they were in a clan because of the herder, make them wild again
 			# Only clear clan_name if they're herdable NPCs (women, sheep, goats)

@@ -21,6 +21,17 @@ var _npcs_cache: Array = []
 var _npcs_cache_valid: bool = false
 
 var active_collection_resource: Node2D = null  # Only one resource can be collected at a time (GatherableResource or GroundItem)
+# Space on tall grass that has bugs (meta): gather timer + bugs; other grass does nothing
+const TALLGRASS_HAS_BUGS_META := &"has_bugs"
+const TALLGRASS_BUGS_REMAINING_META := &"bugs_remaining"
+var _ambient_grass_forage_active: bool = false
+var _ambient_grass_forage_start: Vector2 = Vector2.ZERO
+var _ambient_grass_forage_patch: Node2D = null
+var _ambient_grass_forage_progress: Node2D = null
+const AMBIENT_GRASS_FORAGE_RANGE := 52.0
+const AMBIENT_GRASS_STAY_RANGE := 62.0
+const AMBIENT_GRASS_FORAGE_SEC := 0.85
+const AMBIENT_FORAGE_MOVE_CANCEL := 20.0
 var _player_is_eating: bool = false
 var _eating_slot_index: int = -1
 var nearby_building: Node = null  # Building player is near (LandClaim or BuildingBase)
@@ -46,10 +57,20 @@ var decorations_container: Node2D = null  # Empty; grass adds to world_objects f
 var clicked_npc: Node = null  # NPC currently being clicked
 var baby_pool_manager: BabyPoolManager = null  # Baby pool manager for reproduction system
 var active_clan_name_dialog: AcceptDialog = null  # Track active dialog to prevent duplicates
-var combat_hud: Control = null  # Step 9 / Step 4: HUD panel (FOLLOW|GUARD, BREAK) left of hotbar
-var follow_guard_mode: String = "FOLLOW"  # Step 4: FOLLOW | GUARD (formation mode for ordered followers)
+var combat_hud: Control = null  # Bottom: Follow | Guard | Attack | Break (left of hotbar; visible when clansmen selected)
+var _combat_hud_width_px: float = 340.0  # layout width; used with _refresh_combat_hud_layout
+## Stance tuning (matches party_state / FormationUtils / design doc)
+const STANCE_CONFIG := {
+	"FOLLOW": {"aggro_threshold": 0.0,   "chase_dist": 0.0,   "speed_mult": 1.0},
+	"GUARD":  {"aggro_threshold": 70.0,  "chase_dist": 150.0, "speed_mult": 0.75},
+	"ATTACK": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
+}
+## Shared RTS tuning (see scripts/config/rts_formation_config.gd)
+const RTS_CONFIG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
 var _follower_cache: Array = []  # Step 4: commander's list of follower entity IDs (for BREAK)
 var _followers_hostile_timer: float = 0.0  # Throttle weapon-derived is_hostile updates
+var _rts_snapshot_timer: float = 0.0
+var _war_horn_last_time: float = -999.0
 
 # Step 10: NPC drag (left-click hold → drop on player/land claim)
 var npc_drag_source: Node = null
@@ -83,6 +104,9 @@ var gather_test_npc_positions: Dictionary = {}  # Track previous positions for m
 var _agro_combat_test_leaders: Array = []  # [leader_a, leader_b] Node refs
 var _agro_combat_test_claims: Array = []   # [claim_a, claim_b] LandClaim refs
 var _agro_combat_test_start_time: float = -1.0  # set when setup done; auto-quit after AGRO_COMBAT_TEST_DURATION
+# Phased leader AI: 0 = march to enemy claim only, 1 = hold rally for followers, 2 = seek nearest enemy (engage)
+var _agro_combat_test_leader_phases: Array = []
+var _agro_combat_test_leader_phase1_start: Array = []  # world time when entered HOLD (-1 if N/A)
 
 # Raid test: ClanBrain raid test; auto-quit after N seconds
 var _raid_test_start_time: float = -1.0
@@ -91,6 +115,7 @@ var _raid_test_start_time: float = -1.0
 var _playtest_2min_start_time: float = -1.0
 
 const RESOURCE_SCENE = preload("res://scenes/GatherableResource.tscn")
+const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
 const LAND_CLAIM_SCENE = preload("res://scenes/LandClaim.tscn")
 const CAMPFIRE_SCENE = preload("res://scenes/Campfire.tscn")
 const CampfireScript = preload("res://scripts/campfire.gd")
@@ -99,6 +124,8 @@ const NPC_SCENE = preload("res://scenes/NPC.tscn")
 const BUILDING_SCENE = preload("res://scenes/Building.tscn")
 const DROPDOWN_MENU_UI_SCRIPT = preload("res://scripts/ui/dropdown_menu_ui.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
+## F5 / --rts-playtest-spawn: isolated player claim + 5 clansmen (matches horn / stance / DEFEND tests)
+const RTS_PLAYTEST_CLAN_NAME := "RTS PLAYTEST"
 
 # Building placement duration (seconds) - pie timer on slot icon
 const BUILDING_PLACEMENT_DURATION := 1.5
@@ -117,6 +144,28 @@ const BUILDING_SAFE_ZONE_OFFSET: Vector2 = Vector2(0, -20)  # Offset safe zone a
 func _dbg(msg: String) -> void:
 	if DebugConfig.enable_debug_mode:
 		print(msg)
+
+## Web export has no command line; avoid OS.get_cmdline_* on Web (Phase 1 multiplayer.md).
+func _main_cmdline_user_args() -> PackedStringArray:
+	if OS.get_name() == "Web":
+		return PackedStringArray()
+	return OS.get_cmdline_user_args()
+
+
+func _cmdline_has(flag: String) -> bool:
+	if OS.get_name() == "Web":
+		return false
+	return flag in OS.get_cmdline_args() or flag in OS.get_cmdline_user_args()
+
+func _new_land_claim_inventory() -> InventoryData:
+	var n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
+	var m: int = BalanceConfig.land_claim_inventory_max_stack if BalanceConfig else 999999
+	return InventoryData.new(n, true, m)
+
+func _new_campfire_inventory() -> InventoryData:
+	var n: int = BalanceConfig.campfire_inventory_slots if BalanceConfig else 20
+	var m: int = BalanceConfig.campfire_inventory_max_stack if BalanceConfig else 999
+	return InventoryData.new(n, true, m)
 
 # Phase 3: Land claims cache functions
 func get_cached_land_claims() -> Array:
@@ -209,7 +258,7 @@ func _spawn_replacement_caveman() -> void:
 	land_claim.set_clan_name(clan_name)
 	land_claim.player_owned = false
 	if not land_claim.inventory:
-		land_claim.inventory = InventoryData.new(12, true, 999999)
+		land_claim.inventory = _new_land_claim_inventory()
 	world_objects.add_child(land_claim)
 	_despawn_tallgrass_near(claim_pos, land_claim.radius)
 	_despawn_decorative_trees_near(claim_pos, land_claim.radius)
@@ -359,6 +408,24 @@ func _on_eat_complete() -> void:
 	
 	player_inventory_ui._update_hotbar_slots()
 
+
+func _on_inventory_mutate_validated(_op: Dictionary) -> void:
+	# Server-validated inventory path (Phase 6). Drag/drop still applies directly offline; extend _op schema here.
+	pass
+
+func _apply_window_mode_windowed() -> void:
+	"""Ensure bordered windowed mode (fixes editor/export ignoring project window/size/mode)."""
+	# Wait for Window to exist (first frames can ignore mode on some platforms)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, 0)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false, 0)
+	var w := get_window()
+	if w:
+		w.mode = Window.MODE_WINDOWED
+		w.borderless = false
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		# Print competition leaderboard and clan deposits before exit
@@ -373,6 +440,10 @@ func _ready() -> void:
 	UnifiedLogger.log_system("Main._ready() called")
 	
 	add_to_group("main")
+	if SpawnManager:
+		SpawnManager.bind_main(self)
+	# Project settings alone are not always respected (editor Play, some platforms); force windowed.
+	call_deferred("_apply_window_mode_windowed")
 	
 	_configure_input()
 	_setup_world_area()
@@ -399,7 +470,7 @@ func _ready() -> void:
 	
 	# Use DebugConfig for logging (playtest: clean console; use --debug for verbose)
 	
-	_setup_npcs()
+	await _setup_npcs()
 	# FLOW FIX: Resources now spawn AFTER NPCs (see _ready() - moved to after _initialize_minigame())
 	# _spawn_initial_resources()  # Moved to after NPCs spawn
 	_spawn_ground_items()
@@ -411,6 +482,10 @@ func _ready() -> void:
 	# Connect emergency defend horn to player land claims
 	_connect_emergency_defend_horns()
 	land_claims_changed.connect(_on_land_claims_changed_for_horn)
+
+	var iab: Node = get_node_or_null("/root/InventoryActionBridge")
+	if iab and iab.has_signal("inventory_mutate_validated"):
+		iab.inventory_mutate_validated.connect(_on_inventory_mutate_validated)
 
 	# Timed playtest (2min/4min): start timer for auto-quit
 	var pi = get_node_or_null("/root/PlaytestInstrumentor")
@@ -441,27 +516,24 @@ func _on_emergency_defend_triggered(claim: LandClaim) -> void:
 	_play_emergency_horn()
 
 func _handle_war_horn() -> void:
-	"""War Horn (H): Rally idle clansmen from player-owned claim to follow player."""
+	"""War Horn (H): Rally nearby clansmen (within RALLY_RADIUS) in GUARD mode; skips defenders at base."""
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - _war_horn_last_time < RTS_CONFIG["war_horn_cooldown"]:
+		return
+	_war_horn_last_time = now
 	if not player or not is_instance_valid(player):
+		print("HORN: no player")
 		return
-	var player_pos: Vector2 = player.global_position
-	const WAR_HORN_RANGE: float = 500.0
-	var near_claim: LandClaim = null
-	for claim in get_tree().get_nodes_in_group("land_claims"):
-		if not is_instance_valid(claim) or not claim is LandClaim:
-			continue
-		var lc: LandClaim = claim as LandClaim
-		if not lc.player_owned:
-			continue
-		if player_pos.distance_to(lc.global_position) <= WAR_HORN_RANGE:
-			near_claim = lc
-			break
-	if not near_claim:
-		return
-	var clan_name: String = near_claim.clan_name if "clan_name" in near_claim else ""
+	var clan_name: String = _get_player_clan_name()
 	if clan_name == "":
+		print("HORN: No clan — place a campfire or land claim first.")
 		return
+	var rally_radius: float = RTS_CONFIG["rally_radius"]
+	var player_pos: Vector2 = player.global_position
 	var rallied: int = 0
+	var skipped_range: int = 0
+	var skipped_already: int = 0
+	var skipped_clan: int = 0
 	for n in get_tree().get_nodes_in_group("npcs"):
 		if not is_instance_valid(n):
 			continue
@@ -472,20 +544,34 @@ func _handle_war_horn() -> void:
 			continue
 		var c: String = n.get_clan_name() if n.has_method("get_clan_name") else (str(n.get("clan_name")) if n.get("clan_name") != null else "")
 		if c != clan_name:
+			skipped_clan += 1
+			continue
+		var dist: float = player_pos.distance_to(n.global_position)
+		if dist > rally_radius:
+			skipped_range += 1
+			print("HORN: %s too far (%.0fpx > %.0fpx)" % [n.get("npc_name"), dist, rally_radius])
 			continue
 		if n.get("combat_target") != null and n.get("combat_target") != false:
 			continue
 		if n.get("defend_target") != null and n.get("defend_target") != false:
 			continue
 		if n.get("follow_is_ordered") and n.get("herder") == player:
+			skipped_already += 1
 			continue
-		_set_ordered_follow(n)
+		if n.has_method("set_follow_mode_from_string"):
+			n.set_follow_mode_from_string("GUARD")
+		_set_ordered_follow(n, "war_horn")
 		rallied += 1
+	if rallied == 0:
+		print("HORN: 0 rallied — clan='%s' pos=%s skipped_range=%d skipped_already=%d skipped_clan=%d" % [clan_name, player_pos, skipped_range, skipped_already, skipped_clan])
 	if rallied > 0:
+		_sync_party_selection_from_follower_cache()
 		_play_emergency_horn()
 	var pi = get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("war_horn_triggered"):
 		pi.war_horn_triggered(clan_name, rallied, true)
+	if pi and pi.is_enabled() and rallied == 0:
+		pi._write({"evt": "war_horn_no_rally", "clan": clan_name, "player_pos_x": player_pos.x, "player_pos_y": player_pos.y, "skipped_range": skipped_range, "skipped_already": skipped_already, "skipped_clan": skipped_clan})
 
 func _play_emergency_horn() -> void:
 	"""Play horn sound so player knows to return to land claim."""
@@ -504,14 +590,53 @@ func _play_emergency_horn() -> void:
 	else:
 		print("HORN: Emergency defend! (Add res://assets/sounds/horn.mp3 for audio)")
 
+func _update_formation_slots() -> void:
+	"""Compute shared formation slots once per frame and publish to player meta.
+	Each follower reads formation_slots[entity_id] = {slot_pos, slot_index, count, facing}
+	so all clansmen use the same facing/count — they move as one unit."""
+	if _follower_cache.is_empty() or not player or not is_instance_valid(player):
+		if player and player.has_meta("formation_slots"):
+			player.remove_meta("formation_slots")
+		return
+	var follower_nodes: Array = []
+	var er: Node = get_node_or_null("/root/EntityRegistry")
+	for fid in _follower_cache:
+		var fn: Node = er.get_entity_node(fid) if er and er.has_method("get_entity_node") else null
+		if fn and is_instance_valid(fn):
+			follower_nodes.append(fn)
+	var facing: Vector2 = FormationUtils.get_leader_facing(player)
+	var player_stopped: bool = FormationUtils.is_leader_stopped(player)
+	var slots: Dictionary = FormationUtils.compute_formation_slots(
+		player.global_position, facing, player_stopped, follower_nodes
+	)
+	player.set_meta("formation_slots", slots)
+
 func _process(delta: float) -> void:
 	if not player:
 		return
+	# Ground items call queue_free() after pickup without always clearing this ref first — stale
+	# freed nodes break distance checks and block Space on berry bushes / trees.
+	if active_collection_resource != null and not is_instance_valid(active_collection_resource):
+		active_collection_resource = null
+	if Input.is_action_just_pressed("gather"):
+		_playtest_log_gather_space_pressed()
+	if _ambient_grass_forage_active and player:
+		if player.global_position.distance_to(_ambient_grass_forage_start) > AMBIENT_FORAGE_MOVE_CANCEL:
+			_cancel_ambient_grass_forage()
+	# Update shared formation slots once per frame so all clansmen move as one unit
+	_update_formation_slots()
 	# Step 4: Periodically update followers' is_hostile from player weapon (sustain 70 agro when hostile)
 	_followers_hostile_timer += delta
 	if _followers_hostile_timer >= 0.2:
 		_followers_hostile_timer = 0.0
 		_update_followers_hostile()
+	# RTS snapshot: emit per-follower summary every N sec for playtest validation
+	_rts_snapshot_timer += delta
+	if _rts_snapshot_timer >= RTS_CONFIG["rts_snapshot_interval"] and not _follower_cache.is_empty():
+		_rts_snapshot_timer = 0.0
+		var pi_snap: Node = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_snap and pi_snap.is_enabled():
+			_emit_rts_snapshot(pi_snap)
 	# Timed playtest: auto-quit after duration
 	if _playtest_2min_start_time >= 0.0:
 		var inst = get_node_or_null("/root/PlaytestInstrumentor")
@@ -557,50 +682,90 @@ func _process(delta: float) -> void:
 					pi.end_agro_combat_test()
 				get_tree().quit(0)
 				return
+			var ovs_agro: Dictionary = _agro_test_overrides()
+			var rally_outer: float = float(ovs_agro.get("agro_test_rally_outer_px", 280.0))
+			var follower_avg_max: float = float(ovs_agro.get("agro_test_follower_avg_max", 130.0))
+			var hold_timeout: float = float(ovs_agro.get("agro_test_hold_timeout_sec", 12.0))
+			var hold_max_spd: float = float(ovs_agro.get("agro_test_hold_max_speed", 35.0))
+			var enemy_seek_r: float = float(ovs_agro.get("agro_test_enemy_seek_radius", 550.0))
 			for idx in [0, 1]:
 				var leader = _agro_combat_test_leaders[idx]
 				var target_claim = _agro_combat_test_claims[1 - idx]
 				if not is_instance_valid(leader) or not is_instance_valid(target_claim):
 					continue
+				if leader.has_method("is_dead") and leader.is_dead():
+					continue
+				if idx >= _agro_combat_test_leader_phases.size():
+					continue
 				var sa = leader.get("steering_agent")
 				if not sa:
 					continue
-				# Stop advancing when enemies in range so formation stays in engagement zone
-				var my_clan: String = leader.get_clan_name() if leader.has_method("get_clan_name") else ""
-				var nearest_enemy: Node2D = null
-				var nearest_d: float = 550.0  # Retarget earlier so formation has time to engage
-				for n in get_tree().get_nodes_in_group("npcs"):
-					if not is_instance_valid(n) or n == leader or (n.has_method("is_dead") and n.is_dead()):
-						continue
-					var nc: String = n.get_clan_name() if n.has_method("get_clan_name") else ""
-					if my_clan != "" and nc == my_clan:
-						continue
-					var d: float = leader.global_position.distance_to(n.global_position)
-					if d < nearest_d:
-						nearest_d = d
-						nearest_enemy = n as Node2D
-				if nearest_enemy:
-					sa.target_position = nearest_enemy.global_position  # Close in on enemy
-					# Slow leader when closing so formation stays in engagement zone (more overlap)
-					if sa.max_speed > 35.0:
-						sa.max_speed = maxf(35.0, sa.max_speed * 0.6)
+				var phase: int = int(_agro_combat_test_leader_phases[idx])
+				var ag_base: float = 0.0
+				if leader.get("stats_component"):
+					ag_base = leader.stats_component.get_stat("agility") * (NPCConfig.speed_agility_multiplier if NPCConfig else 9.5)
 				else:
-					sa.target_position = target_claim.global_position
+					ag_base = NPCConfig.max_speed_base if NPCConfig else 95.0
 				sa.current_mode = SteeringAgent.SteeringMode.SEEK
 				sa._pending_intent_time = 0.0
-				if sa.max_speed <= 5.0 and leader.get("stats_component"):
-					var ag: float = leader.stats_component.get_stat("agility")
-					sa.max_speed = ag * (NPCConfig.speed_agility_multiplier if NPCConfig else 9.5)
-				elif sa.max_speed <= 5.0:
-					sa.max_speed = NPCConfig.max_speed_base if NPCConfig else 95.0
+				if phase == 0:
+					# March only toward enemy claim — do not snap to nearest foe (keeps formation longer)
+					sa.target_position = target_claim.global_position
+					sa.max_speed = ag_base
+					var dist_claim: float = leader.global_position.distance_to(target_claim.global_position)
+					var rally_dist: float = float(target_claim.radius) + rally_outer
+					if dist_claim <= rally_dist:
+						_agro_combat_test_leader_phases[idx] = 1
+						if idx < _agro_combat_test_leader_phase1_start.size():
+							_agro_combat_test_leader_phase1_start[idx] = now_sec
+						leader.set_meta("agro_test_hold_pos", leader.global_position)
+						var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+						print("AGRO TEST: %s rally HOLD (dist to enemy claim %.0f <= %.0f)" % [lname, dist_claim, rally_dist])
+				elif phase == 1:
+					var hold_pos: Vector2 = leader.get_meta("agro_test_hold_pos", leader.global_position) as Vector2
+					sa.target_position = hold_pos
+					sa.max_speed = minf(ag_base, hold_max_spd)
+					var t1s: float = -1.0
+					if idx < _agro_combat_test_leader_phase1_start.size():
+						t1s = float(_agro_combat_test_leader_phase1_start[idx])
+					var avg_fd: float = _agro_test_avg_follower_distance(leader)
+					var hold_done: bool = avg_fd <= follower_avg_max or (t1s >= 0.0 and (now_sec - t1s) >= hold_timeout)
+					if hold_done:
+						_agro_combat_test_leader_phases[idx] = 2
+						leader.remove_meta("agro_test_hold_pos")
+						_agro_test_apply_warband_mode(leader, "ATTACK")
+						var lname2: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+						var by_timeout: bool = t1s >= 0.0 and (now_sec - t1s) >= hold_timeout and avg_fd > follower_avg_max
+						print("AGRO TEST: %s ENGAGE (avg follower dist=%.1fpx, by_timeout=%s)" % [lname2, avg_fd, str(by_timeout)])
+				else:
+					# Phase 2: seek nearest enemy in range, else press the claim
+					var my_clan: String = leader.get_clan_name() if leader.has_method("get_clan_name") else ""
+					var nearest_enemy: Node2D = null
+					var nearest_d: float = enemy_seek_r
+					for n in get_tree().get_nodes_in_group("npcs"):
+						if not is_instance_valid(n) or n == leader or (n.has_method("is_dead") and n.is_dead()):
+							continue
+						var nc: String = n.get_clan_name() if n.has_method("get_clan_name") else ""
+						if my_clan != "" and nc == my_clan:
+							continue
+						var d: float = leader.global_position.distance_to(n.global_position)
+						if d < nearest_d:
+							nearest_d = d
+							nearest_enemy = n as Node2D
+					if nearest_enemy:
+						sa.target_position = nearest_enemy.global_position
+						if sa.max_speed > 35.0:
+							sa.max_speed = maxf(35.0, ag_base * 0.6)
+					else:
+						sa.target_position = target_claim.global_position
+						sa.max_speed = ag_base
+					if sa.max_speed <= 5.0:
+						sa.max_speed = ag_base
 				var fsm = leader.get("fsm")
 				if fsm and fsm.has_method("get_current_state_name") and fsm.get_current_state_name() == "idle" and fsm.has_method("change_state"):
 					fsm.change_state("wander")
-				if sa.max_speed <= 0.0 and leader.get("stats_component"):
-					var ag: float = leader.stats_component.get_stat("agility")
-					sa.max_speed = ag * (NPCConfig.speed_agility_multiplier if NPCConfig else 9.5)
-				elif sa.max_speed <= 0.0:
-					sa.max_speed = NPCConfig.max_speed_base if NPCConfig else 95.0
+				if sa.max_speed <= 0.0:
+					sa.max_speed = ag_base
 	camera.global_position = player.global_position
 	world.ensure_chunks_for_position(player.global_position)
 	_check_nearby_buildings()
@@ -621,6 +786,8 @@ func _process(delta: float) -> void:
 			butcher_start_pos = player.global_position
 			player.set("is_gathering", true)
 			active_collection_resource = null  # Prevent gatherable from also consuming gather
+	elif Input.is_action_just_pressed("gather"):
+		call_deferred("_deferred_try_ambient_grass_forage")
 	_spawn_ground_items_around_player()  # Continuously spawn ground items as player moves
 	# Step 10: NPC drag hold timer + preview follow
 	if npc_drag_source and not npc_dragging:
@@ -718,12 +885,13 @@ func _input(event: InputEvent) -> void:
 			var target_type: String = resolved.get("target_type", "none")
 			var opts := _get_dropdown_options_for_target(target, target_type)
 			if opts.size() > 0:
+				_playtest_record_context_menu(target_type, opts)
 				dropdown_menu_ui.show_at(target, mp, opts)
 		get_viewport().set_input_as_handled()
 
 	# B: Break Follow (Step 6) — clear ordered follow for all followers. Step 9: also via HUD button.
 	if event is InputEventKey and event.keycode == KEY_B and event.pressed:
-		_break_follow_all()
+		_break_and_dismiss_all()
 		get_viewport().set_input_as_handled()
 
 	# F3: Debug — set DEFEND for NPC under cursor (Step 7). Uses player's land claim.
@@ -734,6 +902,11 @@ func _input(event: InputEvent) -> void:
 	# F4: Debug — spawn 1 caveman + 2 wild women near player (for Follow/Defend testing).
 	if event is InputEventKey and event.keycode == KEY_F4 and event.pressed:
 		_debug_spawn_test_npcs()
+		get_viewport().set_input_as_handled()
+	
+	# F5: RTS playtest — player-owned land claim + 5 clansmen (same clan as player for H / stances / DEFEND).
+	if event is InputEventKey and event.keycode == KEY_F5 and event.pressed:
+		call_deferred("_spawn_rts_playtest_pack_async")
 		get_viewport().set_input_as_handled()
 	
 	# L: TASK SYSTEM TEST — manually trigger logger
@@ -794,6 +967,7 @@ func _input(event: InputEvent) -> void:
 		if target != null and target_type != "none" and dropdown_menu_ui:
 			var opts := _get_dropdown_options_for_target(target, target_type)
 			if opts.size() > 0:
+				_playtest_record_context_menu(target_type, opts)
 				dropdown_menu_ui.show_at(target, mp, opts)
 				get_viewport().set_input_as_handled()
 		return
@@ -1106,18 +1280,17 @@ func _spawn_initial_resources() -> void:
 	print("Spawning %d resources randomly across map (radius: %.0f) around position: %s" % [spawn_count, spawn_radius, center_pos])
 	var max_attempts: int = 50  # More attempts to find valid positions when spread out
 	
+	# Wood comes from forest trees (_spawn_decorative_trees → choppable WOOD); no extra random trees here.
 	for i in spawn_count:
 		var resource_type: ResourceData.ResourceType
-		match i % 5:
+		match i % 4:
 			0:
-				resource_type = ResourceData.ResourceType.WOOD
-			1:
 				resource_type = ResourceData.ResourceType.STONE
-			2:
+			1:
 				resource_type = ResourceData.ResourceType.BERRIES
-			3:
+			2:
 				resource_type = ResourceData.ResourceType.WHEAT
-			4:
+			3:
 				resource_type = ResourceData.ResourceType.FIBER
 		
 		# Try to find a position that's not too close to other resources
@@ -1195,28 +1368,30 @@ func _spawn_tallgrass() -> void:
 			node.add_child(sprite)
 			node.global_position = pos
 			node.add_to_group("tallgrass")
+			# Rare bug clumps (Space forage); 1 charge (very rarely 2), then depleted
+			if randf() < 0.07:
+				node.set_meta(TALLGRASS_HAS_BUGS_META, true)
+				var bug_charges := 1
+				if randf() < 0.06:
+					bug_charges = 2
+				node.set_meta(TALLGRASS_BUGS_REMAINING_META, bug_charges)
 			world_objects.add_child(node)
 			sprite.z_as_relative = false
 			YSortUtils.update_draw_order(sprite, node)
 	print("Tallgrass spawned!")
 
 func _spawn_decorative_trees() -> void:
-	"""Spawn decorative trees from trees.png sprite sheet (5 cols x 3 rows = 15 trees), spread out."""
+	"""Forest trees from trees.png — each one is a real WOOD gatherable (axe/oldowan), same Y-sort wrapper as before."""
 	if not world_objects or not player:
 		return
-	var tex := AssetRegistry.get_treess_sprite()
-	if not tex:
+	if not AssetRegistry.get_treess_sprite():
 		return
 	var center_pos := player.global_position
 	var spawn_radius: float = (BalanceConfig.resource_spawn_radius * 1.1) if BalanceConfig else 3500.0
-	var cols := 5
-	var rows := 3
-	var cell_w := tex.get_width() / cols
-	var cell_h := tex.get_height() / rows
 	var group_count := randi_range(12, 20)
 	var min_tree_dist := 150.0
 	var existing_positions: Array[Vector2] = []
-	print("Spawning decorative trees from sprite sheet in %d groups (radius: %.0f)" % [group_count, spawn_radius])
+	print("Spawning forest trees (choppable wood) in %d groups (radius: %.0f)" % [group_count, spawn_radius])
 	for _g in group_count:
 		var group_center_angle := randf() * TAU
 		var group_center_dist := randf() * spawn_radius
@@ -1235,30 +1410,20 @@ func _spawn_decorative_trees() -> void:
 				continue
 			existing_positions.append(pos)
 			var tree_idx := randi_range(0, 14)
-			var col := tree_idx % cols
-			var row := tree_idx / cols
 			var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
-			# Wrapper: parent at pos+offset for y_sort (tree draws in front for larger zone), child at -offset so visual stays at pos
+			# Wrapper: parent at pos+offset for y_sort; gatherable at -offset so feet stay at pos
 			var wrapper := Node2D.new()
 			wrapper.global_position = pos + Vector2(0, sort_offset)
 			wrapper.add_to_group("decorative_trees")
-			var node := Node2D.new()
-			node.position = Vector2(0, -sort_offset)
-			var sprite := Sprite2D.new()
-			sprite.texture = tex
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.centered = true
-			sprite.region_enabled = true
-			sprite.region_rect = Rect2(col * cell_w, row * cell_h, cell_w, cell_h)
-			sprite.scale = Vector2(1.15, 1.15)
-			sprite.position = YSortUtils.get_tree_sprite_position_for_cell_height(cell_h, sprite.scale.y)
-			sprite.name = "Sprite"
-			node.add_child(sprite)
-			wrapper.add_child(node)
+			var wood: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
+			wood.resource_type = ResourceData.ResourceType.WOOD
+			wood.tree_sheet_index = tree_idx
+			wood.min_amount = 4
+			wood.max_amount = 6
+			wood.position = Vector2(0, -sort_offset)
+			wrapper.add_child(wood)
 			world_objects.add_child(wrapper)
-			sprite.z_as_relative = false
-			YSortUtils.update_tree_draw_order(sprite, node, tex)
-	print("Decorative trees spawned!")
+	print("Forest trees spawned!")
 
 func _get_random_sheep_goat_tint() -> Color:
 	"""White to almost-black grayscale for sheep/goat color variation."""
@@ -1283,8 +1448,107 @@ func _despawn_decorative_trees_near(center_pos: Vector2, radius: float) -> void:
 		if node.global_position.distance_to(center_pos) <= radius:
 			node.queue_free()
 
+func _get_ambient_grass_forage_progress() -> Node2D:
+	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
+		return _ambient_grass_forage_progress
+	var n := Node2D.new()
+	n.set_script(CollectionProgressScript)
+	n.position = Vector2(0, -48)
+	n.z_as_relative = false
+	if YSortUtils:
+		n.z_index = YSortUtils.Z_ABOVE_WORLD
+	player.add_child(n)
+	_ambient_grass_forage_progress = n
+	return n
+
+func _cancel_ambient_grass_forage() -> void:
+	if not _ambient_grass_forage_active:
+		return
+	_ambient_grass_forage_active = false
+	_ambient_grass_forage_patch = null
+	if player:
+		player.set("is_gathering", false)
+	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
+		_ambient_grass_forage_progress.stop_collection()
+
+func _find_closest_tallgrass(from_pos: Vector2, max_dist: float) -> Node2D:
+	var best: Node2D = null
+	var best_d: float = max_dist
+	for n in get_tree().get_nodes_in_group("tallgrass"):
+		if not is_instance_valid(n):
+			continue
+		if not n.get_meta(TALLGRASS_HAS_BUGS_META, false):
+			continue
+		var left: int = int(n.get_meta(TALLGRASS_BUGS_REMAINING_META, 1))
+		if left <= 0:
+			continue
+		var d: float = from_pos.distance_to(n.global_position)
+		if d < best_d:
+			best_d = d
+			best = n
+	return best
+
+func _deferred_try_ambient_grass_forage() -> void:
+	if not player:
+		return
+	if _ambient_grass_forage_active:
+		return
+	if butchering_corpse:
+		return
+	if _player_is_eating:
+		return
+	if player.get("is_gathering"):
+		return
+	if active_collection_resource != null:
+		return
+	var patch: Node2D = _find_closest_tallgrass(player.global_position, AMBIENT_GRASS_FORAGE_RANGE)
+	if patch == null:
+		return
+	_ambient_grass_forage_active = true
+	_ambient_grass_forage_patch = patch
+	_ambient_grass_forage_start = player.global_position
+	player.set("is_gathering", true)
+	var prog: Node2D = _get_ambient_grass_forage_progress()
+	if prog:
+		prog.collection_time = AMBIENT_GRASS_FORAGE_SEC
+		var bug_icon_path: String = ResourceData.get_resource_icon_path(ResourceData.ResourceType.BUGS)
+		var bug_icon: Texture2D = load(bug_icon_path) as Texture2D if bug_icon_path != "" else null
+		prog.start_collection(bug_icon)
+	var t := get_tree().create_timer(AMBIENT_GRASS_FORAGE_SEC)
+	t.timeout.connect(_finish_ambient_grass_forage)
+
+func _finish_ambient_grass_forage() -> void:
+	if not _ambient_grass_forage_active:
+		return
+	var patch: Node2D = _ambient_grass_forage_patch
+	_ambient_grass_forage_active = false
+	_ambient_grass_forage_patch = null
+	if player:
+		player.set("is_gathering", false)
+	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
+		_ambient_grass_forage_progress.stop_collection()
+	if not player:
+		return
+	if player.global_position.distance_to(_ambient_grass_forage_start) > AMBIENT_FORAGE_MOVE_CANCEL:
+		return
+	if patch == null or not is_instance_valid(patch):
+		return
+	if player.global_position.distance_to(patch.global_position) > AMBIENT_GRASS_STAY_RANGE:
+		return
+	var left: int = int(patch.get_meta(TALLGRASS_BUGS_REMAINING_META, 1))
+	if left <= 0:
+		return
+	add_to_inventory(ResourceData.ResourceType.BUGS, 1)
+	left -= 1
+	if left <= 0:
+		patch.remove_meta(TALLGRASS_HAS_BUGS_META)
+		if patch.has_meta(TALLGRASS_BUGS_REMAINING_META):
+			patch.remove_meta(TALLGRASS_BUGS_REMAINING_META)
+	else:
+		patch.set_meta(TALLGRASS_BUGS_REMAINING_META, left)
+
 func _spawn_ground_items() -> void:
-	# Spawn sparse ground items (stone and wood) spread across the map
+	# Spawn sparse ground items (stone, wood, mushrooms) spread across the map
 	await get_tree().process_frame
 	
 	if not player:
@@ -1301,12 +1565,14 @@ func _spawn_ground_items() -> void:
 		var distance := randf() * spawn_radius
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		
-		# Alternate between stone and wood
 		var item_type: ResourceData.ResourceType
-		if i % 2 == 0:
-			item_type = ResourceData.ResourceType.STONE
-		else:
-			item_type = ResourceData.ResourceType.WOOD
+		match i % 3:
+			0:
+				item_type = ResourceData.ResourceType.STONE
+			1:
+				item_type = ResourceData.ResourceType.WOOD
+			2:
+				item_type = ResourceData.ResourceType.MUSHROOM
 		
 		_spawn_ground_item(item_type, pos)
 	
@@ -1341,12 +1607,14 @@ func _spawn_ground_items_around_player() -> void:
 		var distance := randf_range(400.0, spawn_radius)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		
-		# Randomly choose stone or wood
+		var r := randf()
 		var item_type: ResourceData.ResourceType
-		if randf() < 0.5:
+		if r < 0.34:
 			item_type = ResourceData.ResourceType.STONE
-		else:
+		elif r < 0.67:
 			item_type = ResourceData.ResourceType.WOOD
+		else:
+			item_type = ResourceData.ResourceType.MUSHROOM
 		
 		_spawn_ground_item(item_type, pos)
 
@@ -1536,26 +1804,57 @@ func _setup_inventory_ui() -> void:
 	else:
 		print("❌ Main._ready(): drag_manager is null, cannot connect signal")
 
+func _refresh_combat_hud_layout() -> void:
+	"""Position combat HUD for current viewport (design ref 1920x1080): left of hotbar, no overlap, safe margins."""
+	if not combat_hud or not is_instance_valid(combat_hud):
+		return
+	var hud_w: float = _combat_hud_width_px
+	var hud_h: float = 56.0
+	var hotbar_width: float = float(PlayerInventoryUI.HOTBAR_COUNT * 32 + (PlayerInventoryUI.HOTBAR_COUNT - 1) * 6 + 24)
+	const COMBAT_HUD_GAP := 8.0
+	const SIDE_MARGIN := 16.0
+	const HOTBAR_INNER_MARGIN_BOTTOM := 12.0
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var half_w: float = vp.x * 0.5
+	var ideal_right: float = -hotbar_width * 0.5 - COMBAT_HUD_GAP
+	var ideal_left: float = ideal_right - hud_w
+	var min_left: float = SIDE_MARGIN - half_w
+	var offset_left: float = maxf(ideal_left, min_left)
+	var offset_right: float = offset_left + hud_w
+	if offset_right > ideal_right:
+		offset_right = ideal_right
+		offset_left = offset_right - hud_w
+	if offset_left < min_left:
+		offset_left = min_left
+		offset_right = offset_left + hud_w
+	combat_hud.anchor_left = 0.5
+	combat_hud.anchor_top = 1.0
+	combat_hud.anchor_right = 0.5
+	combat_hud.anchor_bottom = 1.0
+	combat_hud.offset_left = offset_left
+	combat_hud.offset_right = offset_right
+	# Align with hotbar slot row (same as PlayerInventoryUI: safe bottom + inner margin)
+	var bottom_inset: float = PlayerInventoryUI.HOTBAR_SAFE_BOTTOM + HOTBAR_INNER_MARGIN_BOTTOM
+	combat_hud.offset_bottom = -bottom_inset
+	combat_hud.offset_top = combat_hud.offset_bottom - hud_h
+
+
 func _setup_combat_hud() -> void:
-	"""Step 4: HUD panel — FOLLOW | GUARD toggle, BREAK. Hostile = leader weapon equipped."""
+	"""Bottom: Follow | Guard | Attack | Break — left of centered hotbar; re-laid out on viewport resize."""
 	if not ui_layer:
 		return
 	var panel := Panel.new()
 	panel.name = "CombatHUD"
 	UITheme.apply_panel_style(panel)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	var hud_w := 200
+	var hud_w := int(_combat_hud_width_px)
 	var hud_h := 56
-	panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	panel.anchor_left = 0.0
+	panel.anchor_left = 0.5
 	panel.anchor_top = 1.0
-	panel.anchor_right = 0.0
+	panel.anchor_right = 0.5
 	panel.anchor_bottom = 1.0
-	panel.offset_left = 12
-	panel.offset_top = -hud_h - 8
-	panel.offset_right = 12 + hud_w
-	panel.offset_bottom = -8
 	panel.custom_minimum_size = Vector2(hud_w, hud_h)
+	panel.visible = false
 	var box := HBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1568,59 +1867,207 @@ func _setup_combat_hud() -> void:
 	follow_btn.name = "FollowBtn"
 	follow_btn.text = "FOLLOW"
 	follow_btn.toggle_mode = true
-	follow_btn.button_pressed = (follow_guard_mode == "FOLLOW")
-	follow_btn.pressed.connect(_on_follow_pressed)
+	follow_btn.tooltip_text = "Follow behind — low aggression"
+	follow_btn.pressed.connect(_on_stance_pressed.bind("FOLLOW"))
 	box.add_child(follow_btn)
 	var guard_btn := Button.new()
 	guard_btn.name = "GuardBtn"
 	guard_btn.text = "GUARD"
 	guard_btn.toggle_mode = true
-	guard_btn.button_pressed = (follow_guard_mode == "GUARD")
-	guard_btn.pressed.connect(_on_guard_pressed)
+	guard_btn.tooltip_text = "Guard around — high aggression"
+	guard_btn.pressed.connect(_on_stance_pressed.bind("GUARD"))
 	box.add_child(guard_btn)
+	var attack_btn := Button.new()
+	attack_btn.name = "AttackBtn"
+	attack_btn.text = "ATTACK"
+	attack_btn.toggle_mode = true
+	attack_btn.tooltip_text = "Attack line — max aggression"
+	attack_btn.pressed.connect(_on_stance_pressed.bind("ATTACK"))
+	box.add_child(attack_btn)
 	var break_btn := Button.new()
 	break_btn.name = "BreakFollow"
 	break_btn.text = "BREAK"
-	break_btn.pressed.connect(_break_follow_all)
+	break_btn.pressed.connect(_break_and_dismiss_all)
 	box.add_child(break_btn)
 	ui_layer.add_child(panel)
 	panel.z_index = 100
 	combat_hud = panel
-	_update_follow_guard_buttons()
+	get_viewport().size_changed.connect(_refresh_combat_hud_layout)
+	call_deferred("_refresh_combat_hud_layout")
+	_update_selection_mode_buttons()
 
-func _update_follow_guard_buttons() -> void:
+func _get_player_party_follower_nodes() -> Array:
+	"""Cavemen/clansmen in ordered follow of the player (follower cache)."""
+	var out: Array = []
+	if not EntityRegistry:
+		return out
+	for fid in _follower_cache:
+		var n: Node = EntityRegistry.get_entity_node(fid)
+		if not n or not is_instance_valid(n):
+			continue
+		if n.get("follow_is_ordered") != true or n.get("herder") != player:
+			continue
+		var t = n.get("npc_type")
+		if t != "caveman" and t != "clansman":
+			continue
+		out.append(n)
+	return out
+
+
+func _sync_party_selection_from_follower_cache() -> void:
+	"""After horn / drag-to-player / context follow: selection + outlines = full party."""
+	selected_clansmen.clear()
+	for n in _get_player_party_follower_nodes():
+		selected_clansmen.append(n)
+	_apply_selection_outline()
+	_refresh_selection_mode_hud_visibility()
+
+
+func _prune_invalid_party_selection() -> void:
+	var kept: Array = []
+	for n in selected_clansmen:
+		if n and is_instance_valid(n):
+			kept.append(n)
+	selected_clansmen.clear()
+	for n in kept:
+		selected_clansmen.append(n)
+
+
+func _update_selection_mode_buttons() -> void:
 	if not combat_hud:
 		return
 	var follow_btn = combat_hud.find_child("FollowBtn", true, false)
 	var guard_btn = combat_hud.find_child("GuardBtn", true, false)
+	var attack_btn = combat_hud.find_child("AttackBtn", true, false)
+	var nodes_for_modes: Array = selected_clansmen.duplicate()
+	if nodes_for_modes.is_empty():
+		nodes_for_modes = _get_player_party_follower_nodes()
+	var modes: Dictionary = {}
+	for n in nodes_for_modes:
+		if n and is_instance_valid(n) and n.has_method("get_follow_mode_string"):
+			modes[n.get_follow_mode_string()] = true
+	var unanimous: bool = modes.size() == 1
+	var only: String = ""
+	if unanimous:
+		only = modes.keys()[0]
 	if follow_btn is Button:
-		follow_btn.button_pressed = (follow_guard_mode == "FOLLOW")
+		follow_btn.button_pressed = unanimous and only == "FOLLOW"
 	if guard_btn is Button:
-		guard_btn.button_pressed = (follow_guard_mode == "GUARD")
+		guard_btn.button_pressed = unanimous and only == "GUARD"
+	if attack_btn is Button:
+		attack_btn.button_pressed = unanimous and only == "ATTACK"
 
-func _on_follow_pressed() -> void:
-	follow_guard_mode = "FOLLOW"
-	_update_follow_guard_buttons()
-	_apply_command_context_to_followers()
+func _refresh_selection_mode_hud_visibility() -> void:
+	if not combat_hud:
+		return
+	_prune_invalid_party_selection()
+	combat_hud.visible = not _follower_cache.is_empty() or selected_clansmen.size() > 0
+	_update_selection_mode_buttons()
 
-func _on_guard_pressed() -> void:
-	follow_guard_mode = "GUARD"
-	_update_follow_guard_buttons()
+func _playtest_stance_hud(mode: String) -> void:
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("stance_hud_set"):
+		return
+	var nodes: Array = _get_player_party_follower_nodes()
+	if nodes.is_empty():
+		nodes = selected_clansmen.duplicate()
+	for n in nodes:
+		if n and is_instance_valid(n) and n.get("npc_name") != null:
+			pi.stance_hud_set(str(n.npc_name), mode)
+
+func _playtest_record_context_menu(target_type: String, opts: Array) -> void:
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("context_menu_opened"):
+		return
+	var ids: Array = []
+	for o in opts:
+		if o is Dictionary:
+			ids.append(str(o.get("id", "")))
+	var pc: String = _get_player_clan_name()
+	pi.context_menu_opened(target_type, ids, pc != "")
+
+func _playtest_selection_box_result(added_count: int) -> void:
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("selection_box_completed"):
+		return
+	var pc: String = _get_player_clan_name()
+	pi.selection_box_completed(added_count, pc != "")
+
+func _on_stance_pressed(mode: String) -> void:
+	var party_nodes: Array = _get_player_party_follower_nodes()
+	if party_nodes.is_empty():
+		for n in selected_clansmen:
+			if n and is_instance_valid(n) and n.has_method("set_follow_mode_from_string"):
+				n.set_follow_mode_from_string(mode)
+	else:
+		for n in party_nodes:
+			if n and is_instance_valid(n) and n.has_method("set_follow_mode_from_string"):
+				n.set_follow_mode_from_string(mode)
+	_playtest_stance_hud(mode)
 	_apply_command_context_to_followers()
+	_update_selection_mode_buttons()
+	_play_stance_change_feedback()
+
+func _build_command_context(npc: Node, commander_id: int, is_hostile: bool) -> Dictionary:
+	var mode: String = npc.get_follow_mode_string() if npc.has_method("get_follow_mode_string") else "FOLLOW"
+	var cfg: Dictionary = STANCE_CONFIG.get(mode, STANCE_CONFIG["FOLLOW"])
+	return {
+		"commander_id": commander_id,
+		"mode": mode,
+		"stance_aggro_threshold": cfg.get("aggro_threshold", 0.0),
+		"stance_chase_dist": cfg.get("chase_dist", 0.0),
+		"is_hostile": is_hostile,
+		"issued_at_time": Time.get_ticks_msec() / 1000.0,
+	}
+
+func _play_stance_change_feedback() -> void:
+	"""Short audio + brief sprite flash on party / selection (optional)."""
+	var flash_nodes: Array = _get_player_party_follower_nodes()
+	if flash_nodes.is_empty() and selected_clansmen.size() > 0:
+		flash_nodes = selected_clansmen.duplicate()
+	if flash_nodes.is_empty():
+		return
+	var sa := AudioStreamPlayer.new()
+	sa.name = "StanceChangeSfx"
+	add_child(sa)
+	var p := "res://assets/sounds/click.wav"
+	if ResourceLoader.exists(p):
+		sa.stream = load(p) as AudioStream
+		sa.play()
+		sa.finished.connect(sa.queue_free)
+	else:
+		sa.queue_free()
+	for n in flash_nodes:
+		if not n or not is_instance_valid(n):
+			continue
+		var sp: Sprite2D = n.get_node_or_null("Sprite")
+		if sp:
+			var orig: Color = sp.modulate
+			sp.modulate = Color(1.15, 1.15, 1.0, 1.0)
+			var tw := create_tween()
+			tw.tween_interval(0.12)
+			tw.tween_property(sp, "modulate", orig, 0.15)
 
 func _apply_command_context_to_followers() -> void:
-	"""Update command_context.mode and is_hostile for all cached followers."""
+	"""Update command_context per follower's follow_mode; union of follower cache + selected followers."""
 	var commander_id: int = EntityRegistry.get_id(player) if EntityRegistry and player else -1
 	var is_hostile: bool = _player_has_weapon_equipped()
+	var ids: Dictionary = {}
 	for id in _follower_cache:
+		ids[id] = true
+	for n in selected_clansmen:
+		if n and is_instance_valid(n) and n.get("follow_is_ordered") and n.get("herder") == player:
+			var fid: int = EntityRegistry.get_id(n) if EntityRegistry else -1
+			if fid >= 0:
+				ids[fid] = true
+	for id in ids:
 		var n = EntityRegistry.get_entity_node(id) if EntityRegistry else null
 		if not n or not is_instance_valid(n):
 			continue
 		var ctx: Dictionary = n.get("command_context") if n.get("command_context") != null else {}
-		ctx["commander_id"] = commander_id
-		ctx["mode"] = follow_guard_mode
-		ctx["is_hostile"] = is_hostile
-		ctx["issued_at_time"] = Time.get_ticks_msec() / 1000.0
+		var built: Dictionary = _build_command_context(n, commander_id, is_hostile)
+		for k in built:
+			ctx[k] = built[k]
 		n.set("command_context", ctx)
 		if "command_context" in n:
 			n.command_context = ctx
@@ -1629,10 +2076,37 @@ func _apply_command_context_to_followers() -> void:
 			n.set("agro_meter", 70.0)
 			n.agro_meter = 70.0
 	if player:
-		if follow_guard_mode == "GUARD" and _follower_cache.size() > 0:
-			player.set_meta("formation_guard", true)  # Leader slower so clansmen protect center
+		var any_guard: bool = false
+		for id2 in ids:
+			var nn = EntityRegistry.get_entity_node(id2) if EntityRegistry else null
+			if nn and nn.has_method("get_follow_mode_string") and nn.get_follow_mode_string() == "GUARD":
+				any_guard = true
+				break
+		if any_guard and ids.size() > 0:
+			player.set_meta("formation_guard", true)
 		else:
 			player.remove_meta("formation_guard")
+		_update_player_formation_speed(ids)
+
+func _update_player_formation_speed(follower_ids: Dictionary = {}) -> void:
+	"""Set formation_speed_mult meta on player based on strictest active mode.
+	FOLLOW = 1.0 (full speed), ATTACK = 0.85, GUARD = 0.75.
+	Called after any stance change or BREAK so the player moves at the same speed as the clansmen."""
+	if not player or not is_instance_valid(player):
+		return
+	if _follower_cache.is_empty():
+		player.set_meta("formation_speed_mult", 1.0)
+		return
+	var ids_to_check: Dictionary = follower_ids.duplicate()
+	if ids_to_check.is_empty():
+		for fid in _follower_cache:
+			ids_to_check[fid] = true
+	var follower_nodes_speed: Array = []
+	for id in ids_to_check:
+		var nn = EntityRegistry.get_entity_node(id) if EntityRegistry else null
+		if nn and is_instance_valid(nn):
+			follower_nodes_speed.append(nn)
+	player.set_meta("formation_speed_mult", FormationUtils.min_speed_mult_for_follower_nodes(follower_nodes_speed))
 
 func _player_has_weapon_equipped() -> bool:
 	"""Step 4: Hostile = leader weapon equipped (right hand slot)."""
@@ -1762,15 +2236,16 @@ func _handle_npc_drag_release() -> void:
 		targets.append(src)
 	if where == "player":
 		for n in targets:
-			_set_ordered_follow(n)
+			_set_ordered_follow(n, "drag_to_player")
+		_sync_party_selection_from_follower_cache()
 	elif where == "land_claim":
 		for n in targets:
 			_clear_role_assignment(n)
 	elif where == "outside_land_claim":
-		var claim: LandClaim = _get_player_land_claim_any()
-		if claim:
+		var territory: Node2D = _get_player_territory_any()
+		if territory:
 			for n in targets:
-				_set_defend(n, claim)
+				_set_defend(n, territory)
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	"""Convert screen position to world (camera) coordinates."""
@@ -1825,9 +2300,9 @@ func _selection_box_complete() -> void:
 		world_rect.size.y = -world_rect.size.y
 	_selection_box_hide()
 	_clear_selection()
-	var claim: LandClaim = _get_player_land_claim_any()
-	var player_clan: String = claim.clan_name if claim else ""
+	var player_clan: String = _get_player_clan_name()
 	if player_clan == "":
+		_playtest_selection_box_result(0)
 		_apply_selection_outline()
 		return
 	var npcs = get_tree().get_nodes_in_group("npcs")
@@ -1847,7 +2322,9 @@ func _selection_box_complete() -> void:
 			npc_clan = str(cn) if cn != null else ""
 		if npc_clan == player_clan:
 			selected_clansmen.append(n)
+	_playtest_selection_box_result(selected_clansmen.size())
 	_apply_selection_outline()
+	_refresh_selection_mode_hud_visibility()
 
 func _selection_box_cancel() -> void:
 	selection_box_active = false
@@ -1856,6 +2333,7 @@ func _selection_box_cancel() -> void:
 func _clear_selection() -> void:
 	selected_clansmen.clear()
 	_apply_selection_outline()
+	_refresh_selection_mode_hud_visibility()
 
 func _apply_selection_outline() -> void:
 	"""Outline selected clansmen; restore original color on others (preserves skin tone, sheep/goat tint)."""
@@ -1990,6 +2468,48 @@ func _get_player_land_claim_any() -> LandClaim:
 			return lc
 	return null
 
+
+func _get_player_clan_name() -> String:
+	"""Clan identity from any player-owned territory (flag or campfire). No proximity check."""
+	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		var lc := claim as LandClaim
+		if lc and lc.player_owned:
+			var cn = lc.get("clan_name") if "clan_name" in lc else null
+			if cn != null and str(cn) != "":
+				return str(cn)
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		if claim is CampfireScript:
+			var cf: CampfireScript = claim as CampfireScript
+			if cf and cf.player_owned:
+				var cn2 = cf.get("clan_name") if "clan_name" in cf else null
+				if cn2 != null and str(cn2) != "":
+					return str(cn2)
+	return ""
+
+
+func _get_player_territory_any() -> Node2D:
+	"""First player-owned LandClaim, else Campfire — both support add_defender / add_searcher pools."""
+	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		var lc := claim as LandClaim
+		if lc and lc.player_owned:
+			return lc
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		if claim is CampfireScript:
+			var cf: CampfireScript = claim as CampfireScript
+			if cf and cf.player_owned:
+				return cf
+	return null
+
 func _get_player_land_claim_at_position(world_pos: Vector2) -> LandClaim:
 	"""Player-owned claim containing world_pos (for drag → Defend)."""
 	var land_claims := get_tree().get_nodes_in_group("land_claims")
@@ -2075,13 +2595,19 @@ func add_building_item_to_player_inventory(building_type: ResourceData.ResourceT
 	return false
 
 func add_to_inventory(type: ResourceData.ResourceType, amount: int = 1) -> void:
-	if player_inventory_ui:
-		if ResourceData.is_food(type):
-			player_inventory_ui.add_item_preferring_food_slots(type, amount)
-		else:
-			player_inventory_ui.add_item(type, amount)
-		if player_inventory_ui.is_open:
-			player_inventory_ui._update_all_slots()
+	if not player_inventory_ui:
+		push_warning("add_to_inventory: no PlayerInventoryUI (DragManager failed?) — item not stored: %s" % ResourceData.get_resource_name(type))
+		return
+	if ResourceData.is_food(type):
+		var ok: bool = player_inventory_ui.add_item_preferring_food_slots(type, amount)
+		if not ok:
+			push_warning("Inventory full — could not add %s" % ResourceData.get_resource_name(type))
+	else:
+		var ok2: bool = player_inventory_ui.add_item(type, amount)
+		if not ok2:
+			push_warning("Inventory full — could not add %s" % ResourceData.get_resource_name(type))
+	if player_inventory_ui.is_open:
+		player_inventory_ui._update_all_slots()
 
 func is_axe_equipped() -> bool:
 	if not player_inventory_ui:
@@ -2153,7 +2679,8 @@ func _on_dropdown_option_selected(id: String) -> void:
 				clicked_npc = target
 		return
 	if id == "follow" and target != null and is_instance_valid(target) and player != null:
-		_set_ordered_follow(target)
+		_set_ordered_follow(target, "context_menu")
+		_sync_party_selection_from_follower_cache()
 		return
 	if id == "assign_defend" and target != null and is_instance_valid(target):
 		_set_defend(target)
@@ -2167,28 +2694,51 @@ func _on_dropdown_option_selected(id: String) -> void:
 	if id == "work" and target != null and is_instance_valid(target):
 		_clear_role_assignment(target)
 		return
-	if id == "call_defend" and target != null and is_instance_valid(target) and target is LandClaim:
-		_call_defend_for_claim(target as LandClaim)
+	if id == "call_defend" and target != null and is_instance_valid(target):
+		if target is LandClaim or target is CampfireScript:
+			_call_defend_for_claim(target as Node2D)
 		return
 
-func _set_ordered_follow(npc: Node) -> void:
+func _set_ordered_follow(npc: Node, follow_source: String = "unknown") -> void:
 	"""Step 6 / Step 4: Ordered follow with CommandContext; add to follower cache."""
+	var pi_blk = get_node_or_null("/root/PlaytestInstrumentor")
 	if not npc or not player or not is_instance_valid(npc):
+		if pi_blk and pi_blk.has_method("ordered_follow_blocked"):
+			pi_blk.ordered_follow_blocked("invalid_npc_or_player")
 		return
 	if "is_herded" not in npc or "herder" not in npc or "follow_is_ordered" not in npc:
+		if pi_blk and pi_blk.has_method("ordered_follow_blocked"):
+			pi_blk.ordered_follow_blocked("missing_herd_properties")
 		return
+	# Skip if already ordered-following this player — avoid double FSM transitions and duplicate events
+	if npc.get("follow_is_ordered") and npc.get("herder") == player:
+		return
+	# If clansman is herding wild animals, drop them before joining formation
+	var fsm_pre = npc.get_node_or_null("FSM")
+	var cur_state: String = fsm_pre.current_state_name if (fsm_pre and "current_state_name" in fsm_pre) else ""
+	var _hc_pre: int = npc.get("herded_count") if npc.get("herded_count") != null else 0
+	if cur_state == "herd_wildnpc" or _hc_pre > 0:
+		# Detach all animals this NPC is herding
+		for animal in npc.get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(animal):
+				continue
+			if animal.get("herder") == npc and animal.get("is_herded") == true:
+				var hc_a = animal.get_node_or_null("HerdableComponent")
+				if hc_a and hc_a.has_method("detach"):
+					hc_a.detach()
+				else:
+					animal.set("is_herded", false)
+					animal.set("herder", null)
+		npc.set("herded_count", 0)
+		npc.remove_meta("is_depositing") if npc.has_meta("is_depositing") else null
+		npc.remove_meta("moving_to_deposit") if npc.has_meta("moving_to_deposit") else null
 	npc.set("is_herded", true)
 	npc.set("herder", player)
 	npc.set("follow_is_ordered", true)
 	npc.set("herd_mentality_active", true)
 	var commander_id: int = EntityRegistry.get_id(player) if EntityRegistry else -1
 	var is_hostile: bool = _player_has_weapon_equipped()
-	var ctx: Dictionary = {
-		"commander_id": commander_id,
-		"mode": follow_guard_mode,
-		"is_hostile": is_hostile,
-		"issued_at_time": Time.get_ticks_msec() / 1000.0
-	}
+	var ctx: Dictionary = _build_command_context(npc, commander_id, is_hostile)
 	npc.set("command_context", ctx)
 	if "command_context" in npc:
 		npc.command_context = ctx
@@ -2199,57 +2749,200 @@ func _set_ordered_follow(npc: Node) -> void:
 	var fid: int = EntityRegistry.get_id(npc) if EntityRegistry else -1
 	if fid >= 0 and _follower_cache.find(fid) < 0:
 		_follower_cache.append(fid)
-	if follow_guard_mode == "GUARD" and player:
+	if HerdManager and player:
+		HerdManager.register_follower(player, npc as Node2D)
+	if npc.has_method("get_follow_mode_string") and npc.get_follow_mode_string() == "GUARD" and player:
 		player.set_meta("formation_guard", true)
 	var fsm = npc.get_node_or_null("FSM")
 	if fsm and fsm.has_method("change_state"):
 		fsm.evaluation_timer = 0.0
-		fsm.change_state("herd")
+		fsm.change_state("party")
+	var cache_ids: Dictionary = {}
+	for cache_fid in _follower_cache:
+		cache_ids[cache_fid] = true
+	_update_player_formation_speed(cache_ids)
+	var pi_of = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_of and pi_of.has_method("ordered_follow_started") and npc.get("npc_name") != null:
+		pi_of.ordered_follow_started(str(npc.npc_name), str(ctx.get("mode", "FOLLOW")), follow_source)
 
-func _break_follow_all() -> void:
-	"""Step 4: BREAK — clear ordered follow using follower cache; clear CommandContext."""
+func _break_and_dismiss_all() -> void:
+	"""BREAK — clear herd, defend/search/hostile/follow; reset speed; deselect HUD."""
 	if not player:
 		return
-	for id in _follower_cache:
+	var cleared: int = _follower_cache.size()
+	var ids: Array = _follower_cache.duplicate()
+	for id in ids:
 		var n = EntityRegistry.get_entity_node(id) if EntityRegistry else null
 		if not n or not is_instance_valid(n):
 			continue
 		if n.has_method("_clear_herd"):
-			n._clear_herd()
+			n.call("_clear_herd")
 		else:
 			n.set("is_herded", false)
 			n.set("herder", null)
 			n.set("follow_is_ordered", false)
 			n.set("herd_mentality_active", false)
-		n.set("command_context", {})
-		if "command_context" in n:
-			n.command_context = {}
-		if "is_hostile" in n:
-			n.set("is_hostile", false)
-		var fsm = n.get_node_or_null("FSM")
+	for id in ids:
+		var n2 = EntityRegistry.get_entity_node(id) if EntityRegistry else null
+		if not n2 or not is_instance_valid(n2):
+			continue
+		_clear_role_assignment(n2)
+		# Clear context but keep mode as FOLLOW so mode checks in herd_wildnpc block correctly
+		var break_ctx: Dictionary = {"mode": "FOLLOW", "commander_id": -1, "is_hostile": false}
+		n2.set("command_context", break_ctx)
+		if "command_context" in n2:
+			n2.command_context = break_ctx
+		if "is_hostile" in n2:
+			n2.set("is_hostile", false)
+		if n2.has_method("reset_agro_after_combat"):
+			n2.reset_agro_after_combat()
+		# Cooldown prevents immediate herd_wildnpc re-entry after BREAK
+		n2.set_meta("herd_wildnpc_delivery_cooldown_until", Time.get_ticks_msec() / 1000.0 + RTS_CONFIG["break_herd_cooldown"])
+		# Boost wander priority so they walk home instead of standing idle
+		n2.set_meta("returning_from_break", Time.get_ticks_msec() / 1000.0 + RTS_CONFIG["break_return_boost_sec"])
+		var sa = n2.get("steering_agent")
+		if sa:
+			if sa.has_method("restore_original_speed"):
+				sa.restore_original_speed()
+			elif "speed_multiplier" in sa:
+				sa.speed_multiplier = 1.0
+		var fsm = n2.get_node_or_null("FSM")
 		if fsm:
+			# Always send to wander so they walk back to their claim/home area
+			fsm.change_state("wander")
+			# Normal evaluation cadence — don't force-evaluate, let wander run
 			fsm.evaluation_timer = 0.0
-			if fsm.has_method("_evaluate_states"):
-				fsm._evaluate_states()
 	_follower_cache.clear()
 	if player:
-		player.remove_meta("formation_guard")
+		if player.has_meta("formation_guard"):
+			player.remove_meta("formation_guard")
+		player.set_meta("formation_speed_mult", 1.0)
+	var pi_br = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_br and pi_br.has_method("ordered_follow_cleared"):
+		pi_br.ordered_follow_cleared(cleared)
+	_clear_selection()
+
+func _playtest_log_gather_space_pressed() -> void:
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.has_method("gather_diagnostic") or not pi.has_method("is_enabled") or not pi.is_enabled():
+		return
+	if not player or not is_instance_valid(player):
+		return
+	var ppos: Vector2 = player.global_position
+	var overlaps: Array = []
+	for n in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(n) or not (n is Area2D):
+			continue
+		var a: Area2D = n as Area2D
+		if not a.overlaps_body(player):
+			continue
+		var entry: Dictionary = {
+			"id": n.get_instance_id(),
+			"node_gx": snappedf(n.global_position.x, 1.0),
+			"node_gy": snappedf(n.global_position.y, 1.0),
+			"dist_to_node": snappedf(ppos.distance_to(n.global_position), 1.0),
+		}
+		if n is GatherableResource:
+			var g: GatherableResource = n as GatherableResource
+			entry["kind"] = "gatherable"
+			entry["resource"] = ResourceData.get_resource_name(g.resource_type)
+			var col: Node = g.get_node_or_null("CollisionShape2D")
+			if col and is_instance_valid(col) and col is CollisionShape2D:
+				var c2: CollisionShape2D = col as CollisionShape2D
+				entry["hitbox_center_gx"] = snappedf(c2.global_position.x, 1.0)
+				entry["hitbox_center_gy"] = snappedf(c2.global_position.y, 1.0)
+				entry["dist_player_to_hitbox"] = snappedf(ppos.distance_to(c2.global_position), 1.0)
+		elif n is GroundItem:
+			var gi: GroundItem = n as GroundItem
+			entry["kind"] = "ground_item"
+			entry["resource"] = ResourceData.get_resource_name(gi.item_type)
+		else:
+			entry["kind"] = "other_area"
+		overlaps.append(entry)
+	var active_id: int = -1
+	if active_collection_resource != null and is_instance_valid(active_collection_resource):
+		active_id = active_collection_resource.get_instance_id()
+	pi.gather_diagnostic({
+		"evt": "gather_space_pressed",
+		"player_x": snappedf(ppos.x, 1.0),
+		"player_y": snappedf(ppos.y, 1.0),
+		"overlap_count": overlaps.size(),
+		"overlaps": overlaps,
+		"active_target_id": active_id,
+	})
+
+
+func _emit_rts_snapshot(pi: Node) -> void:
+	var followers: Array = []
+	var entity_registry: Node = get_node_or_null("/root/EntityRegistry")
+	for fid in _follower_cache:
+		var fn: Node = entity_registry.get_entity_node(fid) if entity_registry and entity_registry.has_method("get_entity_node") else null
+		if not fn or not is_instance_valid(fn):
+			continue
+		var ctx_sn: Dictionary = fn.get("command_context") if fn.get("command_context") != null else {}
+		var mode_sn: String = str(ctx_sn.get("mode", "FOLLOW"))
+		var sa_sn = fn.get("steering_agent")
+		var spd_mult: float = 1.0
+		if sa_sn and sa_sn.get("original_max_speed") and sa_sn.get("original_max_speed") > 0.0:
+			spd_mult = sa_sn.get("max_speed") / sa_sn.get("original_max_speed")
+		var fsm_sn: Node = fn.get_node_or_null("FSM")
+		var cur_state: String = fsm_sn.current_state_name if (fsm_sn and "current_state_name" in fsm_sn) else "?"
+		var dist_leader: float = -1.0
+		var angle_deg: float = 0.0   # angle relative to player facing: 0=ahead, 180=behind, +90=right, -90=left
+		var rel_pos: String = "?"    # human-readable: ahead/behind/left/right/ahead-left/etc.
+		if player and is_instance_valid(player):
+			dist_leader = fn.global_position.distance_to(player.global_position)
+			var to_npc: Vector2 = fn.global_position - player.global_position
+			if dist_leader > 1.0:
+				var p_facing: Vector2 = player.get_meta("formation_velocity", Vector2.ZERO) as Vector2
+				if p_facing.length() < 1.0:
+					p_facing = player.get("last_facing") as Vector2 if player.get("last_facing") != null else Vector2(0, 1)
+				if p_facing == Vector2.ZERO:
+					p_facing = Vector2(0, 1)
+				p_facing = p_facing.normalized()
+				var right_vec: Vector2 = Vector2(-p_facing.y, p_facing.x)
+				var fwd_dot: float = to_npc.normalized().dot(p_facing)   # +1=ahead, -1=behind
+				var right_dot: float = to_npc.normalized().dot(right_vec) # +1=right, -1=left
+				angle_deg = rad_to_deg(atan2(right_dot, fwd_dot))
+				var fwd_label: String = "ahead" if fwd_dot > 0.25 else ("behind" if fwd_dot < -0.25 else "side")
+				var side_label: String = ""
+				if abs(right_dot) > 0.25:
+					side_label = "-right" if right_dot > 0 else "-left"
+				rel_pos = fwd_label + side_label
+		followers.append({
+			"npc": str(fn.get("npc_name")),
+			"mode": mode_sn,
+			"state": cur_state,
+			"speed_mult": snapped(spd_mult, 0.01),
+			"dist_to_leader": dist_leader,
+			"angle_deg": snapped(angle_deg, 0.1),
+			"rel_pos": rel_pos,
+			"agro": fn.get("agro_meter") if fn.get("agro_meter") != null else 0.0,
+			"is_hostile": fn.get("is_hostile") if fn.get("is_hostile") != null else false
+		})
+	if not followers.is_empty():
+		pi.clansman_rts_snapshot(followers)
 
 func _remove_npc_from_all_player_claim_pools(npc: Node) -> void:
 	"""Step 11: Remove NPC from defenders/searchers of all player-owned claims."""
 	var claims := get_tree().get_nodes_in_group("land_claims")
 	for c in claims:
-		if not is_instance_valid(c) or not c is LandClaim:
+		if not is_instance_valid(c):
 			continue
-		var lc: LandClaim = c as LandClaim
-		if lc.player_owned:
-			lc.remove_npc_from_pools(npc)
+		if c is LandClaim:
+			var lc: LandClaim = c as LandClaim
+			if lc.player_owned:
+				lc.remove_npc_from_pools(npc)
+		elif c is CampfireScript:
+			var cf: CampfireScript = c as CampfireScript
+			if cf.player_owned:
+				cf.remove_npc_from_pools(npc)
 
-func _call_defend_for_claim(claim: LandClaim) -> void:
-	"""Call all clansmen of this claim's clan back inside to defend (used when invaders approach)."""
-	if not claim or not is_instance_valid(claim) or not claim.player_owned:
+func _call_defend_for_claim(claim: Node2D) -> void:
+	"""Call all clansmen of this claim's clan to defend this territory (land claim or campfire)."""
+	if not claim or not is_instance_valid(claim) or not claim.get("player_owned"):
 		return
-	var clan_name: String = claim.clan_name if "clan_name" in claim else ""
+	var clan_name: String = claim.get("clan_name") if "clan_name" in claim else ""
 	if clan_name == "":
 		return
 	var npcs = get_tree().get_nodes_in_group("npcs")
@@ -2265,20 +2958,22 @@ func _call_defend_for_claim(claim: LandClaim) -> void:
 			continue
 		_set_defend(n, claim)
 		count += 1
-	if count > 0:
-		claim.start_player_emergency_defend()
-		print("DEFEND: Called %d clansmen back to land claim '%s' (emergency defend - release after %.0fs since last intrusion)" % [count, clan_name, 30.0])
+	if count > 0 and claim.has_method("start_player_emergency_defend"):
+		claim.call("start_player_emergency_defend")
+	var label: String = "campfire" if claim is CampfireScript else "land claim"
+	print("DEFEND: Called %d clansmen to defend %s '%s'" % [count, label, clan_name])
 
-func _set_defend(npc: Node, claim: LandClaim = null) -> void:
-	"""Step 8: Set NPC to DEFEND player's land claim. Step 11: register in assigned_defenders. claim = specific (e.g. drag) or null → any."""
+func _set_defend(npc: Node, claim: Node2D = null) -> void:
+	"""Step 8: Set NPC to DEFEND player's land claim or campfire. Step 11: register in assigned_defenders. claim = specific (e.g. drag) or null → any."""
 	if not npc or not is_instance_valid(npc):
 		return
 	if not claim:
-		claim = _get_player_land_claim_any()
+		claim = _get_player_territory_any()
 	if not claim:
 		return
 	_remove_npc_from_all_player_claim_pools(npc)
-	claim.add_defender(npc)
+	if claim.has_method("add_defender"):
+		claim.add_defender(npc)
 	npc.set("defend_target", claim)
 	npc.set("assigned_to_search", false)
 	npc.set("search_home_claim", null)
@@ -2286,6 +2981,8 @@ func _set_defend(npc: Node, claim: LandClaim = null) -> void:
 	npc.set("herder", null)
 	npc.set("follow_is_ordered", false)
 	npc.set("herd_mentality_active", false)
+	if claim.has_method("_update_player_defender_quota"):
+		claim._update_player_defender_quota()
 	var fsm = npc.get_node_or_null("FSM")
 	if fsm:
 		fsm.evaluation_timer = 0.0
@@ -2296,11 +2993,12 @@ func _set_searching(npc: Node) -> void:
 	"""Step 11: Assign NPC to SEARCHING. search_home_claim = claim for ant-style loop."""
 	if not npc or not is_instance_valid(npc):
 		return
-	var claim: LandClaim = _get_player_land_claim_any()
+	var claim: Node2D = _get_player_territory_any()
 	if not claim:
 		return
 	_remove_npc_from_all_player_claim_pools(npc)
-	claim.add_searcher(npc)
+	if claim.has_method("add_searcher"):
+		claim.add_searcher(npc)
 	npc.set("assigned_to_search", true)
 	npc.set("search_home_claim", claim)
 	npc.set("defend_target", null)
@@ -2329,6 +3027,9 @@ func _clear_role_assignment(npc: Node) -> void:
 	npc.set("herd_mentality_active", false)
 	if "is_hostile" in npc:
 		npc.set("is_hostile", false)
+	var lc = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+	if lc and lc.has_method("_update_player_defender_quota"):
+		lc._update_player_defender_quota()
 	var fsm = npc.get_node_or_null("FSM")
 	if fsm:
 		fsm.evaluation_timer = 0.0
@@ -2401,6 +3102,106 @@ func _debug_spawn_test_npcs() -> void:
 		npc.visible = true
 		print("✓ F4: Spawned Wild Woman %s at %s" % [name_w, pos])
 
+func _spawn_rts_playtest_pack_async() -> void:
+	await _spawn_rts_playtest_pack()
+
+func _spawn_rts_playtest_pack_if_requested() -> void:
+	var ua: PackedStringArray = _main_cmdline_user_args()
+	if not ("--rts-playtest-spawn" in ua):
+		return
+	await _spawn_rts_playtest_pack()
+
+func _spawn_rts_playtest_pack() -> void:
+	"""Player-owned land claim + 5 same-clan clansmen near player — validates H, Follow/Guard/Attack, DEFEND, BREAK."""
+	if not player or not is_instance_valid(player) or not world_objects:
+		push_warning("RTS playtest: no player or world_objects")
+		return
+	if player.get_meta("rts_playtest_pack_spawned", false) == true:
+		print("RTS PLAYTEST: pack already spawned this session (once per run).")
+		return
+	var center_pos: Vector2 = player.global_position
+	var claim_pos: Vector2 = center_pos + Vector2(300.0, 0.0)
+	claim_pos = Vector2(round(claim_pos.x / 64.0) * 64.0, round(claim_pos.y / 64.0) * 64.0)
+	var nearest_dist: float = INF
+	for c in get_cached_land_claims():
+		if not is_instance_valid(c):
+			continue
+		nearest_dist = minf(nearest_dist, claim_pos.distance_to(c.global_position))
+	if nearest_dist == INF:
+		nearest_dist = 0.0
+	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
+	if not land_claim:
+		push_error("RTS playtest: LandClaim instantiate failed")
+		return
+	land_claim.global_position = claim_pos
+	land_claim.set_clan_name(RTS_PLAYTEST_CLAN_NAME)
+	land_claim.player_owned = true
+	if not land_claim.inventory:
+		land_claim.inventory = _new_land_claim_inventory()
+	world_objects.add_child(land_claim)
+	_despawn_tallgrass_near(claim_pos, land_claim.radius)
+	_despawn_decorative_trees_near(claim_pos, land_claim.radius)
+	register_land_claim(land_claim)
+	land_claim.visible = true
+	_set_player_name(RTS_PLAYTEST_CLAN_NAME)
+	await get_tree().process_frame
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("land_claim_placed"):
+		pi.call("land_claim_placed", RTS_PLAYTEST_CLAN_NAME, claim_pos.x, claim_pos.y, nearest_dist, "rts_playtest")
+	var npc_names: Array = []
+	var r: float = land_claim.radius
+	var ring: float = clampf(r * 0.38, 80.0, 180.0)
+	for i in range(5):
+		var ang: float = float(i) / 5.0 * TAU + PI * 0.5
+		var spawn_pos: Vector2 = claim_pos + Vector2(cos(ang), sin(ang)) * ring
+		var npc: Node = NPC_SCENE.instantiate()
+		if not npc:
+			continue
+		var unit_name: String = NamingUtils.generate_caveman_name()
+		npc.set("npc_name", unit_name)
+		npc.set("npc_type", "clansman")
+		npc.set("age", randi_range(18, 45))
+		npc.set("traits", [])
+		npc.set("agro_meter", 0.0)
+		# Prevent FSM from entering herd_wildnpc immediately on spawn
+		npc.set_meta("herd_wildnpc_delivery_cooldown_until", Time.get_ticks_msec() / 1000.0 + 10.0)
+		if npc.has_method("set_clan_name"):
+			npc.set_clan_name(RTS_PLAYTEST_CLAN_NAME, "main._spawn_rts_playtest_pack")
+		else:
+			npc.set("clan_name", RTS_PLAYTEST_CLAN_NAME)
+		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+		if sprite:
+			var tex: Texture2D = AssetRegistry.get_player_sprite()
+			if tex:
+				sprite.texture = tex
+				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				sprite.visible = true
+				if npc.has_method("apply_sprite_offset_for_texture"):
+					npc.apply_sprite_offset_for_texture()
+		world_objects.add_child(npc)
+		npc.global_position = spawn_pos
+		npc.set("spawn_position", spawn_pos)
+		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
+		await get_tree().process_frame
+		var inv = npc.get("inventory")
+		if inv:
+			inv.add_item(ResourceData.ResourceType.WOOD, 1)
+		_equip_club_to_npc(npc)
+		npc.visible = true
+		npc_names.append(unit_name)
+		print("  RTS PLAYTEST: clansman %s at %s" % [unit_name, spawn_pos])
+	player.set_meta("rts_playtest_pack_spawned", true)
+	if pi and pi.has_method("rts_playtest_pack_spawned"):
+		var ua2: PackedStringArray = _main_cmdline_user_args()
+		var src: String = "cli" if ("--rts-playtest-spawn" in ua2) else "f5"
+		pi.call("rts_playtest_pack_spawned", RTS_PLAYTEST_CLAN_NAME, claim_pos.x, claim_pos.y, nearest_dist, src, npc_names)
+	print("═══════════════════════════════════════════════════════════")
+	print("RTS PLAYTEST: clan '%s' — claim at %s, %d clansmen (H, Follow/Guard/Attack, DEFEND, BREAK)." % [RTS_PLAYTEST_CLAN_NAME, claim_pos, npc_names.size()])
+	print("  Instrumentation: --playtest-capture or DebugConfig.playtest_capture_always → user://playtest_*.jsonl")
+	print("  If you already had another player-owned claim, _get_player_clan_name() may still resolve that clan first.")
+	print("═══════════════════════════════════════════════════════════")
+	_connect_emergency_defend_horns()
+
 func _debug_set_defend_for_npc_under_cursor() -> void:
 	"""F3 debug: set DEFEND for clansman/caveman under cursor. Step 7."""
 	var resolved := _resolve_click_target()
@@ -2413,8 +3214,8 @@ func _debug_set_defend_for_npc_under_cursor() -> void:
 		return
 	_set_defend(target)
 	var name_str: String = str(target.get("npc_name")) if target else "?"
-	var claim: LandClaim = _get_player_land_claim_any()
-	print("🛡️ DEFEND set for %s (claim: %s)" % [name_str, str(claim.name) if claim else "?"])
+	var territory: Node2D = _get_player_territory_any()
+	print("🛡️ DEFEND set for %s (claim: %s)" % [name_str, str(territory.name) if territory else "?"])
 
 func _update_equipment() -> void:
 	if not player_inventory_ui:
@@ -2864,8 +3665,8 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 		var npc: Node = target as Node
 		var t_val = npc.get("npc_type")
 		var t: String = str(t_val) if t_val != null else ""
-		var claim: LandClaim = _get_player_land_claim_any()
-		var player_clan: String = claim.clan_name if claim else ""
+		var player_clan: String = _get_player_clan_name()
+		var territory: Node2D = _get_player_territory_any()
 		var npc_clan: String = ""
 		if npc.has_method("get_clan_name"):
 			npc_clan = npc.get_clan_name()
@@ -2881,7 +3682,7 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 		if t == "sheep" or t == "goat":
 			opts.append({ "id": "hunt", "label": "HUNT" })
 		if t == "clansman" or t == "caveman":
-			if claim:
+			if territory:
 				opts.append({ "id": "assign_defend", "label": "DEFEND" })
 				opts.append({ "id": "assign_searching", "label": "SEARCH" })
 				var dt = npc.get("defend_target")
@@ -2899,6 +3700,9 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 			opts.append({ "id": "call_defend", "label": "DEFEND" })
 	elif target_type == "campfire":
 		opts = [{ "id": "info", "label": "INFO" }]
+		var cf_def := target as CampfireScript
+		if cf_def and cf_def.player_owned:
+			opts.append({ "id": "call_defend", "label": "DEFEND" })
 	return opts
 
 func _animate_building_placement(building: Node2D) -> void:
@@ -3034,8 +3838,7 @@ func _on_clan_name_confirmed(clan_name: String, world_pos: Vector2, from_slot: I
 	land_claim.player_owned = true  # Mark as player-owned
 	
 	# Create building inventory (will be set in land_claim._ready())
-	# Use same settings as land_claim._ready(): 12 slots for testing, stacking enabled, high stack limit
-	var building_inventory := InventoryData.new(12, true, 999999)
+	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
 	
 	# NORMAL CONFIGURATION: Land claim starts with empty inventory
@@ -3065,7 +3868,7 @@ func _on_clan_name_confirmed(clan_name: String, world_pos: Vector2, from_slot: I
 	
 	print("✓ Land claim placed at ", world_pos, " with name: ", clan_name)
 	print("[MONITOR] Land claim placed at ", world_pos, " clan=", clan_name)
-	print("  Building inventory created with 12 slots (stacking enabled)")
+	print("  Building inventory created with %d slots (stacking enabled)" % building_inventory.slot_count)
 	OccupationDiagLogger.log("LAND_CLAIM_PLACED", {"clan": clan_name, "pos": "%.1f,%.1f" % [world_pos.x, world_pos.y]})
 	
 	# Log player land claim placement
@@ -3105,7 +3908,7 @@ func _on_campfire_clan_name_confirmed(clan_name: String, world_pos: Vector2, fro
 	campfire.global_position = world_pos
 	campfire.clan_name = clan_name
 	campfire.player_owned = true
-	campfire.inventory = InventoryData.new(6, true, 999)
+	campfire.inventory = _new_campfire_inventory()
 	campfire.inventory.add_item(ResourceData.ResourceType.WOOD, 2)
 	campfire.inventory.add_item(ResourceData.ResourceType.STONE, 2)
 	world_objects.add_child(campfire)
@@ -3285,6 +4088,8 @@ func _apply_campfire_replaced_by_land_claim(campfire_ref: CampfireScript, new_la
 	_despawn_decorative_trees_near(world_pos, new_land_claim.radius)
 	register_land_claim(new_land_claim)
 	nearby_building = new_land_claim
+	if new_land_claim.clan_brain and new_land_claim.clan_brain.has_method("set_mode"):
+		new_land_claim.clan_brain.set_mode("settled")
 	print("✓ Campfire upgraded to Land Claim at ", world_pos, " clan: ", clan_name, " (radius ", new_land_claim.radius, ")")
 
 var _last_placement_failure_message: String = ""  # Set when campfire rules fail; cleared after use
@@ -3347,8 +4152,8 @@ func _validate_building_placement(world_pos: Vector2, building_type: ResourceDat
 		if building_type != ResourceData.ResourceType.LIVING_HUT:
 			_last_placement_failure_message = "Only Living Huts at campfire. Upgrade to Land Claim for Oven, Farm, etc."
 			return false
-		if _get_living_hut_count_near_claim(player_land_claim) >= 3:
-			_last_placement_failure_message = "Campfire can only support 3 Living Huts. Upgrade to Land Claim for more!"
+		if _get_living_hut_count_near_claim(player_land_claim) >= 6:
+			_last_placement_failure_message = "Campfire can only support 6 Living Huts. Upgrade to Land Claim for more!"
 			return false
 	
 	# Check if position is inside land claim radius (use actual position, not offset)
@@ -3804,7 +4609,7 @@ func _place_npc_land_claim(clan_name: String, world_pos: Vector2, npc: Node) -> 
 	# Create building inventory (6 slots, stacking enabled, no stack limit for testing)
 	# CRITICAL: Check if inventory already exists (from _ready()) before creating new one
 	if not land_claim.inventory:
-		var building_inventory := InventoryData.new(12, true, 999999)  # 12 slots for testing
+		var building_inventory := _new_land_claim_inventory()
 		land_claim.inventory = building_inventory
 		_dbg("🔵 MAIN._PLACE_NPC_LAND_CLAIM: Created NEW inventory for %s (inventory=%s)" % [clan_name, building_inventory])
 	else:
@@ -3930,10 +4735,11 @@ func _handle_npcs_in_new_land_claim(center: Vector2, radius: float, clan_name: S
 		var herder_valid: bool = is_instance_valid(herder)
 		
 		# Check if this NPC is herded by the player (for player-owned claims)
+		# Use group membership — reference equality to player_nodes[0] can fail across wrappers/scenes
 		var is_herded_by_player: bool = false
 		if is_player_owned and is_herded and herder_valid:
-			var player_nodes := get_tree().get_nodes_in_group("player")
-			if player_nodes.size() > 0 and herder == player_nodes[0]:
+			var herder_node: Node = herder as Node
+			if herder_node and herder_node.is_in_group("player"):
 				is_herded_by_player = true
 		
 		# CAVEMEN: Can enter land claims now - don't evict them
@@ -3984,11 +4790,19 @@ func _handle_npcs_in_new_land_claim(center: Vector2, radius: float, clan_name: S
 					main_pi.npc_joined_clan(npc_name, clan_name, "woman", "placed_claim")
 				OccupationDiagLogger.log("NPC_JOINED_CLAN", {"npc": npc_name, "type": "woman", "clan": clan_name, "reason": reason})
 				
-				# Release from herd mode AFTER joining clan (if was herded)
-				if is_herded_by_player:
-					npc.set("is_herded", false)
-					npc.set("herder", null)
+				# Must use _clear_herd() so HerdableComponent.detach() + HerdManager stay in sync.
+				# Setting is_herded/herder directly makes detach() no-op next frame (orphan herd + stuck herd state).
+				if npc.get("is_herded"):
+					if npc.has_method("_clear_herd"):
+						npc.call("_clear_herd")
+					else:
+						npc.set("is_herded", false)
+						npc.set("herder", null)
 					print("NPC %s released from herd mode (now part of clan)" % npc_name)
+					var wf = npc.get("fsm")
+					if wf and wf.has_method("change_state"):
+						wf.set("evaluation_timer", 0.0)
+						wf.call("change_state", "wander")
 			# If already in a clan, woman can stay (might be visiting)
 			continue
 		
@@ -4013,10 +4827,16 @@ func _handle_npcs_in_new_land_claim(center: Vector2, radius: float, clan_name: S
 					main_pi2.npc_joined_clan(npc_name, clan_name, npc_type, "placed_claim")
 				OccupationDiagLogger.log("NPC_JOINED_CLAN", {"npc": npc_name, "type": npc_type, "clan": clan_name, "reason": reason})
 				
-				# Release from herd mode AFTER joining clan (if was herded)
-				if is_herded_by_player:
-					npc.set("is_herded", false)
-					npc.set("herder", null)
+				if npc.get("is_herded"):
+					if npc.has_method("_clear_herd"):
+						npc.call("_clear_herd")
+					else:
+						npc.set("is_herded", false)
+						npc.set("herder", null)
+					var wf2 = npc.get("fsm")
+					if wf2 and wf2.has_method("change_state"):
+						wf2.set("evaluation_timer", 0.0)
+						wf2.call("change_state", "wander")
 			# Other NPCs already in a clan can stay (might be visiting)
 			continue
 		
@@ -4151,18 +4971,10 @@ func _evict_npcs_from_land_claim_area(center: Vector2, radius: float) -> void:
 				print("Evicted NPC %s from land claim area" % npc.npc_name)
 
 func _setup_npcs() -> void:
-	# NPCs and grass add directly to world_objects (YSort) for proper depth sorting
-	npcs_container = world_objects  # Alias for code that references it
-	decorations_container = world_objects  # Alias for grass spawn check
-	
-	# Initialize minigame: spawn 3 cavemen + 6 women (no sheep/goats)
-	# Spawn NPCs first, then spawn resources randomly across map
-	await _initialize_minigame()
-	# After NPCs are spawned, spawn resources randomly across the map
-	await get_tree().process_frame  # Wait a frame for NPCs to be fully initialized
-	_spawn_initial_resources()
-	_spawn_tallgrass()
-	_spawn_decorative_trees()
+	if SpawnManager:
+		await SpawnManager.setup_npcs()
+	else:
+		push_error("Main: SpawnManager autoload missing; cannot set up NPCs")
 
 # TASK SYSTEM TEST: Set up ideal test environment
 func _setup_task_system_test_environment() -> void:
@@ -4187,7 +4999,7 @@ func _setup_task_system_test_environment() -> void:
 	land_claim.player_owned = true
 	
 	# Create inventory and add resources
-	var building_inventory := InventoryData.new(12, true, 999999)  # 12 slots for testing
+	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
 	
 	# DEBUG: Verify inventory before adding
@@ -4297,20 +5109,83 @@ func _setup_task_system_test_environment() -> void:
 	print("=== TASK SYSTEM TEST: Test environment setup complete ===")
 	print("  → Walk east to the land claim. 2 women will move wood/grain to ovens, produce bread, and deliver to claim.")
 
+func _agro_test_overrides() -> Dictionary:
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc and dc.get("test_overrides") is Dictionary:
+		return dc.test_overrides as Dictionary
+	return {}
+
+
+func _agro_test_avg_follower_distance(leader: Node) -> float:
+	if not leader or not is_instance_valid(leader) or not get_tree():
+		return 999999.0
+	var sum_d: float = 0.0
+	var n_follow: int = 0
+	for n in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(n) or n == leader:
+			continue
+		if n.get("herder") != leader:
+			continue
+		if n.get("follow_is_ordered") != true:
+			continue
+		sum_d += n.global_position.distance_to(leader.global_position)
+		n_follow += 1
+	if n_follow == 0:
+		return 999999.0
+	return sum_d / float(n_follow)
+
+
+func _agro_test_apply_warband_mode(leader: Node, mode: String) -> void:
+	if not leader or not is_instance_valid(leader):
+		return
+	var commander_id: int = EntityRegistry.get_id(leader) if EntityRegistry else -1
+	var base_ctx: Dictionary = leader.get("command_context") as Dictionary if leader.get("command_context") != null else {}
+	var ctx_l: Dictionary = base_ctx.duplicate() if not base_ctx.is_empty() else {}
+	ctx_l["commander_id"] = commander_id
+	ctx_l["mode"] = mode
+	ctx_l["is_hostile"] = true
+	ctx_l["issued_at_time"] = Time.get_ticks_msec() / 1000.0
+	leader.set("command_context", ctx_l)
+	if "command_context" in leader:
+		leader.command_context = ctx_l
+	leader.set("is_hostile", true)
+	for n in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(n) or n == leader:
+			continue
+		if n.get("herder") != leader:
+			continue
+		if n.get("follow_is_ordered") != true:
+			continue
+		var fc: Dictionary = n.get("command_context") as Dictionary if n.get("command_context") != null else {}
+		var ctx_f: Dictionary = fc.duplicate() if not fc.is_empty() else {}
+		ctx_f["commander_id"] = commander_id
+		ctx_f["mode"] = mode
+		ctx_f["is_hostile"] = true
+		ctx_f["issued_at_time"] = Time.get_ticks_msec() / 1000.0
+		n.set("command_context", ctx_f)
+		if "command_context" in n:
+			n.command_context = ctx_f
+		n.set("is_hostile", true)
+
+
 func _setup_agro_combat_test_environment() -> void:
-	"""Test process for overhaul combat/agro: 2 land claims, 2 clans of 10 (1 leader + 9 in GUARD mode). Clansmen stay tight around the slower leader; leaders move at the other clan; raiding parties meet head-on for melee."""
-	print("=== AGRO/COMBAT TEST (overhaul validation): 2 clans × 10, GUARD mode — clansmen tight around leader → meet head-on → melee ===")
+	"""Test: 2 claims (configurable spacing), 2 clans × 10. Followers GUARD until leaders finish march→hold→engage; then full warband ATTACK."""
+	print("=== AGRO/COMBAT TEST: 2 clans × 10 — phased leaders (march → rally hold → engage), followers GUARD then ATTACK ===")
 	_agro_combat_test_leaders.clear()
 	_agro_combat_test_claims.clear()
+	_agro_combat_test_leader_phases.clear()
+	_agro_combat_test_leader_phase1_start.clear()
 
 	if not player or not world_objects:
 		print("ERROR: Player or world_objects is null")
 		return
 
+	var ovs: Dictionary = _agro_test_overrides()
+	var claim_distance: float = float(ovs.get("agro_test_claim_distance", 1500.0))
 	var center_pos := player.global_position
-	const CLAIM_DISTANCE := 1000.0  # ~2000px apart – RTS-style longer approach, less clumping at spawn
-	var claim_a_pos := center_pos + Vector2(-CLAIM_DISTANCE, 0)
-	var claim_b_pos := center_pos + Vector2(CLAIM_DISTANCE, 0)
+	var claim_a_pos := center_pos + Vector2(-claim_distance, 0)
+	var claim_b_pos := center_pos + Vector2(claim_distance, 0)
+	print("  Claim half-distance: %.0fpx (total span ~%.0fpx)" % [claim_distance, claim_distance * 2.0])
 
 	# 1. Land claim ClanA (west)
 	var claim_a: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
@@ -4321,7 +5196,7 @@ func _setup_agro_combat_test_environment() -> void:
 	claim_a.set_clan_name("ClanA")
 	claim_a.player_owned = false
 	if not claim_a.inventory:
-		claim_a.inventory = InventoryData.new(12, true, 999999)
+		claim_a.inventory = _new_land_claim_inventory()
 	world_objects.add_child(claim_a)
 	_despawn_tallgrass_near(claim_a_pos, claim_a.radius)
 	_despawn_decorative_trees_near(claim_a_pos, claim_a.radius)
@@ -4338,7 +5213,7 @@ func _setup_agro_combat_test_environment() -> void:
 	claim_b.set_clan_name("ClanB")
 	claim_b.player_owned = false
 	if not claim_b.inventory:
-		claim_b.inventory = InventoryData.new(12, true, 999999)
+		claim_b.inventory = _new_land_claim_inventory()
 	world_objects.add_child(claim_b)
 	_despawn_tallgrass_near(claim_b_pos, claim_b.radius)
 	_despawn_decorative_trees_near(claim_b_pos, claim_b.radius)
@@ -4410,7 +5285,7 @@ func _setup_agro_combat_test_environment() -> void:
 			var fsm = npc.get_node_or_null("FSM")
 			if fsm and fsm.has_method("change_state"):
 				fsm.evaluation_timer = 0.0
-				fsm.change_state("herd")
+				fsm.change_state("party")
 		print("  ClanA: %s at %s" % [npc_name, pos])
 	clan_a_leader.set_meta("agro_combat_test_leader", true)  # Skip defend so main can drive them
 	clan_a_leader.set_meta("formation_guard", true)  # Leader slower so clansmen protect center
@@ -4475,13 +5350,18 @@ func _setup_agro_combat_test_environment() -> void:
 			var fsm = npc.get_node_or_null("FSM")
 			if fsm and fsm.has_method("change_state"):
 				fsm.evaluation_timer = 0.0
-				fsm.change_state("herd")
+				fsm.change_state("party")
 		print("  ClanB: %s at %s" % [npc_name, pos])
 	clan_b_leader.set_meta("agro_combat_test_leader", true)  # Skip defend so main can drive them
 	clan_b_leader.set_meta("formation_guard", true)  # Leader slower so clansmen protect center
 	_agro_combat_test_leaders.append(clan_b_leader)
 
-	print("=== AGRO/COMBAT TEST: 2 land claims, 2 clans × 10 (GUARD mode — clansmen tight around leader). Leaders move at each other → raiding parties meet head-on → melee → capture data. ===")
+	_agro_combat_test_leader_phases = [0, 0]
+	_agro_combat_test_leader_phase1_start = [-1.0, -1.0]
+	_agro_test_apply_warband_mode(clan_a_leader, "GUARD")
+	_agro_test_apply_warband_mode(clan_b_leader, "GUARD")
+
+	print("=== AGRO/COMBAT TEST: Leaders phase 0 = march to enemy claim only; phase 1 = rally hold; phase 2 = ATTACK + seek foes. Data → playtest JSONL. ===")
 	_agro_combat_test_start_time = Time.get_ticks_msec() / 1000.0
 
 func _setup_raid_test_environment() -> void:
@@ -4504,7 +5384,7 @@ func _setup_raid_test_environment() -> void:
 	claim_a.set_clan_name("ClanA")
 	claim_a.player_owned = false
 	if not claim_a.inventory:
-		claim_a.inventory = InventoryData.new(12, true, 999999)
+		claim_a.inventory = _new_land_claim_inventory()
 	# Optional: low food so raid score gets a boost
 	claim_a.inventory.add_item(ResourceData.ResourceType.BERRIES, 2)
 	world_objects.add_child(claim_a)
@@ -4522,7 +5402,7 @@ func _setup_raid_test_environment() -> void:
 	claim_b.set_clan_name("ClanB")
 	claim_b.player_owned = false
 	if not claim_b.inventory:
-		claim_b.inventory = InventoryData.new(12, true, 999999)
+		claim_b.inventory = _new_land_claim_inventory()
 	world_objects.add_child(claim_b)
 	_despawn_tallgrass_near(claim_b_pos, claim_b.radius)
 	_despawn_decorative_trees_near(claim_b_pos, claim_b.radius)
@@ -4650,7 +5530,7 @@ func _setup_gather_test_environment() -> void:
 	land_claim.player_owned = true
 	
 	# Create inventory (empty to start - resources will come from gathering)
-	var building_inventory := InventoryData.new(20, true, 999999)
+	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
 	
 	world_objects.add_child(land_claim)
@@ -4839,7 +5719,7 @@ func _initialize_minigame() -> void:
 	await get_tree().process_frame
 	
 	# Headless: extra frame so scene tree is fully ready
-	if "--headless" in OS.get_cmdline_args() or "--headless" in OS.get_cmdline_user_args():
+	if _cmdline_has("--headless"):
 		await get_tree().process_frame
 	
 	# Resolve spawn center and parent - fallbacks for headless/edge cases
@@ -4905,7 +5785,7 @@ func _initialize_minigame() -> void:
 		land_claim.set_clan_name(clan_name)
 		land_claim.player_owned = false
 		if not land_claim.inventory:
-			land_claim.inventory = InventoryData.new(12, true, 999999)
+			land_claim.inventory = _new_land_claim_inventory()
 		spawn_parent.add_child(land_claim)
 		_despawn_tallgrass_near(claim_pos, land_claim.radius)
 		_despawn_decorative_trees_near(claim_pos, land_claim.radius)

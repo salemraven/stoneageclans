@@ -62,11 +62,13 @@ func update(_delta: float) -> void:
 			fsm.change_state("combat")
 		return
 	
-	# CRITICAL: Exit immediately if following - following takes priority
 	if _is_following():
-		# Following - exit gather state
 		if fsm:
-			fsm.change_state("herd")
+			var nt_gf: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt_gf == "caveman" or nt_gf == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
 		return
 	
 	# Job-only: require job; TaskRunner handles execution

@@ -1,0 +1,22 @@
+---
+description: How to make changes — never break, modular, incremental
+alwaysApply: true
+---
+
+# Development Approach
+
+## Before Changing Code
+1. **Explain intent**: What system, why it improves gameplay, how it interacts with others
+2. **Check interactions**: See how systems connect before modifying
+3. **Prefer**: extend, compose, modular additions. **Avoid** large rewrites unless asked
+
+## Change Style
+- **Small incremental patches** over full rewrites
+- **Modular systems**: npc_behavior, hunting, social, environment, combat — clearly separated, no monolithic scripts
+- **Connect to existing systems**: New features should hook into current systems (e.g. drought → fewer animals → hunters travel farther → rival encounters → raids)
+
+## Performance
+Many NPCs. Prefer: lightweight logic, event-driven updates. Avoid expensive per-frame loops.
+
+## When Suggesting
+Provide: system explanation, implementation idea, code suggestion, integration notes. Propose **specific mechanics** that produce gameplay stories, not generic "add more content."

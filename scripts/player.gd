@@ -2,7 +2,7 @@ extends CharacterBody2D
 
 const WalkAnimation = preload("res://scripts/systems/walk_animation.gd")
 
-@export var move_speed := 200.0  # Smoother map movement (was 280)
+@export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
 @export var bounce_amplitude := 2.0
 @export var bounce_speed := 8.0
@@ -15,7 +15,7 @@ var _walk_timer := 0.0
 var _equipped_item: ResourceData.ResourceType = ResourceData.ResourceType.NONE as ResourceData.ResourceType
 var _can_move := true
 var _leader_lines_container: Node2D = null
-var herded_count: int = 0  # Phase 3: Number of NPCs currently following this player (event-based counter)
+var herded_count: int = 0  # Deprecated: use HerdManager.get_herd_size(self); kept for save/tools compatibility
 var last_facing: Vector2 = Vector2(0, 1)  # For formation when stationary (followers stay behind)
 
 # Player hunger (does NOT die from starvation - only penalties)
@@ -116,6 +116,14 @@ func set_player_name(name: String) -> void:
 	set_meta(_player_name_meta_key, name)
 
 func _physics_process(_delta: float) -> void:
+	# Multiplayer: only authority runs input; remote players driven by sync (Phase 4).
+	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+		velocity = Vector2.ZERO
+		set_meta("formation_velocity", velocity)
+		move_and_slide()
+		if sprite:
+			YSortUtils.update_draw_order(sprite, self)
+		return
 	# Hunger depletion (player does NOT die from starvation)
 	var rate: float = hunger_deplete_rate
 	if BalanceConfig:
@@ -124,11 +132,13 @@ func _physics_process(_delta: float) -> void:
 	
 	if not _can_move:
 		velocity = Vector2.ZERO
+		set_meta("formation_velocity", velocity)
 		move_and_slide()
 		return
 	# Gathering: must stay in place; moving cancels (set by gatherable_resource)
 	if get("is_gathering") == true:
 		velocity = Vector2.ZERO
+		set_meta("formation_velocity", velocity)
 		move_and_slide()
 		return
 	
@@ -144,11 +154,17 @@ func _physics_process(_delta: float) -> void:
 
 	# Speed debuff when very hungry (player does not die)
 	var speed_mult: float = 0.7 if hunger < 30.0 else 1.0
-	# Herding debuff: same as caveman (does not stack with follower count)
-	if herded_count > 0:
+	# Herding debuff: same as caveman (HerdManager = animals + ordered followers)
+	var herd_n: int = HerdManager.get_herd_size(self) if HerdManager else herded_count
+	if herd_n > 0:
 		var herd_mult: float = NPCConfig.herd_leader_speed_multiplier if NPCConfig and "herd_leader_speed_multiplier" in NPCConfig else 0.97
 		speed_mult *= herd_mult
+	# Formation debuff: match clansmen speed in GUARD (0.75x) or ATTACK (0.85x) so the group moves as a unit
+	var formation_mult: float = get_meta("formation_speed_mult", 1.0)
+	speed_mult *= formation_mult
 	velocity = input_vector * (move_speed * speed_mult)
+	# Broadcast actual pixel velocity so ordered followers can match movement (RTS formation)
+	set_meta("formation_velocity", velocity)
 	
 	# Prevent player from entering NPC caveman land claims (modify velocity before move_and_slide)
 	_prevent_entering_npc_land_claims(_delta)
@@ -335,21 +351,20 @@ func _draw_leader_lines() -> void:
 	for child in _leader_lines_container.get_children():
 		child.queue_free()
 	
-	# Find all NPCs following the player
-	var all_npcs := get_tree().get_nodes_in_group("npcs")
 	var followers: Array[Node2D] = []
-	
-	for npc_check in all_npcs:
-		if not is_instance_valid(npc_check):
-			continue
-		
-		var is_herded_prop = npc_check.get("is_herded")
-		var npc_is_herded: bool = is_herded_prop as bool if is_herded_prop != null else false
-		var herder_prop = npc_check.get("herder")
-		var npc_herder = herder_prop if herder_prop != null else null
-		
-		if npc_is_herded and npc_herder == self:
-			followers.append(npc_check)
+	if HerdManager:
+		followers.assign(HerdManager.get_herd(self))
+	else:
+		var all_npcs := get_tree().get_nodes_in_group("npcs")
+		for npc_check in all_npcs:
+			if not is_instance_valid(npc_check):
+				continue
+			var is_herded_prop = npc_check.get("is_herded")
+			var npc_is_herded: bool = is_herded_prop as bool if is_herded_prop != null else false
+			var herder_prop = npc_check.get("herder")
+			var npc_herder = herder_prop if herder_prop != null else null
+			if npc_is_herded and npc_herder == self:
+				followers.append(npc_check)
 	
 	# Draw a line to each follower
 	for follower in followers:

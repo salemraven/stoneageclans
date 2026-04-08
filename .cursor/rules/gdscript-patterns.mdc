@@ -1,0 +1,14 @@
+---
+description: GDScript coding patterns for Stone Age Clans
+globs: **/*.gd
+alwaysApply: false
+---
+
+# GDScript Patterns
+
+- Use `@export` for inspector-tweakable values
+- Prefer composition (components, behaviors) over deep inheritance
+- Config classes in `scripts/config/` for balance and tuning
+- Signal naming: `snake_case` (e.g. `item_picked_up`, `state_changed`)
+- Clear variable names, simple logic, readable structure
+- Comments explaining systems. Avoid overly clever code and deep nesting

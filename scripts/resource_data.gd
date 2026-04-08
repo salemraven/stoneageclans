@@ -28,7 +28,10 @@ enum ResourceType {
 	CAMPFIRE,
 	HIDE,
 	BONE,
-	TRAVOIS
+	TRAVOIS,
+	MUSHROOM,
+	BUGS,
+	NUTS
 }
 
 static func get_resource_name(type: ResourceType) -> String:
@@ -59,6 +62,9 @@ static func get_resource_name(type: ResourceType) -> String:
 		ResourceType.HIDE: return "Hide"
 		ResourceType.BONE: return "Bone"
 		ResourceType.TRAVOIS: return "Travois"
+		ResourceType.MUSHROOM: return "Mushroom"
+		ResourceType.BUGS: return "Bugs"
+		ResourceType.NUTS: return "Nuts"
 		_: return "Unknown"
 
 static func get_resource_color(type: ResourceType) -> Color:
@@ -82,6 +88,9 @@ static func get_resource_color(type: ResourceType) -> Color:
 		ResourceType.HIDE: return Color(0.7, 0.55, 0.4) # Leather brown for hide
 		ResourceType.BONE: return Color(0.95, 0.92, 0.85) # Off-white for bone
 		ResourceType.TRAVOIS: return Color(0.5, 0.4, 0.3) # Brown for travois
+		ResourceType.MUSHROOM: return Color(0.65, 0.35, 0.45)
+		ResourceType.BUGS: return Color(0.45, 0.5, 0.35)
+		ResourceType.NUTS: return Color(0.55, 0.4, 0.2)
 		_: return Color.WHITE
 
 static func get_resource_icon_path(type: ResourceType) -> String:
@@ -112,6 +121,9 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.HIDE: return "res://assets/sprites/hide.png"
 		ResourceType.BONE: return "res://assets/sprites/bone.png"
 		ResourceType.TRAVOIS: return "res://assets/sprites/travois.png"
+		ResourceType.MUSHROOM: return "res://assets/sprites/mushroom.png"
+		ResourceType.BUGS: return "res://assets/sprites/bugs.png"
+		ResourceType.NUTS: return "res://assets/sprites/nuts1.png"
 		_: return ""
 
 static func is_equipment(type: ResourceType) -> bool:
@@ -140,6 +152,9 @@ static func get_resource_tier(_type: ResourceType) -> int:
 		ResourceType.HIDE: return 0
 		ResourceType.BONE: return 0
 		ResourceType.TRAVOIS: return 1
+		ResourceType.MUSHROOM: return 0
+		ResourceType.BUGS: return 0
+		ResourceType.NUTS: return 0
 		_: return 0
 
 static func get_tier_border_color(tier: int) -> Color:
@@ -178,6 +193,9 @@ static func get_resource_description(type: ResourceType) -> String:
 		ResourceType.HIDE: return "Animal hide from corpses. Used for land claim."
 		ResourceType.BONE: return "Bone from corpses. Used for future crafts."
 		ResourceType.TRAVOIS: return "Portable storage. 2 wood + 2 cordage. 2-handed."
+		ResourceType.MUSHROOM: return "Foraged mushroom. Food."
+		ResourceType.BUGS: return "Insects from tall grass. Food."
+		ResourceType.NUTS: return "Tree nuts. Food."
 		_: return ""
 
 # Get nutrient value for food items (higher = better)
@@ -194,6 +212,9 @@ static func get_food_nutrient_value(type: ResourceType) -> int:
 		ResourceType.MEAT: return 10
 		ResourceType.BREAD: return 15
 		ResourceType.MILK: return 6  # Milk consumable for humans
+		ResourceType.MUSHROOM: return 6
+		ResourceType.BUGS: return 5
+		ResourceType.NUTS: return 7
 		_: return 0
 
 # Get hunger restoration amount for food items (as percentage of max hunger)
@@ -204,10 +225,13 @@ static func get_food_hunger_restore_percent(type: ResourceType) -> float:
 		ResourceType.MEAT: return 10.0
 		ResourceType.BREAD: return 15.0
 		ResourceType.MILK: return 6.0  # Milk consumable for humans
+		ResourceType.MUSHROOM: return 6.0
+		ResourceType.BUGS: return 5.0
+		ResourceType.NUTS: return 7.0
 		_: return 0.0
 
 # Check if a resource type is edible food
 static func is_food(type: ResourceType) -> bool:
-	return type == ResourceType.BERRIES or type == ResourceType.GRAIN or type == ResourceType.BREAD or type == ResourceType.MEAT or type == ResourceType.MILK
+	return type == ResourceType.BERRIES or type == ResourceType.GRAIN or type == ResourceType.BREAD or type == ResourceType.MEAT or type == ResourceType.MILK or type == ResourceType.MUSHROOM or type == ResourceType.BUGS or type == ResourceType.NUTS
 	# Note: GRAIN comes from harvesting WHEAT, but GRAIN is the food item stored in inventory
 	# FIBER is NOT a consumable - it's a resource used for crafting

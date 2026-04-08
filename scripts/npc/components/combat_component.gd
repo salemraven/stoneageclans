@@ -1,6 +1,8 @@
 extends Node
 class_name CombatComponent
 
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+
 # Combat Component - handles attack logic, damage calculation, combat state
 # Now with event-driven windup/recovery system
 
@@ -316,7 +318,8 @@ func _on_hit_frame() -> void:
 			var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 			if pi and pi.is_enabled():
 				var nn: String = npc.get("npc_name") if npc.get("npc_name") != null else "unknown"
-				pi.combat_hit(nn, current_target.name if current_target else "building")
+				var ac_b: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
+				pi.combat_hit(nn, current_target.name if current_target else "building", ac_b, "", false)
 			print("⚔️ Building %s took %.1f damage" % [current_target.name if current_target else "unknown", building_damage])
 		# Transition to recovery (building attacks don't need full recovery)
 		state = CombatState.RECOVERY
@@ -379,11 +382,16 @@ func _on_hit_frame() -> void:
 			if pi and pi.is_enabled():
 				var nn: String = npc.get("npc_name") if npc.get("npc_name") != null else "unknown"
 				var tn: String = "unknown"
+				var tc_hit: String = ""
 				if current_target is NPCBase:
 					tn = (current_target as NPCBase).npc_name
+					tc_hit = current_target.get_clan_name() if current_target.has_method("get_clan_name") else ""
 				elif current_target.is_in_group("player"):
 					tn = "Player"
-				pi.combat_hit(nn, tn)
+					tc_hit = current_target.get_clan_name() if current_target.has_method("get_clan_name") else ""
+				var ac_hit: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
+				var ff_hit: bool = CombatAllyCheck.is_ally(npc, current_target)
+				pi.combat_hit(nn, tn, ac_hit, tc_hit, ff_hit)
 			print("💥 COMBAT: Damage applied successfully")
 		else:
 			print("❌ COMBAT: HealthComponent became invalid!")
@@ -519,6 +527,10 @@ func _validate_hit(target: Node) -> bool:
 		return false
 	
 	if not npc:
+		return false
+	
+	# Allies never damage each other (safety net vs friendly fire)
+	if CombatAllyCheck.is_ally(npc, target):
 		return false
 	
 	# Check if target is alive

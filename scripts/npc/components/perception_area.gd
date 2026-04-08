@@ -1,6 +1,8 @@
 extends Area2D
 class_name PerceptionArea
 
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+
 # PerceptionArea - Implements AOP (Area of Perception). Event-driven spatial tracking.
 # Base layer for AOA, combat target selection, and agro.
 # Replaces get_nodes_in_group() performance bottleneck.
@@ -162,19 +164,8 @@ func get_nearest_enemy(origin: Vector2, npc: NPCBase = null) -> Node:
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
-		if is_player and npc:
-			var h = npc.get("herder")
-			if h == enemy:
-				continue
-			var dt = npc.get("defend_target")
-			var shc = npc.get("search_home_claim")
-			if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-				continue
-		if npc and enemy.has_method("get_clan_name"):
-			var npc_clan = npc.get_clan_name()
-			var enemy_clan = enemy.get_clan_name()
-			if npc_clan != "" and npc_clan == enemy_clan:
-				continue
+		if npc and CombatAllyCheck.is_ally(npc, enemy):
+			continue
 		var distance = origin.distance_squared_to(enemy.global_position)
 		if distance < best_dist and distance <= detection_range * detection_range:
 			best_dist = distance
@@ -213,19 +204,8 @@ func get_enemies_in_range(origin: Vector2, radius: float, npc: NPCBase = null) -
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
-		if is_player and npc:
-			var h = npc.get("herder")
-			if h == enemy:
-				continue
-			var dt = npc.get("defend_target")
-			var shc = npc.get("search_home_claim")
-			if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-				continue
-		if npc and enemy.has_method("get_clan_name"):
-			var npc_clan = npc.get_clan_name()
-			var enemy_clan = enemy.get_clan_name()
-			if npc_clan != "" and npc_clan == enemy_clan:
-				continue
+		if npc and CombatAllyCheck.is_ally(npc, enemy):
+			continue
 		var dist_sq = origin.distance_squared_to(enemy.global_position)
 		if dist_sq <= r2:
 			out.append(enemy)
@@ -247,19 +227,8 @@ func get_threats_in_range(origin: Vector2, radius: float, npc: NPCBase = null) -
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
 		if target_type != "caveman" and target_type != "clansman" and target_type != "predator" and not is_player:
 			continue
-		if is_player and npc:
-			var h = npc.get("herder")
-			if h == enemy:
-				continue
-			var dt = npc.get("defend_target")
-			var shc = npc.get("search_home_claim")
-			if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-				continue
-		if npc and enemy.has_method("get_clan_name"):
-			var npc_clan = npc.get_clan_name()
-			var enemy_clan = enemy.get_clan_name()
-			if npc_clan != "" and npc_clan == enemy_clan:
-				continue
+		if npc and CombatAllyCheck.is_ally(npc, enemy):
+			continue
 		var dist_sq = origin.distance_squared_to(enemy.global_position)
 		if dist_sq <= r2:
 			out.append(enemy)
@@ -276,24 +245,8 @@ func has_enemies(npc: NPCBase = null) -> bool:
 		var target_type_prop = enemy.get("npc_type") if enemy else null
 		var target_type: String = target_type_prop as String if target_type_prop != null else ""
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
-		if is_player and npc:
-			var herder_val = npc.get("herder")
-			if herder_val == enemy:
-				continue
-			var dt = npc.get("defend_target")
-			var shc = npc.get("search_home_claim")
-			if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-				continue
-			if npc.has_method("get_clan_name") and enemy.has_method("get_clan_name"):
-				var npc_clan = npc.get_clan_name()
-				var enemy_clan = enemy.get_clan_name()
-				if npc_clan != "" and npc_clan == enemy_clan:
-					continue
-		if not is_player and npc and enemy.has_method("get_clan_name"):
-			var npc_clan = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
-			var enemy_clan = enemy.get_clan_name()
-			if npc_clan != "" and npc_clan == enemy_clan:
-				continue
+		if npc and CombatAllyCheck.is_ally(npc, enemy):
+			continue
 		if target_type == "caveman" or target_type == "clansman" or is_player:
 			return true
 	return false

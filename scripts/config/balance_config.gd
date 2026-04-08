@@ -55,9 +55,10 @@ var hunger_deplete_rate_per_min: float = 15.0
 # Oldowan slower than specialized tools (multiplier on collection time)
 var oldowan_gather_multiplier: float = 1.5
 
-# Reproduction
-var pregnancy_seconds: float = 30.0
-var baby_growth_seconds: float = 35.0
+# Reproduction (2x speed vs prior playtest defaults for faster iteration)
+var pregnancy_seconds: float = 15.0
+var baby_growth_seconds: float = 17.5
+var birth_cooldown_seconds: float = 10.0  # Min time after birth before next pregnancy
 
 # Resource cooldown
 var resource_cooldown_seconds: float = 120.0
@@ -73,6 +74,12 @@ var land_claim_min_edge_gap_px: float = 400.0  # Space between claim borders (ma
 
 func get_land_claim_min_center_distance() -> float:
 	return 2.0 * land_claim_radius + land_claim_min_edge_gap_px
+
+# Building storage (campfire / land claim inventories — tuned in one place)
+var campfire_inventory_slots: int = 20
+var campfire_inventory_max_stack: int = 999
+var land_claim_inventory_slots: int = 40
+var land_claim_inventory_max_stack: int = 999999
 
 # Campfire -> Land Claim (click upgrade on building UI tile). Amounts 0 = not required.
 # TESTING: 1 wood + 1 stone only. For full recipe set cordage/hide/wood/stone each to 1.

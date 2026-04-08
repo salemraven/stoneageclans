@@ -1,0 +1,12 @@
+---
+description: File operations — no deletes without approval, archive instead
+alwaysApply: true
+---
+
+# File Operations
+
+**Do not delete files** unless the user explicitly approves deletion.
+
+When a file would normally be removed (refactor, deprecation, replacement):
+- **Archive it** instead — move to `backups/` or `archive/` with a dated name (e.g. `old_system_20260313.gd`)
+- Propose deletion only after archiving, and wait for user approval before actually deleting

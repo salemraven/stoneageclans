@@ -261,10 +261,14 @@ func update(delta: float) -> void:
 		if ab_upd and is_instance_valid(ab_upd):
 			return  # Let npc_base._check_and_assign_to_building handle movement
 	
-	# CRITICAL: Exit immediately if following - following takes priority
+	# CRITICAL: Exit immediately if following - party (fighters) vs herd (wild herdables)
 	if _is_following():
 		if fsm:
-			fsm.change_state("herd")
+			var nt_f: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt_f == "caveman" or nt_f == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
 		return
 	
 	# LOGGING: Position tracking for oscillation detection
@@ -278,6 +282,22 @@ func update(delta: float) -> void:
 		npc.set_meta("wander_start_time", current_time)
 	
 	var npc_type_wander: String = npc.get("npc_type") if npc else ""
+	
+	# BREAK: steer directly toward land claim until arriving, then let normal wander + re-evaluation take over
+	if npc_type_wander == "clansman" and npc.has_meta("returning_from_break"):
+		var until: float = npc.get_meta("returning_from_break") as float
+		if Time.get_ticks_msec() / 1000.0 < until:
+			var break_claim: Node2D = _get_land_claim()
+			if break_claim and is_instance_valid(break_claim) and npc.steering_agent:
+				var dist_to_claim: float = npc.global_position.distance_to(break_claim.global_position)
+				if dist_to_claim > 120.0:
+					npc.steering_agent.set_arrive_target(break_claim.global_position)
+					if npc.steering_agent.has_method("set_speed_multiplier"):
+						npc.steering_agent.set_speed_multiplier(1.0)
+					return
+				else:
+					# Arrived — clear the flag early so normal re-evaluation can resume work
+					npc.remove_meta("returning_from_break")
 	
 	# Handle deposit movement EVERY frame for cavemen/clansmen (was only first frame - they never reached the claim)
 	if npc_type_wander == "caveman" or npc_type_wander == "clansman":
@@ -527,6 +547,13 @@ func get_priority() -> float:
 	if npc and npc.has_meta("moving_to_deposit"):
 		return 12.0  # Above herd_wildnpc so deposit wins when inventory full
 	var npc_type_str: String = npc.get("npc_type") if npc else ""
+	# Clansmen returning from BREAK: high priority so gather/herd cannot steal them back
+	if npc_type_str == "clansman" and npc.has_meta("returning_from_break"):
+		var until: float = npc.get_meta("returning_from_break") as float
+		if Time.get_ticks_msec() / 1000.0 < until:
+			return 13.0  # Above herd (11) and gather (4) — forces return-to-claim walk
+		else:
+			npc.remove_meta("returning_from_break")
 	# Cavemen/clansmen: wander is NEVER productive - pure fallback when no gather/herd/defend can enter
 	if npc_type_str == "caveman" or npc_type_str == "clansman":
 		return 0.01  # Only enter when literally no other state can_enter

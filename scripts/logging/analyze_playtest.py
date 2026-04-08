@@ -7,8 +7,11 @@ from collections import defaultdict
 
 def main():
     if len(sys.argv) < 2:
-        # Default: latest playtest in Godot user dir
-        base = Path.home() / "Library/Application Support/Godot/app_userdata/StoneAgeClans"
+        import platform
+        if platform.system() == "Windows":
+            base = Path.home() / "AppData/Roaming/Godot/app_userdata/StoneAgeClans"
+        else:
+            base = Path.home() / "Library/Application Support/Godot/app_userdata/StoneAgeClans"
         if not base.exists():
             print("Usage: python analyze_playtest.py <path/to/playtest_*.jsonl>")
             print(f"Default path not found: {base}")

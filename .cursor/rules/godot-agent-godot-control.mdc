@@ -1,0 +1,36 @@
+---
+description: Agent must run and change Godot via CLI + repo files; no deferring to user unless asked
+alwaysApply: true
+---
+
+# Godot — agent owns runs and project changes
+
+When the user asks anything about **running** or **changing** Godot, **the agent does the work** (terminal + repo files). Do not tell the user to click Play, fix scenes, or run Godot by hand unless they **explicitly** want to drive the editor themselves.
+
+## Run / debug / capture
+
+- **Default runner:** `tools/godot/godot.cmd` from the project root (or `tools/godot/Godot_v4.6.1-stable_win64.exe`), with `--path` set to the project root (folder containing `project.godot`).
+- **Play the game (no editor):** pass project path; omit `--editor`. Add user args after `--` (e.g. `--playtest-capture`, `--playtest-log-dir`, `--rts-playtest-spawn`) per `main.gd` / playtest tooling.
+- **Open the editor:** `--editor --path <project>`.
+- **Smoke / CI-style check:** `--headless --path <project> --quit-after <sec>`.
+- **Prefer the console build** (via `godot.cmd`) when capturing stdout/stderr in the agent terminal.
+- On Windows, use `Start-Process` for a **GUI** run when the terminal should not block; same exe and args.
+- **Windows + spaces in project path:** do **not** use `Start-Process -ArgumentList @("--path", $proj, ...)`. PowerShell mangles that and Godot gets `...\Stone` only. Use one string with embedded quotes, matching `Tests\run_playtest.ps1` / `run_and_monitor.ps1`: ``$argLine = "--path `"$ProjectPath`" -- ..."`` then `-ArgumentList $argLine`. Or use `& godot.cmd --path $proj` (call operator handles spaces).
+
+## “Editor” work without clicking the Godot UI
+
+The agent does **not** drive the Godot window with fake mouse/keyboard. Same outcomes via:
+
+1. **Editing source truth:** `.tscn`, `.tres`, `.gd`, `.gdshader`, `project.godot`, autoloads, groups, input map — as text; match project style.
+2. **CLI:** `--import`, headless runs, `-s` scripts where appropriate.
+3. **Tooling:** If editor-only APIs are needed, add a small `tools/` or `addons/` script (`@tool` / `EditorScript`) and run or document it; prefer repeatable scripts for recurring tasks.
+
+## If Godot fails to start
+
+- Run `tools/verify_vscode_godot_setup.ps1`.
+- Run console Godot and read errors (GDScript parse errors block the whole project).
+- **Single-instance:** close an existing Godot before expecting a second window or new capture file.
+
+## godot-tools vs agent
+
+- **godot-tools** helps the **human** in Cursor; the **agent** uses **shell + files** above. Both use the same bundled exe under `tools/godot/`. Path rules for the extension live in `.cursor/rules/godot-vscode-integration.mdc`.

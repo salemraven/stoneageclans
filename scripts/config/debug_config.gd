@@ -12,6 +12,8 @@ var enable_woman_transport_test: bool = false
 
 # Agro/combat test: 2 clans x 10 clansmen (1 leader + 9 followers), clubs, follow, 2 claims; leaders walk toward each other → combat
 var enable_agro_combat_test: bool = false
+## When false, --agro-combat-test and --party-test are ignored (normal game). Set true to run combat/party tests or CI.
+var allow_agro_combat_test_from_cli: bool = false
 
 # Raid test: 2 NPC clans (no follow/guard), ClanBrain initiates raids; run 60–90s, auto-quit
 var enable_raid_test: bool = false
@@ -25,7 +27,14 @@ var test_overrides: Dictionary = {
 	"detection_range_boost": 700.0,     # Legacy enemy search range in agro combat test (raid path uses this)
 	"auto_quit_seconds": 60.0,
 	"raid_test_auto_quit_seconds": 90.0,  # Raid test: quit after N seconds
-	"raid_cooldown_seconds": 15.0        # Raid test: faster raid cooldown (ClanBrain uses this if set)
+	"raid_cooldown_seconds": 15.0,       # Raid test: faster raid cooldown (ClanBrain uses this if set)
+	# NPC party / agro combat test: wider claims, phased leaders (march -> hold -> engage)
+	"agro_test_claim_distance": 1500.0,   # Half-spacing from player; total gap ~2x this (was 1000)
+	"agro_test_rally_outer_px": 280.0,   # Start HOLD when leader within claim.radius + this of enemy claim center
+	"agro_test_follower_avg_max": 130.0, # End HOLD early when avg follower distance to leader <= this (px)
+	"agro_test_hold_timeout_sec": 12.0,  # Max time in HOLD before ENGAGE anyway
+	"agro_test_hold_max_speed": 35.0,    # Cap leader speed while holding rally point
+	"agro_test_enemy_seek_radius": 550.0 # Phase ENGAGE: same-clan skip; seek nearest foe within this range
 }
 
 # Step 7: Debug viz for agro/combat (agro value, formation bubble, target lines - wire in UI when needed)
@@ -51,6 +60,9 @@ func _ready() -> void:
 	_apply_debug_settings()
 
 func _parse_command_line_args() -> void:
+	# Web: no CLI; optional URL query via JavaScriptBridge can be added later.
+	if OS.get_name() == "Web":
+		return
 	# User args (after --) need get_cmdline_user_args; engine args need get_cmdline_args
 	var args: PackedStringArray = OS.get_cmdline_args()
 	var user_args = OS.get_cmdline_user_args()
@@ -103,8 +115,19 @@ func _parse_command_line_args() -> void:
 
 	# Agro/combat test: 2 clans x 10 (1 leader + 9 followers), clubs, follow, 2 claims
 	if "--agro-combat-test" in args:
-		enable_agro_combat_test = true
-		print("✓ Agro/combat test mode (2 clans x 10, 1 leader + 9 followers, clubs)")
+		if allow_agro_combat_test_from_cli:
+			enable_agro_combat_test = true
+			print("✓ Agro/combat test mode (2 clans x 10, 1 leader + 9 followers, clubs)")
+		else:
+			print("✓ --agro-combat-test ignored (set DebugConfig.allow_agro_combat_test_from_cli = true to enable)")
+
+	# Party test: same world as agro combat test; use with --playtest-capture for party_formation_tick / NPC-led party JSONL
+	if "--party-test" in args:
+		if allow_agro_combat_test_from_cli:
+			enable_agro_combat_test = true
+			print("✓ Party test mode (NPC party formations — same setup as agro combat test)")
+		else:
+			print("✓ --party-test ignored (set DebugConfig.allow_agro_combat_test_from_cli = true to enable)")
 
 	# Raid test: 2 NPC clans, no follow/guard, ClanBrain raids; auto-quit after 90s
 	if "--raid-test" in args:

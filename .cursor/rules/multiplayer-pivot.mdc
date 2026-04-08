@@ -1,0 +1,23 @@
+---
+description: Multiplayer-first — optimize for networked play, authority, sync
+alwaysApply: true
+---
+
+# Multiplayer Pivot
+
+Stone Age Clans is pivoting to **multiplayer**. All recommendations should assume networked play.
+
+## When suggesting changes
+- **Authority model**: Who owns what? Server-authoritative vs client-prediction for which systems?
+- **Replication cost**: What must sync? Minimize state, prioritize deltas over full snapshots
+- **Latency tolerance**: Which actions can tolerate delay? Which need prediction/rollback?
+- **Bandwidth**: Prefer events over polling; batch updates; avoid per-frame sync
+
+## Red flags to avoid
+- Client-only logic that affects shared state
+- Expensive per-entity sync
+- Determinism issues (RNG, physics) that cause desync
+- Features that assume single-player only
+
+## When proposing new systems
+Ask: How does this work with 2+ players? What syncs? Who has authority? What's the network cost?

@@ -11,6 +11,7 @@ const SeekStateScript = preload("res://scripts/npc/states/seek_state.gd")
 const EatStateScript = preload("res://scripts/npc/states/eat_state.gd")
 const GatherStateScript = preload("res://scripts/npc/states/gather_state.gd")
 const HerdStateScript = preload("res://scripts/npc/states/herd_state.gd")
+const PartyStateScript = preload("res://scripts/npc/states/party_state.gd")
 const HerdWildNPCStateScript = preload("res://scripts/npc/states/herd_wildnpc_state.gd")
 const AgroStateScript = preload("res://scripts/npc/states/agro_state.gd")
 const CombatStateScript = preload("res://scripts/npc/states/combat_state.gd")
@@ -59,6 +60,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("eat", "")
 	_register_state("gather", "")
 	_register_state("herd", "")
+	_register_state("party", "")
 	_register_state("agro", "")
 	_register_state("combat", "")  # Combat state for melee combat
 	_register_state("defend", "")  # Defend land claim border (Step 7)
@@ -172,6 +174,20 @@ func _create_state_instances() -> void:
 		else:
 			push_error("FSM: Failed to attach herd_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
+	
+	if PartyStateScript:
+		var party_st: Node = Node.new()
+		party_st.set_script(PartyStateScript)
+		if party_st.has_method("initialize"):
+			party_st.name = "PartyState"
+			add_child(party_st)
+			states["party"] = party_st
+			party_st.initialize(npc)
+			party_st.set("fsm", self)
+			print("FSM: Successfully created party state for %s" % npc_name)
+		else:
+			push_error("FSM: Failed to attach party_state for %s" % npc_name)
+			party_st.queue_free()
 	
 	if HerdWildNPCStateScript:
 		var state: Node = Node.new()
@@ -547,11 +563,14 @@ func _evaluate_states() -> void:
 			if npc_type_str == "baby":
 				if state_name != "wander" and state_name != "idle":
 					continue
-			if state_name == "herd" and (npc_type_str == "caveman" or npc_type_str == "clansman"):
-				var is_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
-				var h: Node = npc.get("herder") if npc else null
-				var player_ordered: bool = is_ordered and h != null and is_instance_valid(h) and h.is_in_group("player")
-				if not player_ordered:
+			if state_name == "herd":
+				if npc_type_str != "woman" and npc_type_str != "sheep" and npc_type_str != "goat":
+					continue
+			if state_name == "party":
+				if npc_type_str != "caveman" and npc_type_str != "clansman":
+					continue
+				var is_ordered_p: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
+				if not is_ordered_p:
 					continue
 			if state_name == "herd_wildnpc" and npc_type_str != "caveman" and npc_type_str != "clansman":
 				continue
@@ -736,22 +755,35 @@ func change_state(new_state_name: String) -> void:
 		push_error("FSM: State '%s' not registered" % new_state_name)
 		return
 	
-	# Safety check: cavemen/clansmen cannot enter herd state unless ordered follow (player or agro-combat-test NPC leader)
+	# Herd state: wild herdables only.
 	if new_state_name == "herd" and npc:
 		var nt2 = npc.get("npc_type") if npc else null
 		var npc_type_str: String = (nt2 as String) if nt2 != null else ""
-		if npc_type_str == "caveman" or npc_type_str == "clansman":
-			var is_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
-			var h: Node = npc.get("herder") if npc else null
-			var herder_valid: bool = h != null and is_instance_valid(h)
-			var player_ordered: bool = is_ordered and herder_valid and h.is_in_group("player")
-			var agro_test_npc_leader: bool = is_ordered and herder_valid and (DebugConfig and DebugConfig.get("enable_agro_combat_test"))
-			if not (player_ordered or agro_test_npc_leader):
-				push_error("FSM: Attempted to put %s %s into herd state - prevented" % [npc_type_str, (npc.npc_name if npc else "unknown")])
-				if npc:
-					npc.set("is_herded", false)
-					npc.set("herder", null)
-				return
+		if npc_type_str != "woman" and npc_type_str != "sheep" and npc_type_str != "goat":
+			push_error("FSM: Only woman/sheep/goat enter herd state")
+			return
+	
+	# Party: ordered follow with player, same-clan NPC leader, or agro-combat-test NPC leader
+	if new_state_name == "party" and npc:
+		var nt3 = npc.get("npc_type") if npc else null
+		var npc_type_party: String = (nt3 as String) if nt3 != null else ""
+		if npc_type_party != "caveman" and npc_type_party != "clansman":
+			push_error("FSM: Only cavemen/clansmen enter party state")
+			return
+		var is_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
+		var h: Node = npc.get("herder") if npc else null
+		var herder_valid: bool = h != null and is_instance_valid(h)
+		var player_ordered: bool = is_ordered and herder_valid and h.is_in_group("player")
+		var agro_test_npc_leader: bool = is_ordered and herder_valid and (DebugConfig and DebugConfig.get("enable_agro_combat_test"))
+		var same_clan_ok: bool = false
+		if is_ordered and herder_valid:
+			same_clan_ok = PartyCommandUtils.same_clan_warband_herder(h, npc)
+		if not (player_ordered or agro_test_npc_leader or same_clan_ok):
+			push_error("FSM: Attempted invalid party state for %s" % (npc.npc_name if npc else "unknown"))
+			if npc:
+				npc.set("is_herded", false)
+				npc.set("herder", null)
+			return
 	
 	# Don't change if already in this state
 	if current_state_name == new_state_name:
@@ -773,7 +805,7 @@ func change_state(new_state_name: String) -> void:
 			"wander": warn_threshold = 30.0
 			"idle": warn_threshold = 15.0
 			"gather", "herd_wildnpc": warn_threshold = 25.0
-			"herd": warn_threshold = 20.0
+			"herd", "party": warn_threshold = 20.0
 		if duration > warn_threshold:
 			UnifiedLogger.log_npc("STATE_DURATION: %s in %s for %.1fs (LONG - potentially stuck!)" % [
 				npc_name, current_state_name, duration
@@ -818,7 +850,21 @@ func change_state(new_state_name: String) -> void:
 	current_state = _get_state(new_state_name)
 	current_state_name = new_state_name
 	_state_entered = false  # Reset flag so enter() will be called on next update
-	
+
+	# Playtest: structured FSM transition for all AI NPCs (not player)
+	var pi_tr = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_tr and pi_tr.is_enabled() and npc and not npc.is_in_group("player") and pi_tr.has_method("npc_fsm_transition"):
+		var nt_tr: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		var clan_tr: String = npc.clan_name if npc else ""
+		var hc_tr: int = int(npc.get("herded_count")) if npc.get("herded_count") != null else 0
+		var fo_tr: bool = npc.get("follow_is_ordered") == true
+		var hdn: String = ""
+		var htr = npc.get("herder") if npc else null
+		if htr != null and is_instance_valid(htr):
+			var nnh = htr.get("npc_name")
+			hdn = str(nnh) if nnh != null else str(htr.name)
+		pi_tr.npc_fsm_transition(npc_name, nt_tr, clan_tr, old_state, new_state_name, hc_tr, fo_tr, hdn)
+
 	# LOGGING: Track state entry time for duration calculation
 	if current_state:
 		current_state.set_meta("entry_time", Time.get_ticks_msec() / 1000.0)

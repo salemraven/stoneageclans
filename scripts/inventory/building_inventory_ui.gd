@@ -2,6 +2,7 @@ extends InventoryUI
 class_name BuildingInventoryUI
 
 const CampfireScript = preload("res://scripts/campfire.gd")
+const StockRowType = preload("res://scripts/inventory/stock_row.gd")
 
 # Icons for occupation slots
 const WOMAN_ICON: Texture2D = preload("res://assets/sprites/woman.png")
@@ -9,11 +10,12 @@ const WOMAN_ICON_FALLBACK: Texture2D = preload("res://assets/sprites/female1.png
 const SHEEP_ICON: Texture2D = preload("res://assets/sprites/sheep.png")
 const GOAT_ICON: Texture2D = preload("res://assets/sprites/goat.png")
 
-# Building inventory: 6 slots in vertical list (matching player inventory layout exactly)
-# Stacking enabled (no limit for testing), opens when near building + press I
+# Building inventory: scrollable stock rows + deposit bar (hidden InventorySlot proxies for drag/drop).
+# Stacking enabled; opens when near building + press I
 
-const SLOT_COUNT := 6
 const PANEL_WIDTH := 320  # Match player inventory width exactly
+const STOCK_SCROLL_MIN_HEIGHT := 260
+const DEPOSIT_BAR_HEIGHT := 36
 const PANEL_HEIGHT := 500  # Increased to accommodate building icons section
 const BUILDING_ICON_SIZE := 48  # Size of building icons
 const BUILDING_ICON_SPACING := 8  # Spacing between building icons
@@ -45,12 +47,19 @@ var defend_label: Label = null
 var campfire_upgrade_button: Button = null  # Upgrade to Land Claim (campfire) or Pickup (travois)
 var campfire_upgrade_slot: Control = null  # Drop Land Claim here to upgrade (next to Living Hut)
 
+var deposit_bar: Panel = null
+var stock_scroll: ScrollContainer = null
+var stock_list_vbox: VBoxContainer = null
+var stock_rows: Array = []  # StockRowType instances
+
 func _ready() -> void:
 	super._ready()
 	set_meta("travois_ground_ref", null)  # Ensure meta exists to avoid get_meta errors
 	
-	# Create inventory data (6 slots, stacking enabled, no stack limit for testing) - will be replaced by setup()
-	inventory_data = InventoryData.new(SLOT_COUNT, true, 999999)  # Very high stack limit for testing
+	# Placeholder inventory — replaced by setup_campfire / setup_land_claim / setup_inventory
+	var _n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
+	var _m: int = BalanceConfig.land_claim_inventory_max_stack if BalanceConfig else 999999
+	inventory_data = InventoryData.new(_n, true, _m)
 	
 	# Setup panel
 	_setup_panel()
@@ -195,6 +204,7 @@ func _setup_panel() -> void:
 			defend_slider.custom_minimum_size = Vector2(0, 24)
 			defend_slider.value_changed.connect(_on_defend_slider_changed)
 			clan_control_container.add_child(defend_slider)
+			defend_slider.visible = false  # Quota is auto 3:1; drag clansmen out/in to adjust
 		
 		# Character info label (for corpse inventories - name, hominid, death info)
 		if not character_info_label:
@@ -291,7 +301,6 @@ func _setup_panel() -> void:
 	inventory_panel.offset_bottom = PANEL_HEIGHT / 2.0 - 120
 
 func _build_slots() -> void:
-	# Ensure container exists - create it if needed
 	if not inventory_container:
 		if inventory_panel:
 			var margin = inventory_panel.get_node_or_null("MarginContainer")
@@ -302,50 +311,230 @@ func _build_slots() -> void:
 					if not inventory_container:
 						inventory_container = VBoxContainer.new()
 						inventory_container.name = "SlotContainer"
-						inventory_container.add_theme_constant_override("separation", 0)
+						inventory_container.add_theme_constant_override("separation", 4)
 						main_container.add_child(inventory_container)
-	
 	if not inventory_container:
 		print("ERROR: Failed to create inventory container")
 		return
-	
-	# Clear existing
-	for slot in slots:
-		if is_instance_valid(slot):
-			slot.queue_free()
-	slots.clear()
-	
-	# CRITICAL: Use actual inventory slot count, not hardcoded SLOT_COUNT
-	# This fixes issues where inventory has different slot count (e.g., old 9-slot inventories)
-	var actual_slot_count = inventory_data.slot_count if inventory_data else SLOT_COUNT
-	
-	# Create vertical list of slots (use actual slot count from inventory)
-	for i in actual_slot_count:
-		var slot: InventorySlot = InventorySlot.new()
-		slot.slot_index = i
-		slot.is_hotbar = false
-		slot.can_stack = true  # Buildings can stack
-		# Make slots expand horizontally to fill available width (matching player inventory)
-		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		if not slot.slot_clicked.is_connected(_on_slot_clicked):
-			slot.slot_clicked.connect(_on_slot_clicked)
-		if not slot.slot_drag_ended.is_connected(_on_slot_drag_ended):
-			slot.slot_drag_ended.connect(_on_slot_drag_ended)
-		inventory_container.add_child(slot)
-		slots.append(slot)
-	
-	# Build building icons (only if not corpse inventory)
+	if not inventory_data:
+		print("ERROR: BuildingInventoryUI _build_slots: inventory_data is null")
+		return
+
+	_ensure_stock_ui_structure()
+	_ensure_hidden_slot_pool(inventory_data.slot_count)
+	for i in range(inventory_data.slot_count):
+		var hs: InventorySlot = slots[i]
+		hs.slot_index = i
+		hs.set_item(inventory_data.get_slot(i))
+		hs.visible = false
+		hs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hs.custom_minimum_size = Vector2(1, 1)
+		hs.position = Vector2(-9000, 0)
+
 	if not is_corpse_inventory:
 		_build_building_icons()
 	else:
-		# Hide building icons container for corpse inventories
 		_hide_building_icons()
-	
-	# Update display
-	_update_all_slots()
-	
-	# Update title
+
+	_rebuild_stock_list()
 	_update_title()
+
+
+func _update_all_slots() -> void:
+	if not inventory_data:
+		return
+	if stock_list_vbox == null:
+		call_deferred("_update_all_slots")
+		return
+	_ensure_hidden_slot_pool(inventory_data.slot_count)
+	for i in range(inventory_data.slot_count):
+		slots[i].slot_index = i
+		slots[i].set_item(inventory_data.get_slot(i))
+		slots[i].visible = false
+		slots[i].mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rebuild_stock_list()
+
+
+func _ensure_stock_ui_structure() -> void:
+	for c in inventory_container.get_children():
+		if c is InventorySlot:
+			c.queue_free()
+
+	stock_scroll = inventory_container.get_node_or_null("StockScroll") as ScrollContainer
+	if stock_scroll == null:
+		stock_scroll = ScrollContainer.new()
+		stock_scroll.name = "StockScroll"
+		stock_scroll.custom_minimum_size = Vector2(0, STOCK_SCROLL_MIN_HEIGHT)
+		stock_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		stock_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		stock_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		stock_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+		inventory_container.add_child(stock_scroll)
+
+	stock_list_vbox = stock_scroll.get_node_or_null("StockList") as VBoxContainer
+	if stock_list_vbox == null:
+		stock_list_vbox = VBoxContainer.new()
+		stock_list_vbox.name = "StockList"
+		stock_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stock_list_vbox.add_theme_constant_override("separation", 2)
+		stock_scroll.add_child(stock_list_vbox)
+
+	deposit_bar = inventory_container.get_node_or_null("DepositBar") as Panel
+	if deposit_bar == null:
+		deposit_bar = Panel.new()
+		deposit_bar.name = "DepositBar"
+		deposit_bar.custom_minimum_size = Vector2(0, DEPOSIT_BAR_HEIGHT)
+		deposit_bar.mouse_filter = Control.MOUSE_FILTER_STOP
+		var ds := StyleBoxFlat.new()
+		ds.bg_color = Color(0x2a / 255.0, 0x22 / 255.0, 0x18 / 255.0, 0.92)
+		ds.border_color = Color(0x8b / 255.0, 0x65 / 255.0, 0x3e / 255.0, 0.45)
+		ds.set_border_width_all(1)
+		ds.set_corner_radius_all(3)
+		deposit_bar.add_theme_stylebox_override("panel", ds)
+		var dl := Label.new()
+		dl.text = "Drop items here"
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		dl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		dl.set_anchors_preset(Control.PRESET_FULL_RECT)
+		dl.add_theme_font_size_override("font_size", 13)
+		dl.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
+		dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		deposit_bar.add_child(dl)
+		inventory_container.add_child(deposit_bar)
+
+
+func _ensure_hidden_slot_pool(count: int) -> void:
+	while slots.size() < count:
+		var s: InventorySlot = InventorySlot.new()
+		s.is_hotbar = false
+		s.can_stack = inventory_data.can_stack if inventory_data else true
+		s.visible = false
+		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		s.custom_minimum_size = Vector2(1, 1)
+		add_child(s)
+		slots.append(s)
+	while slots.size() > count:
+		var last: InventorySlot = slots.pop_back()
+		if is_instance_valid(last):
+			last.queue_free()
+
+
+func _rebuild_stock_list() -> void:
+	if stock_list_vbox == null or inventory_data == null:
+		return
+	while stock_list_vbox.get_child_count() > 0:
+		var ch: Node = stock_list_vbox.get_child(0)
+		stock_list_vbox.remove_child(ch)
+		ch.free()
+	stock_rows.clear()
+
+	for i in range(inventory_data.slot_count):
+		if inventory_data.slots[i] == null:
+			continue
+		var item: Dictionary = inventory_data.get_slot(i)
+		if item.is_empty():
+			continue
+		var row: Control = StockRowType.new() as Control
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stock_list_vbox.add_child(row)
+		row.setup_row(i, slots[i], item)
+		if not row.row_clicked.is_connected(_on_stock_row_clicked):
+			row.row_clicked.connect(_on_stock_row_clicked)
+		if not row.row_drag_started.is_connected(_on_stock_row_drag_started):
+			row.row_drag_started.connect(_on_stock_row_drag_started)
+		stock_rows.append(row)
+
+
+func _on_stock_row_clicked(row: Node) -> void:
+	if not inventory_data or row.slot_index < 0:
+		return
+	var data: Dictionary = inventory_data.get_slot(row.slot_index)
+	if data.is_empty():
+		return
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if not main or not main.get("player_inventory_ui"):
+		return
+	var pui: PlayerInventoryUI = main.player_inventory_ui as PlayerInventoryUI
+	var t: ResourceData.ResourceType = data.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	var ok: bool = false
+	if ResourceData.is_food(t):
+		ok = pui.add_item_preferring_food_slots(t, 1)
+	else:
+		ok = pui.add_item(t, 1)
+	if ok:
+		var d: Dictionary = data.duplicate()
+		var cnt: int = int(d.get("count", 1)) - 1
+		if cnt <= 0:
+			inventory_data.set_slot(row.slot_index, {})
+		else:
+			d["count"] = cnt
+			inventory_data.set_slot(row.slot_index, d)
+		_update_all_slots()
+		_update_fire_button_state()
+		if land_claim or campfire:
+			_update_building_icon_states()
+		if pui.is_open:
+			pui._update_all_slots()
+			if pui.has_method("_update_hotbar_slots"):
+				pui._update_hotbar_slots()
+	else:
+		if main.has_method("_show_placement_warning"):
+			main._show_placement_warning("Inventory full")
+
+
+func _on_stock_row_drag_started(row: Node) -> void:
+	if not drag_manager or row.drag_proxy_slot == null:
+		return
+	if row.drag_proxy_slot.is_empty():
+		return
+	drag_manager.start_drag(row.drag_proxy_slot)
+	get_viewport().set_input_as_handled()
+
+
+func _is_drag_from_player(from_s: InventorySlot) -> bool:
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if not main or not main.get("player_inventory_ui"):
+		return false
+	var pui: PlayerInventoryUI = main.player_inventory_ui as PlayerInventoryUI
+	return from_s != null and (from_s in pui.slots or from_s in pui.hotbar_slots)
+
+
+func _mouse_over_player_to_building_drop_zone(mouse_pos: Vector2) -> bool:
+	if deposit_bar and is_instance_valid(deposit_bar) and Rect2(deposit_bar.get_global_rect()).has_point(mouse_pos):
+		return true
+	for row in stock_rows:
+		if is_instance_valid(row) and Rect2(row.get_global_rect()).has_point(mouse_pos):
+			return true
+	return false
+
+
+func _handle_deposit_drop() -> void:
+	if not drag_manager or not drag_manager.is_dragging or not inventory_data:
+		return
+	var from_slot: InventorySlot = drag_manager.from_slot
+	if not _is_drag_from_player(from_slot):
+		return
+	var item: Dictionary = drag_manager.dragged_item
+	var t: ResourceData.ResourceType = item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	var q: int = int(item.get("quality", 0))
+	var ok: bool = inventory_data.add_item(t, 1, q)
+	var main: Node = get_tree().get_first_node_in_group("main")
+	var pui: PlayerInventoryUI = main.player_inventory_ui as PlayerInventoryUI if main and main.get("player_inventory_ui") else null
+	if ok:
+		drag_manager.complete_drop(null)
+		_update_all_slots()
+		_update_fire_button_state()
+		if land_claim or campfire:
+			_update_building_icon_states()
+		if pui:
+			pui._update_all_slots()
+			if from_slot and from_slot.is_hotbar and pui.has_method("_update_hotbar_slots"):
+				pui._update_hotbar_slots()
+	else:
+		if main and main.has_method("_show_placement_warning"):
+			main._show_placement_warning("Building full")
+		drag_manager.end_drag(true)
+
 
 func setup_travois_ground(tg: Node) -> void:
 	building = null
@@ -780,14 +969,28 @@ func _input(event: InputEvent) -> void:
 				# Check if dragging FROM this building/corpse inventory
 				var dragging_from_here: bool = (from_slot != null and from_slot in slots)
 				
-				# Check building inventory slots (for drops TO this inventory)
-				for check_slot in slots:
-					var slot_rect: Rect2 = Rect2(check_slot.get_global_rect())
-					if slot_rect.has_point(mouse_pos):
-						# Mouse is over this slot - handle drop (may be from player inventory)
-						_handle_drop(check_slot)
+				# Player -> building: deposit bar or any stock row (add_item stacks automatically)
+				if not dragging_from_here and from_slot != null and _is_drag_from_player(from_slot):
+					if _mouse_over_player_to_building_drop_zone(mouse_pos):
+						_handle_deposit_drop()
 						get_viewport().set_input_as_handled()
 						return
+				
+				# Building -> building: drop on another row (stack / swap via existing logic)
+				if dragging_from_here and from_slot != null:
+					for row in stock_rows:
+						if not is_instance_valid(row):
+							continue
+						if not Rect2(row.get_global_rect()).has_point(mouse_pos):
+							continue
+						var tgt_idx: int = row.slot_index
+						if tgt_idx < 0 or tgt_idx >= slots.size():
+							continue
+						var tgt_slot: InventorySlot = slots[tgt_idx]
+						if tgt_slot != from_slot:
+							_handle_drop(tgt_slot)
+							get_viewport().set_input_as_handled()
+							return
 				
 				# If dragging FROM this building/corpse inventory, check player inventory slots
 				if dragging_from_here:
@@ -1491,7 +1694,8 @@ func _update_clan_control_display() -> void:
 	clan_control_container.visible = show_slider
 	if not show_slider:
 		return
-	defend_slider.set_value_no_signal(int(land_claim.player_defend_ratio * 100))
+	if defend_slider:
+		defend_slider.visible = false
 	var def_count: int = land_claim.assigned_defenders.size() if land_claim else 0
 	var total: int = 0
 	if land_claim:
@@ -1508,11 +1712,8 @@ func _update_clan_control_display() -> void:
 			if n.get("follow_is_ordered") == true:
 				continue
 			total += 1
-	defend_label.text = "Defend: %d%% (%d defending / %d working)" % [
-		int(land_claim.player_defend_ratio * 100),
-		def_count,
-		max(0, total - def_count)
-	]
+	var quota: int = land_claim.get_meta("defender_quota", 0) if land_claim else 0
+	defend_label.text = "Defending %d / %d (base 1 per 4 fighters; +1 per drag to border)" % [def_count, quota]
 
 func _on_defend_slider_changed(value: float) -> void:
 	if land_claim and land_claim.player_owned:

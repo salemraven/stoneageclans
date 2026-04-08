@@ -21,7 +21,11 @@ func _ready() -> void:
 		print("🔍 SCHEDULER: _process() enabled")
 
 func _process(_delta: float) -> void:
-	var now = Time.get_ticks_msec()
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
+	var now: int = Time.get_ticks_msec()
+	if SimClock:
+		now = SimClock.get_authoritative_ticks_msec()
 	
 	# Debug counter reset (every second)
 	if now - last_second_time >= 1000:

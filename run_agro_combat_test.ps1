@@ -2,6 +2,7 @@
 # Runs agro-combat-test with instrumentation, then verifies logs and JSONL output.
 # Usage: .\run_agro_combat_test.ps1
 # Requires: Godot 4.x in PATH or set $GodotPath below
+# Prerequisite: in scripts/config/debug_config.gd set allow_agro_combat_test_from_cli = true (master switch; default off).
 
 $ErrorActionPreference = "Stop"
 $ProjectPath = $PSScriptRoot
@@ -11,8 +12,12 @@ $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
 # Find Godot (prefer project-local, then PATH, then common locations)
 $GodotPath = $null
+$projectGodotConsole = Join-Path $PSScriptRoot "tools\godot\Godot_v4.6.1-stable_win64_console.exe"
 $projectGodot = Join-Path $PSScriptRoot "tools\godot\Godot_v4.6.1-stable_win64.exe"
-if (Test-Path $projectGodot) {
+if (Test-Path $projectGodotConsole) {
+    $GodotPath = $projectGodotConsole
+}
+elseif (Test-Path $projectGodot) {
     $GodotPath = $projectGodot
 }
 if (-not $GodotPath) {
@@ -45,7 +50,11 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 # --verbose enables TARGET_SELECTED (DEBUG) logs; --agro-combat-test enables PlaytestInstrumentor
 Write-Host "Running agro-combat-test (60s, then auto-quit)..."
 $env:GODOT_TEST_LOG_DIR = $LogDir
+# Godot prints engine WARNINGs to stderr; do not treat as terminating error (Stop would exit the script).
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & $GodotPath --path $ProjectPath -- --agro-combat-test --verbose 2>&1 | Out-File -FilePath "$LogDir\agro_test_$Timestamp.log" -Encoding utf8
+$ErrorActionPreference = $prevEap
 
 # Locate playtest JSONL
 $PlaytestPath = $null
@@ -113,6 +122,26 @@ if ($PlaytestPath -and (Test-Path $PlaytestPath)) {
         Write-Host "   PASS - No combat_detection_null when enemies in range"
     } else {
         Write-Host "   WARN - combat_detection_null present"
+    }
+
+    $ffHits = ($lines | Where-Object { $_ -match '"evt":"combat_hit"' -and $_ -match '"friendly_fire":true' }).Count
+    $ffStarts = ($lines | Where-Object { $_ -match '"evt":"friendly_fire_combat_started"' }).Count
+    $maxAllyViol = 0
+    foreach ($line in $lines) {
+        if ($line -match '"ally_combat_violations"\s*:\s*(\d+)') {
+            $v = [int]$Matches[1]
+            if ($v -gt $maxAllyViol) { $maxAllyViol = $v }
+        }
+    }
+    Write-Host ""
+    Write-Host "4. Friendly fire (CombatAllyCheck) - must be 0:"
+    Write-Host "   combat_hit with friendly_fire=true: $ffHits"
+    Write-Host "   friendly_fire_combat_started events: $ffStarts"
+    Write-Host "   max snapshot ally_combat_violations: $maxAllyViol"
+    if ($ffHits -eq 0 -and $ffStarts -eq 0 -and $maxAllyViol -eq 0) {
+        Write-Host "   PASS - No ally damage / no combat vs ally in snapshots"
+    } else {
+        Write-Host "   FAIL - Investigate CombatAllyCheck or combat_target assignment"
     }
 } else {
     Write-Host "   SKIP - No playtest JSONL found at $UserData or $LogDir"

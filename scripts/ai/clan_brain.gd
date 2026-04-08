@@ -13,7 +13,7 @@
 # === Tuning Guide ===
 # - EVALUATION_INTERVAL: How often the brain thinks (5s default, lower = more responsive but more CPU)
 # - THREAT_CACHE_INTERVAL: How often enemy strength is recalculated (30s default)
-# - BASE/MIN/MAX_DEFENSE_RATIO: Controls defender count (0.1-0.6 = 10%-60% of fighters)
+# - BASE/MIN/MAX_DEFENSE_RATIO: Scales defender count under INTRUDER+ (with 3:1 baseline = n/4)
 # - MIN_RAID_PARTY_SIZE: Minimum raiders needed to start raid (2 default)
 # - RAID_COOLDOWN: Time between raids (60s default)
 # - RAID_DISTANCE_MAX: Max distance to consider raid targets (1500px default)
@@ -46,6 +46,8 @@ const MIN_FOOD_FOR_DEFEND: int = 10  # Total of berries + grain + bread
 # === Core State ===
 var clan_name: String = ""
 var land_claim: LandClaim = null  # Reference to the clan's land claim
+## "settled" = full Land Claim AI; "nomadic" = higher herd/search/gather, lower defense (player nomad phase)
+var brain_mode: String = "settled"
 
 # === Cached References ===
 var clan_members: Array = []  # All NPCs in this clan (cavemen, clansmen, women, animals)
@@ -129,10 +131,17 @@ func _init(claim: LandClaim = null) -> void:
 	if claim:
 		initialize(claim)
 
+func set_mode(mode: String) -> void:
+	brain_mode = mode if mode == "nomadic" or mode == "settled" else "settled"
+
+
 func initialize(claim: LandClaim) -> void:
 	"""Initialize ClanBrain with a land claim."""
 	land_claim = claim
 	clan_name = claim.clan_name if claim else ""
+	if land_claim and land_claim.get_meta("start_in_nomadic_brain", false):
+		brain_mode = "nomadic"
+		land_claim.remove_meta("start_in_nomadic_brain")
 	
 	# Initial state
 	_evaluation_timer = randf_range(0.0, EVALUATION_INTERVAL)  # Stagger evaluations
@@ -179,6 +188,8 @@ func update(delta: float) -> void:
 # === State Evaluation ===
 
 const MIN_CLANSMEN_FOR_BRAIN: int = 2  # Defender/searcher assignments only when 2+ cavemen (single caveman stays free to herd/gather)
+## No defender quota until this many cavemen/clansmen (everyone works first). RAID + player emergency defend bypass.
+const MIN_FIGHTERS_BEFORE_DEFEND: int = 3
 
 func _evaluate_clan_state() -> void:
 	"""Evaluate the current state of the clan."""
@@ -222,7 +233,7 @@ func _evaluate_clan_state() -> void:
 			land_claim._prune_searchers()
 		return
 	
-	# Calculate threat and pressures - skip for player clans (use player_defend_ratio instead)
+	# Calculate threat and pressures - skip for player clans (player uses n/4 + drag pool)
 	if not is_player_clan:
 		_calculate_threat_level()
 		_update_pressures()
@@ -277,6 +288,7 @@ func _refresh_clan_members() -> void:
 			var npc_type: String = npc.get("npc_type") if "npc_type" in npc else ""
 			if npc_type == "caveman" or npc_type == "clansman":
 				cavemen.append(npc)
+
 
 func _refresh_resource_status() -> void:
 	"""Refresh resource counts from land claim inventory."""
@@ -333,7 +345,14 @@ func _evaluate_metrics() -> void:
 	
 	if land_claim and land_claim.inventory and land_claim.inventory.has_method("get_count"):
 		var inv = land_claim.inventory
-		clan_metrics["food_total"] = inv.get_count(ResourceData.ResourceType.BERRIES) + inv.get_count(ResourceData.ResourceType.GRAIN) + inv.get_count(ResourceData.ResourceType.BREAD)
+		clan_metrics["food_total"] = (
+			inv.get_count(ResourceData.ResourceType.BERRIES)
+			+ inv.get_count(ResourceData.ResourceType.GRAIN)
+			+ inv.get_count(ResourceData.ResourceType.BREAD)
+			+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
+			+ inv.get_count(ResourceData.ResourceType.BUGS)
+			+ inv.get_count(ResourceData.ResourceType.NUTS)
+		)
 	
 	var pop: int = maxi(1, clan_metrics["population"])
 	clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * FOOD_PER_DAY_PROXY)
@@ -371,6 +390,11 @@ func _update_economic_weights() -> void:
 		economic_priority_weights["food_weight"] = 1.3
 	if fdb < 1.0:
 		economic_priority_weights["food_weight"] = 1.5
+	
+	if brain_mode == "nomadic":
+		economic_priority_weights["herd_weight"] *= 1.35
+		economic_priority_weights["resource_weight"] *= 1.15
+		economic_priority_weights["build_weight"] *= 0.45
 	
 	if land_claim:
 		land_claim.set_meta("economic_priority_weights", economic_priority_weights.duplicate())
@@ -551,6 +575,17 @@ func _update_pressures() -> void:
 	
 	# Clamp defense to bounds
 	defend_pressure = clampf(defend_pressure, MIN_DEFENSE_RATIO, MAX_DEFENSE_RATIO)
+	
+	if brain_mode == "nomadic":
+		defend_pressure *= 0.55
+		search_pressure *= 1.2
+		gather_pressure *= 1.1
+		var t2: float = defend_pressure + search_pressure + gather_pressure
+		if t2 > 0.0:
+			defend_pressure /= t2
+			search_pressure /= t2
+			gather_pressure /= t2
+		defend_pressure = clampf(defend_pressure, MIN_DEFENSE_RATIO, MAX_DEFENSE_RATIO)
 
 func _calculate_resource_urgency() -> float:
 	"""Calculate how urgently we need resources (0.0 = fine, 1.0 = critical)."""
@@ -633,11 +668,10 @@ func _update_land_claim_ratios() -> void:
 	if not land_claim or not is_instance_valid(land_claim):
 		return
 	
-	# Set defense and search ratios - use player_defend_ratio for player clans
-	if land_claim.get("player_owned") == true:
-		land_claim.defend_ratio = land_claim.get("player_defend_ratio") as float if land_claim.get("player_defend_ratio") != null else 0.0
-	else:
-		land_claim.defend_ratio = defend_pressure
+	# Defend ratio for UI/telemetry: actual quota vs fighters (player uses auto 3:1 + drag, not slider)
+	var n_f: int = cavemen.size()
+	var dq: int = land_claim.get_meta("defender_quota", 0)
+	land_claim.defend_ratio = float(dq) / maxf(1.0, float(n_f)) if n_f > 0 else 0.0
 	land_claim.search_ratio = search_pressure
 
 # === Alert System ===
@@ -733,8 +767,10 @@ func get_strategic_state() -> StrategicState:
 	return strategic_state
 
 func get_defend_ratio() -> float:
-	"""Get current defense ratio."""
-	return defend_pressure
+	"""Effective defenders / fighters (quota-based; not the internal defend_pressure curve)."""
+	if not land_claim or cavemen.is_empty():
+		return 0.0
+	return float(get_defender_quota()) / float(cavemen.size())
 
 func get_search_ratio() -> float:
 	"""Get current search ratio."""
@@ -860,6 +896,19 @@ func _update_defender_assignments() -> void:
 		land_claim._prune_defenders()
 		return
 	
+	# Keep everyone off defend until 3+ fighters (gather/herd first). RAID / player emergency defend exempt.
+	if cavemen.size() < MIN_FIGHTERS_BEFORE_DEFEND and not in_emergency:
+		land_claim.set_meta("defender_quota", 0)
+		var to_evict_small: Array = []
+		for d in land_claim.assigned_defenders:
+			if is_instance_valid(d):
+				to_evict_small.append(d)
+		for d in to_evict_small:
+			d.set("defend_target", null)
+			land_claim.remove_defender(d)
+		land_claim._prune_defenders()
+		return
+	
 	# Freeze defender quota during raid (RECRUITING/ACTIVE) unless under attack - prevents oscillation
 	var raid_state_val: int = raid_intent.get("state", RaidState.NONE)
 	if (raid_state_val == RaidState.RECRUITING or raid_state_val == RaidState.ACTIVE) and alert_level < AlertLevel.SKIRMISH:
@@ -898,20 +947,26 @@ func _update_defender_assignments() -> void:
 		land_claim._prune_defenders()
 		return
 	
-	# Calculate how many defenders we need (quota)
-	var ratio: float = defend_pressure
-	if is_player_clan:
-		ratio = land_claim.get("player_defend_ratio") as float if land_claim.get("player_defend_ratio") != null else 0.0
-	var target_defenders: int = int(ceil(cavemen.size() * ratio))
-	target_defenders = clampi(target_defenders, 0, cavemen.size())
-	
-	# Player clan with single clansman: 0 defenders when not emergency (let them herd/gather)
-	if is_player_clan and cavemen.size() <= 1 and not in_emergency:
-		target_defenders = 0
+	# 3:1 worker:defender default — 1 defender slot per 4 cavemen/clansmen (integer division).
+	var n: int = cavemen.size()
+	var base_quota: int = n / 4
+	var target_defenders: int = base_quota
+	if not is_player_clan:
+		# Under threat, never go below 3:1 baseline; pressure can add more (up to n).
+		if alert_level >= AlertLevel.INTRUDER and alert_level < AlertLevel.RAID:
+			var pressure_slots: int = int(ceil(float(n) * defend_pressure))
+			target_defenders = maxi(base_quota, pressure_slots)
+	else:
+		# Player: base = n/4 (e.g. 4 fighters → 1 defender). Drag worker to map outside claim → add_defender;
+		# quota = max(base, pool) so 4 + one border drag → 2 defenders, 2 workers (2:2). Drag inside claim → work, pool shrinks.
+		land_claim._prune_defenders()
+		target_defenders = maxi(base_quota, land_claim.assigned_defenders.size())
+	target_defenders = clampi(target_defenders, 0, n)
 	
 	# Store quota on land claim - NPCs will read this
+	var ratio_display: float = float(target_defenders) / maxf(1.0, float(n))
 	land_claim.set_meta("defender_quota", target_defenders)
-	land_claim.set_meta("defender_pressure", ratio)
+	land_claim.set_meta("defender_pressure", ratio_display)
 	
 	# Prune invalid defenders from pool (NPCs add/remove themselves)
 	land_claim._prune_defenders()
@@ -1151,6 +1206,8 @@ func _start_raid(target: Node) -> void:
 	# Store intent on land claim so NPCs can discover it
 	if land_claim:
 		land_claim.set_meta("raid_intent", raid_intent.duplicate())
+	
+	_form_raid_party(raider_quota)
 
 func _update_raid() -> void:
 	"""Update raid intent state based on NPC progress."""
@@ -1217,6 +1274,7 @@ func _count_active_raiders() -> int:
 func _complete_raid(reason: String) -> void:
 	"""Complete the current raid - clear intent."""
 	print("⚔️ ClanBrain %s: Raid completed (%s)" % [clan_name, reason])
+	_disband_raid_party(reason)
 	
 	# Explicit cleanup: remove raid_joined meta from all raiders
 	for npc in cavemen:
@@ -1299,6 +1357,90 @@ func get_raid_target_position() -> Vector2:
 func get_raid_rally_point() -> Vector2:
 	"""Get the raid rally point (NPCs call this for assembly)."""
 	return raid_intent["rally_point"]
+
+
+func _form_raid_party(max_raiders: int) -> void:
+	"""NPC-led party: first non-defender fighter is leader; rest follow in party state (same as player formations)."""
+	if not land_claim:
+		return
+	var candidates: Array = []
+	for n in cavemen:
+		if not is_instance_valid(n):
+			continue
+		if n in land_claim.assigned_defenders:
+			continue
+		var nt: String = str(n.get("npc_type")) if n.get("npc_type") != null else ""
+		if nt != "caveman" and nt != "clansman":
+			continue
+		candidates.append(n)
+	var total: int = mini(max_raiders, candidates.size())
+	if total < 2:
+		return
+	var leader: Node = candidates[0]
+	var followers: Array = []
+	for i in range(1, total):
+		followers.append(candidates[i])
+	land_claim.set_meta("raid_party_leader", leader)
+	land_claim.set_meta("raid_party_followers", followers.duplicate())
+	leader.set("is_hostile", true)
+	var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+	npc_join_raid(leader)
+	for f in followers:
+		if not is_instance_valid(f):
+			continue
+		f.set("is_herded", true)
+		f.set("herder", leader)
+		f.set("follow_is_ordered", true)
+		f.set("herd_mentality_active", true)
+		if f.has_method("set_follow_mode_from_string"):
+			f.set_follow_mode_from_string("FOLLOW")
+		PartyCommandUtils.apply_context_to_follower(leader, f)
+		if HerdManager:
+			HerdManager.register_follower(leader, f)
+		var fsm = f.get_node_or_null("FSM")
+		if fsm and fsm.has_method("change_state"):
+			fsm.evaluation_timer = 0.0
+			fsm.change_state("party")
+		npc_join_raid(f)
+	var tree = land_claim.get_tree() if land_claim else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("party_formed"):
+			pi.party_formed(lname, followers.size(), "raid_start")
+
+
+func _disband_raid_party(reason: String) -> void:
+	if not land_claim or not land_claim.has_meta("raid_party_leader"):
+		return
+	var leader: Node = land_claim.get_meta("raid_party_leader") as Node
+	var followers: Array = land_claim.get_meta("raid_party_followers", []) as Array
+	land_claim.remove_meta("raid_party_leader")
+	land_claim.remove_meta("raid_party_followers")
+	var lname: String = ""
+	if leader and is_instance_valid(leader):
+		lname = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+		if leader.has_meta("formation_slots"):
+			leader.remove_meta("formation_slots")
+		if leader.has_meta("formation_velocity"):
+			leader.remove_meta("formation_velocity")
+		leader.set_meta("formation_speed_mult", 1.0)
+	for f in followers:
+		if not is_instance_valid(f):
+			continue
+		if HerdManager and leader and is_instance_valid(leader):
+			HerdManager.unregister_follower(leader, f)
+		f.set("follow_is_ordered", false)
+		f.set("is_herded", false)
+		f.set("herder", null)
+		f.set("herd_mentality_active", false)
+		var fsm = f.get_node_or_null("FSM")
+		if fsm:
+			fsm.evaluation_timer = 0.0
+	var tree = land_claim.get_tree() if land_claim else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("party_disbanded") and lname != "":
+			pi.party_disbanded(lname, reason)
 
 # === Phase 4: Strategic AI Enhancements ===
 

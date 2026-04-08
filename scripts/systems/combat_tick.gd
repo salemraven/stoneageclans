@@ -1,5 +1,7 @@
 extends Node
 
+const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+
 # CombatTick - fixed timestep (20-30 Hz) for agro decay, threshold, combat enter/exit. Step 2.
 # Remove agro logic from npc_base _physics_process; feed via push_agro_event().
 
@@ -37,6 +39,8 @@ func push_agro_event(npc: Node, amount: float, reason: String, nearest: Node2D =
 
 # Step 7: Phase order (validate → command → combat target → intent → events). Single intent per tick: Combat > Recover > Command > Work.
 func _on_tick() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	var tree = get_tree()
 	if not tree:
 		return
@@ -57,16 +61,8 @@ func _on_tick() -> void:
 			var cur_target = n.get("combat_target")
 			if not cur_target or not is_instance_valid(cur_target):
 				var nearest = ev.nearest
-				# Clansmen must never target the player (same clan, or defending/searching player's claim)
-				if nearest.is_in_group("player"):
-					var npc_clan: String = n.get_clan_name() if n.has_method("get_clan_name") else ""
-					var player_clan: String = nearest.get_clan_name() if nearest.has_method("get_clan_name") else ""
-					if npc_clan != "" and npc_clan == player_clan:
-						nearest = null
-					var dt = n.get("defend_target")
-					var shc = n.get("search_home_claim")
-					if (dt != null and is_instance_valid(dt) and dt.get("player_owned") == true) or (shc != null and is_instance_valid(shc) and shc.get("player_owned") == true):
-						nearest = null
+				if nearest and CombatAllyCheck.is_ally(n, nearest):
+					nearest = null
 				if nearest:
 					var tid: int = EntityRegistry.get_id(nearest) if EntityRegistry else -1
 					n.set("combat_target_id", tid)

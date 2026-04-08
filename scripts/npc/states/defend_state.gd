@@ -51,6 +51,10 @@ func enter() -> void:
 		dt.name if dt else "?",
 		guard_angle
 	], {"npc": npc.npc_name, "state": "defend"}, UnifiedLogger.Level.DEBUG)
+	var pi_d: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_d and pi_d.is_enabled():
+		var total_def: int = valid_defenders.size()
+		pi_d.clansman_defend_entered(npc.npc_name, dt.name if dt else "?", guard_angle, my_index, total_def)
 
 func exit() -> void:
 	_cancel_tasks_if_active()
@@ -64,9 +68,14 @@ func exit() -> void:
 	# Phase 3 Pull-based: Remove self from defender pool when leaving
 	if npc:
 		var dt = npc.get("defend_target")
+		var claim_name_exit: String = dt.name if (dt and is_instance_valid(dt)) else "?"
 		if dt and is_instance_valid(dt):
 			dt.remove_defender(npc)
-			print("🛡️ DEFEND_STATE: %s left defend duty" % (npc.get("npc_name") if "npc_name" in npc else "NPC"))
+		print("🛡️ DEFEND_STATE: %s left defend duty" % (npc.get("npc_name") if "npc_name" in npc else "NPC"))
+		var pi_dx: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_dx and pi_dx.is_enabled():
+			var next_dx: String = npc.get_meta("fsm_next_state", "") if npc.has_meta("fsm_next_state") else "fsm_eval"
+			pi_dx.clansman_defend_exited(npc.get("npc_name") if "npc_name" in npc else "NPC", claim_name_exit, next_dx)
 		npc.set_meta("defend_last_exit_time", Time.get_ticks_msec() / 1000.0)
 		npc.set("defend_target", null)
 
@@ -74,10 +83,13 @@ func update(delta: float) -> void:
 	if not npc:
 		return
 	
-	# CRITICAL: Exit immediately if following - following takes priority
 	if _is_following():
 		if fsm:
-			fsm.change_state("herd")
+			var nt_df: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt_df == "caveman" or nt_df == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
 		return
 	
 	# OPTIMIZATION: Tasks are cancelled on enter() - no need to cancel every frame
@@ -94,6 +106,9 @@ func update(delta: float) -> void:
 	# This handles quota drops without thrashing (NPCs self-evict, not force-removed)
 	if dt.has_method("should_i_defend") and not dt.should_i_defend(npc):
 		print("🛡️ DEFEND_STATE: %s self-evicting (over quota)" % npc.npc_name)
+		var pi_ev: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_ev and pi_ev.is_enabled():
+			pi_ev.clansman_defend_exited(npc.npc_name, dt.name if is_instance_valid(dt) else "?", "self_evict_over_quota")
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -190,15 +205,11 @@ func get_priority() -> float:
 	if not is_protective and npc.has_method("has_trait"):
 		is_protective = npc.has_trait("guardian")
 	if is_protective:
-		return 11.0  # Above herd_wildnpc; will defend when slot exists
-	# Cavemen: low priority so they herd/gather and grow the clan (unless protective)
-	var tp: String = npc.get("npc_type") if npc else ""
-	if tp == "caveman":
-		return 3.0  # Below gather and herd_wildnpc so cavemen go out to gather/herd
-	# Clansmen: default high priority; "solitary" = prefer gather/herd, only defend when needed
-	if npc.has_trait("solitary") if npc.has_method("has_trait") else false:
-		return 8.0  # Below herd_wildnpc (11.5) so they prefer to herd/gather unless defender slot is open and no one else took it
-	return 11.0  # Above herd_wildnpc; follow/defend override work-mode via can_enter in gather/herd_wildnpc
+		# Prefer guard over gather (~4–6); herd_wildnpc (11.5) can still win when herding is valid
+		return 11.0
+	# Cavemen + clansmen: same low priority — gather, search, building work, and herd all beat standing guard
+	# until quota needs filling and nothing else can_enter.
+	return 3.0
 
 func get_data() -> Dictionary:
 	var dt = npc.get("defend_target") if npc else null

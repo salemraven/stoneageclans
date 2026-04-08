@@ -1,0 +1,37 @@
+---
+description: Stone Age Clans project context and conventions
+alwaysApply: true
+---
+
+# Stone Age Clans — Project Context
+
+## What This Is
+Godot 4.x game: **Stoneshard + RimWorld** mix — tactical survival, colony management, generational permadeath. Gritty 64×64 pixel art, top-down isometric.
+
+## Core Philosophy
+**System-driven simulation.** Emergent gameplay from interacting systems — hunting trips gone wrong, clan rivalries, starvation forcing risky decisions, predators, leadership struggles. Systems must interact, not exist in isolation.
+
+## Source of Truth
+- **bible.md** — Lore, design, mechanics, systems. Check it before changing behavior or adding features.
+
+## Key Systems to Expand
+- NPC behavior (goal-based, memory, danger reaction, social alliances)
+- Hunting (tracking, awareness, coordinated hunts, ambush, wounded animals)
+- Clan social (friendships, rivalries, prestige, family bonds)
+- Territory (hunting grounds, patrol, markers)
+- Environment (storms, droughts, migrations, harsh winters)
+
+## Design Tone
+Harsh wilderness survival, tribal life, mysterious early humanity. Ancient, dangerous, alive. **No modern tech or political structures** — primitive but intelligent.
+
+## Code Layout
+- Config: `scripts/config/`
+- AI: FSM `scripts/npc/`, tasks `scripts/ai/tasks/`, jobs `scripts/ai/jobs/`
+- Systems: `scripts/systems/`
+
+## Development Environment
+- **Primary OS:** Windows 11 (NVIDIA RTX 5070)
+- **Project folder:** `StoneAgeClans` (no spaces — required for Godot CLI on Windows)
+- **Godot:** 4.6.1 bundled under `tools/godot/`; use `godot.cmd` or the exe directly
+- **Shell scripts:** `.ps1` (PowerShell) and `.cmd`/`.bat` only. Legacy macOS `.sh` scripts archived in `scripts/archived_macos_sh/`
+- **IDE:** Cursor (VS Code fork) with Godot Tools extension; agent controls Godot via CLI (see `.cursor/rules/godot-agent-godot-control.mdc`)

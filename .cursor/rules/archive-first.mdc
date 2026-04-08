@@ -1,0 +1,16 @@
+---
+description: Always archive deprecated files; never delete
+alwaysApply: true
+---
+
+# Archive First — Never Delete
+
+**Do not delete files.** Move them to an archive instead.
+
+When removing or deprecating tools, assets, or docs:
+
+1. **Move to archive** — Put files in `3d/` (3D/Blender-related) or `3d/blender_archive/` (Blender pipeline). Never use the Delete tool.
+2. **Update README** — Add a note in the archive's README listing what was moved and when.
+3. **Update references** — Fix any code/docs that pointed to the removed paths.
+
+Only delete if the user explicitly says "delete" and confirms. Default to archiving.

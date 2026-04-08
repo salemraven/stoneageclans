@@ -1,0 +1,24 @@
+---
+description: NPC design goals — intentional, believable, emergent behavior
+globs: scripts/npc/**/*.gd, scripts/ai/**/*.gd
+alwaysApply: false
+---
+
+# NPC Design Goals
+
+NPCs should feel **intentional and believable**, not robotic. Behavior emerges from simple interacting rules.
+
+## NPCs Should Have
+- Goals, needs, routines
+- Emotional states, relationships
+- Motivations: hunger, fear, loyalty, prestige, family protection, revenge
+
+## Improvement Examples
+- Goal-based behavior, memory of events
+- Reacting to danger, social alliances
+- Group hunting coordination
+- "NPC remembers who helped during hunts → trusts them more"
+- Hunters who bring back food gain prestige
+
+## Avoid
+Simple "walk up and attack." Hunting should feel risky and strategic (tracking, awareness, ambush, wounded animals fleeing).

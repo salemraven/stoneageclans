@@ -1,0 +1,14 @@
+---
+description: Agent autonomy — run commands, install tools, download as needed
+alwaysApply: true
+---
+
+# Agent Autonomy
+
+When working on this project, the agent may:
+
+- **Run terminal commands** — Execute any needed commands (build, test, lint, scripts)
+- **Install tools/dependencies** — npm, pip, Godot addons, system packages, etc.
+- **Download resources** — Fetch packages, assets, docs, or other files when required
+
+Do not ask for permission first. If a task needs a command, install, or download, just do it.

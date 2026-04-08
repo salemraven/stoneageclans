@@ -78,7 +78,7 @@ func can_enter() -> bool:
 	return home != null and is_instance_valid(home)
 
 func get_priority() -> float:
-	return 5.5  # Below defend (6.0), above gather/wander
+	return 5.5  # Above defend (3.0) and gather (~4–6); below herd_wildnpc (~11.5)
 
 func get_data() -> Dictionary:
 	return {

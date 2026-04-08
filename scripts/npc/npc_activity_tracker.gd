@@ -154,6 +154,8 @@ func _initialize_logging() -> void:
 func _process(delta: float) -> void:
 	if not tracking_enabled:
 		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	
 	# Sample performance metrics periodically
 	var current_time = Time.get_ticks_msec() / 1000.0
