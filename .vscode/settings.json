@@ -1,3 +1,15 @@
 {
-  "godotTools.editorPath.godot4": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe"
+  "godotTools.editorPath.godot4": "tools/godot/Godot_v4.6.1-stable_win64.exe",
+  "godotTools.editorPath.godot4Windows": "tools/godot/Godot_v4.6.1-stable_win64.exe",
+  "files.watcherExclude": {
+    "**/.godot/**": true,
+    "**/import/**": true
+  },
+  "search.exclude": {
+    "**/.godot": true,
+    "**/.import": true
+  },
+  "[gdscript]": {
+    "editor.tabSize": 4
+  }
 }
