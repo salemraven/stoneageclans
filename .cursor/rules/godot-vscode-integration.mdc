@@ -1,0 +1,23 @@
+---
+description: Godot + Cursor/VS Code (godot-tools paths, godot.cmd) — avoid broken editor paths
+alwaysApply: true
+---
+
+# Godot ↔ Cursor / VS Code
+
+## `godotTools.editorPath.godot4` (workspace `.vscode/settings.json`)
+
+- Use a path **relative to the project root**, e.g. `tools/godot/Godot_v4.6.1-stable_win64.exe`.
+- **Do not** put `${workspaceFolder}` in that value. The godot-tools extension already resolves paths from the workspace root; a literal `${workspaceFolder}` segment produces an invalid path and breaks the LSP / “open editor”.
+- **`${workspaceFolder}` is correct** in `.vscode/launch.json` and `.vscode/tasks.json` — VS Code expands those; the bug is specific to **godot-tools `editorPath` settings**.
+
+## `tools/godot/godot.cmd`
+
+- Must delegate to exes next to the script via `%~dp0` (or equivalent). **Never** commit hardcoded `C:\Users\...` paths.
+- Prefer console build when present; fall back to the standard GUI build (see `tools/godot/README.txt`).
+
+## Before merging `.vscode` or `godot.cmd` changes
+
+Run the VS Code task **`Godot: Verify Cursor/VS Code setup`**, or:
+
+`powershell -NoProfile -File tools/verify_vscode_godot_setup.ps1`

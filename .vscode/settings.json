@@ -1,4 +1,6 @@
 {
+  // godot-tools joins workspace root + this string. NEVER use ${workspaceFolder} here (invalid path).
+  // Run task "Godot: Verify Cursor/VS Code setup" after changing this file or tools/godot/godot.cmd
   "godotTools.editorPath.godot4": "tools/godot/Godot_v4.6.1-stable_win64.exe",
   "godotTools.lsp.headless": true,
   "godotTools.lsp.autoReconnect.enabled": true,

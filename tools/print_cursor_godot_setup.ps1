@@ -36,3 +36,8 @@ if ($Cursor) {
 } else {
     Write-Host "Could not find Cursor.exe under LocalAppData\Programs. Install Cursor or set External Editor path manually."
 }
+
+Write-Host ""
+Write-Host "5) After changing .vscode/settings.json or tools/godot/godot.cmd, run:"
+Write-Host "   powershell -NoProfile -File tools/verify_vscode_godot_setup.ps1"
+Write-Host "   (or VS Code task: Godot: Verify Cursor/VS Code setup)"

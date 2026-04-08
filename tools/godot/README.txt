@@ -16,3 +16,5 @@ Cursor / VS Code (godot-tools)
   only to an already-running Godot editor.
 
 Tasks and scripts use tools/godot/godot.cmd (portable; works on any clone path).
+
+Regression check: run tools/verify_vscode_godot_setup.ps1 or VS Code task "Godot: Verify Cursor/VS Code setup".
