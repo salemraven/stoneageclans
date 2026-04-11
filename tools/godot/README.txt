@@ -18,3 +18,12 @@ Cursor / VS Code (godot-tools)
 Tasks and scripts use tools/godot/godot.cmd (portable; works on any clone path).
 
 Regression check: run tools/verify_vscode_godot_setup.ps1 or VS Code task "Godot: Verify Cursor/VS Code setup".
+
+If Godot "can't find" the project after renaming the folder (e.g. Stone Age Clans -> StoneAgeClans):
+- Godot's Project Manager stores RECENT paths in your user profile, not in this repo. The old path is a dead link.
+- Fix A (one-time on this PC): create a junction so the saved path works again (run cmd.exe as your user):
+    mklink /J "c:\Users\mxz\Desktop\stoneageclans\Stone Age Clans" "c:\Users\mxz\Desktop\stoneageclans\StoneAgeClans"
+  Adjust paths if your Desktop layout differs. Restart Godot.
+- Fix B: Project Manager -> Remove Missing -> Import -> pick the folder that contains project.godot (StoneAgeClans).
+- Fix C: Double-click Open_In_Godot_Editor.cmd in the project root (passes --path explicitly).
+- Cursor: File -> Open Folder -> StoneAgeClans (not the old folder name).
