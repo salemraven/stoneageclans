@@ -54,15 +54,15 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	var npc: NPCBase = actor as NPCBase
 
 	if npc.should_abort_work():
-		_cleanup_knap_sprite(npc)
+		_cleanup_knap_sprite(npc, true)
 		return TaskStatus.FAILED
 
 	if not npc.inventory or not land_claim or not is_instance_valid(land_claim):
-		_cleanup_knap_sprite(npc)
+		_cleanup_knap_sprite(npc, true)
 		return TaskStatus.FAILED
 
 	if npc.inventory.get_count(ResourceData.ResourceType.STONE) < STONES_REQUIRED:
-		_cleanup_knap_sprite(npc)
+		_cleanup_knap_sprite(npc, true)
 		return TaskStatus.FAILED
 
 	# Step 1: Move to land claim if not in range
@@ -110,7 +110,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	# If NPC moved after starting knap, cancel crafting (must stay in place; ready for future animation)
 	var moved: float = npc.global_position.distance_to(_knap_start_position)
 	if moved > MOVE_CANCEL_THRESHOLD:
-		_cleanup_knap_sprite(npc)
+		_cleanup_knap_sprite(npc, true)
 		return TaskStatus.FAILED
 
 	# Stay still every tick while knapping (no moving or craft cancels; knapp sprite shown)
@@ -129,13 +129,13 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 
 	# Step 4: Apply recipe (2 stone → 1 stone + 1 blade)
 	if not npc.inventory.remove_item(ResourceData.ResourceType.STONE, STONES_REQUIRED):
-		_cleanup_knap_sprite(npc)
+		_cleanup_knap_sprite(npc, true)
 		return TaskStatus.FAILED
 
 	npc.inventory.add_item(ResourceData.ResourceType.STONE, 1)
 	npc.inventory.add_item(ResourceData.ResourceType.BLADE, 1)
 
-	_cleanup_knap_sprite(npc)
+	_cleanup_knap_sprite(npc, false)
 
 	UnifiedLogger.log_npc("KNAP_TASK: %s crafted 1 blade" % npc.npc_name, {
 		"npc": npc.npc_name,
@@ -155,12 +155,12 @@ func _apply_knapp_sprite(npc: NPCBase) -> void:
 		if npc.has_method("apply_sprite_offset_for_texture"):
 			npc.apply_sprite_offset_for_texture()
 
-func _cleanup_knap_sprite(npc: NPCBase) -> void:
+func _cleanup_knap_sprite(npc: NPCBase, cancelled: bool = false) -> void:
 	if not npc:
 		return
 	npc.set("is_crafting", false)
 	if npc.progress_display:
-		npc.progress_display.stop_collection()
+		npc.progress_display.stop_collection(cancelled)
 	if npc.sprite:
 		var tex: Texture2D = load(NORMAL_SPRITE_PATH) as Texture2D
 		if tex:
@@ -174,6 +174,6 @@ func _cleanup_knap_sprite(npc: NPCBase) -> void:
 
 func _cancel_impl(actor: Node) -> void:
 	if actor is NPCBase:
-		_cleanup_knap_sprite(actor as NPCBase)
+		_cleanup_knap_sprite(actor as NPCBase, true)
 	if _move_task:
 		_move_task.cancel(actor)

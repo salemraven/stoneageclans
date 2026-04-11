@@ -34,6 +34,8 @@ const AMBIENT_GRASS_FORAGE_SEC := 0.85
 const AMBIENT_FORAGE_MOVE_CANCEL := 20.0
 var _player_is_eating: bool = false
 var _eating_slot_index: int = -1
+var _eat_start_position: Vector2 = Vector2.ZERO
+const EAT_MOVE_CANCEL := 20.0
 var nearby_building: Node = null  # Building player is near (LandClaim or BuildingBase)
 var nearby_corpse: Node = null  # Corpse player is near (for looting)
 var nearby_travois_ground: Node = null  # Placed travois on ground
@@ -345,6 +347,8 @@ func _use_hotbar_consumable(slot_index: int) -> void:
 	# Start eating pie timer (defer consume until pie completes)
 	_player_is_eating = true
 	_eating_slot_index = slot_index
+	if player:
+		_eat_start_position = player.global_position
 	
 	if player and player.get("eat_progress_display"):
 		var icon: Texture2D = null
@@ -358,12 +362,14 @@ func _use_hotbar_consumable(slot_index: int) -> void:
 	timer.timeout.connect(_on_eat_complete)
 
 func _on_eat_complete() -> void:
+	if not _player_is_eating:
+		return
 	_player_is_eating = false
 	var slot_index: int = _eating_slot_index
 	_eating_slot_index = -1
 	
 	if player and player.get("eat_progress_display"):
-		player.eat_progress_display.stop_collection()
+		player.eat_progress_display.stop_collection(false)
 	
 	if not player_inventory_ui:
 		return
@@ -623,6 +629,9 @@ func _process(delta: float) -> void:
 	if _ambient_grass_forage_active and player:
 		if player.global_position.distance_to(_ambient_grass_forage_start) > AMBIENT_FORAGE_MOVE_CANCEL:
 			_cancel_ambient_grass_forage()
+	if _player_is_eating and player:
+		if player.global_position.distance_to(_eat_start_position) > EAT_MOVE_CANCEL:
+			_cancel_player_eating()
 	# Update shared formation slots once per frame so all clansmen move as one unit
 	_update_formation_slots()
 	# Step 4: Periodically update followers' is_hostile from player weapon (sustain 70 agro when hostile)
@@ -1461,6 +1470,14 @@ func _get_ambient_grass_forage_progress() -> Node2D:
 	_ambient_grass_forage_progress = n
 	return n
 
+func _cancel_player_eating() -> void:
+	if not _player_is_eating:
+		return
+	_player_is_eating = false
+	_eating_slot_index = -1
+	if player and player.get("eat_progress_display"):
+		player.eat_progress_display.stop_collection(true)
+
 func _cancel_ambient_grass_forage() -> void:
 	if not _ambient_grass_forage_active:
 		return
@@ -1469,7 +1486,7 @@ func _cancel_ambient_grass_forage() -> void:
 	if player:
 		player.set("is_gathering", false)
 	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
-		_ambient_grass_forage_progress.stop_collection()
+		_ambient_grass_forage_progress.stop_collection(true)
 
 func _find_closest_tallgrass(from_pos: Vector2, max_dist: float) -> Node2D:
 	var best: Node2D = null
@@ -1526,7 +1543,7 @@ func _finish_ambient_grass_forage() -> void:
 	if player:
 		player.set("is_gathering", false)
 	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
-		_ambient_grass_forage_progress.stop_collection()
+		_ambient_grass_forage_progress.stop_collection(false)
 	if not player:
 		return
 	if player.global_position.distance_to(_ambient_grass_forage_start) > AMBIENT_FORAGE_MOVE_CANCEL:

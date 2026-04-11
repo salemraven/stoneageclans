@@ -38,7 +38,7 @@ func exit() -> void:
 	if npc:
 		npc.set("is_gathering", false)
 		if npc.progress_display:
-			npc.progress_display.stop_collection()
+			npc.progress_display.stop_collection(true)
 	gather_target = null
 
 func update(_delta: float) -> void:

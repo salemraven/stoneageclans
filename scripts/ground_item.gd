@@ -23,6 +23,9 @@ var is_picked_up: bool = false
 var is_collecting: bool = false
 var collection_progress: Node2D = null
 var nearby_player: Node2D = null
+var gathering_player: Node2D = null
+var collection_start_position: Vector2 = Vector2.ZERO
+const MOVE_CANCEL_THRESHOLD: float = 20.0
 var last_gather_press_time := 0.0
 const GATHER_COOLDOWN := 0.2  # Small cooldown to prevent double-presses
 
@@ -148,7 +151,7 @@ func _on_body_exited(body: Node2D) -> void:
 		if main:
 			if main.active_collection_resource == self:
 				main.active_collection_resource = null
-		_stop_collection()
+		_stop_collection(true)
 
 func _process(_delta: float) -> void:
 	if is_picked_up:
@@ -183,9 +186,13 @@ func _process(_delta: float) -> void:
 				if current_time - last_gather_press_time >= GATHER_COOLDOWN:
 					last_gather_press_time = current_time
 					_collect_one_item()
+			elif is_collecting and gathering_player:
+				var moved := gathering_player.global_position.distance_to(collection_start_position)
+				if moved > MOVE_CANCEL_THRESHOLD:
+					_stop_collection(true)
 	elif is_collecting:
-		# Player moved away, stop collection
-		_stop_collection()
+		# Player left hitbox, stop collection
+		_stop_collection(true)
 
 func _collect_one_item() -> void:
 	# This should already be the active resource, but double-check
@@ -195,6 +202,10 @@ func _collect_one_item() -> void:
 		return  # Not the active resource, don't collect
 	
 	# Start collection progress visual — use the same texture as the world sprite when set (mushroom1 vs mushroom2, etc.)
+	gathering_player = nearby_player
+	if gathering_player:
+		collection_start_position = gathering_player.global_position
+		gathering_player.set("is_gathering", true)
 	if collection_progress:
 		var icon: Texture2D = null
 		if sprite and sprite.texture:
@@ -212,9 +223,19 @@ func _collect_one_item() -> void:
 	timer.timeout.connect(func(): _finish_collection())
 
 func _finish_collection() -> void:
-	# Collection complete, give item to player
 	var main := get_tree().get_first_node_in_group("main")
+	# Moved before pickup completes — cancel
+	if gathering_player != null and is_instance_valid(gathering_player):
+		var moved := gathering_player.global_position.distance_to(collection_start_position)
+		if moved > MOVE_CANCEL_THRESHOLD:
+			is_collecting = false
+			if collection_progress:
+				collection_progress.stop_collection(true)
+			_clear_gathering_player()
+			return
+	# Collection complete, give item to player
 	if not main:
+		_clear_gathering_player()
 		return
 	
 	# Give exactly 1 item
@@ -224,7 +245,8 @@ func _finish_collection() -> void:
 	# Stop collection visual
 	is_collecting = false
 	if collection_progress:
-		collection_progress.stop_collection()
+		collection_progress.stop_collection(false)
+	_clear_gathering_player()
 	
 	# Make sprite disappear and remove from world
 	is_picked_up = true
@@ -234,10 +256,16 @@ func _finish_collection() -> void:
 	queue_free()
 	print("Player gathered %s" % ResourceData.get_resource_name(item_type))
 
-func _stop_collection() -> void:
+func _clear_gathering_player() -> void:
+	if gathering_player != null and is_instance_valid(gathering_player):
+		gathering_player.set("is_gathering", false)
+	gathering_player = null
+
+func _stop_collection(cancelled: bool = true) -> void:
 	is_collecting = false
 	if collection_progress:
-		collection_progress.stop_collection()
+		collection_progress.stop_collection(cancelled)
+	_clear_gathering_player()
 
 # NPC interaction methods
 func is_harvestable() -> bool:

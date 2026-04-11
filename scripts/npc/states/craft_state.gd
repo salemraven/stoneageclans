@@ -25,7 +25,7 @@ func exit() -> void:
 	if npc:
 		npc.set("is_crafting", false)
 	if npc and npc.progress_display:
-		npc.progress_display.stop_collection()
+		npc.progress_display.stop_collection(true)
 	land_claim = null
 
 func update(_delta: float) -> void:

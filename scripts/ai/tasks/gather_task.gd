@@ -109,7 +109,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	if not resource_node or not is_instance_valid(resource_node):
 		var alt := _find_alternative_resource(npc)
 		if alt:
-			_clear_gathering(npc)
+			_clear_gathering(npc, true)
 			_switch_to_resource(alt, actor)
 			UnifiedLogger.log_npc("GatherTask: %s switched to alternative resource (original invalid)" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
 			return TaskStatus.RUNNING
@@ -148,7 +148,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	if not is_harvestable_check:
 		var alt := _find_alternative_resource(npc)
 		if alt:
-			_clear_gathering(npc)
+			_clear_gathering(npc, true)
 			_switch_to_resource(alt, actor)
 			var res_type: int = resource_node.get("resource_type") as int if resource_node.get("resource_type") != null else -1
 			var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
@@ -181,7 +181,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	# If NPC moved after starting gather, cancel
 	var moved: float = npc.global_position.distance_to(_gather_start_position)
 	if moved > _move_cancel_threshold:
-		_clear_gathering(npc)
+		_clear_gathering(npc, true)
 		UnifiedLogger.log_npc("GatherTask FAILED: %s moved %.1fpx during gather" % [npc.npc_name, moved], {"npc": npc.npc_name, "moved": moved}, UnifiedLogger.Level.WARNING)
 		return TaskStatus.FAILED
 
@@ -200,7 +200,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		return TaskStatus.RUNNING
 
 	# Step 4: Harvest resource
-	_clear_gathering(npc)
+	_clear_gathering(npc, false)
 	var resource_type = resource_node.get("resource_type")
 	if resource_type == null:
 		return TaskStatus.FAILED
@@ -309,16 +309,16 @@ func _switch_to_resource(new_resource: Node2D, actor: Node) -> void:
 	_has_started_gathering = false
 	_gather_timer = 0.0
 
-func _clear_gathering(npc: NPCBase) -> void:
+func _clear_gathering(npc: NPCBase, cancelled: bool = false) -> void:
 	if not npc:
 		return
 	npc.set("is_gathering", false)
 	if npc.progress_display:
-		npc.progress_display.stop_collection()
+		npc.progress_display.stop_collection(cancelled)
 
 func _cancel_impl(actor: Node) -> void:
 	if actor is NPCBase:
-		_clear_gathering(actor as NPCBase)
+		_clear_gathering(actor as NPCBase, true)
 
 	if resource_node and is_instance_valid(resource_node) and resource_node.has_method("release"):
 		resource_node.release(actor)

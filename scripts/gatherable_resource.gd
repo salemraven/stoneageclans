@@ -578,12 +578,12 @@ func _finish_wood_nut_search() -> void:
 		if moved > MOVE_CANCEL_THRESHOLD:
 			is_collecting = false
 			if collection_progress:
-				collection_progress.stop_collection()
+				collection_progress.stop_collection(true)
 			_clear_gathering_player()
 			return
 	is_collecting = false
 	if collection_progress:
-		collection_progress.stop_collection()
+		collection_progress.stop_collection(false)
 	if main and main.has_method("add_to_inventory"):
 		if randf() < 0.25:
 			main.add_to_inventory(ResourceData.ResourceType.NUTS, 1)
@@ -602,7 +602,7 @@ func _finish_collection() -> void:
 			gathering_player = null
 			is_collecting = false
 			if collection_progress:
-				collection_progress.stop_collection()
+				collection_progress.stop_collection(true)
 			return
 	# Collection complete, give item to player
 	if not main_finish:
@@ -614,7 +614,7 @@ func _finish_collection() -> void:
 		_emit_gather_diagnostic("gather_blocked_cooldown_at_finish", gathering_player, main_finish)
 		is_collecting = false
 		if collection_progress:
-			collection_progress.stop_collection()
+			collection_progress.stop_collection(false)
 		_clear_gathering_player()
 		return
 	
@@ -650,7 +650,7 @@ func _finish_collection() -> void:
 	# Stop collection visual
 	is_collecting = false
 	if collection_progress:
-		collection_progress.stop_collection()
+		collection_progress.stop_collection(false)
 	_clear_gathering_player()
 
 func _clear_gathering_player() -> void:
@@ -664,7 +664,7 @@ func _stop_collection(reason: String = "unspecified") -> void:
 	_wood_nut_search = false
 	is_collecting = false
 	if collection_progress:
-		collection_progress.stop_collection()
+		collection_progress.stop_collection(true)
 	if was_collecting and gp != null and is_instance_valid(gp):
 		var main_stop: Node = get_tree().get_first_node_in_group("main")
 		_emit_gather_diagnostic("gather_stopped", gp, main_stop, {"reason": reason})

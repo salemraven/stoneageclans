@@ -1039,11 +1039,12 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	
-	# Crafting (e.g. knapping) or gathering: must stay in place until finished; movement cancels
+	# Crafting (e.g. knapping), hut build timer in claim, or gathering: NPC must stay in place until finished
 	var crafting: bool = get("is_crafting") == true
 	if not crafting and task_runner and task_runner.has_method("is_current_task_knap") and task_runner.is_current_task_knap():
 		crafting = true  # Knap task active (in case is_crafting not set yet this frame)
-	if crafting or get("is_gathering") == true:
+	var building_hut: bool = get("is_building_hut") == true
+	if crafting or building_hut or get("is_gathering") == true:
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return

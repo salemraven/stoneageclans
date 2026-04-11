@@ -8,6 +8,7 @@ const META_QUEUE := "build_hut_queue"
 var woman: Node = null
 var claim: Node = null
 var build_timer: float = 0.0
+var _exit_progress_cancelled: bool = false
 
 func _sync_job_from_queue_head() -> bool:
 	woman = null
@@ -30,6 +31,7 @@ func _sync_job_from_queue_head() -> bool:
 	return woman != null and is_instance_valid(woman) and claim != null and is_instance_valid(claim)
 
 func enter() -> void:
+	_exit_progress_cancelled = false
 	build_timer = 0.0
 	_sync_job_from_queue_head()
 	if woman and OccupationSystem and OccupationSystem.get_workplace(woman) != null:
@@ -46,8 +48,10 @@ func _start_progress_icon() -> void:
 	npc.progress_display.start_collection(icon)
 
 func exit() -> void:
-	if npc and npc.progress_display:
-		npc.progress_display.stop_collection()
+	if npc:
+		npc.set("is_building_hut", false)
+		if npc.progress_display:
+			npc.progress_display.stop_collection(_exit_progress_cancelled)
 	woman = null
 	claim = null
 
@@ -62,12 +66,15 @@ func update(delta: float) -> void:
 		return
 	var dist: float = npc.global_position.distance_to(claim.global_position)
 	var claim_radius: float = claim.get("radius") if claim.get("radius") != null else 400.0
+	var in_build_zone: bool = dist <= claim_radius + 15.0
+	if npc:
+		npc.set("is_building_hut", in_build_zone)
 	if woman:
 		if not is_instance_valid(woman):
 			woman = null
 		elif OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 			woman = null
-	if dist <= claim_radius + 15.0:
+	if in_build_zone:
 		build_timer += delta
 	if build_timer >= BUILD_DURATION:
 		_finish_build()
@@ -111,6 +118,7 @@ func _clear_queue_meta() -> void:
 		npc.remove_meta("build_hut_for_woman_claim")
 
 func _fail_and_exit() -> void:
+	_exit_progress_cancelled = true
 	_clear_queue_meta()
 	if fsm:
 		fsm.change_state("wander")

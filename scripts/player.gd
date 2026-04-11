@@ -135,12 +135,7 @@ func _physics_process(_delta: float) -> void:
 		set_meta("formation_velocity", velocity)
 		move_and_slide()
 		return
-	# Gathering: must stay in place; moving cancels (set by gatherable_resource)
-	if get("is_gathering") == true:
-		velocity = Vector2.ZERO
-		set_meta("formation_velocity", velocity)
-		move_and_slide()
-		return
+	# Gathering: player may move; gatherable_resource / main cancel the timer and flash red
 	
 	var input_vector := Vector2(
 		_get_axis_strength("move_right", "move_left"),
