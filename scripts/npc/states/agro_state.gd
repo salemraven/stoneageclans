@@ -46,7 +46,7 @@ func enter() -> void:
 	if NPCConfig:
 		approach_distance = NPCConfig.agro_approach_distance
 		retreat_distance = NPCConfig.agro_retreat_distance
-		agro_increase_rate = NPCConfig.agro_increase_rate
+		agro_increase_rate = NPCConfig.agro_state_meter_rise_per_second
 		hostile_threshold = NPCConfig.hostile_threshold  # 60.0 for recover mode
 		hostile_threshold_defend = NPCConfig.hostile_threshold_defend  # 70.0 for defend mode
 		hostile_duration_max = NPCConfig.hostile_duration_max
@@ -95,11 +95,11 @@ func enter() -> void:
 		print("Caveman %s entering AGRO state (land claim defense), pushing intruder %s out" % [npc.npc_name, intruder_name])
 		
 		# Log agro state entry
-		UnifiedLogger.log("Caveman agro triggered: entered_agro_land_claim_defense (target: %s, level: %.1f)" % [intruder_name, npc.agro_level if npc else 0.0], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
+		UnifiedLogger.log("Caveman agro triggered: entered_agro_land_claim_defense (target: %s, level: %.1f)" % [intruder_name, npc.agro_meter if npc else 0.0], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
 			"npc": npc.npc_name,
 			"trigger": "entered_agro_land_claim_defense",
 			"target": intruder_name,
-			"agro_level": "%.1f" % (npc.agro_level if npc else 0.0)
+			"agro_meter": "%.1f" % (npc.agro_meter if npc else 0.0)
 		})
 	else:
 		# Agro Recover: Lost wild NPC recovery logic
@@ -111,7 +111,7 @@ func enter() -> void:
 			var wildnpc_name: String = _safe_wildnpc_name(lost_wildnpc)
 			var _nname = npc.get("npc_name") if npc else null
 			var _nname_safe: String = str(_nname) if _nname != null else "unknown"
-			var _agro = npc.get("agro_level") if npc else null
+			var _agro = npc.get("agro_meter") if npc else null
 			var _agro_val: float = _agro as float if _agro != null else 0.0
 			print("Caveman %s entering AGRO RECOVER state, trying to get wild NPC %s back" % [_nname_safe, wildnpc_name])
 			approach_mode = true
@@ -121,7 +121,7 @@ func enter() -> void:
 				"npc": _nname_safe,
 				"trigger": "entered_agro_recover",
 				"target": wildnpc_name,
-				"agro_level": "%.1f" % _agro_val
+				"agro_meter": "%.1f" % _agro_val
 			})
 		else:
 			print("Caveman %s entering AGRO RECOVER state, no lost wild NPC found" % npc.npc_name)
@@ -142,10 +142,9 @@ func update(delta: float) -> void:
 	if not npc:
 		return
 	
-	# Check if still agro
-	var is_agro_prop = npc.get("is_agro")
-	if is_agro_prop == null or not is_agro_prop:
-		# No longer agro, exit state
+	# Check if still agro (agro_meter drives is_agro on NPCBase)
+	var am: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
+	if am <= 0.0001:
 		fsm.change_state("wander")
 		return
 	
@@ -192,9 +191,9 @@ func update(delta: float) -> void:
 						# NO COOLDOWN - removed as per guide update
 						# Intruder should flee instead
 						
-						# Clear agro
-						npc.set("is_agro", false)
-						npc.set("agro_level", 0.0)
+						npc.set("agro_meter", 0.0)
+						if "agro_meter" in npc:
+							npc.agro_meter = 0.0
 						npc.set("is_hostile", false)
 						if npc.hostile_indicator:
 							npc.hostile_indicator.visible = false
@@ -205,16 +204,18 @@ func update(delta: float) -> void:
 						fsm.change_state("gather")
 						return
 	
-	# Increase agro level over time
-	var agro_level_prop = npc.get("agro_level")
-	if agro_level_prop != null:
-		var current_agro: float = agro_level_prop as float
+	# Increase agro_meter over time (hostile indicator / pressure)
+	var agro_m_prop = npc.get("agro_meter")
+	if agro_m_prop != null:
+		var current_agro: float = agro_m_prop as float
 		current_agro += agro_increase_rate * delta
 		var max_agro: float = 100.0  # Default
 		if NPCConfig:
-			max_agro = NPCConfig.agro_max_level
+			max_agro = NPCConfig.agro_max as float
 		current_agro = min(current_agro, max_agro)
-		npc.set("agro_level", current_agro)
+		npc.set("agro_meter", current_agro)
+		if "agro_meter" in npc:
+			npc.agro_meter = current_agro
 		
 		# Check if should enter hostile mode
 		# Use different threshold for defend vs recover
@@ -239,7 +240,9 @@ func update(delta: float) -> void:
 					hostile_duration = 0.0
 					# Reset agro level slightly but keep it high
 					current_agro = current_threshold - 10.0
-					npc.set("agro_level", current_agro)
+					npc.set("agro_meter", current_agro)
+					if "agro_meter" in npc:
+						npc.agro_meter = current_agro
 					npc.set("is_hostile", false)
 					npc.hostile_indicator.visible = false
 			else:
@@ -331,8 +334,9 @@ func update(delta: float) -> void:
 					# NO COOLDOWN - removed as per guide update
 					# Intruder should flee instead
 					
-					npc.set("is_agro", false)
-					npc.set("agro_level", 0.0)
+					npc.set("agro_meter", 0.0)
+					if "agro_meter" in npc:
+						npc.agro_meter = 0.0
 					npc.set("is_hostile", false)
 					if npc.hostile_indicator:
 						npc.hostile_indicator.visible = false
@@ -354,8 +358,9 @@ func update(delta: float) -> void:
 		_find_lost_wildnpc()
 		if not lost_wildnpc or not is_instance_valid(lost_wildnpc):
 			# No lost wild NPC found, exit agro
-			npc.set("is_agro", false)
-			npc.set("agro_level", 0.0)
+			npc.set("agro_meter", 0.0)
+			if "agro_meter" in npc:
+				npc.agro_meter = 0.0
 			npc.set("is_hostile", false)
 			if npc.hostile_indicator:
 				npc.hostile_indicator.visible = false
@@ -403,15 +408,16 @@ func update(delta: float) -> void:
 		print("Caveman %s giving up on wild NPC %s - %s" % [npc.npc_name, wildnpc_name, reason])
 		
 		# Log giving up
-		UnifiedLogger.log("Caveman agro triggered: gave_up_wildnpc_joined_clan (target: %s, level: %.1f)" % [wildnpc_name, npc.agro_level if npc else 0.0], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
+		UnifiedLogger.log("Caveman agro triggered: gave_up_wildnpc_joined_clan (target: %s, level: %.1f)" % [wildnpc_name, npc.agro_meter if npc else 0.0], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
 			"npc": npc.npc_name,
 			"trigger": "gave_up_wildnpc_joined_clan",
 			"target": wildnpc_name,
-			"agro_level": "%.1f" % (npc.agro_level if npc else 0.0)
+			"agro_meter": "%.1f" % (npc.agro_meter if npc else 0.0)
 		})
 		
-		npc.set("is_agro", false)
-		npc.set("agro_level", 0.0)
+		npc.set("agro_meter", 0.0)
+		if "agro_meter" in npc:
+			npc.agro_meter = 0.0
 		npc.set("is_hostile", false)
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
@@ -425,8 +431,9 @@ func update(delta: float) -> void:
 		lost_wildnpc = null
 		_find_lost_wildnpc()
 		if not lost_wildnpc or not is_instance_valid(lost_wildnpc):
-			npc.set("is_agro", false)
-			npc.set("agro_level", 0.0)
+			npc.set("agro_meter", 0.0)
+			if "agro_meter" in npc:
+				npc.agro_meter = 0.0
 			npc.set("is_hostile", false)
 			if npc.hostile_indicator:
 				npc.hostile_indicator.visible = false
@@ -437,8 +444,9 @@ func update(delta: float) -> void:
 		# Wild NPC is back! Exit agro
 		var wildnpc_name: String = _safe_wildnpc_name(lost_wildnpc)
 		print("Caveman %s got wild NPC %s back! Exiting agro." % [npc.npc_name, wildnpc_name])
-		npc.set("is_agro", false)
-		npc.set("agro_level", 0.0)
+		npc.set("agro_meter", 0.0)
+		if "agro_meter" in npc:
+			npc.agro_meter = 0.0
 		npc.set("is_hostile", false)
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
@@ -557,29 +565,24 @@ func can_enter() -> bool:
 		}, UnifiedLogger.Level.DEBUG)
 		return false
 	
-	# Check if NPC is agro
-	# NOTE: Agro triggers are blocked at source (npc_base.gd) if no land claim
-	# So if we reach here, agro was properly triggered and we can enter
-	var is_agro_prop = npc.get("is_agro")
-	if is_agro_prop == null or not is_agro_prop:
-		var agro_level: float = npc.get("agro_level") if npc else 0.0
-		UnifiedLogger.log_npc("Can enter check: %s cannot enter agro (not_agro)" % npc_name, {
+	var am_enter: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
+	if am_enter <= 0.0001:
+		UnifiedLogger.log_npc("Can enter check: %s cannot enter agro (agro_meter_zero)" % npc_name, {
 			"npc": npc_name,
 			"state": "agro",
 			"can_enter": false,
-			"reason": "not_agro",
-			"agro_level": "%.1f" % agro_level
+			"reason": "agro_meter_zero",
+			"agro_meter": "%.1f" % am_enter
 		}, UnifiedLogger.Level.DEBUG)
 		return false
 	
-	var agro_level: float = npc.get("agro_level") if npc else 0.0
 	var lost_wildnpc_name: String = _safe_wildnpc_name(lost_wildnpc) if lost_wildnpc else ""
-	UnifiedLogger.log_npc("Can enter check: %s can enter agro (is_agro)" % npc_name, {
+	UnifiedLogger.log_npc("Can enter check: %s can enter agro (agro_meter)" % npc_name, {
 		"npc": npc_name,
 		"state": "agro",
 		"can_enter": true,
-		"reason": "is_agro",
-		"agro_level": "%.1f" % agro_level,
+		"reason": "agro_meter",
+		"agro_meter": "%.1f" % am_enter,
 		"lost_wildnpc": lost_wildnpc_name
 	}, UnifiedLogger.Level.DEBUG)
 	

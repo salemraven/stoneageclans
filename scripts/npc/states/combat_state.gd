@@ -11,6 +11,7 @@ var combat_target: Node2D = null  # NPCBase or player when defending vs intruder
 var attack_range: float = 100.0
 const TARGET_CHECK_INTERVAL := 2.0  # Check for new targets every 2 seconds (reduced frequency)
 var next_target_check_time := 0
+var _next_flee_check_sec: float = 0.0
 
 # Defenders: max distance from claim center to chase (prevents kiting)
 const DEFENDER_PURSUIT_FACTOR := 1.4  # claim_radius * this = max chase distance (e.g. 560px for 400 radius)
@@ -38,6 +39,7 @@ func _clear_combat_target_and_exit() -> void:
 func enter() -> void:
 	if not npc:
 		return
+	_next_flee_check_sec = 0.0
 	
 	# Task System - Step 18: Cancel current job when entering combat
 	_cancel_tasks_if_active()
@@ -158,6 +160,17 @@ func update(_delta: float) -> void:
 	combat_target = npc.resolve_combat_target() as Node2D
 	if not combat_target:
 		return
+
+	var now_sec_f: float = Time.get_ticks_msec() / 1000.0
+	var flee_iv: float = 0.5
+	if NPCConfig:
+		flee_iv = NPCConfig.flee_check_interval_sec
+	if now_sec_f >= _next_flee_check_sec:
+		_next_flee_check_sec = now_sec_f + flee_iv
+		if _should_flee():
+			if fsm:
+				fsm.change_state("flee_combat")
+			return
 
 	# Defenders: don't chase too far from border (prevents kiting)
 	if combat_target and is_instance_valid(combat_target):
@@ -504,6 +517,16 @@ func can_enter() -> bool:
 	var health_comp: HealthComponent = npc.get_node_or_null("HealthComponent")
 	if health_comp and health_comp.is_dead:
 		return false
+	# After fleeing, need agro to refill past stance threshold again (avoids combat/flee flip)
+	if npc.has_meta("last_flee_combat_time"):
+		var lf: float = float(npc.get_meta("last_flee_combat_time", 0.0))
+		var cd: float = 10.0
+		if NPCConfig:
+			cd = NPCConfig.flee_combat_cooldown
+		var am_now: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
+		var thr: float = _stance_combat_agro_threshold()
+		if Time.get_ticks_msec() / 1000.0 - lf < cd and am_now < thr:
+			return false
 	
 	# If combat_target already set (e.g. intrusion → player), validate it first
 	var combat_target_prop = npc.get("combat_target")
@@ -660,4 +683,62 @@ func _find_nearest_enemy() -> void:
 		var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
 		if combat_comp:
 			combat_comp.set_target(combat_target)
+
+func _flee_bravery() -> float:
+	var def_b: float = 0.5
+	if NPCConfig:
+		def_b = NPCConfig.flee_default_bravery
+	if not npc:
+		return def_b
+	var bvar: Variant = npc.get("bravery")
+	if bvar == null:
+		return def_b
+	var bf: float = float(bvar)
+	if bf < 0.0:
+		return def_b
+	return clampf(bf, 0.0, 1.0)
+
+func _should_flee() -> bool:
+	if not npc:
+		return false
+	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if nt != "caveman" and nt != "clansman":
+		return false
+	var br: float = _flee_bravery()
+	var hp_ratio: float = 1.0
+	var hc: HealthComponent = npc.get_node_or_null("HealthComponent")
+	if hc and hc.max_hp > 0:
+		hp_ratio = float(hc.current_hp) / float(hc.max_hp)
+	var base_hp: float = 0.3
+	var base_ratio: float = 2.0
+	var nc_types: Array[String] = []
+	if NPCConfig:
+		base_hp = NPCConfig.flee_hp_threshold
+		base_ratio = NPCConfig.flee_outnumber_ratio
+		nc_types = NPCConfig.flee_non_combatant_types
+	if nc_types.has(nt):
+		return hp_ratio < 0.92
+	var eff_hp: float = clampf(base_hp * (1.15 + (1.0 - br) * 0.45), 0.08, 0.88)
+	if hp_ratio <= eff_hp:
+		return true
+	var pa: PerceptionArea = npc.get_node_or_null("DetectionArea") as PerceptionArea
+	if not pa:
+		return false
+	var rad: float = 380.0
+	var enemies: Array = pa.get_enemies_in_range(npc.global_position, rad, npc)
+	var en_c: int = enemies.size()
+	var al_c: int = 1
+	for other in npc.get_tree().get_nodes_in_group("npcs"):
+		if other == npc or not is_instance_valid(other):
+			continue
+		if other.has_method("is_dead") and other.is_dead():
+			continue
+		if npc.global_position.distance_to(other.global_position) > rad:
+			continue
+		if CombatAllyCheck.is_ally(npc, other):
+			al_c += 1
+	var eff_ratio: float = base_ratio * (0.55 + 0.45 * br)
+	if float(en_c) >= float(maxi(al_c, 1)) * eff_ratio:
+		return true
+	return false
 

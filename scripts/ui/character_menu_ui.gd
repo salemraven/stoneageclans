@@ -606,14 +606,6 @@ func _get_agro_value() -> float:
 		elif agro_val is int:
 			return clamp(float(agro_val), 0.0, 100.0)
 	
-	# Try agro_level as fallback
-	var agro_level_val = target_npc.get("agro_level") if target_npc else null
-	if agro_level_val != null:
-		if agro_level_val is float:
-			return clamp(agro_level_val as float, 0.0, 100.0)
-		elif agro_level_val is int:
-			return clamp(float(agro_level_val), 0.0, 100.0)
-	
 	# Default: 0.0 (no agro)
 	return 0.0
 

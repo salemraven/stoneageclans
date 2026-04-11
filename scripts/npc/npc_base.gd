@@ -36,6 +36,8 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 
 # Traits array (editable in inspector)
 @export var traits: Array[String] = []
+## Bravery 0..1 for flee thresholds; &lt;0 = use NPCConfig.flee_default_bravery in logic
+var bravery: float = -1.0
 
 # Buffs/Debuffs array: {name, stat, mult, duration, visual}
 var buffs_debuffs: Array[Dictionary] = []
@@ -423,10 +425,11 @@ var chunk_center: Vector2 = Vector2.ZERO
 var roam_radius: float = 0.0
 var time_in_current_chunk: float = 0.0
 
-# Caveman aggression tracking
-var is_agro: bool = false  # True if caveman is in aggressive/hostile mode
-var agro_level: float = 0.0  # Agro intensity (0.0 to 100.0)
-var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) - for combat system
+# Caveman aggression tracking — single meter drives combat + agro_state; is_agro is derived
+var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) — combat, hostile indicator, agro_state
+var is_agro: bool:
+	get:
+		return agro_meter > 0.0001
 var agro_target: Node2D = null  # Target to attack when agro
 var combat_target: Node2D = null  # NPCBase or player when defending vs intruders (resolve from combat_target_id at edge)
 var combat_target_id: int = -1  # Step 3: logic uses ID; resolve to Node at edge only
@@ -467,6 +470,13 @@ func reset_agro_after_combat() -> void:
 		v = 0.0
 	set("agro_meter", v)
 	agro_meter = v
+
+## Skip proximity/AOA/intrusion pumps while already fighting or fleeing — decay handles exit.
+func _skip_agro_meter_pumps() -> bool:
+	if not fsm or not fsm.has_method("get_current_state_name"):
+		return false
+	var st: String = str(fsm.get_current_state_name())
+	return st == "combat" or st == "flee_combat"
 
 func _invalidate_combat_target() -> void:
 	reset_agro_after_combat()
@@ -2014,7 +2024,7 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 			if old_herder and is_instance_valid(old_herder) and old_herder.get("npc_type") in ["caveman", "clansman"]:
 				old_herder.set("lost_wildnpc", self)
 				old_herder.set("agro_target", leader)
-				old_herder.set("is_agro", true)
+				# agro_meter > 0 from herd_steal_success push above makes is_agro true
 				var old_fsm = old_herder.get("fsm")
 				if old_fsm and "evaluation_timer" in old_fsm:
 					old_fsm.evaluation_timer = 0.0
@@ -2388,181 +2398,6 @@ func _check_caveman_aggression() -> void:
 	
 	var _current_herd_size: int = _count_herd_size(self)
 	# Reference only — agro is from land claim intrusion, not herd size changes
-
-func _check_land_claim_defense() -> void:
-	# Cavemen who own a land claim go into agro when another caveman enters their land claim
-	# This is defensive behavior to protect their territory
-	if not is_instance_valid(self):
-		return
-	
-	# Only for cavemen with land claims
-	if npc_type != "caveman" or clan_name == "":
-		return
-	
-	# Find our land claim
-	var node_cache = get_node_or_null("/root/NodeCache")
-	var land_claims: Array
-	if node_cache:
-		land_claims = node_cache.get_land_claims()
-	else:
-		land_claims = get_tree().get_nodes_in_group("land_claims")
-	
-	var my_claim: Node2D = null
-	for claim in land_claims:
-		if not is_instance_valid(claim):
-			continue
-		var claim_clan_prop = claim.get("clan_name")
-		var claim_clan: String = claim_clan_prop as String if claim_clan_prop != null else ""
-		if claim_clan == clan_name:
-			my_claim = claim
-			break
-	
-	if not my_claim:
-		return  # No land claim found
-	
-	# Get land claim position and radius
-	var claim_pos: Vector2 = my_claim.global_position
-	var radius_prop = my_claim.get("radius")
-	var claim_radius: float = radius_prop as float if radius_prop != null else 400.0
-	
-	# CRITICAL: If already agro, check if target has left land claim - if so, clear agro
-	# NO COOLDOWN - removed as per guide update (intruder should flee instead)
-	if is_agro:
-		# Check if agro target has left our land claim
-		if agro_target and is_instance_valid(agro_target):
-			var target_pos: Vector2 = agro_target.global_position
-			var distance: float = claim_pos.distance_to(target_pos)
-			
-			# If target has left land claim, clear agro (no cooldown)
-			if distance > claim_radius:
-				var target_name: String = "Player" if agro_target.is_in_group("player") else (str(agro_target.get("npc_name")) if agro_target.get("npc_name") != null else str(agro_target.name))
-				print("Caveman %s: Agro target %s left land claim (distance: %.1f > %.1f). Clearing agro." % [npc_name, target_name, distance, claim_radius])
-				
-				# NO COOLDOWN - removed as per guide update
-				# Intruder should flee instead
-				
-				# Clear agro
-				is_agro = false
-				agro_level = 0.0
-				is_hostile = false
-				if hostile_indicator:
-					hostile_indicator.visible = false
-				agro_target = null
-				set("agro_target", null)
-				
-			# Force FSM to evaluate and exit agro state
-			if fsm and "evaluation_timer" in fsm:
-				fsm.evaluation_timer = 0.0
-		return
-	
-	# CRITICAL: Agro defend only works when caveman is in wander mode within own land claim
-	# Check if we're in wander mode and inside our own land claim
-	var current_state: String = fsm.get_current_state_name() if fsm else ""
-	var is_in_wander: bool = (current_state == "wander")
-	var is_in_own_claim: bool = false
-	
-	if is_in_wander:
-		# Check if inside own land claim
-		if has_method("is_inside_land_claim"):
-			var inside_check: Dictionary = is_inside_land_claim()
-			if not inside_check.is_empty():
-				var claim: Node2D = inside_check.get("land_claim")
-				if claim:
-					var claim_clan_prop = claim.get("clan_name")
-					var claim_clan: String = claim_clan_prop as String if claim_clan_prop != null else ""
-					if claim_clan == clan_name:
-						is_in_own_claim = true
-	
-	# Only trigger agro defend if in wander mode within own land claim
-	if not (is_in_wander and is_in_own_claim):
-		return  # Not in wander mode or not in own land claim - can't trigger agro defend
-	
-	# Check for other cavemen or player within our land claim
-	var all_npcs := get_tree().get_nodes_in_group("npcs")
-	var player_nodes := get_tree().get_nodes_in_group("player")
-	var potential_intruders: Array = []
-	
-	# Add other cavemen
-	for other_npc in all_npcs:
-		if not is_instance_valid(other_npc):
-			continue
-		if other_npc == self:
-			continue
-		# Skip dead NPCs - they don't count as cavemen
-		if other_npc.has_method("is_dead") and other_npc.is_dead():
-			continue
-		
-		var other_type: String = other_npc.get("npc_type") if other_npc else ""
-		if other_type != "caveman":
-			continue  # Only check other cavemen
-		
-		# Check if other caveman is in a different clan (or no clan)
-		var other_clan: String = other_npc.get("clan_name") if other_npc else ""
-		if other_clan == clan_name:
-			continue  # Same clan, not an intruder
-		
-		# CRITICAL FIX: Don't trigger agro if other caveman is also in agro mode targeting us
-		# This prevents mutual agro loops where both cavemen keep pushing each other
-		var other_is_agro: bool = other_npc.get("is_agro") if other_npc else false
-		var other_agro_target = other_npc.get("agro_target") if other_npc else null
-		if other_is_agro and other_agro_target == self:
-			# Other caveman is already agro at us - don't trigger mutual agro loop
-			# Let the other caveman handle the agro, or wait for one to exit
-			continue
-		
-		potential_intruders.append(other_npc)
-	
-	# Add player
-	for player_node in player_nodes:
-		if not is_instance_valid(player_node):
-			continue
-		potential_intruders.append(player_node)
-	
-	var perception_range: float = 300.0
-	if NPCConfig:
-		var pr = NPCConfig.get("agro_perception_range")
-		if pr != null:
-			perception_range = pr as float
-	
-	# Check each potential intruder
-	for intruder in potential_intruders:
-		if not is_instance_valid(intruder):
-			continue
-		
-		# Check if intruder is within our land claim radius
-		var intruder_pos: Vector2 = intruder.global_position
-		var distance: float = claim_pos.distance_to(intruder_pos)
-		if distance > claim_radius:
-			continue
-		# NPCs cannot agro on things outside their area of perception
-		var distance_to_intruder: float = global_position.distance_to(intruder_pos)
-		if distance_to_intruder > perception_range:
-			continue
-		# Intruder in claim and within perception - go agro
-		if clan_name != "":
-			is_agro = true
-			agro_level = 15.0  # Higher agro for land claim defense
-			if NPCConfig:
-				agro_level = NPCConfig.agro_start_level * 1.5  # 1.5x for defense
-			agro_target = intruder
-			set("agro_target", agro_target)
-			var intruder_name: String = "unknown"
-			if intruder.is_in_group("player"):
-				intruder_name = "Player"
-			else:
-				intruder_name = intruder.get("npc_name") if intruder else "unknown"
-			UnifiedLogger.log("Caveman agro triggered: land_claim_intruder (target: %s, level: %.1f)" % [intruder_name, agro_level], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
-				"npc": npc_name,
-				"trigger": "land_claim_intruder",
-				"target": intruder_name,
-				"agro_level": "%.1f" % agro_level
-			})
-			print("Caveman %s detected intruder %s in land claim! Going AGRO!" % [npc_name, intruder_name])
-			# Force FSM to evaluate and switch to agro state
-			if fsm and "evaluation_timer" in fsm:
-				fsm.evaluation_timer = 0.0  # Force immediate evaluation
-			# Only trigger for first intruder found
-			break
 
 func _apply_defensive_herding_behavior(_delta: float) -> void:
 	# AGRO DISABLED: System not ready for implementation
@@ -3350,12 +3185,14 @@ func _check_land_claim_intrusion(delta: float) -> void:
 			if d < nearest_distance and d <= perception_range:
 				nearest_distance = d
 				nearest_intruder = intruder
-		if nearest_intruder and CombatTick:
+		if nearest_intruder and CombatTick and not _skip_agro_meter_pumps():
 			CombatTick.push_agro_event(self, agro_increase_rate * delta, "intrusion", nearest_intruder)
 
 func _check_proximity_agro(delta: float) -> void:
 	"""Proximity agro: enemy within config radius of this NPC builds agro. No claim required. Capped by agro_perception_range."""
 	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	if _skip_agro_meter_pumps():
 		return
 	var radius: float = 380.0
 	var rate: float = 50.0
@@ -3395,6 +3232,8 @@ func _check_proximity_agro(delta: float) -> void:
 
 func _check_area_of_agro(delta: float) -> void:
 	"""AOA: (1) On claim — inner zone vs enemies near us while we have a claim. (2) Wilderness — personal-space bubble for cavemen/clansmen vs hostile cavemen/clansmen even with no claim."""
+	if _skip_agro_meter_pumps():
+		return
 	var aoa_radius: float = 200.0
 	var perception_cap: float = 300.0
 	if NPCConfig:
@@ -3453,6 +3292,8 @@ func _check_area_of_agro(delta: float) -> void:
 			CombatTick.push_agro_event(self, agro_increase_rate * delta, "aoa", nearest_enemy)
 
 func _push_aoa_agro_for_enemies(delta: float, range_px: float, reason: String) -> void:
+	if _skip_agro_meter_pumps():
+		return
 	var pa_inner: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
 	if not pa_inner:
 		return
@@ -3478,6 +3319,8 @@ func _push_aoa_agro_for_enemies(delta: float, range_px: float, reason: String) -
 
 func _check_mammoth_agro(delta: float) -> void:
 	"""Mammoth agro: when threats enter AOP and within perception, agro increases. Rate scales with threat count."""
+	if _skip_agro_meter_pumps():
+		return
 	var aop_radius: float = 600.0
 	var base_rate: float = 30.0
 	if NPCConfig:

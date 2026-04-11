@@ -15,6 +15,7 @@ const PartyStateScript = preload("res://scripts/npc/states/party_state.gd")
 const HerdWildNPCStateScript = preload("res://scripts/npc/states/herd_wildnpc_state.gd")
 const AgroStateScript = preload("res://scripts/npc/states/agro_state.gd")
 const CombatStateScript = preload("res://scripts/npc/states/combat_state.gd")
+const FleeCombatStateScript = preload("res://scripts/npc/states/flee_combat_state.gd")
 const DefendStateScript = preload("res://scripts/npc/states/defend_state.gd")
 const RaidStateScript = preload("res://scripts/npc/states/raid_state.gd")
 const SearchStateScript = preload("res://scripts/npc/states/search_state.gd")
@@ -63,6 +64,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("party", "")
 	_register_state("agro", "")
 	_register_state("combat", "")  # Combat state for melee combat
+	_register_state("flee_combat", "")  # Break contact — entered from combat_state or explicit change_state
 	_register_state("defend", "")  # Defend land claim border (Step 7)
 	_register_state("raid", "")  # Raid enemy land claims (Phase 3)
 	_register_state("search", "")  # SEARCHING role — ant-style loop (guide)
@@ -239,6 +241,19 @@ func _create_state_instances() -> void:
 		else:
 			push_error("FSM: Failed to attach combat_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
+	
+	if FleeCombatStateScript:
+		var state_flee: Node = Node.new()
+		state_flee.set_script(FleeCombatStateScript)
+		if state_flee.has_method("initialize"):
+			state_flee.name = "FleeCombatState"
+			add_child(state_flee)
+			states["flee_combat"] = state_flee
+			state_flee.initialize(npc)
+			state_flee.set("fsm", self)
+		else:
+			push_error("FSM: Failed to attach flee_combat_state for %s" % npc_name)
+			state_flee.queue_free()
 	
 	if DefendStateScript:
 		var state: Node = Node.new()

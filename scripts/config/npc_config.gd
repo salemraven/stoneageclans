@@ -211,10 +211,9 @@ extends Node
 @export var agro_max: float = 100.0              # Agro cap
 @export var agro_decay_combat: float = 2.0       # Decay per second while in combat
 @export var agro_decay_idle: float = 5.0         # Decay per second when not in combat
-@export var agro_start_level: float = 10.0  # Starting agro level when woman is lost (0.0-100.0)
-@export var agro_increase_rate: float = 10.0  # Agro level increase per second (doubled for faster aggro)
-@export var agro_max_level: float = 100.0  # Maximum agro level
-@export var hostile_threshold: float = 70.0  # Agro level needed for hostile mode (shows "!!!" indicator)
+@export var agro_state_meter_rise_per_second: float = 10.0  # While in agro_state, agro_meter rise per second (hostile indicator)
+@export var agro_absolute_max_seconds: float = 45.0  # Safety: force-clear agro_meter if positive this long (CombatTick)
+@export var hostile_threshold: float = 70.0  # agro_meter needed for hostile mode in recover (shows "!!!" indicator)
 @export var hostile_threshold_defend: float = 70.0  # Agro level for hostile mode in defend mode (agro_state)
 @export var hostile_duration_max: float = 10.0  # Max duration of hostile indicator display (seconds)
 @export var agro_approach_distance: float = 150.0  # Distance to approach lost woman (pixels)
@@ -223,11 +222,24 @@ extends Node
 @export var agro_steal_attempt: float = 20.0  # Agro meter increase when steal attempt fails (challenger tried to steal)
 @export var agro_steal_success: float = 40.0  # Agro meter increase when steal succeeds (old herder lost the animal)
 @export var agro_perception_range: float = 300.0  # Max distance (px) from NPC to target to trigger agro; NPCs cannot agro on things outside this.
-# Chase break: proximity_agro pumps ~50/s while enemies are in range, which used to cancel combat decay (~2/s) and lock agro forever.
-@export var agro_combat_neutralize_rate: float = 52.0  # Extra decay per second while in combat and primary target is within perception — cancels proximity buildup so the meter can fall when kiting.
+# Chase break: pumps suppressed while in combat/flee; extra decay when target is out of range
 @export var agro_outranged_extra_decay: float = 18.0  # Extra decay per second when combat target is beyond agro_perception_range (runner is getting away).
 @export var agro_far_instant_break_distance: float = 560.0  # Beyond this distance to combat target, drop agro and clear target immediately (hard leash).
-@export var agro_lost_target_give_up_seconds: float = 7.0  # If combat target stays beyond perception this long, force-clear (failsafe if decay tuning changes).
+@export var agro_lost_target_give_up_seconds: float = 7.0  # If combat target stays beyond perception this long, force-clear (failsafe if decay tuning changes)
+
+# ============================================
+# Flee combat (disengage)
+# ============================================
+@export_group("Flee System")
+@export var flee_hp_threshold: float = 0.30  # Base HP ratio to flee (scaled by bravery)
+@export var flee_outnumber_ratio: float = 2.0  # Enemy:ally ratio that triggers flee (scaled by bravery)
+@export var flee_speed_multiplier: float = 1.4  # Sprint while fleeing
+@export var flee_duration_seconds: float = 5.0  # Base flee duration before re-eval
+@export var flee_combat_cooldown: float = 10.0  # Seconds before willing to re-enter combat after flee
+@export var flee_scatter_angle_deg: float = 30.0  # Random +/- degrees on flee heading
+@export var flee_non_combatant_types: Array[String] = ["woman", "sheep", "goat", "baby"]
+@export var flee_default_bravery: float = 0.5  # 0=coward, 1=fearless until trait system assigns per NPC
+@export var flee_check_interval_sec: float = 0.5  # How often combat_state re-checks _should_flee
 
 # ============================================
 # CAVEMAN BEHAVIOR
