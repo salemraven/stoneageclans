@@ -181,11 +181,14 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 				"action": "npc_joined_clan", "clan": claim_clan, "npc": npc_name, "npc_type": npc_type,
 				"herder": str(herder.name) if herder else "unknown", "land_claim_pos": "%.1f,%.1f" % [claim_pos.x, claim_pos.y]
 			})
-			# Herder builds hut for woman (at campfire or land claim)
+			# Herder builds a Living Hut per delivered woman (queued; one timer per hut)
 			if is_herded and herder and is_instance_valid(herder):
 				herder_ref_for_hut = herder
-				herder.set_meta("build_hut_for_woman", self)
-				herder.set_meta("build_hut_for_woman_claim", claim)
+				var hut_q: Array = []
+				if herder.has_meta("build_hut_queue"):
+					hut_q = (herder.get_meta("build_hut_queue") as Array).duplicate()
+				hut_q.append({"woman": self, "claim": claim})
+				herder.set_meta("build_hut_queue", hut_q)
 		if is_herded and not skip_herd_release:
 			# Phase 3: Delivery cooldown - herder gets cooldown before we clear (animal-side authority)
 			if herder and is_instance_valid(herder):
@@ -200,7 +203,8 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 			_clear_herd()
 		# NPC herder: immediately start timed Living Hut build (icon + progress); no resource cost (main._place_herder_hut).
 		if herder_ref_for_hut and is_instance_valid(herder_ref_for_hut) and not skip_herd_release and npc_type == "woman":
-			if herder_ref_for_hut.has_meta("build_hut_for_woman"):
+			var hut_q_chk: Array = herder_ref_for_hut.get_meta("build_hut_queue", []) if herder_ref_for_hut.has_meta("build_hut_queue") else []
+			if hut_q_chk.size() > 0:
 				var hc_after: int = herder_ref_for_hut.herded_count if "herded_count" in herder_ref_for_hut else 0
 				var hfsm = herder_ref_for_hut.get("fsm")
 				if hc_after == 0 and hfsm and hfsm.has_method("change_state"):
