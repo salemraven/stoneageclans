@@ -4,7 +4,8 @@ extends "res://scripts/npc/states/base_state.gd"
 # 20s timer, then spawn hut and assign woman
 
 const BUILD_DURATION: float = 20.0
-const MAX_DISTANCE_FROM_CLAIM: float = 150.0  # Cancel if herder moves too far from claim center
+# Cancel only if herder leaves the land claim (400px default radius). Old 150px canceled builds immediately
+# for normal deliveries anywhere inside the ring — looked like "never builds."
 
 var woman: Node = null
 var claim: Node = null  # Campfire or LandClaim (claim where woman joined)
@@ -40,18 +41,17 @@ func update(delta: float) -> void:
 	if not claim or not is_instance_valid(claim):
 		_fail_and_exit()
 		return
-	# Cancel if herder moved too far from claim center
 	var dist: float = npc.global_position.distance_to(claim.global_position)
-	if dist > MAX_DISTANCE_FROM_CLAIM:
-		_fail_and_exit()
-		return
+	var claim_radius: float = claim.get("radius") if claim.get("radius") != null else 400.0
 	# Validate woman still valid
 	if woman:
 		if not is_instance_valid(woman):
 			woman = null
 		elif OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 			woman = null
-	build_timer += delta
+	# Timer runs while herder is in claim; pauses if outside (woman can enter border first)
+	if dist <= claim_radius + 15.0:
+		build_timer += delta
 	if build_timer >= BUILD_DURATION:
 		_finish_build()
 
