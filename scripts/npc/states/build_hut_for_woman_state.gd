@@ -58,6 +58,26 @@ func exit() -> void:
 func update(delta: float) -> void:
 	if not npc:
 		return
+	# Agro / combat / ordered follow override building — NPC must react
+	if _is_defending():
+		_exit_progress_cancelled = true
+		if fsm:
+			fsm.change_state("defend")
+		return
+	if _is_in_combat():
+		_exit_progress_cancelled = true
+		if fsm:
+			fsm.change_state("combat")
+		return
+	if _is_following():
+		_exit_progress_cancelled = true
+		if fsm:
+			var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			if nt == "caveman" or nt == "clansman":
+				fsm.change_state("party")
+			else:
+				fsm.change_state("herd")
+		return
 	if not npc.has_meta(META_QUEUE) or (npc.get_meta(META_QUEUE) as Array).is_empty():
 		_fail_and_exit()
 		return
