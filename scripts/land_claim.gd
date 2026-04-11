@@ -15,6 +15,8 @@ var _radius_circle: Line2D = null
 var _collision_area: Area2D = null
 var inventory: InventoryData = null
 var _clan_name_label: Label = null
+# World-space label: must draw above the flag sprite (Y-sorted) and sit centered above the pole
+const CLAN_NAME_LABEL_OFFSET_Y: float = -100.0
 
 # Clan death decay system (inherits from BuildingBase health system)
 var is_decaying: bool = false
@@ -228,9 +230,10 @@ func _setup_clan_name_label() -> void:
 	_clan_name_label.text = clan_name
 	_clan_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_clan_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	
-	# Position label above the land claim
-	_clan_name_label.position = Vector2(0, -50)  # Above center
+	_clan_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Draw above Y-sorted flag sprite (sprite uses update_building_draw_order → high z_index)
+	_clan_name_label.z_as_relative = false
+	_clan_name_label.z_index = YSortUtils.Z_ABOVE_WORLD
 	
 	# Style the label - white text with black outline for visibility
 	_clan_name_label.add_theme_color_override("font_color", Color.WHITE)
@@ -243,6 +246,17 @@ func _setup_clan_name_label() -> void:
 	_clan_name_label.add_theme_font_size_override("font_size", font_size)
 	
 	add_child(_clan_name_label)
+	call_deferred("_layout_clan_name_label")
+
+func _layout_clan_name_label() -> void:
+	if not _clan_name_label or not is_instance_valid(_clan_name_label):
+		return
+	_clan_name_label.reset_size()
+	var sz: Vector2 = _clan_name_label.size
+	if sz.x < 1.0:
+		sz = _clan_name_label.get_minimum_size()
+	# Top-center of label sits above node origin (flag pole base)
+	_clan_name_label.position = Vector2(-sz.x * 0.5, CLAN_NAME_LABEL_OFFSET_Y)
 
 func set_clan_name(clan_name_param: String) -> void:
 	clan_name = clan_name_param.to_upper()
@@ -255,6 +269,7 @@ func set_clan_name(clan_name_param: String) -> void:
 		# Auto-size label to fit text
 		_clan_name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 		_clan_name_label.clip_contents = false
+		call_deferred("_layout_clan_name_label")
 	
 	queue_redraw()
 

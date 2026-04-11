@@ -7,9 +7,9 @@ extends Node
 var caveman_count: int = 4
 # When false, cavemen spawn alone and must find women (no boost woman+baby in claim)
 var caveman_spawn_with_boost: bool = false
-var woman_initial: int = 6
-var sheep_initial: int = 6
-var goat_initial: int = 6
+var woman_initial: int = 12
+var sheep_initial: int = 3
+var goat_initial: int = 3
 
 # Respawn intervals (seconds)
 var woman_respawn_interval_sec: float = 60.0
