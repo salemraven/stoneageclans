@@ -11,6 +11,8 @@ var is_pregnant: bool = false
 var birth_timer: float = 0.0
 var last_birth_time: float = 0.0
 var current_mate: Node = null  # Can be player (Node) or NPCBase
+# Herder who delivered this woman + built hut: father for all babies until he dies; then _try_find_mate picks a new one.
+var designated_father: Node = null
 
 func initialize(npc_ref: NPCBase) -> void:
 	var npc_name = npc_ref.get("npc_name") if npc_ref and npc_ref.has_method("get") else "unknown"
@@ -88,6 +90,8 @@ func update(delta: float) -> void:
 	if not clan_name or clan_name == "":
 		return  # Wild women cannot reproduce
 	
+	_refresh_designated_father_if_invalid()
+	
 	# Must be inside land claim (reproduction only happens inside land claim)
 	if not _is_in_land_claim():
 		return
@@ -107,9 +111,48 @@ func update(delta: float) -> void:
 	elif _can_reproduce():
 		_try_find_mate()
 
+func set_designated_father_from_herder(herder: Node) -> void:
+	if not herder or not is_instance_valid(herder):
+		return
+	designated_father = herder
+
 func has_living_hut_assigned() -> bool:
 	"""Public: Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
 	return _has_living_hut_assigned()
+
+func _refresh_designated_father_if_invalid() -> void:
+	if designated_father == null:
+		return
+	if not is_instance_valid(designated_father):
+		designated_father = null
+		return
+	if designated_father.has_method("is_dead") and designated_father.is_dead():
+		designated_father = null
+		return
+	var hc = designated_father.get_node_or_null("HealthComponent")
+	if hc and hc.is_dead:
+		designated_father = null
+		return
+	var fclan: String = ""
+	if designated_father.has_method("get_clan_name"):
+		fclan = designated_father.get_clan_name()
+	elif designated_father.get("clan_name") != null:
+		fclan = str(designated_father.get("clan_name"))
+	var wclan: String = npc.clan_name if npc else ""
+	if fclan != wclan or fclan == "":
+		designated_father = null
+
+func _father_eligible_for_current_pregnancy(father: Node) -> bool:
+	if not father or not is_instance_valid(father):
+		return false
+	if father.has_method("is_dead") and father.is_dead():
+		return false
+	var hcomp = father.get_node_or_null("HealthComponent")
+	if hcomp and hcomp.is_dead:
+		return false
+	if not _is_npc_in_land_claim(father as Node2D):
+		return false
+	return true
 
 func _has_living_hut_assigned() -> bool:
 	"""Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
@@ -191,6 +234,14 @@ func _try_find_mate() -> void:
 		"clan": npc.clan_name if npc else "none"
 	})
 	
+	# Prefer designated father (herder who delivered her) until he dies; if alive but not in claim yet, wait.
+	if designated_father and is_instance_valid(designated_father):
+		if _father_eligible_for_current_pregnancy(designated_father):
+			current_mate = designated_father
+			_start_pregnancy()
+			return
+		return
+	
 	# Find nearby male cavemen (player or NPC) in same clan
 	var tree = get_tree()
 	if not tree:
@@ -230,8 +281,9 @@ func _try_find_mate() -> void:
 		if not is_instance_valid(candidate):
 			continue
 		
-		# Check if male caveman
-		if candidate.get("npc_type") != "caveman":
+		# Male clan members (caveman or clansman)
+		var ctype: String = str(candidate.get("npc_type")) if candidate.get("npc_type") != null else ""
+		if ctype != "caveman" and ctype != "clansman":
 			continue
 		
 		# Check same clan
@@ -260,6 +312,7 @@ func _try_find_mate() -> void:
 		})
 		current_mate = _select_best_mate(candidates)
 		if current_mate:
+			designated_father = current_mate
 			var mate_name = "Player" if current_mate.is_in_group("player") else (current_mate.get("npc_name") if current_mate.has_method("get") else "unknown")
 			UnifiedLogger.log_system("REPRODUCTION_MATE: Selected mate %s for %s" % [mate_name, npc_name], {
 				"npc": npc_name,

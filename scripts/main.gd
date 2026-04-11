@@ -4274,34 +4274,31 @@ func _place_ai_building(land_claim: LandClaim, building_type: ResourceData.Resou
 		pi.milestone_building_placed(land_claim.clan_name, building_type, place_pos)
 	return true
 
-func _place_herder_hut(world_pos: Vector2, claim: Node, woman: Node) -> void:
-	"""Place Living Hut for herder-delivered woman. No cost. Assigns woman to new hut. claim: Campfire or LandClaim."""
+func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null) -> void:
+	"""Place Living Hut for herder-delivered woman. No cost. Random valid spot inside claim. Assigns woman. father_npc: herder for babies until he dies. claim: Campfire or LandClaim."""
 	if not claim or not is_instance_valid(claim) or not world_objects:
 		return
 	# Validate woman: alive and not already in hut
 	if woman and is_instance_valid(woman) and OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 		woman = null  # Already assigned
-	var place_pos: Vector2 = world_pos
-	if not _validate_building_placement_near_claim_node(place_pos, ResourceData.ResourceType.LIVING_HUT, claim, AI_BUILDING_MIN_FROM_CLAIM):
-		# Find valid position near herder
-		var claim_center: Vector2 = claim.global_position
-		var radius: float = claim.get("radius") if claim.get("radius") != null else 400.0
-		var min_from_center: float = AI_BUILDING_MIN_FROM_CLAIM
-		var max_dist: float = maxf(min_from_center + 10.0, radius - 60.0)
-		place_pos = Vector2.ZERO
-		for r in range(int(min_from_center), int(max_dist), 70):
-			var dist: float = clampf(float(r), min_from_center, max_dist)
-			for k in range(20):
-				var angle: float = k * 0.5 + randf() * 0.2
-				var cand: Vector2 = claim_center + Vector2(cos(angle * TAU), sin(angle * TAU)) * dist
-				if _validate_building_placement_near_claim_node(cand, ResourceData.ResourceType.LIVING_HUT, claim, AI_BUILDING_MIN_FROM_CLAIM):
-					place_pos = cand
-					break
-			if place_pos != Vector2.ZERO:
+	var claim_center: Vector2 = claim.global_position
+	var radius: float = claim.get("radius") if claim.get("radius") != null else 400.0
+	var min_from_center: float = AI_BUILDING_MIN_FROM_CLAIM
+	var max_dist: float = maxf(min_from_center + 10.0, radius - 60.0)
+	var place_pos: Vector2 = Vector2.ZERO
+	for r in range(int(min_from_center), int(max_dist), 70):
+		var dist: float = clampf(float(r), min_from_center, max_dist)
+		for k in range(20):
+			var angle: float = k * 0.5 + randf() * 0.2
+			var cand: Vector2 = claim_center + Vector2(cos(angle * TAU), sin(angle * TAU)) * dist
+			if _validate_building_placement_near_claim_node(cand, ResourceData.ResourceType.LIVING_HUT, claim, AI_BUILDING_MIN_FROM_CLAIM):
+				place_pos = cand
 				break
-		if place_pos == Vector2.ZERO:
-			print("⚠️ Herder could not find valid position for Living Hut")
-			return
+		if place_pos != Vector2.ZERO:
+			break
+	if place_pos == Vector2.ZERO:
+		print("⚠️ Herder could not find valid position for Living Hut")
+		return
 	var building: BuildingBase = BUILDING_SCENE.instantiate() as BuildingBase
 	if not building:
 		return
@@ -4316,6 +4313,10 @@ func _place_herder_hut(world_pos: Vector2, claim: Node, woman: Node) -> void:
 	_handle_building_placed(building, claim)
 	if woman and is_instance_valid(woman) and OccupationSystem:
 		OccupationSystem.force_assign(woman, building, 0, "woman")
+	if woman and is_instance_valid(woman) and father_npc and is_instance_valid(father_npc):
+		var rc = woman.get("reproduction_component")
+		if rc and rc.has_method("set_designated_father_from_herder"):
+			rc.set_designated_father_from_herder(father_npc)
 	print("🏠 Herder placed Living Hut at %s for clan %s" % [place_pos, claim.get("clan_name") if claim.get("clan_name") != null else ""])
 
 func _handle_building_placement_failure(message: String, from_slot: InventorySlot, original_item: Dictionary) -> void:

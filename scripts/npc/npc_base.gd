@@ -173,6 +173,7 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 		var playtest = get_node_or_null("/root/PlaytestInstrumentor")
 		if playtest and playtest.is_enabled() and playtest.has_method("npc_joined_clan"):
 			playtest.npc_joined_clan(npc_name, claim_clan, npc_type, "herded" if is_herded else "placed_claim")
+		var herder_ref_for_hut: Node = null
 		if npc_type == "woman":
 			if reproduction_component and reproduction_component.has_method("initialize"):
 				reproduction_component.initialize(self)
@@ -182,6 +183,7 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 			})
 			# Herder builds hut for woman (at campfire or land claim)
 			if is_herded and herder and is_instance_valid(herder):
+				herder_ref_for_hut = herder
 				herder.set_meta("build_hut_for_woman", self)
 				herder.set_meta("build_hut_for_woman_claim", claim)
 		if is_herded and not skip_herd_release:
@@ -196,6 +198,13 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 					var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
 					pi.herd_delivery_cooldown(hname, cooldown)
 			_clear_herd()
+		# NPC herder: immediately start timed Living Hut build (icon + progress); no resource cost (main._place_herder_hut).
+		if herder_ref_for_hut and is_instance_valid(herder_ref_for_hut) and not skip_herd_release and npc_type == "woman":
+			if herder_ref_for_hut.has_meta("build_hut_for_woman"):
+				var hc_after: int = herder_ref_for_hut.herded_count if "herded_count" in herder_ref_for_hut else 0
+				var hfsm = herder_ref_for_hut.get("fsm")
+				if hc_after == 0 and hfsm and hfsm.has_method("change_state"):
+					hfsm.change_state("build_hut_for_woman")
 		if fsm and not skip_herd_release and fsm.has_method("change_state"):
 			if "evaluation_timer" in fsm:
 				fsm.evaluation_timer = 0.0

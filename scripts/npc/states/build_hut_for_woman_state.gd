@@ -77,7 +77,7 @@ func can_enter() -> bool:
 	return dist <= radius
 
 func get_priority() -> float:
-	return 11.0  # Above deposit (10.0)
+	return 12.5  # Above herd_wildnpc (12) so timed hut build runs after delivery if FSM evaluates
 
 func _fail_and_exit() -> void:
 	if npc:
@@ -91,9 +91,7 @@ func _finish_build() -> void:
 	if not main or not main.has_method("_place_herder_hut"):
 		_fail_and_exit()
 		return
-	# Place hut at herder position (or near claim center)
-	var place_pos: Vector2 = npc.global_position
-	main._place_herder_hut(place_pos, claim, woman)
+	main._place_herder_hut(claim, woman, npc)
 	npc.remove_meta("build_hut_for_woman")
 	npc.remove_meta("build_hut_for_woman_claim")
 	if fsm:
