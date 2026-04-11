@@ -223,6 +223,11 @@ extends Node
 @export var agro_steal_attempt: float = 20.0  # Agro meter increase when steal attempt fails (challenger tried to steal)
 @export var agro_steal_success: float = 40.0  # Agro meter increase when steal succeeds (old herder lost the animal)
 @export var agro_perception_range: float = 300.0  # Max distance (px) from NPC to target to trigger agro; NPCs cannot agro on things outside this.
+# Chase break: proximity_agro pumps ~50/s while enemies are in range, which used to cancel combat decay (~2/s) and lock agro forever.
+@export var agro_combat_neutralize_rate: float = 52.0  # Extra decay per second while in combat and primary target is within perception — cancels proximity buildup so the meter can fall when kiting.
+@export var agro_outranged_extra_decay: float = 18.0  # Extra decay per second when combat target is beyond agro_perception_range (runner is getting away).
+@export var agro_far_instant_break_distance: float = 560.0  # Beyond this distance to combat target, drop agro and clear target immediately (hard leash).
+@export var agro_lost_target_give_up_seconds: float = 7.0  # If combat target stays beyond perception this long, force-clear (failsafe if decay tuning changes).
 
 # ============================================
 # CAVEMAN BEHAVIOR
