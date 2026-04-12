@@ -1,6 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
 # Herder builds one Living Hut per delivered woman. Jobs are queued on herder meta "build_hut_queue".
+# NPC is fully frozen in place for the entire duration (can_enter requires in-range).
 
 const BUILD_DURATION: float = 20.0
 const META_QUEUE := "build_hut_queue"
@@ -36,16 +37,30 @@ func enter() -> void:
 	_sync_job_from_queue_head()
 	if woman and OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 		woman = null
+	_freeze_npc()
 	if npc and npc.progress_display and woman:
-		_start_progress_icon()
+		_start_progress_manual()
 
-func _start_progress_icon() -> void:
+func _freeze_npc() -> void:
+	if not npc:
+		return
+	npc.set("is_building_hut", true)
+	npc.velocity = Vector2.ZERO
+	if npc.steering_agent:
+		npc.steering_agent.target_position = npc.global_position
+		npc.steering_agent.target_node = null
+
+func _start_progress_manual() -> void:
 	if not npc or not npc.progress_display:
 		return
 	var icon_path: String = ResourceData.get_resource_icon_path(ResourceData.ResourceType.LIVING_HUT)
 	var icon: Texture2D = load(icon_path) as Texture2D if icon_path else null
 	npc.progress_display.collection_time = BUILD_DURATION
 	npc.progress_display.start_collection(icon)
+	# Kill the auto-tween so we can drive progress manually each frame
+	if npc.progress_display.get("_collection_tween") and npc.progress_display._collection_tween:
+		npc.progress_display._collection_tween.kill()
+		npc.progress_display._collection_tween = null
 
 func exit() -> void:
 	if npc:
@@ -84,18 +99,18 @@ func update(delta: float) -> void:
 	if not claim or not is_instance_valid(claim):
 		_fail_and_exit()
 		return
-	var dist: float = npc.global_position.distance_to(claim.global_position)
-	var claim_radius: float = claim.get("radius") if claim.get("radius") != null else 400.0
-	var in_build_zone: bool = dist <= claim_radius + 15.0
-	if npc:
-		npc.set("is_building_hut", in_build_zone)
 	if woman:
 		if not is_instance_valid(woman):
 			woman = null
 		elif OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 			woman = null
-	if in_build_zone:
-		build_timer += delta
+
+	# Stay frozen every tick
+	_freeze_npc()
+
+	build_timer += delta
+	if npc.progress_display:
+		npc.progress_display.set_progress(build_timer / BUILD_DURATION)
 	if build_timer >= BUILD_DURATION:
 		_finish_build()
 
@@ -189,7 +204,7 @@ func _prepare_next_job_or_exit() -> void:
 			q.pop_front()
 			npc.set_meta(META_QUEUE, q)
 			continue
-		_start_progress_icon()
+		_start_progress_manual()
 		return
 	_clear_queue_meta()
 	if fsm:
