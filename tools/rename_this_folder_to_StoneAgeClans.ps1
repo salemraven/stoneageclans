@@ -2,8 +2,8 @@
 #
 # Close Cursor/VS Code and Godot first (they lock the folder).
 #
-# Run (example):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "...\Stone Age Clans\tools\rename_this_folder_to_StoneAgeClans.ps1"
+# Run (example — use your real parent path; project folder must be the legacy spaced name):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "...\stoneageclans\<legacy spaced folder>\tools\rename_this_folder_to_StoneAgeClans.ps1"
 #
 # Then reopen Cursor with the new folder path ending in \StoneAgeClans
 

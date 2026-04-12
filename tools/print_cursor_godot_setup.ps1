@@ -12,7 +12,7 @@ foreach ($p in @(
     if (Test-Path -LiteralPath $p) { $Cursor = $p; break }
 }
 
-Write-Host "=== Cursor + Godot (Stone Age Clans) ===" -ForegroundColor Cyan
+Write-Host "=== Cursor + Godot (StoneAgeClans) ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "1) In Cursor: install extension 'godot-tools' (geequlim) — or accept workspace recommendation."
 Write-Host "2) Workspace sets godotTools.editorPath.godot4 to a path relative to the project root"

@@ -17,6 +17,26 @@ if (-not (Test-Path -LiteralPath $settingsPath)) {
 
 $raw = Get-Content -LiteralPath $settingsPath -Raw
 
+# Never commit machine-specific or legacy folder names (spaces) into workspace config.
+$legacyPathFragments = @(
+    'stoneageclans\Stone Age Clans',
+    'stoneageclans/Stone Age Clans',
+    'Stone%20Age%20Clans',
+    'Stone Age Clans\tools\godot',
+    'Stone Age Clans/tools/godot'
+)
+$vscodeDir = Join-Path $Root ".vscode"
+if (Test-Path -LiteralPath $vscodeDir) {
+    foreach ($f in Get-ChildItem -LiteralPath $vscodeDir -Filter "*.json" -File) {
+        $t = Get-Content -LiteralPath $f.FullName -Raw
+        foreach ($frag in $legacyPathFragments) {
+            if ($t.Contains($frag)) {
+                Fail "Remove legacy path fragment '$frag' from $($f.Name) (use StoneAgeClans + relative godotTools.editorPath)."
+            }
+        }
+    }
+}
+
 # godot-tools editorPath must not contain ${workspaceFolder} (extension double-joins workspace root).
 if ($raw -match 'godotTools\.editorPath[^\s\x22]+\s*:\s*\x22[^\r\n]*\$\{workspaceFolder\}') {
     Fail 'godotTools.editorPath.* must not contain ${workspaceFolder} - use a path relative to the project root (see .cursor/rules/godot-vscode-integration.mdc).'

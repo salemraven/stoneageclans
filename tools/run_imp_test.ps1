@@ -35,7 +35,7 @@ $batchBody = @"
 @echo off
 set SKIP_SINGLE_INSTANCE=1
 cd /d "$projectRoot"
-start "Stone Age Clans IMP" "$godotExe" --path "$projectRoot" -- --playtest-capture --playtest-log-dir "$logDir"
+start "StoneAgeClans IMP" "$godotExe" --path "$projectRoot" -- --playtest-capture --playtest-log-dir "$logDir"
 "@
 Set-Content -Path $batchFile -Value $batchBody -Encoding ASCII
 
