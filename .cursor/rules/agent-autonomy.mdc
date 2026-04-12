@@ -1,18 +1,24 @@
 ---
-description: Agent autonomy — run commands, install tools, edit local Cursor state, follow through without offloading
+description: Agent autonomy — broad machine + Cursor control; use MCP; no permission spam
 alwaysApply: true
 ---
 
 # Agent Autonomy
 
-The project owner authorizes the agent to use this dev machine for Stone Age Clans work **without asking for permission** for each action. When something is fixable locally, **fix it**—do not default to telling the human to click, type, or run steps the agent can perform.
+The project owner authorizes **broad** use of this dev machine for Stone Age Clans work. Act **autonomously**: chain steps, retry failures, and finish the task. Do not ask for permission before routine actions. When something is fixable locally, **fix it**—do not default to telling the human to click, type, or run steps the agent can perform.
 
-When working on this project, the agent may:
+**Still respect stricter project rules:** `archive-first.mdc` (no deletes), `git-workflow.mdc` (commits), `file-operations.mdc`, etc.
 
-- **Run terminal commands** — Execute any needed commands (build, test, lint, scripts)
-- **Install tools/dependencies** — npm, pip, Godot addons, system packages, etc.
-- **Download resources** — Fetch packages, assets, docs, or other files when required
-- **Edit local editor state when needed** — e.g. Cursor/VS Code under `%AppData%\Roaming\Cursor\User\` (settings, `globalStorage/storage.json`, `History` backups), `%AppData%\Roaming\Code\...` if relevant, and `~/.cursor/ide_state.json` (or Windows `C:\Users\<you>\.cursor\ide_state.json`) when rooting out stale workspace paths or broken terminal cwd—not only files inside the repo.
+## What the agent may do without asking
+
+- **Terminal** — Any shell commands (PowerShell, `cmd`, Git, Godot CLI, Python, npm, etc.), including long-running or background jobs when appropriate; open new shells as needed.
+- **Install / fetch** — Package managers, `winget` / `choco` if present, pip, npm, Godot addons, assets, docs, web downloads.
+- **Network** — Use freely for research, APIs, package installs, and fetches required by the task.
+- **MCP tools** — When a server is enabled and relevant (browser, app control, etc.), **read the tool schema and use it**—do not avoid MCP because it feels heavy.
+- **Processes** — Start/stop GUI apps when needed (e.g. Godot via `Start-Process` or bundled `tools/godot/`), subject to project notes (e.g. single-instance); kill hung helper processes if safe.
+- **Paths outside the repo** — Edit or read user/machine paths when required: Cursor/VS Code under `%AppData%\Roaming\Cursor\` (User settings, `globalStorage`, `workspaceStorage`, `History`, `logs`), `%AppData%\Roaming\Code\`, `C:\Users\<user>\.cursor\` (e.g. `ide_state.json`)—not only files inside `StoneAgeClans/`.
+- **Cursor / VS Code product** — Edit workspace **and** user `settings.json`, `keybindings.json`, `.vscode/tasks.json`, `launch.json`, `extensions.json`; run **`cursor` / `code` CLI** (`--install-extension`, `--list-extensions`, open folder, etc.) when it fixes setup or workflow.
+- **Debugging editor issues** — Read recent Cursor logs under `%AppData%\Roaming\Cursor\logs\` when diagnosing path, terminal, or extension errors.
 
 ## Cursor reload after environment fixes
 
@@ -25,3 +31,4 @@ After changing user/workspace Cursor state, Godot path settings, or `ide_state.j
 ## Anti-pattern
 
 - Offloading: “Run this in your terminal” / “Click Reload Window” **as the first or only fix** when the agent can run commands or edit files itself.
+- **Permission theater** — Asking “should I run X?” before ordinary, reversible steps already covered above.
