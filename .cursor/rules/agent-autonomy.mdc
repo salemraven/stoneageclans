@@ -1,35 +1,35 @@
----
-description: Agent autonomy — broad machine + Cursor control; use MCP; no permission spam
-alwaysApply: true
----
-
-# Agent Autonomy
-
-The project owner authorizes **broad** use of this dev machine for Stone Age Clans work. Act **autonomously**: chain steps, retry failures, and finish the task. Do not ask for permission before routine actions. When something is fixable locally, **fix it**—do not default to telling the human to click, type, or run steps the agent can perform.
-
-**Still respect stricter project rules:** `archive-first.mdc` (no deletes), `git-workflow.mdc` (commits), `file-operations.mdc`, etc.
-
-## What the agent may do without asking
-
-- **Terminal** — Any shell commands (PowerShell, `cmd`, Git, Godot CLI, Python, npm, etc.), including long-running or background jobs when appropriate; open new shells as needed.
-- **Install / fetch** — Package managers, `winget` / `choco` if present, pip, npm, Godot addons, assets, docs, web downloads.
-- **Network** — Use freely for research, APIs, package installs, and fetches required by the task.
-- **MCP tools** — When a server is enabled and relevant (browser, app control, etc.), **read the tool schema and use it**—do not avoid MCP because it feels heavy.
-- **Processes** — Start/stop GUI apps when needed (e.g. Godot via `Start-Process` or bundled `tools/godot/`), subject to project notes (e.g. single-instance); kill hung helper processes if safe.
-- **Paths outside the repo** — Edit or read user/machine paths when required: Cursor/VS Code under `%AppData%\Roaming\Cursor\` (User settings, `globalStorage`, `workspaceStorage`, `History`, `logs`), `%AppData%\Roaming\Code\`, `C:\Users\<user>\.cursor\` (e.g. `ide_state.json`)—not only files inside `StoneAgeClans/`.
-- **Cursor / VS Code product** — Edit workspace **and** user `settings.json`, `keybindings.json`, `.vscode/tasks.json`, `launch.json`, `extensions.json`; run **`cursor` / `code` CLI** (`--install-extension`, `--list-extensions`, open folder, etc.) when it fixes setup or workflow.
-- **Debugging editor issues** — Read recent Cursor logs under `%AppData%\Roaming\Cursor\logs\` when diagnosing path, terminal, or extension errors.
-
-## Cursor reload after environment fixes
-
-After changing user/workspace Cursor state, Godot path settings, or `ide_state.json` so the editor picks up fixes:
-
-1. **Try** a reload from the CLI first (from PATH): `cursor -r --command workbench.action.reloadWindow` (or the same with `code` if using VS Code). It may warn about `--command`; that is acceptable to attempt.
-2. **Do not** end with “you should Reload Window” as the only prescribed step when a CLI attempt was possible.
-3. If the CLI cannot trigger reload (no `cursor` on PATH, policy blocks it, etc.), say that once briefly—still do not lecture; the user can reload manually if needed.
-
-## Anti-pattern
-
-- Offloading: “Run this in your terminal” / “Click Reload Window” **as the first or only fix** when the agent can run commands or edit files itself.
-- **Permission theater** — Asking “should I run X?” before ordinary, reversible steps already covered above.
-- **Path-with-spaces homework** — Defaulting to “rename the folder,” junctions, or “move the project” when **in-repo fixes** (`.vscode`, `tools/`, Cursor/VS Code settings) can address Cursor/terminal/Git issues. Paths with spaces are **normal**; do not treat them as something the user must “fix” by renaming.
+---
+description: Agent autonomy — broad machine + Cursor control; use MCP; no permission spam
+alwaysApply: true
+---
+
+# Agent Autonomy
+
+The project owner authorizes **broad** use of this dev machine for Stone Age Clans work. Act **autonomously**: chain steps, retry failures, and finish the task. Do not ask for permission before routine actions. When something is fixable locally, **fix it**—do not default to telling the human to click, type, or run steps the agent can perform.
+
+**Still respect stricter project rules:** `archive-first.mdc` (no deletes), `git-workflow.mdc` (commits), `file-operations.mdc`, etc.
+
+## What the agent may do without asking
+
+- **Terminal** — Any shell commands (PowerShell, `cmd`, Git, Godot CLI, Python, npm, etc.), including long-running or background jobs when appropriate; open new shells as needed.
+- **Install / fetch** — Package managers, `winget` / `choco` if present, pip, npm, Godot addons, assets, docs, web downloads.
+- **Network** — Use freely for research, APIs, package installs, and fetches required by the task.
+- **MCP tools** — When a server is enabled and relevant (browser, app control, etc.), **read the tool schema and use it**—do not avoid MCP because it feels heavy.
+- **Processes** — Start/stop GUI apps when needed (e.g. Godot via `Start-Process` or bundled `tools/godot/`), subject to project notes (e.g. single-instance); kill hung helper processes if safe.
+- **Paths outside the repo** — Edit or read user/machine paths when required: Cursor/VS Code under `%AppData%\Roaming\Cursor\` (User settings, `globalStorage`, `workspaceStorage`, `History`, `logs`), `%AppData%\Roaming\Code\`, `C:\Users\<user>\.cursor\` (e.g. `ide_state.json`)—not only files inside `StoneAgeClans/`.
+- **Cursor / VS Code product** — Edit workspace **and** user `settings.json`, `keybindings.json`, `.vscode/tasks.json`, `launch.json`, `extensions.json`; run **`cursor` / `code` CLI** (`--install-extension`, `--list-extensions`, open folder, etc.) when it fixes setup or workflow.
+- **Debugging editor issues** — Read recent Cursor logs under `%AppData%\Roaming\Cursor\logs\` when diagnosing path, terminal, or extension errors.
+
+## Cursor reload after environment fixes
+
+After changing user/workspace Cursor state, Godot path settings, or `ide_state.json` so the editor picks up fixes:
+
+1. **Try** a reload from the CLI first (from PATH): `cursor -r --command workbench.action.reloadWindow` (or the same with `code` if using VS Code). It may warn about `--command`; that is acceptable to attempt.
+2. **Do not** end with “you should Reload Window” as the only prescribed step when a CLI attempt was possible.
+3. If the CLI cannot trigger reload (no `cursor` on PATH, policy blocks it, etc.), say that once briefly—still do not lecture; the user can reload manually if needed.
+
+## Anti-pattern
+
+- Offloading: “Run this in your terminal” / “Click Reload Window” **as the first or only fix** when the agent can run commands or edit files itself.
+- **Permission theater** — Asking “should I run X?” before ordinary, reversible steps already covered above.
+- **Path-with-spaces homework** — Defaulting to “rename the folder,” junctions, or “move the project” when **in-repo fixes** (`.vscode`, `tools/`, Cursor/VS Code settings) can address Cursor/terminal/Git issues. Paths with spaces are **normal**; do not treat them as something the user must “fix” by renaming.
