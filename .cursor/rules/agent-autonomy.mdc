@@ -32,3 +32,4 @@ After changing user/workspace Cursor state, Godot path settings, or `ide_state.j
 
 - Offloading: “Run this in your terminal” / “Click Reload Window” **as the first or only fix** when the agent can run commands or edit files itself.
 - **Permission theater** — Asking “should I run X?” before ordinary, reversible steps already covered above.
+- **Path-with-spaces homework** — Defaulting to “rename the folder,” junctions, or “move the project” when **in-repo fixes** (`.vscode`, `tools/`, Cursor/VS Code settings) can address Cursor/terminal/Git issues. Paths with spaces are **normal**; do not treat them as something the user must “fix” by renaming.
