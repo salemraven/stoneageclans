@@ -1,6 +1,8 @@
 extends Node2D
 class_name LandClaim
 
+const _TerritoryJobService = preload("res://scripts/systems/territory_job_service.gd")
+
 signal claim_destroyed(clan_name: String)
 
 @export var clan_name: String = "CLAN"
@@ -13,6 +15,11 @@ var sprite: Sprite2D = null
 var radius_indicator: Node2D = null
 var _radius_circle: Line2D = null
 var _collision_area: Area2D = null
+## Area of Hunt (AOH): wider than claim radius; huntable wild NPCs entering trigger ClanBrain hunt eval (server-side).
+@export var aoh_radius: float = 800.0
+@export var aoh_radius_trait_multiplier: float = 1.0
+var _aoh_zone: Area2D = null
+var _huntables_in_aoh: Array = []
 var inventory: InventoryData = null
 var _clan_name_label: Label = null
 # World-space label: must draw above the flag sprite (Y-sorted) and sit centered above the pole
@@ -35,7 +42,7 @@ var assigned_searchers: Array = []
 var defend_ratio: float = 0.2
 var search_ratio: float = 0.2
 
-# Legacy export; defender quota is auto 3:1 (1 slot per 4 fighters) + drag out/in (see ClanBrain).
+# Persisted preference: 0 = auto (baseline n/4 + drag pool); >0 = min slots ceil(n * ratio). ClanBrain applies (single quota writer).
 @export var player_defend_ratio: float = 0.0
 var _player_quota_timer: float = 0.0
 const PLAYER_QUOTA_UPDATE_INTERVAL: float = 1.5  # Throttle NPC scans
@@ -97,6 +104,7 @@ func _ready() -> void:
 	
 	# Step 5: EnemiesInClaim zone (body_entered/exited)
 	_setup_enemies_in_claim()
+	_setup_area_of_hunt()
 	
 	# Setup health bar
 	_setup_health_bar()
@@ -125,6 +133,88 @@ func _setup_collision() -> void:
 	# input_ray_pickable is deprecated in Godot 4 - input events work automatically
 	
 	add_child(_collision_area)
+
+func get_effective_aoh_radius() -> float:
+	var base: float = aoh_radius
+	if NPCConfig:
+		base = NPCConfig.aoh_radius_base
+	var r: float = base * aoh_radius_trait_multiplier
+	if NPCConfig:
+		r = clampf(r, NPCConfig.aoh_radius_min, NPCConfig.aoh_radius_max)
+	return r
+
+func get_huntables_in_aoh() -> Array:
+	_prune_huntables_in_aoh()
+	return _huntables_in_aoh.duplicate()
+
+func _prune_huntables_in_aoh() -> void:
+	var valid: Array = []
+	for b in _huntables_in_aoh:
+		if is_instance_valid(b):
+			valid.append(b)
+	_huntables_in_aoh = valid
+
+func _aoh_authority_ok() -> bool:
+	var mp: MultiplayerAPI = get_multiplayer()
+	if mp == null or not mp.has_multiplayer_peer():
+		return true
+	return mp.is_server()
+
+func _setup_area_of_hunt() -> void:
+	_aoh_zone = Area2D.new()
+	_aoh_zone.name = "AreaOfHunt"
+	_aoh_zone.monitoring = true
+	_aoh_zone.monitorable = false
+	_aoh_zone.collision_layer = 0
+	_aoh_zone.collision_mask = 3  # Same as EnemiesInClaim: player + NPC CharacterBody layers
+	var shape := CircleShape2D.new()
+	shape.radius = get_effective_aoh_radius()
+	var cs := CollisionShape2D.new()
+	cs.shape = shape
+	_aoh_zone.add_child(cs)
+	_aoh_zone.body_entered.connect(_on_aoh_body_entered)
+	_aoh_zone.body_exited.connect(_on_aoh_body_exited)
+	add_child(_aoh_zone)
+	call_deferred("_refresh_aoh_collision_radius")
+
+func _refresh_aoh_collision_radius() -> void:
+	if not _aoh_zone or not is_instance_valid(_aoh_zone):
+		return
+	var cs: CollisionShape2D = _aoh_zone.get_child(0) as CollisionShape2D
+	if cs and cs.shape is CircleShape2D:
+		(cs.shape as CircleShape2D).radius = get_effective_aoh_radius()
+
+func _is_huntable_wild_in_aoh(body: Node) -> bool:
+	if not body or not is_instance_valid(body):
+		return false
+	if not body.is_in_group("npcs"):
+		return false
+	var nt: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
+	if nt != "mammoth" and nt != "sheep" and nt != "goat":
+		return false
+	var bclan: String = ""
+	if body.has_method("get_clan_name"):
+		bclan = body.get_clan_name()
+	else:
+		bclan = str(body.get("clan_name")) if body.get("clan_name") != null else ""
+	if clan_name != "" and bclan != "" and bclan.to_lower() == clan_name.to_lower():
+		return false
+	return true
+
+func _on_aoh_body_entered(body: Node2D) -> void:
+	if not _aoh_authority_ok():
+		return
+	if not _is_huntable_wild_in_aoh(body):
+		return
+	if _huntables_in_aoh.find(body) < 0:
+		_huntables_in_aoh.append(body)
+
+func _on_aoh_body_exited(body: Node2D) -> void:
+	if not _aoh_authority_ok():
+		return
+	var idx: int = _huntables_in_aoh.find(body)
+	if idx >= 0:
+		_huntables_in_aoh.remove_at(idx)
 
 func _setup_enemies_in_claim() -> void:
 	_enemies_zone = Area2D.new()
@@ -544,8 +634,11 @@ func _process(delta: float) -> void:
 	"""Process building decay and ClanBrain updates"""
 	
 	# Phase 3 Part C: Update ClanBrain (all clans; player quota = n/4 + drag pool)
+	# Server-authoritative: clients skip brain simulation (multiplayer-safe).
 	if clan_brain and not is_decaying:
-		clan_brain.update(delta)
+		var mp: MultiplayerAPI = get_multiplayer()
+		if mp == null or not mp.has_multiplayer_peer() or mp.is_server():
+			clan_brain.update(delta)
 	
 	if not is_decaying:
 		return
@@ -655,30 +748,45 @@ func _start_fast_decay_on_clan_buildings() -> void:
 
 func _setup_health_bar() -> void:
 	"""Create health bar UI for land claim (same as BuildingBase)"""
-	# Create health bar container
+	# Use explicit symmetric anchors + offsets only (no preset+size mix) to avoid
+	# Godot Control warnings: non-equal opposite anchors overriding size.
 	var health_bar = Control.new()
 	health_bar.name = "HealthBar"
-	health_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	health_bar.position = Vector2(-40, -60)  # Above building
-	health_bar.size = Vector2(80, 8)
-	health_bar.visible = false  # Hidden until damaged/decaying
+	health_bar.anchor_left = 0.5
+	health_bar.anchor_right = 0.5
+	health_bar.anchor_top = 0.0
+	health_bar.anchor_bottom = 0.0
+	health_bar.offset_left = -40.0
+	health_bar.offset_right = 40.0
+	health_bar.offset_top = -60.0
+	health_bar.offset_bottom = -52.0
+	health_bar.visible = false
 	add_child(health_bar)
-	
-	# Background bar (red)
+
 	var bg_bar = ColorRect.new()
 	bg_bar.name = "Background"
 	bg_bar.color = Color(0.3, 0.0, 0.0, 0.8)
-	bg_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg_bar.size = Vector2(80, 8)
+	bg_bar.anchor_left = 0.0
+	bg_bar.anchor_top = 0.0
+	bg_bar.anchor_right = 1.0
+	bg_bar.anchor_bottom = 1.0
+	bg_bar.offset_left = 0.0
+	bg_bar.offset_top = 0.0
+	bg_bar.offset_right = 0.0
+	bg_bar.offset_bottom = 0.0
 	health_bar.add_child(bg_bar)
-	
-	# Health bar (green)
+
 	var health_fill = ColorRect.new()
 	health_fill.name = "HealthFill"
 	health_fill.color = Color(0.0, 1.0, 0.0, 0.8)
-	health_fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	health_fill.position = Vector2(0, 0)
-	health_fill.size = Vector2(80, 8)
+	health_fill.anchor_left = 0.0
+	health_fill.anchor_top = 0.0
+	health_fill.anchor_right = 0.0
+	health_fill.anchor_bottom = 0.0
+	health_fill.offset_left = 0.0
+	health_fill.offset_top = 0.0
+	health_fill.offset_right = 80.0
+	health_fill.offset_bottom = 8.0
 	health_bar.add_child(health_fill)
 
 func _update_health_bar() -> void:
@@ -697,9 +805,9 @@ func _update_health_bar() -> void:
 	else:
 		health_bar.visible = false
 	
-	# Update health bar width
+	# Update health bar width (offset_right; anchors fixed — see _setup_health_bar)
 	var health_percent: float = decay_health / DECAY_MAX_HEALTH
-	health_fill.size.x = 80.0 * health_percent
+	health_fill.offset_right = 80.0 * health_percent
 	
 	# Change color based on health
 	if health_percent > 0.6:
@@ -751,184 +859,9 @@ func _drop_inventory_items(drop_position: Vector2) -> void:
 				world_objects.add_child(ground_item)
 				print("💀 Dropped %d %s from destroyed land claim" % [count, item_type])
 
-# Gather Task System - Phase 1: Job generator for gathering
+# Gather / craft jobs — shared with Campfire (Tier 1); see territory_job_service.gd
 func generate_gather_job(worker: Node) -> Job:
-	"""Generate a gather job for a worker NPC. Returns null if no resources available."""
-	if not worker:
-		return null
-	
-	# Check if worker is in same clan
-	var worker_clan: String = worker.get("clan_name") if "clan_name" in worker else ""
-	if worker_clan != clan_name:
-		return null
-	
-	# Find nearest available resource (with capacity)
-	var resource: Node2D = _find_nearest_available_resource(worker)
-	if not resource:
-		var worker_name: String = worker.get("npc_name") if "npc_name" in worker else "unknown"
-		UnifiedLogger.log_npc("GATHER_JOB: %s no resource in claim range (clan=%s, claim_pos=%s)" % [
-			worker_name, clan_name, str(global_position)
-		], {"npc": worker_name, "clan": clan_name, "claim_pos": str(global_position)}, UnifiedLogger.Level.DEBUG)
-		return null
-	
-	# RULE 2: Reserve a slot on the resource when creating the job
-	if resource.has_method("reserve"):
-		if not resource.reserve(worker):
-			# Resource is full, can't create job
-			return null
-	
-	# Check if worker inventory at threshold (config) - only deposit if at threshold
-	var skip_deposit: bool = false
-	if worker and worker.has_method("get") and "inventory" in worker:
-		var worker_inventory = worker.get("inventory")
-		if worker_inventory:
-			var used_slots: int = worker_inventory.get_used_slots() if worker_inventory.has_method("get_used_slots") else 0
-			var max_slots: int = worker_inventory.slot_count if "slot_count" in worker_inventory else 5
-			var pct: float = NPCConfig.gather_same_node_until_pct if NPCConfig else 1.0
-			var threshold: int = int(ceil(max_slots * pct))
-			skip_deposit = (used_slots < threshold)
-			# Debug logging
-			var worker_name: String = worker.get("npc_name") if "npc_name" in worker else "unknown"
-			UnifiedLogger.log_npc("GATHER_JOB: %s - inventory %d/%d, threshold=%d, skip_deposit=%s" % [
-				worker_name, used_slots, max_slots, threshold, skip_deposit
-			], {
-				"npc": worker_name,
-				"used_slots": used_slots,
-				"max_slots": max_slots,
-				"threshold": threshold,
-				"skip_deposit": skip_deposit
-			})
-	
-	# Load GatherJob script
-	var gather_job_script = load("res://scripts/ai/jobs/gather_job.gd") as GDScript
-	if not gather_job_script:
-		push_error("LandClaim.generate_gather_job: Failed to load GatherJob script")
-		return null
-	
-	# Create gather job (with skip_deposit flag)
-	var job: Job = gather_job_script.new(resource, self, skip_deposit) as Job
-	if not job:
-		return null
-	
-	# Set metadata
-	job.building = self
-
-	return job
-
-# Craft Task System - Job generator for knapping blades
-const BLADE_RESERVE_TARGET: int = 4
-const STONES_REQUIRED_FOR_KNAP: int = 2
+	return _TerritoryJobService.generate_gather_job(self, worker)
 
 func generate_craft_job(worker: Node) -> Job:
-	"""Generate a craft (knap) job when land claim has < 4 blades and 2+ stones in storage.
-	Worker takes stones from claim, knaps, deposits blade + stone back."""
-	if not worker:
-		return null
-
-	var worker_clan: String = worker.get("clan_name") if "clan_name" in worker else ""
-	if worker_clan != clan_name:
-		return null
-
-	var npc_type: String = worker.get("npc_type") if "npc_type" in worker else ""
-	if npc_type != "clansman" and npc_type != "caveman":
-		return null
-
-	if not inventory or not inventory.has_method("get_count"):
-		return null
-
-	var blade_count: int = inventory.get_count(ResourceData.ResourceType.BLADE)
-	if blade_count >= BLADE_RESERVE_TARGET:
-		return null
-
-	# Claim must have 2+ stones in storage (worker will PickUp from claim)
-	if inventory.get_count(ResourceData.ResourceType.STONE) < STONES_REQUIRED_FOR_KNAP:
-		return null
-
-	var craft_job_script = load("res://scripts/ai/jobs/craft_job.gd") as GDScript
-	if not craft_job_script:
-		push_error("LandClaim.generate_craft_job: Failed to load CraftJob script")
-		return null
-
-	var job: Job = craft_job_script.new(self) as Job
-	if not job:
-		return null
-
-	job.building = self
-	return job
-
-func _find_nearest_available_resource(worker: Node) -> Node2D:
-	"""Find the nearest harvestable resource within reasonable range of land claim.
-	Prioritizes resources the worker is already at to finish them off."""
-	if not worker or not ResourceIndex:
-		return null
-	
-	var worker_pos: Vector2 = worker.global_position if worker else global_position
-	var claim_pos: Vector2 = global_position
-	var search_range: float = radius * 3.0
-	var gather_distance: float = 60.0
-	
-	var land_claims: Array = []
-	var main_node = get_tree().current_scene
-	if main_node and main_node.has_method("get_cached_land_claims"):
-		land_claims = main_node.get_cached_land_claims()
-	else:
-		land_claims = get_tree().get_nodes_in_group("land_claims")
-	
-	var exclude_enemy: Callable = func(pos: Vector2) -> bool:
-		return ResourceIndex.is_position_in_enemy_claim(land_claims, pos, clan_name)
-	
-	var filters: Dictionary = {
-		"exclude_cooldown": true,
-		"exclude_no_capacity": true,
-		"exclude_empty": true,
-		"exclude_position_enemy_claim": exclude_enemy
-	}
-	
-	var candidates: Array = ResourceIndex.query_near(claim_pos, search_range, filters)
-	
-	# First pass: worker already at a resource or current job resource
-	var current_job_resource: Node2D = null
-	if worker.has_method("get") and "task_runner" in worker:
-		var task_runner = worker.get("task_runner")
-		if task_runner and task_runner.has_method("has_job") and task_runner.has_job():
-			var current_job = task_runner.get("current_job") if "current_job" in task_runner else null
-			if current_job and "resource_node" in current_job:
-				current_job_resource = current_job.resource_node
-	
-	for pair in candidates:
-		var resource: Node2D = pair.node
-		var distance_to_worker: float = worker_pos.distance_to(resource.global_position)
-		var is_at_resource: bool = (distance_to_worker <= gather_distance)
-		var is_current_job_resource: bool = (current_job_resource == resource)
-		if is_at_resource or is_current_job_resource:
-			if resource.has_method("has_capacity") and not resource.has_capacity():
-				if not (resource.has_method("reserved_workers") and worker in resource.reserved_workers):
-					continue
-			return resource
-	
-	# Second pass: soft-cost scoring - prefer resources with fewer clan mates nearby
-	if candidates.is_empty():
-		return null
-	var spread_penalty: float = NPCConfig.clan_spread_penalty if NPCConfig else 50.0
-	const CLAN_NEAR_RADIUS: float = 100.0
-	var npcs = get_tree().get_nodes_in_group("npcs")
-	var best: Node2D = null
-	var best_score: float = INF
-	for pair in candidates:
-		var resource: Node2D = pair.node
-		var res_pos: Vector2 = resource.global_position
-		var d: float = worker_pos.distance_to(res_pos)
-		var nearby_clan_mates: int = 0
-		for other in npcs:
-			if other == worker or not is_instance_valid(other):
-				continue
-			var other_clan: String = other.get_clan_name() if other.has_method("get_clan_name") else (other.get("clan_name") as String if other.get("clan_name") != null else "")
-			if other_clan != clan_name:
-				continue
-			if other.global_position.distance_to(res_pos) < CLAN_NEAR_RADIUS:
-				nearby_clan_mates += 1
-		var score: float = d + (nearby_clan_mates * spread_penalty)
-		if score < best_score:
-			best_score = score
-			best = resource
-	return best
+	return _TerritoryJobService.generate_craft_job(self, worker)

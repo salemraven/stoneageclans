@@ -44,3 +44,15 @@ bash tools/run_earlygame_verify.sh
 - Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_clan_brain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
 
 **Note:** `--quit-after` is **seconds**, not frames (`TESTING_FRAMEWORK.md`).
+
+## Exhaustive early-game gate (recommended before milestone)
+
+Runs the base bundle, **TerritoryJobService** headless checks, a **longer Main** session with `--playtest-capture`, **`scripts/logging/analyze_playtest.py --strict`** on the JSONL (herd invariants), and scans logs for compile/load **hard errors**.
+
+```bash
+bash tools/run_exhaustive_earlygame_verify.sh
+```
+
+- **`LONG_MAIN_SEC`** (default `45`) — Main duration for JSONL herd/gather data.
+- **`SKIP_LONG_MAIN=1`** — skip long Main + strict analyzer (still runs base + TerritoryJobService).
+- **`python3 scripts/logging/analyze_playtest.py --strict path/to/playtest_session.jsonl`** — herd flicker / `herd_count_change` checks only; exits `1` on violation.
