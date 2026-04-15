@@ -1,0 +1,31 @@
+---
+description: Agent runs Godot scenes/tests via CLI; never only tell the user to run them
+alwaysApply: true
+---
+
+# Godot — agent runs scenes, not the user
+
+When working on **Stone Age Clans** (this repo), **you run scenes and play-style checks yourself** using the shell and Godot. **Do not** end with “open the editor and press F6” or “run the scene yourself” as the only verification — execute what you can and report exit codes / log output.
+
+## Defaults
+
+- **Project root:** the repo that contains `project.godot` (this directory).
+- **Godot binary:** `$GODOT` if set, else macOS default `/Applications/Godot.app/Contents/MacOS/Godot` (adjust in commands if the user’s setup differs).
+- **Environment:** set `SKIP_SINGLE_INSTANCE=1` when running scenes if the project expects it (single-instance lock).
+
+## What to run
+
+1. **Bundled headless checks:** `bash tools/run_instrumented_playtest.sh` (headless boot of `Main.tscn`, logs under `Tests/logs/`).
+2. **Single scene smoke test:**  
+   `godot --path . --headless --quit-after 2 res://path/to/Scene.tscn`  
+   In **Godot 4.x**, `--quit-after` is **main-loop iterations**, not wall-clock seconds (`godot --help`). Increase the number if the scene needs more iterations to finish `_ready()`.
+3. **Other `tools/test_*.gd` scripts:** same pattern as existing docs (`--headless -s res://tools/...`).
+4. **After adding or changing a scene:** smoke-run **that** scene (and any parent test entrypoints you touched).
+
+## “All scenes”
+
+There is no need to boot **every** `.tscn` in the repo on every reply. **Do** run the **instrumented playtest** (or equivalent) when changing shared systems, and always smoke-run **scenes you edited or that are directly affected**. If the user asks for full coverage, add or use a small enumerator script under `tools/` rather than handing steps to the user.
+
+## Interactive window
+
+If only a **visible** window can validate something, still **try headless first**. Say clearly when a check truly needs human eyes, but **offer to launch** Godot in the background (as you already can) instead of only instructing the user.

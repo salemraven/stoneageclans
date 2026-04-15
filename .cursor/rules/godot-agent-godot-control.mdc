@@ -12,7 +12,7 @@ When the user asks anything about **running** or **changing** Godot, **the agent
 - **Default runner:** `tools/godot/godot.cmd` from the project root (or `tools/godot/Godot_v4.6.1-stable_win64.exe`), with `--path` set to the project root (folder containing `project.godot`).
 - **Play the game (no editor):** pass project path; omit `--editor`. Add user args after `--` (e.g. `--playtest-capture`, `--playtest-log-dir`, `--rts-playtest-spawn`) per `main.gd` / playtest tooling.
 - **Open the editor:** `--editor --path <project>`.
-- **Smoke / CI-style check:** `--headless --path <project> --quit-after <sec>`.
+- **Smoke / CI-style check:** `--headless --path <project> --quit-after <N>` (**N** = main-loop iterations in Godot 4.x, not seconds; see `godot --help`). For multi-second Main runs use project flags like `--playtest-2min` instead of relying on `--quit-after` for duration.
 - **Prefer the console build** (via `godot.cmd`) when capturing stdout/stderr in the agent terminal.
 - On Windows, use `Start-Process` for a **GUI** run when the terminal should not block; same exe and args.
 - **Windows + spaces in project path:** do **not** use `Start-Process -ArgumentList @("--path", $proj, ...)`. PowerShell mangles that and Godot gets `...\Stone` only. Use one string with embedded quotes, matching `Tests\run_playtest.ps1` / `run_and_monitor.ps1`: ``$argLine = "--path `"$ProjectPath`" -- ..."`` then `-ArgumentList $argLine`. Or use `& godot.cmd --path $proj` (call operator handles spaces).
