@@ -63,6 +63,11 @@ func stop_collection(cancelled: bool = false) -> void:
 		_collection_tween.kill()
 		_collection_tween = null
 
+	# Teardown: gatherable / worker may free while cancel runs — no SceneTree (create_timer/get_tree)
+	if not is_inside_tree():
+		_full_reset_hidden()
+		return
+
 	if cancelled and ( _is_collecting or _progress > 0.001 or _cancel_flash_active ):
 		_is_collecting = false
 		_cancel_flash_active = true
