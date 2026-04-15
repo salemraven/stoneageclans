@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Exhaustive early-game gate: base bundle + TerritoryJobService invariants + long Main capture + JSONL strict analysis + hard-error log scan.
 # Usage (repo root): bash tools/run_exhaustive_earlygame_verify.sh
-# Env: GODOT, LONG_MAIN_SEC (default 45), SKIP_LONG_MAIN=1 to skip capture+analyze, SKIP_CLAN_BRAIN_TEST passed to base bundle.
+# Long Main: uses --playtest-2min (or --playtest-4min) + --playtest-capture — real ~120s/240s wall time. Do NOT use --quit-after for duration:
+# Godot 4.x --quit-after is *main-loop iterations*, not seconds (see `godot --help`).
+# Env: GODOT, SKIP_LONG_MAIN=1 to skip capture+analyze, SKIP_CLAN_BRAIN_TEST passed to base bundle.
+# EXHAUSTIVE_PLAYTEST_4MIN=1 — use --playtest-4min instead of --playtest-2min.
+# Herd coverage (strict analyzer): MIN_HERD_WILDNPC_ENTERS (default 1), MIN_SESSION_SEC_FOR_ANALYZE (default 90). Set to 0 to disable that threshold.
 
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,7 +23,8 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 OUT_DIR="Tests/logs/exhaustive_earlygame_${STAMP}"
 mkdir -p "$OUT_DIR"
 MASTER_LOG="$OUT_DIR/master.log"
-LONG_SEC="${LONG_MAIN_SEC:-45}"
+MIN_HERD="${MIN_HERD_WILDNPC_ENTERS:-1}"
+MIN_SESS="${MIN_SESSION_SEC_FOR_ANALYZE:-90}"
 
 FAILURES=0
 note_fail() {
@@ -44,7 +49,8 @@ scan_log_hard_errors() {
 	echo "=============================================="
 	echo "exhaustive_earlygame_verify ${STAMP}"
 	echo "repo: ${ROOT}"
-	echo "long_main_sec: ${LONG_SEC}"
+	echo "long_main: playtest-$([[ "${EXHAUSTIVE_PLAYTEST_4MIN:-}" == "1" ]] && echo 4min || echo 2min) (~120s or ~240s wall)"
+	echo "analyze min_herd_wildnpc_enters: ${MIN_HERD} min_session_sec: ${MIN_SESS}"
 	echo "=============================================="
 
 	echo ""
@@ -73,9 +79,14 @@ scan_log_hard_errors() {
 		export GODOT_TEST_LOG_DIR="$ROOT/$OUT_DIR/long_main"
 		mkdir -p "$GODOT_TEST_LOG_DIR"
 		LONG_LOG="$OUT_DIR/long_main_godot.log"
+		PT_ARGS=(--playtest-capture --playtest-log-dir "$GODOT_TEST_LOG_DIR")
+		if [[ "${EXHAUSTIVE_PLAYTEST_4MIN:-}" == "1" ]]; then
+			PT_ARGS=(--playtest-4min "${PT_ARGS[@]}")
+		else
+			PT_ARGS=(--playtest-2min "${PT_ARGS[@]}")
+		fi
 		set +e
-		"$GODOT" --path "$ROOT" --headless --quit-after "$LONG_SEC" -- \
-			--playtest-capture --playtest-log-dir "$GODOT_TEST_LOG_DIR" 2>&1 | tee "$LONG_LOG"
+		"$GODOT" --path "$ROOT" --headless -- "${PT_ARGS[@]}" 2>&1 | tee "$LONG_LOG"
 		LONG_EXIT="${PIPESTATUS[0]}"
 		set -e
 		if [[ "$LONG_EXIT" -ne 0 ]]; then
@@ -85,9 +96,17 @@ scan_log_hard_errors() {
 		JSONL="$OUT_DIR/long_main/playtest_session.jsonl"
 		if [[ -f "$JSONL" ]]; then
 			echo ""
-			echo ">>> [D] analyze_playtest.py --strict on long Main JSONL"
-			if ! python3 "$ROOT/scripts/logging/analyze_playtest.py" --strict "$JSONL"; then
-				note_fail "analyze_playtest.py --strict reported herd invariant violations"
+			echo ">>> [D] analyze_playtest.py --strict + herd coverage on long Main JSONL"
+			AN_ARGS=(--strict)
+			if [[ "${MIN_HERD}" =~ ^[0-9]+$ ]] && [[ "${MIN_HERD}" -gt 0 ]]; then
+				AN_ARGS+=(--min-herd-wildnpc-enters "${MIN_HERD}")
+			fi
+			# MIN_SESSION_SEC_FOR_ANALYZE=0 disables session-length check
+			if [[ "${MIN_SESS}" =~ ^[0-9]+$ ]] && [[ "${MIN_SESS}" -gt 0 ]]; then
+				AN_ARGS+=(--min-session-sec "${MIN_SESS}")
+			fi
+			if ! python3 "$ROOT/scripts/logging/analyze_playtest.py" "${AN_ARGS[@]}" "$JSONL"; then
+				note_fail "analyze_playtest.py reported herd invariant or coverage failures"
 			fi
 		else
 			note_fail "No JSONL at $JSONL (instrumentation off?)"

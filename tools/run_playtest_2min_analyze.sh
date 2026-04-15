@@ -3,6 +3,7 @@
 # Do NOT pass --quit-after with --playtest-2min — engine quit-after can end the run before the 120s playtest timer (short JSONL).
 # Usage (repo root): bash tools/run_playtest_2min_analyze.sh
 # Env: GODOT, OUT_DIR optional (default Tests/logs/playtest_2min_analyze_<stamp>)
+# Herd coverage for analyzer: MIN_HERD_WILDNPC_ENTERS (default 3), MIN_SESSION_SEC_FOR_ANALYZE (default 90). Set to 0 to disable.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,8 +37,17 @@ if [[ ! -f "$JSONL" ]]; then
 	exit 1
 fi
 
-echo ">>> analyze_playtest.py --strict"
-python3 "$ROOT/scripts/logging/analyze_playtest.py" --strict "$JSONL"
+MIN_HERD="${MIN_HERD_WILDNPC_ENTERS:-3}"
+MIN_SESS="${MIN_SESSION_SEC_FOR_ANALYZE:-90}"
+AN_ARGS=(--strict)
+if [[ "${MIN_HERD}" =~ ^[0-9]+$ ]] && [[ "${MIN_HERD}" -gt 0 ]]; then
+	AN_ARGS+=(--min-herd-wildnpc-enters "${MIN_HERD}")
+fi
+if [[ "${MIN_SESS}" =~ ^[0-9]+$ ]] && [[ "${MIN_SESS}" -gt 0 ]]; then
+	AN_ARGS+=(--min-session-sec "${MIN_SESS}")
+fi
+echo ">>> analyze_playtest.py ${AN_ARGS[*]}"
+python3 "$ROOT/scripts/logging/analyze_playtest.py" "${AN_ARGS[@]}" "$JSONL"
 AN_EC=$?
 
 NULL_TREE="$(grep -c 'Parameter "data.tree" is null' "$OUT/godot.log" 2>/dev/null || echo 0)"

@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 
-def analyze(path: Path, strict: bool, rapid_reenter_sec: float) -> int:
+def analyze(
+    path: Path,
+    strict: bool,
+    rapid_reenter_sec: float,
+    min_herd_wildnpc_enters: int,
+    min_session_sec: float,
+) -> int:
     events = []
     with open(path) as f:
         for line in f:
@@ -129,15 +135,38 @@ def analyze(path: Path, strict: bool, rapid_reenter_sec: float) -> int:
     influence_contested = len([e for e in events if e.get("evt") == "herd_influence_contested"])
     print(f"  entered: {influence_entered}, transfer: {influence_transfer}, contested: {influence_contested}")
 
+    # Optional coverage gates (when min_* > 0): fail strict if capture is too thin to prove herd activity
+    herd_enter_total = len([e for e in events if e.get("evt") == "herd_wildnpc_enter"])
+    max_t = max((float(e.get("t", 0)) for e in events), default=0.0)
+    print("\n--- Coverage (herd session density) ---")
+    print(f"  herd_wildnpc_enter count: {herd_enter_total}, max t: {max_t:.1f}s")
+
+    coverage_failures: list[str] = []
+    if min_herd_wildnpc_enters > 0 and herd_enter_total < min_herd_wildnpc_enters:
+        msg = (
+            f"coverage:min_herd_wildnpc_enters have={herd_enter_total} need>={min_herd_wildnpc_enters}"
+        )
+        print(f"  COVERAGE FAIL: {msg}")
+        coverage_failures.append(msg)
+    if min_session_sec > 0 and max_t < min_session_sec:
+        msg = f"coverage:min_session_sec have_max_t={max_t:.1f}s need>={min_session_sec:g}s"
+        print(f"  COVERAGE FAIL: {msg}")
+        coverage_failures.append(msg)
+    if min_herd_wildnpc_enters <= 0 and min_session_sec <= 0:
+        print("  (no min thresholds — use --min-herd-wildnpc-enters / --min-session-sec for strict herd proof)")
+    elif not coverage_failures:
+        print("  ✓ Coverage thresholds satisfied")
+
     print("\n=== Done ===\n")
 
-    if strict and violations:
-        print(f"STRICT FAIL: {len(violations)} violation(s)")
-        for v in violations:
+    all_fail = violations + coverage_failures
+    if strict and all_fail:
+        print(f"STRICT FAIL: {len(all_fail)} issue(s)")
+        for v in all_fail:
             print(f"  - {v}")
         return 1
-    if strict and not violations:
-        print("STRICT OK: no herd invariant violations detected")
+    if strict and not all_fail:
+        print("STRICT OK: no herd invariant or coverage failures")
     return 0
 
 
@@ -155,6 +184,20 @@ def main() -> None:
         default=1.5,
         metavar="SEC",
         help="Max exit->enter gap (seconds) still counted as flicker (default 1.5, align with NPCConfig.herd_wildnpc_reentry_cooldown_sec)",
+    )
+    ap.add_argument(
+        "--min-herd-wildnpc-enters",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict: exit 1 if fewer than N herd_wildnpc_enter events (0 = disabled)",
+    )
+    ap.add_argument(
+        "--min-session-sec",
+        type=float,
+        default=0.0,
+        metavar="SEC",
+        help="With --strict: exit 1 if max event t is below SEC (0 = disabled); approximates capture length",
     )
     args = ap.parse_args()
 
@@ -182,7 +225,15 @@ def main() -> None:
         print(f"File not found: {path}")
         sys.exit(1)
 
-    sys.exit(analyze(path, args.strict, args.rapid_reenter_sec))
+    sys.exit(
+        analyze(
+            path,
+            args.strict,
+            args.rapid_reenter_sec,
+            args.min_herd_wildnpc_enters,
+            args.min_session_sec,
+        )
+    )
 
 
 if __name__ == "__main__":

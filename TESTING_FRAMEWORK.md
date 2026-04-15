@@ -73,7 +73,7 @@ godot --path . --headless --verbose > game_output.log 2>&1
 - `--verbose` - More detailed console output
 - `--headless` - Run without opening a window (useful for automated tests)
 - `--script` - Run a specific script
-- `--quit-after` - Quit after X seconds
+- `--quit-after` - Quit after **N main-loop iterations** (Godot 4.x; not wall-clock seconds — see `godot --help`)
 
 #### 4. Data Collection Strategy
 
