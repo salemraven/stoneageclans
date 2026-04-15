@@ -29,3 +29,13 @@ Run the VS Code task **`Godot: Verify Cursor/VS Code setup`**, or:
 ## Cursor AI + Godot (runs & scene/script changes)
 
 Agent policy lives in **`godot-agent-godot-control.mdc`** (always applied): run Godot via CLI, edit project files, do not offload to the user unless they ask to drive the editor.
+
+## Stale editor vs disk (\"Couldn't save scene\" / dependency warnings)
+
+When Godot and Cursor both touch the same scripts, the editor can hold **stale buffers**. Saving scenes then triggers dependency / save failures.
+
+**Repo fix (automatic):** this project includes **`addons/external_edit_sync`** (enabled in `project.godot`). On editor startup it ensures **Editor Settings → Text Editor → Behavior → Auto Reload Scripts on External Change** is **on**, so external saves reload into Godot without manual Project Reload.
+
+**Still happens?** You have **unsaved edits in Godot’s script tabs** while Cursor also saved — resolve the conflict (save or revert in one place). Prefer **editing `.gd` in Cursor** and **leaving scenes** to Godot when possible to reduce `.tscn` churn.
+
+**Human-readable checklist** (Output panel, scripts, missing files): **`guides/godot_save_scene_help.md`**.
