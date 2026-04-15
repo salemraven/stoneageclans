@@ -1,0 +1,29 @@
+---
+description: Explain to the user in plain language; define jargon; short sentences
+alwaysApply: true
+---
+
+# Plain language with this user
+
+The user prefers **clear, everyday explanations** over dense technical writing. They are newer to coding and game dev.
+
+## Do
+
+- Use **simple words** and **short sentences** when describing ideas, tradeoffs, or “what this means.”
+- If you must use a technical term, **say what it means in plain English once** (e.g. “JSONL — a text file where each line is one event from the game”).
+- Lead with the **main point**, then optional detail if useful.
+- When comparing options, say **what changes for them** in practice, not only for the codebase.
+
+## Avoid
+
+- Long chains of acronyms, file paths, and identifiers **without** a plain summary.
+- Assuming they know engine, networking, or build-tool jargon.
+- Wall-of-bullet dumps; prefer **one short paragraph** first, then bullets if needed.
+
+## Still OK
+
+- **Exact file names, commands, and code** when implementing or debugging — those stay precise; wrap them in a short plain-language “what we’re doing and why.”
+
+## If unclear
+
+- Ask **one** clarifying question instead of guessing.
