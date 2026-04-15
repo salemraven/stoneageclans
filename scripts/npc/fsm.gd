@@ -18,6 +18,7 @@ const CombatStateScript = preload("res://scripts/npc/states/combat_state.gd")
 const FleeCombatStateScript = preload("res://scripts/npc/states/flee_combat_state.gd")
 const DefendStateScript = preload("res://scripts/npc/states/defend_state.gd")
 const RaidStateScript = preload("res://scripts/npc/states/raid_state.gd")
+const HuntStateScript = preload("res://scripts/npc/states/hunt_state.gd")
 const SearchStateScript = preload("res://scripts/npc/states/search_state.gd")
 const BuildStateScript = preload("res://scripts/npc/states/build_state.gd")
 const ReproductionStateScript = preload("res://scripts/npc/states/reproduction_state.gd")
@@ -45,6 +46,9 @@ const FAR_EVALUATION_INTERVAL: float = 0.25  # when far from player (reduces fra
 var evaluation_timer: float = 0.0
 var last_state_change_time: float = 0.0  # Track when state last changed (prevent rapid switching loops)
 var min_state_change_cooldown: float = 0.2  # Minimum time between state changes (prevents loops)
+## Coalesce rapid force_evaluation() calls (baby grow, inventory, etc.) — still nudges timer when throttled.
+const FORCE_EVAL_MIN_INTERVAL_SEC: float = 0.5
+var _last_force_eval_time: float = -999.0
 
 # Priority cache: state_name -> float; invalidated when combat_target, defend_target, herded_count, follow_is_ordered change
 var _cached_priority: Dictionary = {}
@@ -67,6 +71,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("flee_combat", "")  # Break contact — entered from combat_state or explicit change_state
 	_register_state("defend", "")  # Defend land claim border (Step 7)
 	_register_state("raid", "")  # Raid enemy land claims (Phase 3)
+	_register_state("hunt", "")  # AI clan hunting party (Area of Hunt)
 	_register_state("search", "")  # SEARCHING role — ant-style loop (guide)
 	_register_state("build", "")  # Build state for land claim placement
 	_register_state("herd_wildnpc", "")
@@ -282,6 +287,20 @@ func _create_state_instances() -> void:
 		else:
 			push_error("FSM: Failed to attach raid_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
+	
+	if HuntStateScript:
+		var state_hunt: Node = Node.new()
+		state_hunt.set_script(HuntStateScript)
+		if state_hunt.has_method("initialize"):
+			state_hunt.name = "HuntState"
+			add_child(state_hunt)
+			states["hunt"] = state_hunt
+			state_hunt.initialize(npc)
+			state_hunt.set("fsm", self)
+			print("FSM: Successfully created hunt state for %s" % npc_name)
+		else:
+			push_error("FSM: Failed to attach hunt_state script or missing initialize method for %s" % npc_name)
+			state_hunt.queue_free()
 	
 	if SearchStateScript:
 		var state: Node = Node.new()
@@ -591,6 +610,8 @@ func _evaluate_states() -> void:
 				continue
 			if state_name == "defend":
 				continue  # Handled by directive above, not work priority
+			if state_name == "hunt" and npc_type_str != "caveman" and npc_type_str != "clansman":
+				continue
 			if state_name == "search" and npc_type_str != "caveman" and npc_type_str != "clansman":
 				continue
 			if state_name == "build" and npc_type_str != "caveman":
@@ -769,7 +790,13 @@ func change_state(new_state_name: String) -> void:
 	if not states.has(new_state_name):
 		push_error("FSM: State '%s' not registered" % new_state_name)
 		return
-	
+
+	# Direct change_state (e.g. npc_base._start_herd) bypasses _evaluate_states; must still honor can_enter.
+	if new_state_name == "herd_wildnpc":
+		var hwn_chk: Node = _get_state("herd_wildnpc")
+		if hwn_chk and hwn_chk.has_method("can_enter") and not hwn_chk.can_enter():
+			return
+
 	# Herd state: wild herdables only.
 	if new_state_name == "herd" and npc:
 		var nt2 = npc.get("npc_type") if npc else null
@@ -994,13 +1021,22 @@ func _compute_priority_cache_key() -> int:
 	var hc = npc.get("herded_count")
 	var fo = npc.get("follow_is_ordered")
 	var h: int = 0
-	if ct != null and ct != false and is_instance_valid(ct):
-		h = h * 31 + ct.get_instance_id()
-	if dt != null and dt != false and is_instance_valid(dt):
-		h = h * 31 + dt.get_instance_id()
+	# Cannot compare Node/Object to bool (ct != false) — use typeof for cleared sentinels.
+	if _fsm_cache_node_ref(ct):
+		h = h * 31 + (ct as Object).get_instance_id()
+	if _fsm_cache_node_ref(dt):
+		h = h * 31 + (dt as Object).get_instance_id()
 	h = h * 31 + int(hc) if hc != null else h
 	h = h * 31 + (1 if fo == true else 0)
 	return h
+
+
+func _fsm_cache_node_ref(v: Variant) -> bool:
+	if v == null:
+		return false
+	if typeof(v) == TYPE_BOOL:
+		return false
+	return v is Object and is_instance_valid(v as Object)
 
 func _get_cached_priority(state_name: String, state_node: Node) -> float:
 	"""Return cached get_priority() or compute and cache."""
@@ -1027,7 +1063,11 @@ func get_state_data() -> Dictionary:
 	return data
 
 func force_evaluation() -> void:
-	# Force immediate state evaluation (used when buildings become active, etc.)
+	# Coalesce spam: many systems call this on the same NPC in one frame burst.
+	var now: float = Time.get_ticks_msec() / 1000.0
 	evaluation_timer = 0.0
+	if now - _last_force_eval_time < FORCE_EVAL_MIN_INTERVAL_SEC:
+		return
+	_last_force_eval_time = now
 	_evaluate_states()
 	print("🔵 FSM: Forced evaluation for %s" % (npc.get("npc_name") if npc else "unknown"))

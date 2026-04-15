@@ -1,0 +1,43 @@
+Early-game reliability (roadmap-guided) — completion report
+===========================================================
+
+Environment
+-----------
+- Repo: stoneageclans (path on disk as checked out)
+- Godot: /Applications/Godot.app/Contents/MacOS/Godot (v4.5.1.stable in captured logs)
+- Commit: run `git rev-parse HEAD` at repo root for the hash at verification time
+
+Tests run (exact)
+-----------------
+1. bash tools/run_earlygame_verify.sh  → exit 0 (20260415_130722)
+2. bash tools/run_playtest_2min_analyze.sh  → exit 0 (Tests/logs/playtest_2min_analyze_20260415_130518)
+3. bash tools/run_exhaustive_earlygame_verify.sh  → exit 0 (Tests/logs/exhaustive_earlygame_20260415_130729)
+
+Failures found (before fixes in this iteration)
+------------------------------------------------
+1. building_base.gd: get_tree() during NPC/building teardown → "Parameter data.tree is null" (addressed earlier with is_inside_tree guards; latest 2min log has no data.tree pattern)
+2. Herd wild NPC: sub-second herd_wildnpc enter/exit oscillation (JSONL + strict analyzer). Root cause: FSM change_state("herd_wildnpc") from npc_base._start_herd bypassed herd_wildnpc_state.can_enter(), so re-entry cooldown did not apply. Secondary: exit→enter gap heuristic in analyze_playtest.py was not aligned with real exit-then-enter timing.
+
+Fixes (behavior)
+----------------
+1. NPCConfig + herd_wildnpc_state: herd_wildnpc_reentry_cooldown_sec (default 1.5s) replaces fixed 0.2s; can_enter uses it for exit_cooldown rejections.
+2. FSM change_state: if new state is herd_wildnpc, require herd_wildnpc state can_enter() so direct transitions respect the same rules as priority evaluation.
+3. scripts/logging/analyze_playtest.py: herd flicker = chronological exit then enter with gap < --rapid-reenter-sec (default 1.5); optional CLI flag; aggregates overflow messages.
+
+Verification
+-------------
+- run_playtest_2min_analyze.sh: STRICT OK; no data.tree errors in godot.log for run 130518
+- run_earlygame_verify.sh: OK
+- run_exhaustive_earlygame_verify.sh: OK (long Main JSONL short/empty herd data still STRICT OK — no false violations)
+
+Remaining risks
+---------------
+- Long Main in exhaustive (45s default) may produce sparse herd JSONL; use run_playtest_2min_analyze.sh for herd-heavy gates per roadmap §14.
+- min_state_change_cooldown (0.2s) in FSM is separate from herd re-entry; if new oscillation paths appear, extend checks or align cooldowns per state pair.
+- Player RPC / full MP (I1), W2 spatial refactor: out of scope for this NPC gate.
+
+Artifacts
+---------
+- 2min capture: Tests/logs/playtest_2min_analyze_20260415_130518/
+- Gate log: Tests/logs/earlygame_verify_20260415_130722.log
+- Exhaustive: Tests/logs/exhaustive_earlygame_20260415_130729/

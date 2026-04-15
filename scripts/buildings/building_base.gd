@@ -535,9 +535,11 @@ func clear_occupied(npc: Node = null) -> void:
 		clear_occupant(0, true)
 
 func _notify_occupation_changed() -> void:
+	if not is_inside_tree():
+		return  # Avoid engine ERROR: get_tree() when tree is null (e.g. NPC exit_tree → unassign during teardown)
 	var tree = get_tree()
 	if not tree:
-		return  # Node exiting tree (e.g. during scene teardown)
+		return
 	var building_ui = tree.get_first_node_in_group("building_inventory_ui")
 	if building_ui and building_ui.has_method("_update_occupation_slots"):
 		building_ui._update_occupation_slots()
@@ -1023,6 +1025,8 @@ func _find_land_claim() -> LandClaim:
 		return land_claim
 	
 	# Find land claim by position and clan name
+	if not is_inside_tree():
+		return null
 	var tree = get_tree()
 	if not tree:
 		return null  # Node exiting tree (e.g. during scene teardown)

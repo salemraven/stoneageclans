@@ -56,3 +56,13 @@ bash tools/run_exhaustive_earlygame_verify.sh
 - **`LONG_MAIN_SEC`** (default `45`) — Main duration for JSONL herd/gather data.
 - **`SKIP_LONG_MAIN=1`** — skip long Main + strict analyzer (still runs base + TerritoryJobService).
 - **`python3 scripts/logging/analyze_playtest.py --strict path/to/playtest_session.jsonl`** — herd flicker / `herd_count_change` checks only; exits `1` on violation.
+
+## 2-minute NPC playtest + JSONL strict analysis (~2 min)
+
+Runs **`Main`** headless with **`--playtest-2min`** and **`--playtest-capture`** (no `--quit-after` — combining quit-after with timed playtest can end the run in ~1s). Writes JSONL + `godot.log`, **`git` commit** in `commit.txt`, then **`analyze_playtest.py --strict`**.
+
+```bash
+bash tools/run_playtest_2min_analyze.sh
+```
+
+Optional: **`OUT_DIR=/abs/path/to/folder`** to control output location.

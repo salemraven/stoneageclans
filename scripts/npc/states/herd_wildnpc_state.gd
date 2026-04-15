@@ -15,7 +15,6 @@ var search_distance: float = 0.0  # Distance along current ray
 var search_center: Vector2 = Vector2.ZERO
 
 var last_exit_time: float = 0.0
-var exit_cooldown: float = 0.2
 var search_start_time: float = 0.0  # When we entered herd_wildnpc (for min search duration)
 const DELIVERY_COOLDOWN_SEC: float = 28.0
 
@@ -23,6 +22,12 @@ func _get_delivery_cooldown_sec() -> float:
 	if NPCConfig and "herd_delivery_cooldown_sec" in NPCConfig:
 		return NPCConfig.herd_delivery_cooldown_sec as float
 	return DELIVERY_COOLDOWN_SEC
+
+
+func _get_reentry_cooldown_sec() -> float:
+	if NPCConfig and "herd_wildnpc_reentry_cooldown_sec" in NPCConfig:
+		return NPCConfig.herd_wildnpc_reentry_cooldown_sec as float
+	return 1.5
 
 func enter() -> void:
 	if not npc:
@@ -245,7 +250,7 @@ func can_enter() -> bool:
 
 	if npc.has_meta("herd_wildnpc_last_exit_time"):
 		var last_exit: float = npc.get_meta("herd_wildnpc_last_exit_time")
-		if current_time - last_exit < exit_cooldown:
+		if current_time - last_exit < _get_reentry_cooldown_sec():
 			if pi and pi.is_enabled():
 				pi.herd_wildnpc_can_enter(npc.npc_name, false, "exit_cooldown")
 			return false

@@ -106,6 +106,7 @@ extends Node
 @export var herd_inventory_entry_threshold: float = 0.72  # Max inventory fill (0-1) to enter herd_wildnpc; 0.72 = allow when under 72% full (productivity: more herding)
 @export var herd_max_no_target_time: float = 9.0  # Base no-target timeout; exit after 2x this (18s) - stay searching longer
 @export var herd_delivery_cooldown_sec: float = 5.5  # Cooldown after delivery before re-entering herd_wildnpc (shorter = more herding)
+@export var herd_wildnpc_reentry_cooldown_sec: float = 1.5  # Min time after exiting herd_wildnpc before FSM can enter again (stops boundary flicker; aligns with analyze_playtest.py)
 @export var herd_rapid_move_timeout: float = 2.5  # Seconds before dropping a target that's moving away rapidly
 @export var herd_ray_stride: float = 180.0  # px/s walking outward along ray (faster search coverage)
 @export var herd_spiral_expansion_rate: float = 80.0  # Legacy; used as ray stride fallback if herd_ray_stride not set
@@ -267,6 +268,16 @@ extends Node
 @export var land_claim_min_distance: float = 1600.0  # Minimum distance between land claims (doubled for caveman spread)
 @export var land_claim_buffer_zone: float = 150.0  # Buffer zone around land claims that NPCs avoid (pixels) - prevents losing herded NPCs
 @export var inventory_nearly_full_threshold: float = 0.8  # Inventory fill percentage to trigger deposit (80% = 8/10 slots for cavemen) - triggers deposit at 80% full
+
+# ============================================
+# ClanBrain — Area of Hunt & hunting party (AI clans)
+# ============================================
+@export_group("ClanBrain / Hunt")
+@export var aoh_radius_base: float = 800.0
+@export var aoh_radius_min: float = 500.0
+@export var aoh_radius_max: float = 1200.0
+@export var hunt_party_min_size: int = 2
+@export var hunt_party_max_size: int = 4
 
 # ============================================
 # FSM (Finite State Machine)

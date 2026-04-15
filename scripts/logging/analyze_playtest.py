@@ -5,9 +5,10 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 
-def analyze(path: Path, strict: bool) -> int:
+def analyze(path: Path, strict: bool, rapid_reenter_sec: float) -> int:
     events = []
     with open(path) as f:
         for line in f:
@@ -27,31 +28,51 @@ def analyze(path: Path, strict: bool) -> int:
     if session:
         print(f"Session path: {session.get('path', '?')}\n")
 
-    # Herd enter/exit flicker
+    # Herd enter/exit flicker: exit -> enter gap under rapid_reenter_sec (matches herd_wildnpc_reentry_cooldown_sec intent)
     herd_enters = defaultdict(list)
     herd_exits = defaultdict(list)
+    per_npc_timeline = defaultdict(list)
     for e in events:
-        t = e.get("t", 0)
-        if e.get("evt") == "herd_wildnpc_enter":
-            herd_enters[e.get("npc")].append(t)
-        elif e.get("evt") == "herd_wildnpc_exit":
-            herd_exits[e.get("npc")].append(t)
+        evt = e.get("evt")
+        if evt == "herd_wildnpc_enter":
+            npc = e.get("npc")
+            t = e.get("t", 0)
+            herd_enters[npc].append(t)
+            per_npc_timeline[npc].append((t, "enter"))
+        elif evt == "herd_wildnpc_exit":
+            npc = e.get("npc")
+            t = e.get("t", 0)
+            herd_exits[npc].append(t)
+            per_npc_timeline[npc].append((t, "exit"))
 
     print("--- Herd enter/exit patterns ---")
+    print(f"  (rapid re-enter = exit then enter within {rapid_reenter_sec:g}s)")
     for npc in sorted(set(herd_enters.keys()) | set(herd_exits.keys())):
         enters = herd_enters.get(npc, [])
         exits = herd_exits.get(npc, [])
+        timeline = per_npc_timeline[npc]
         issues: list[str] = []
-        for i, te in enumerate(enters):
-            nearby_exits = [tx for tx in exits if 0 < te - tx < 5]
-            if nearby_exits and i > 0 and enters[i - 1] < te - 2:
-                issues.append(f"rapid re-enter after exit at t={te:.1f}")
+        last_exit_t: Optional[float] = None
+        for t, kind in timeline:
+            if kind == "exit":
+                last_exit_t = t
+            else:
+                if last_exit_t is not None and 0 < (t - last_exit_t) < rapid_reenter_sec:
+                    dt = t - last_exit_t
+                    issues.append(
+                        f"rapid re-enter {dt:.2f}s after exit at t={t:.1f} (threshold {rapid_reenter_sec:g}s)"
+                    )
+                last_exit_t = None
         if len(enters) > 2 or len(exits) > 2 or issues:
             print(f"  {npc}: enters={len(enters)}, exits={len(exits)}")
-            for i in issues[:5]:
+            for i in issues[:8]:
                 msg = f"herd_flicker:{npc}:{i}"
                 print(f"    VIOLATION: {i}")
                 violations.append(msg)
+            if len(issues) > 8:
+                extra = len(issues) - 8
+                print(f"    ... and {extra} more")
+                violations.append(f"herd_flicker:{npc}:+{extra}_more")
 
     # herd_count_change sanity
     print("\n--- herd_count_change ---")
@@ -128,6 +149,13 @@ def main() -> None:
         action="store_true",
         help="Exit 1 if herd_count_change or herd flicker violations found",
     )
+    ap.add_argument(
+        "--rapid-reenter-sec",
+        type=float,
+        default=1.5,
+        metavar="SEC",
+        help="Max exit->enter gap (seconds) still counted as flicker (default 1.5, align with NPCConfig.herd_wildnpc_reentry_cooldown_sec)",
+    )
     args = ap.parse_args()
 
     if args.jsonl:
@@ -154,7 +182,7 @@ def main() -> None:
         print(f"File not found: {path}")
         sys.exit(1)
 
-    sys.exit(analyze(path, args.strict))
+    sys.exit(analyze(path, args.strict, args.rapid_reenter_sec))
 
 
 if __name__ == "__main__":
