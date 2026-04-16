@@ -1,7 +1,9 @@
 # Reproduction Guide
 
-**Last Updated:** 2026-02-21  
+**Last Updated:** 2026-04-16  
 **Status:** Active System
+
+**Regression gate:** `bash tools/run_repro_harness.sh` (also step **[4/5]** in `tools/run_earlygame_verify.sh`). Headless `Main` + isolated claim + woman + Living Hut + Player as designated father; expects **two births** (exit 0). The **Player** node has no `clan_name` property—mate eligibility for repeat pregnancies uses `_is_player_in_land_claim()` / `get_clan_name()`, not `_is_npc_in_land_claim(player)` alone.
 
 ## Overview
 
@@ -27,7 +29,7 @@ All must be true:
 | `clan_name != ""` | `reproduction_component.gd` |
 | Woman inside land claim radius | `_is_in_land_claim()` |
 | Mate (player or caveman) in same clan | `_try_find_mate()` |
-| Mate inside land claim | `_is_player_in_land_claim()`, `_is_npc_in_land_claim()` |
+| Mate inside land claim | `_is_player_in_land_claim()` (Player), `_is_npc_in_land_claim()` (NPCs); designated-father path uses `_father_eligible_for_current_pregnancy()` |
 | Not pregnant | `is_pregnant == false` |
 | Birth cooldown expired | `time_since_last_birth >= config.birth_cooldown` |
 

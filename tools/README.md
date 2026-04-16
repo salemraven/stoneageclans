@@ -34,14 +34,24 @@ Hold A/D to see `[PlayerMoveTrace]` in the console.
 
 ## Early-game verification (CI-style bundle)
 
-Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, and optionally the longer **ClanBrain** Main session.
+Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **reproduction harness** (Player designated-father / two births), and optionally the longer **ClanBrain** Main session.
 
 ```bash
 bash tools/run_earlygame_verify.sh
 ```
 
-- **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 4 (~15s `Main` + JSONL assertions); steps 1–3 stay.
-- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_clan_brain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+- **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 5 (~15s `Main` + JSONL assertions); steps 1–4 stay.
+- **`SKIP_REPRO_HARNESS=1`** — skip step 4 (`--repro-harness` ~12–15s).
+- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+
+## Reproduction regression (Player + two births)
+
+Isolated claim + woman + Living Hut; exits **0** after two births. Catches regressions where the **Player** mate uses the wrong “in claim” check (`get_clan_name()` vs missing `clan_name` property).
+
+```bash
+SKIP_SINGLE_INSTANCE=1 bash tools/run_repro_harness.sh
+# or: godot --path . --headless -- --repro-harness
+```
 
 **Note:** In **Godot 4.x**, `--quit-after` is **iterations** of the main loop, not wall-clock seconds (see `godot --help`). Older docs may say “seconds”; treat as wrong for 4.x.
 
