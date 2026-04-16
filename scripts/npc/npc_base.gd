@@ -243,15 +243,23 @@ func get_my_land_claim() -> Node:
 		return _cached_land_claim
 	_cached_land_claim = null
 	_cached_land_claim_clan = ""
+	var fallback_campfire: Node = null
 	var land_claims = get_tree().get_nodes_in_group("land_claims")
 	for claim in land_claims:
 		if not is_instance_valid(claim):
 			continue
 		var claim_clan: String = claim.get("clan_name") if "clan_name" in claim else ""
-		if claim_clan == clan:
+		if claim_clan != clan:
+			continue
+		if claim is LandClaim:
 			_cached_land_claim = claim
 			_cached_land_claim_clan = clan
 			return claim
+		fallback_campfire = claim
+	if fallback_campfire:
+		_cached_land_claim = fallback_campfire
+		_cached_land_claim_clan = clan
+		return fallback_campfire
 	return null
 
 # Helper function to check if NPC is dead
@@ -345,12 +353,14 @@ func _start_herd(new_herder: Node2D) -> void:
 
 func _clear_herd() -> void:
 	"""Stop being herded. HerdableComponent or manual for clansmen ordered follow."""
+	# Must bail before detach/print: herd_state (and others) may call every frame after break
+	# while FSM is still "herd"; HerdableComponent.detach() no-ops but we must not spam roam init + log.
+	if not is_herded:
+		return
 	var hc = get_herdable()
 	if hc:
 		hc.detach()
 	else:
-		if not is_herded:
-			return
 		if herder and is_instance_valid(herder):
 			if HerdManager:
 				HerdManager.unregister_follower(herder, self)
@@ -2066,11 +2076,14 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 					if states_dict and states_dict.has("herd"):
 						var herd_state = states_dict.get("herd")
 						if herd_state and herd_state.has_method("can_enter") and herd_state.can_enter():
-							# Force immediate state change to herd (high priority follow mode)
+							# Only log when we actually transition into herd (change_state no-ops if already herd)
+							var prev_fsm: String = fsm.get_current_state_name() if fsm.has_method("get_current_state_name") else ""
 							fsm.change_state("herd")
-							print("🚨 HIGH PRIORITY FOLLOW: %s immediately entered herd state (following %s)" % [
-								npc_name, leader_name
-							])
+							var now_fsm: String = fsm.get_current_state_name() if fsm.has_method("get_current_state_name") else ""
+							if prev_fsm != "herd" and now_fsm == "herd":
+								print("🚨 HIGH PRIORITY FOLLOW: %s immediately entered herd state (following %s)" % [
+									npc_name, leader_name
+								])
 					else:
 						# Can't enter herd state - force FSM evaluation to find best state
 						if "evaluation_timer" in fsm: fsm.evaluation_timer = 0.0
@@ -3115,24 +3128,35 @@ func _check_land_claim_intrusion(delta: float) -> void:
 		if cp != null and cp is String and (cp as String) != "":
 			filter_clan = cp as String
 	elif clan_name and clan_name != "":
-		# Find our land claim by clan
+		# Match get_my_land_claim(): prefer LandClaim, else Campfire (same clan)
 		var land_claims := get_tree().get_nodes_in_group("land_claims")
+		var fallback_territory: Node2D = null
 		for claim in land_claims:
 			if not is_instance_valid(claim):
 				continue
 			var claim_clan_prop = claim.get("clan_name")
 			var c: String = claim_clan_prop as String if claim_clan_prop != null else ""
-			if c == clan_name:
-				my_claim = claim
-				claim_pos = claim.global_position
-				var radius_prop = claim.get("radius")
+			if c != clan_name:
+				continue
+			if claim is LandClaim:
+				my_claim = claim as Node2D
+				claim_pos = my_claim.global_position
+				var radius_prop = my_claim.get("radius")
 				if radius_prop != null:
 					claim_radius = radius_prop as float
 				filter_clan = clan_name
 				break
+			fallback_territory = claim as Node2D
+		if not my_claim and fallback_territory:
+			my_claim = fallback_territory
+			claim_pos = my_claim.global_position
+			var rp2 = my_claim.get("radius")
+			if rp2 != null:
+				claim_radius = rp2 as float
+			filter_clan = clan_name
 	
 	if not my_claim:
-		return  # No land claim found
+		return  # No territory (flag/campfire) found
 	
 	# Step 5: Prefer EnemiesInClaim (event-driven) when available; else scan
 	var intruders: Array = []

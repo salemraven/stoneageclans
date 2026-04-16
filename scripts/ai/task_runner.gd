@@ -169,7 +169,8 @@ func cancel_current_job() -> void:
 	current_job = null
 	is_active = false
 	
-	print("TaskRunner: Job cancelled")
+	if DebugConfig and DebugConfig.enable_debug_mode:
+		UnifiedLogger.log_npc("TaskRunner: Job cancelled", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
 
 # Clear the job (job completed successfully)
 func _clear_job() -> void:
@@ -200,7 +201,8 @@ func _clear_job() -> void:
 	current_task = null
 	is_active = false
 	
-	print("TaskRunner: Job completed and cleared")
+	if DebugConfig and DebugConfig.enable_debug_mode:
+		UnifiedLogger.log_npc("TaskRunner: Job completed and cleared", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
 
 # Advance to the next task in the job
 func _advance_to_next_task() -> void:
