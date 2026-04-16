@@ -15,10 +15,10 @@ var last_second_time := 0
 
 func _ready() -> void:
 	if DebugConfig.enable_debug_mode:
-		print("⚔️ CombatScheduler initialized")
+		UnifiedLogger.log("CombatScheduler initialized", UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 	set_process(true)  # Ensure _process() is enabled
 	if DebugConfig.enable_debug_mode:
-		print("🔍 SCHEDULER: _process() enabled")
+		UnifiedLogger.log("CombatScheduler _process enabled", UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 
 func _process(_delta: float) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
@@ -33,14 +33,14 @@ func _process(_delta: float) -> void:
 		event_count_this_second = 0
 		last_second_time = now
 		if DebugConfig.enable_debug_mode and events.size() > 0:
-			print("🔍 SCHEDULER: _process() running - pending=%d, next_event_time=%d, now=%d" % [events.size(), events[0].time, now])
+			UnifiedLogger.log("SCHEDULER _process: pending=%d next_t=%d now=%d" % [events.size(), events[0].time, now], UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 	
 	# Process events that are due
 	# CRITICAL: Check if events exist and are due
 	if DebugConfig.enable_debug_mode and events.size() > 0:
 		var next_time = events[0].time
 		if next_time <= now:
-			print("🔍 SCHEDULER: Event due! next_time=%d, now=%d, diff=%d" % [next_time, now, now - next_time])
+			UnifiedLogger.log("SCHEDULER event due: next=%d now=%d diff=%d" % [next_time, now, now - next_time], UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 	
 	while events.size() > 0 and events[0].time <= now:
 		var event = events.pop_front()
@@ -49,32 +49,28 @@ func _process(_delta: float) -> void:
 		# Validate callable before calling
 		if event.callable.is_valid():
 			if DebugConfig.enable_debug_mode:
-				print("⏰ SCHEDULER: Executing event at time %d (now=%d, entity_id=%d)" % [event.time, now, event.entity_id])
+				UnifiedLogger.log("SCHEDULER execute: t=%d now=%d entity=%d" % [event.time, now, event.entity_id], UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 			# GDScript doesn't have try/except, but we can validate before calling
 			var callable_obj = event.callable.get_object()
 			var method_name = event.callable.get_method()
 			
 			if DebugConfig.enable_debug_mode:
-				print("🔍 SCHEDULER: Callable details - method='%s', obj=%s, valid=%s" % [
-					method_name,
-					callable_obj,
-					"yes" if (callable_obj and is_instance_valid(callable_obj)) else "no"
-				])
+				UnifiedLogger.log("SCHEDULER callable: %s obj=%s" % [method_name, callable_obj], UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 			
 			if callable_obj and is_instance_valid(callable_obj):
 				if DebugConfig.enable_debug_mode:
-					print("⏰ SCHEDULER: Calling method '%s' on object %s" % [method_name, callable_obj])
+					UnifiedLogger.log("SCHEDULER call %s" % method_name, UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 				# Try to call - if it crashes, we'll see it in the logs
 				event.callable.call()
 				if DebugConfig.enable_debug_mode:
-					print("✅ SCHEDULER: Event executed successfully (method: %s)" % method_name)
+					UnifiedLogger.log("SCHEDULER done: %s" % method_name, UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 			else:
 				var error_msg = "CRASH: Invalid callable object for event at time %d (entity_id=%d, obj=%s, method=%s)" % [event.time, event.entity_id, callable_obj, method_name]
 				if DebugConfig.enable_debug_mode:
-					print("❌ SCHEDULER: %s" % error_msg)
+					UnifiedLogger.log(error_msg, UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 				push_error(error_msg)
 		elif DebugConfig.enable_debug_mode:
-			print("⚠️ SCHEDULER: Invalid callable for event at time %d (is_valid=%s)" % [event.time, event.callable.is_valid()])
+			UnifiedLogger.log("SCHEDULER invalid callable at t=%d" % event.time, UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 
 # Schedule an event to fire at a specific time
 # time_msec: milliseconds from now (use Time.get_ticks_msec() + delay)
@@ -92,7 +88,7 @@ func schedule(time_msec: int, callable: Callable, entity_id: int = -1) -> void:
 	events.sort_custom(func(a, b): return a.time < b.time)
 	
 	if DebugConfig.enable_debug_mode:
-		print("⏰ SCHEDULER: Scheduled event at time %d (entity_id=%d, pending=%d)" % [time_msec, entity_id, events.size()])
+		UnifiedLogger.log("SCHEDULER schedule: t=%d entity=%d pending=%d" % [time_msec, entity_id, events.size()], UnifiedLogger.Category.DEBUG, UnifiedLogger.Level.DEBUG)
 
 # Cancel all events for a specific entity
 func cancel_all_for_entity(entity_id: int) -> void:

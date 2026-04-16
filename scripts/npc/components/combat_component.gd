@@ -40,6 +40,13 @@ var default_sprite_texture: Texture2D = null  # Store original sprite texture
 
 # Safety timeout tracking
 var windup_start_time: int = 0  # Track when windup started (for timeout detection)
+var recovery_start_time: int = 0  # Track when recovery started (for timeout detection)
+
+func _combat_d(msg: String) -> void:
+	UnifiedLogger.log(msg, UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.DEBUG)
+
+func _combat_e(msg: String) -> void:
+	UnifiedLogger.log(msg, UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.ERROR)
 
 func initialize(npc_ref: Node2D) -> void:
 	npc = npc_ref
@@ -52,8 +59,6 @@ func initialize(npc_ref: Node2D) -> void:
 	# Set up process callback for timeout detection
 	set_process(true)
 
-var recovery_start_time: int = 0  # Track when recovery started (for timeout detection)
-
 func _process(_delta: float) -> void:
 	# Safety check: If stuck in WINDUP for too long, force hit frame
 	if state == CombatState.WINDUP and windup_start_time > 0:
@@ -62,15 +67,15 @@ func _process(_delta: float) -> void:
 		var max_windup = int((windup_time + 0.5) * 1000)  # Allow 0.5s extra buffer
 		
 		if elapsed > max_windup:
-			print("⚠️ COMBAT: WINDUP timeout detected! (elapsed=%dms, max=%dms, windup_time=%.2fs) Forcing hit frame..." % [elapsed, max_windup, windup_time])
+			push_warning("COMBAT: WINDUP timeout — forcing hit frame (elapsed=%dms, max=%dms, windup=%.2fs)" % [elapsed, max_windup, windup_time])
 			windup_start_time = 0  # Reset to prevent spam
 			
 			# Verify we're still in WINDUP before forcing
 			if state == CombatState.WINDUP:
-				print("🔧 COMBAT: Forcing hit frame due to timeout")
+				_combat_d("COMBAT: Forcing hit frame due to timeout")
 				_on_hit_frame()  # Force the hit frame
 			else:
-				print("⚠️ COMBAT: State changed during timeout check (now=%s), skipping force" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+				push_warning("COMBAT: State changed during windup timeout (now=%s), skipping force" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
 	# Safety check: If stuck in RECOVERY for too long, force recovery end
 	# CRITICAL: Check even if recovery_start_time is 0 (might have been reset but still in RECOVERY)
@@ -79,22 +84,22 @@ func _process(_delta: float) -> void:
 		
 		# If recovery_start_time is 0, set it now (recovery event might have been cancelled)
 		if recovery_start_time == 0:
-			print("⚠️ COMBAT: RECOVERY state detected but recovery_start_time is 0! Setting it now (recovery event may have been cancelled)")
+			push_warning("COMBAT: RECOVERY but recovery_start_time is 0 — estimating start (event may have been cancelled)")
 			recovery_start_time = now - int(recovery_time * 1000)  # Assume recovery started recovery_time ago
 		
 		var elapsed = now - recovery_start_time
 		var max_recovery = int((recovery_time + 1.0) * 1000)  # Allow 1s extra buffer
 		
 		if elapsed > max_recovery:
-			print("⚠️ COMBAT: RECOVERY timeout detected! (elapsed=%dms, max=%dms, recovery_time=%.2fs) Forcing recovery end..." % [elapsed, max_recovery, recovery_time])
+			push_warning("COMBAT: RECOVERY timeout — forcing end (elapsed=%dms, max=%dms, recovery=%.2fs)" % [elapsed, max_recovery, recovery_time])
 			recovery_start_time = 0  # Reset to prevent spam
 			
 			# Verify we're still in RECOVERY before forcing
 			if state == CombatState.RECOVERY:
-				print("🔧 COMBAT: Forcing recovery end due to timeout")
+				_combat_d("COMBAT: Forcing recovery end due to timeout")
 				_on_recovery_end()  # Force recovery end
 			else:
-				print("⚠️ COMBAT: State changed during recovery timeout check (now=%s), skipping force" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+				push_warning("COMBAT: State changed during recovery timeout (now=%s), skipping force" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		
 		# CRITICAL: Check if we've been in RECOVERY for a while but sprite is still on wrong frame
 		# This handles cases where recovery_end was cancelled but state wasn't reset
@@ -107,7 +112,7 @@ func _process(_delta: float) -> void:
 				var hit_frame_x = sprite_sheet_frame_width * 2  # Frame 3 (hit) is at col 2
 				# Check if we're on hit frame (within 5 pixels tolerance)
 				if abs(current_frame_x - hit_frame_x) < 5:
-					print("🔧 ANIMATION: Detected stuck on HIT frame (frame 3) during RECOVERY - forcing recovery frame")
+					push_warning("COMBAT ANIM: stuck on HIT frame during RECOVERY; forcing frame 4")
 					_set_combat_frame(4)  # Force recovery frame
 
 func can_attack() -> bool:
@@ -131,7 +136,7 @@ func can_attack() -> bool:
 
 # Event-driven attack system
 func request_attack(target: Node2D) -> void:
-	print("🔵 COMBAT: request_attack() called - state=%s, npc=%s, target=%s" % [
+	_combat_d("🔵 COMBAT: request_attack() called - state=%s, npc=%s, target=%s" % [
 		CombatState.keys()[state] if state < CombatState.size() else "INVALID",
 		"valid" if npc and is_instance_valid(npc) else "null/invalid",
 		"valid" if target and is_instance_valid(target) else "null/invalid"
@@ -140,20 +145,20 @@ func request_attack(target: Node2D) -> void:
 	# CRITICAL: Only allow attack requests when IDLE
 	# If in WINDUP or RECOVERY, reject the request (don't cancel - let current attack finish)
 	if state != CombatState.IDLE:
-		print("⚠️ COMBAT: Rejecting attack - not in IDLE state (state=%s). Current attack must finish first." % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		_combat_d("⚠️ COMBAT: Rejecting attack - not in IDLE state (state=%s). Current attack must finish first." % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		return  # Reject - already attacking, wait for current attack to complete
 	
 	if not npc or not is_instance_valid(target):
-		print("❌ COMBAT: Invalid npc or target")
+		_combat_e("COMBAT: Invalid npc or target")
 		return
 	
 	# Check range
 	var distance = npc.global_position.distance_to(target.global_position)
 	if distance > attack_range:
-		print("⚠️ COMBAT: Target out of range (distance=%.1f, range=%.1f)" % [distance, attack_range])
+		_combat_d("⚠️ COMBAT: Target out of range (distance=%.1f, range=%.1f)" % [distance, attack_range])
 		return
 	
-	print("✅ COMBAT: Starting attack - distance=%.1f, windup=%.2fs" % [distance, windup_time])
+	_combat_d("✅ COMBAT: Starting attack - distance=%.1f, windup=%.2fs" % [distance, windup_time])
 	
 	# Update attack profile from weapon (in case weapon changed)
 	_update_attack_profile_from_weapon()
@@ -170,30 +175,30 @@ func request_attack(target: Node2D) -> void:
 			default_sprite_texture = spr.texture
 	
 	# Update sprite to windup frame
-	print("🔵 COMBAT: Updating sprite to WINDUP frame")
+	_combat_d("🔵 COMBAT: Updating sprite to WINDUP frame")
 	_update_combat_sprite(CombatState.WINDUP)
 	
 	# Set combat lock (prevents FSM from switching states) - only for NPCs
 	if npc and npc.has_method("get") and npc.get("combat_locked") != null:
 		npc.combat_locked = true
-		print("🔒 COMBAT: Combat lock set")
+		_combat_d("🔒 COMBAT: Combat lock set")
 	
 	# Schedule hit event
 	var now = Time.get_ticks_msec()
 	var hit_time = now + int(windup_time * 1000)
 	var windup_ms = int(windup_time * 1000)
-	print("⏰ COMBAT: Scheduling hit event at %d (now=%d, windup=%dms, delay=%dms)" % [hit_time, now, windup_ms, hit_time - now])
+	_combat_d("⏰ COMBAT: Scheduling hit event at %d (now=%d, windup=%dms, delay=%dms)" % [hit_time, now, windup_ms, hit_time - now])
 	
 	# Create bound callable and verify it's valid
 	var hit_callable = _on_hit_frame.bind()
 	if not hit_callable.is_valid():
-		print("❌ COMBAT: Failed to create valid callable for hit frame!")
+		_combat_e("COMBAT: Failed to create valid callable for hit frame!")
 		_cancel_attack()
 		return
 	
-	print("✅ COMBAT: Hit frame callable is valid, scheduling...")
+	_combat_d("✅ COMBAT: Hit frame callable is valid, scheduling...")
 	CombatScheduler.schedule(hit_time, hit_callable, npc.get_instance_id())
-	print("✅ COMBAT: Hit event scheduled successfully")
+	_combat_d("✅ COMBAT: Hit event scheduled successfully")
 	
 	# Schedule mid-windup frame (frame 2) so animation plays instead of freezing on frame 1
 	var mid_windup_time = now + int(windup_time * 0.5 * 1000)
@@ -212,55 +217,53 @@ func request_attack(target: Node2D) -> void:
 
 func _on_windup_mid() -> void:
 	# Switch to frame 2 (mid-windup) so windup animates instead of freezing on frame 1
-	print("🎨 ANIMATION: _on_windup_mid() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+	_combat_d("🎨 ANIMATION: _on_windup_mid() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	if state != CombatState.WINDUP:
-		print("⚠️ ANIMATION: _on_windup_mid skipped - not in WINDUP state (state=%s)" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		_combat_d("⚠️ ANIMATION: _on_windup_mid skipped - not in WINDUP state (state=%s)" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		return  # Cancelled or already hit
 	if not npc or not is_instance_valid(npc):
-		print("⚠️ ANIMATION: _on_windup_mid skipped - npc invalid")
+		_combat_d("⚠️ ANIMATION: _on_windup_mid skipped - npc invalid")
 		return
-	print("🎨 ANIMATION: Updating to mid-windup frame (frame 2)")
+	_combat_d("🎨 ANIMATION: Updating to mid-windup frame (frame 2)")
 	_set_combat_frame(2)
 
 func _on_hit_frame() -> void:
-	print("============================================================")
-	print("🎯 COMBAT: _on_hit_frame() called")
-	print("   State: %s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
-	print("   NPC: %s" % ("valid" if npc and is_instance_valid(npc) else "INVALID"))
-	print("   Target: %s" % ("valid" if current_target and is_instance_valid(current_target) else "INVALID"))
-	print("   Windup start time: %d" % windup_start_time)
+	_combat_d("_on_hit_frame: state=%s windup_start_ms=%d" % [
+		CombatState.keys()[state] if state < CombatState.size() else "INVALID",
+		windup_start_time
+	])
 	
 	# CRITICAL: Must exit WINDUP state immediately
 	if state != CombatState.WINDUP:
-		print("⚠️ COMBAT: Hit frame called but not in WINDUP state (state=%s), cancelling" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		_combat_d("⚠️ COMBAT: Hit frame called but not in WINDUP state (state=%s), cancelling" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		_cancel_attack()
 		return
 	
 	if not is_instance_valid(current_target):
-		print("❌ COMBAT: Hit frame - target invalid, cancelling")
+		_combat_e("COMBAT: Hit frame - target invalid, cancelling")
 		_cancel_attack()
 		return
 	
 	if not npc or not is_instance_valid(npc):
-		print("❌ COMBAT: Hit frame - npc invalid, cancelling")
+		_combat_e("COMBAT: Hit frame - npc invalid, cancelling")
 		_cancel_attack()
 		return
 	
-	print("✅ COMBAT: Hit frame validation passed")
+	_combat_d("✅ COMBAT: Hit frame validation passed")
 	
-	print("🔵 COMBAT: Validating hit - target=%s, npc=%s" % [
+	_combat_d("🔵 COMBAT: Validating hit - target=%s, npc=%s" % [
 		"valid" if is_instance_valid(current_target) else "invalid",
 		"valid" if is_instance_valid(npc) else "invalid"
 	])
 	
 	# Validate hit (target still alive, in range)
-	print("🔍 COMBAT: Calling _validate_hit()...")
+	_combat_d("🔍 COMBAT: Calling _validate_hit()...")
 	var hit_valid = false
 	if current_target and is_instance_valid(current_target):
 		hit_valid = _validate_hit(current_target)
-		print("🔍 COMBAT: _validate_hit() returned: %s" % hit_valid)
+		_combat_d("🔍 COMBAT: _validate_hit() returned: %s" % hit_valid)
 	else:
-		print("❌ COMBAT: Target invalid before _validate_hit()!")
+		_combat_e("COMBAT: Target invalid before _validate_hit()!")
 		_cancel_attack()
 		return
 	
@@ -281,11 +284,11 @@ func _on_hit_frame() -> void:
 			elif current_target.is_in_group("player"):
 				tn = "Player"
 			pi.combat_whiff(nn, tn, whiff_reason)
-		print("❌ COMBAT: Hit validation failed")
+		_combat_d("COMBAT: Hit validation failed (whiff)")
 		# CRITICAL: Instead of cancelling, transition to RECOVERY to complete the attack cycle
 		# This prevents oscillation - caveman will complete recovery before next attack
 		if state == CombatState.WINDUP:
-			print("⚠️ COMBAT: Hit validation failed in WINDUP - transitioning to RECOVERY (whiff)")
+			_combat_d("⚠️ COMBAT: Hit validation failed in WINDUP - transitioning to RECOVERY (whiff)")
 			# Transition to RECOVERY instead of cancelling
 			state = CombatState.RECOVERY
 			recovery_start_time = Time.get_ticks_msec()
@@ -301,12 +304,12 @@ func _on_hit_frame() -> void:
 			var recovery_callable = _on_recovery_end.bind()
 			if recovery_callable.is_valid():
 				CombatScheduler.schedule(recovery_end_time, recovery_callable, npc.get_instance_id())
-				print("⏰ COMBAT: Scheduled whiff recovery end at %d (recovery=%.2fs)" % [recovery_end_time, whiff_recovery_time])
+				_combat_d("⏰ COMBAT: Scheduled whiff recovery end at %d (recovery=%.2fs)" % [recovery_end_time, whiff_recovery_time])
 		else:
-			print("⚠️ COMBAT: Hit validation failed but not in WINDUP (state=%s), allowing recovery to complete" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+			_combat_d("⚠️ COMBAT: Hit validation failed but not in WINDUP (state=%s), allowing recovery to complete" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		return
 	
-	print("✅ COMBAT: Hit validated, applying damage")
+	_combat_d("✅ COMBAT: Hit validated, applying damage")
 	
 	# Apply damage
 	# Check if target is a building (can be damaged)
@@ -320,7 +323,7 @@ func _on_hit_frame() -> void:
 				var nn: String = npc.get("npc_name") if npc.get("npc_name") != null else "unknown"
 				var ac_b: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
 				pi.combat_hit(nn, current_target.name if current_target else "building", ac_b, "", false)
-			print("⚔️ Building %s took %.1f damage" % [current_target.name if current_target else "unknown", building_damage])
+			_combat_d("⚔️ Building %s took %.1f damage" % [current_target.name if current_target else "unknown", building_damage])
 		# Transition to recovery (building attacks don't need full recovery)
 		state = CombatState.RECOVERY
 		recovery_start_time = Time.get_ticks_msec()
@@ -346,7 +349,7 @@ func _on_hit_frame() -> void:
 	else:
 		# Player - get weapon from slot 1 (right hand)
 		if not is_inside_tree():
-			print("❌ COMBAT: Not in scene tree, cannot get weapon")
+			_combat_e("COMBAT: Not in scene tree, cannot get weapon")
 			return
 		
 		var main: Node = get_tree().get_first_node_in_group("main")
@@ -363,19 +366,19 @@ func _on_hit_frame() -> void:
 						weapon_bonus = 0  # Player weapons don't give bonus yet (same as base damage)
 	
 	var total_damage = base_damage + weapon_bonus
-	print("💥 COMBAT: Applying damage - base=%d, bonus=%d, total=%d" % [base_damage, weapon_bonus, total_damage])
+	_combat_d("💥 COMBAT: Applying damage - base=%d, bonus=%d, total=%d" % [base_damage, weapon_bonus, total_damage])
 	
-	print("🔍 COMBAT: Getting HealthComponent from target...")
+	_combat_d("🔍 COMBAT: Getting HealthComponent from target...")
 	if not current_target or not is_instance_valid(current_target):
-		print("❌ COMBAT: Target invalid before getting HealthComponent!")
+		_combat_e("COMBAT: Target invalid before getting HealthComponent!")
 		_cancel_attack()
 		return
 	
 	var target_health: HealthComponent = current_target.get_node_or_null("HealthComponent")
-	print("🔍 COMBAT: HealthComponent lookup result: %s" % ("found" if target_health else "null"))
+	_combat_d("🔍 COMBAT: HealthComponent lookup result: %s" % ("found" if target_health else "null"))
 	
 	if target_health:
-		print("💥 COMBAT: Target health component found, applying damage")
+		_combat_d("💥 COMBAT: Target health component found, applying damage")
 		if is_instance_valid(target_health):
 			target_health.take_damage(total_damage, npc, weapon_type)
 			var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
@@ -392,63 +395,62 @@ func _on_hit_frame() -> void:
 				var ac_hit: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
 				var ff_hit: bool = CombatAllyCheck.is_ally(npc, current_target)
 				pi.combat_hit(nn, tn, ac_hit, tc_hit, ff_hit)
-			print("💥 COMBAT: Damage applied successfully")
+			_combat_d("💥 COMBAT: Damage applied successfully")
 		else:
-			print("❌ COMBAT: HealthComponent became invalid!")
+			_combat_e("COMBAT: HealthComponent became invalid!")
 			_cancel_attack()
 			return
 	else:
-		print("❌ COMBAT: Target health component not found!")
+		_combat_e("COMBAT: Target health component not found!")
 		_cancel_attack()
 		return
 	
 	# Apply stagger to target (if they have CombatComponent)
 	if stagger_time > 0.0 and current_target:
-		print("💥 COMBAT: Applying stagger (%.2fs)" % stagger_time)
+		_combat_d("💥 COMBAT: Applying stagger (%.2fs)" % stagger_time)
 		_apply_stagger_to_target(current_target)
 	
 	# CRITICAL: Exit WINDUP state immediately - transition to RECOVERY
 	state = CombatState.RECOVERY
 	recovery_start_time = Time.get_ticks_msec()  # Track recovery start for timeout detection
 	windup_start_time = 0  # Reset windup start time
-	print("🔄 COMBAT: State transition: WINDUP → RECOVERY")
+	_combat_d("🔄 COMBAT: State transition: WINDUP → RECOVERY")
 	
 	# Update sprite to hit/impact frame (frame 3)
-	print("🎨 ANIMATION: Updating sprite to HIT frame")
+	_combat_d("🎨 ANIMATION: Updating sprite to HIT frame")
 	_update_combat_sprite_hit()
 	var now = Time.get_ticks_msec()
 	
 	# Show hit frame briefly (0.15s for impact), then switch to recovery frame
 	var hit_display_duration = 150  # 0.15s to show hit frame (feels more impactful)
 	var hit_display_time = now + hit_display_duration
-	print("⏰ COMBAT: Scheduling hit frame display end at %d (duration=%dms)" % [hit_display_time, hit_display_duration])
+	_combat_d("⏰ COMBAT: Scheduling hit frame display end at %d (duration=%dms)" % [hit_display_time, hit_display_duration])
 	
 	var hit_display_callable = _on_hit_frame_display_end.bind()
 	if not hit_display_callable.is_valid():
-		print("❌ COMBAT: Invalid callable for hit_display_end!")
+		_combat_e("COMBAT: Invalid callable for hit_display_end!")
 		_cancel_attack()
 		return
 	CombatScheduler.schedule(hit_display_time, hit_display_callable, npc.get_instance_id())
-	print("✅ COMBAT: Hit display end scheduled")
+	_combat_d("✅ COMBAT: Hit display end scheduled")
 	
 	var recovery_end_time = now + int(recovery_time * 1000)
-	print("⏰ COMBAT: Scheduling recovery end at %d (recovery=%.2fs)" % [recovery_end_time, recovery_time])
+	_combat_d("⏰ COMBAT: Scheduling recovery end at %d (recovery=%.2fs)" % [recovery_end_time, recovery_time])
 	
 	var recovery_callable = _on_recovery_end.bind()
 	if not recovery_callable.is_valid():
-		print("❌ COMBAT: Invalid callable for recovery_end!")
+		_combat_e("COMBAT: Invalid callable for recovery_end!")
 		_cancel_attack()
 		return
 	CombatScheduler.schedule(recovery_end_time, recovery_callable, npc.get_instance_id())
-	print("✅ COMBAT: Recovery end scheduled")
-	print("============================================================")
+	_combat_d("✅ COMBAT: Recovery end scheduled")
 
 func _on_recovery_end() -> void:
-	print("🔄 COMBAT: _on_recovery_end() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+	_combat_d("🔄 COMBAT: _on_recovery_end() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
 	# Safety check: Only transition from RECOVERY to IDLE
 	if state != CombatState.RECOVERY:
-		print("⚠️ COMBAT: Recovery end called but not in RECOVERY state (state=%s), forcing to IDLE" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		push_warning("COMBAT: recovery_end not in RECOVERY state (state=%s), forcing to IDLE" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
 	state = CombatState.IDLE
 	current_target = null
@@ -459,21 +461,21 @@ func _on_recovery_end() -> void:
 	recovery_time = base_recovery_time
 	
 	# Reset sprite to default/idle
-	print("🎨 ANIMATION: Resetting sprite to IDLE/default")
+	_combat_d("🎨 ANIMATION: Resetting sprite to IDLE/default")
 	_update_combat_sprite(CombatState.IDLE)
 	
 	# Release combat lock - only for NPCs
 	if npc and npc.has_method("get") and npc.get("combat_locked") != null:
 		npc.combat_locked = false
-		print("🔓 COMBAT: Combat lock released")
+		_combat_d("🔓 COMBAT: Combat lock released")
 	
 	# Set cooldown timestamp to prevent immediate re-attack (prevents oscillation)
 	if npc:
 		var now = Time.get_ticks_msec()
 		npc.set_meta("last_attack_request_time", now)
-		print("⏱️ COMBAT: Attack cooldown set (prevents immediate re-attack)")
+		_combat_d("⏱️ COMBAT: Attack cooldown set (prevents immediate re-attack)")
 	
-	print("✅ COMBAT: Recovery complete, back to IDLE")
+	_combat_d("✅ COMBAT: Recovery complete, back to IDLE")
 	
 	# Debug logging (can be disabled for performance)
 	# var attacker_name = "Player"
@@ -483,7 +485,7 @@ func _on_recovery_end() -> void:
 
 func _cancel_attack() -> void:
 	var cancel_entity_id = npc.get_instance_id() if npc else 0
-	print("🚫 COMBAT: _cancel_attack() called - current_state=%s, entity_id=%d" % [CombatState.keys()[state] if state < CombatState.size() else "INVALID", cancel_entity_id])
+	_combat_d("🚫 COMBAT: _cancel_attack() called - current_state=%s, entity_id=%d" % [CombatState.keys()[state] if state < CombatState.size() else "INVALID", cancel_entity_id])
 	
 	# CRITICAL: Always return to IDLE, regardless of current state
 	state = CombatState.IDLE
@@ -492,7 +494,7 @@ func _cancel_attack() -> void:
 	recovery_start_time = 0  # Reset recovery start time
 	
 	# Reset sprite to default/idle
-	print("🎨 ANIMATION: Resetting sprite to IDLE (cancelled)")
+	_combat_d("🎨 ANIMATION: Resetting sprite to IDLE (cancelled)")
 	_update_combat_sprite(CombatState.IDLE)
 	
 	# CRITICAL: If default texture is null, force clear combat frame
@@ -500,7 +502,7 @@ func _cancel_attack() -> void:
 	if not default_sprite_texture:
 		var sprite: Sprite2D = npc.get_node_or_null("Sprite") if npc else null
 		if sprite and sprite.texture and sprite.texture is AtlasTexture:
-			print("🔧 ANIMATION: Default texture is null but sprite has AtlasTexture - clearing combat frame")
+			_combat_d("🔧 ANIMATION: Default texture is null but sprite has AtlasTexture - clearing combat frame")
 			# Try to restore from weapon component or use a fallback
 			var weapon_comp = npc.get_node_or_null("WeaponComponent") if npc else null
 			if weapon_comp and weapon_comp.has_method("_update_sprite_with_weapon"):
@@ -508,19 +510,19 @@ func _cancel_attack() -> void:
 			else:
 				# No weapon component - just clear the AtlasTexture
 				sprite.texture = null
-				print("⚠️ ANIMATION: Cleared sprite texture (no default or weapon texture available)")
+				_combat_d("⚠️ ANIMATION: Cleared sprite texture (no default or weapon texture available)")
 	
 	# Release combat lock - only for NPCs
 	if npc and npc.has_method("get") and npc.get("combat_locked") != null:
 		npc.combat_locked = false
-		print("🔓 COMBAT: Combat lock released (cancelled)")
+		_combat_d("🔓 COMBAT: Combat lock released (cancelled)")
 	
 	# Cancel scheduled events for this entity
 	if npc:
-		print("⏰ COMBAT: Cancelling all events for entity %d" % cancel_entity_id)
+		_combat_d("⏰ COMBAT: Cancelling all events for entity %d" % cancel_entity_id)
 		CombatScheduler.cancel_all_for_entity(cancel_entity_id)
 	
-	print("✅ COMBAT: Attack cancelled - state reset to IDLE")
+	_combat_d("✅ COMBAT: Attack cancelled - state reset to IDLE")
 
 func _validate_hit(target: Node) -> bool:
 	if not is_instance_valid(target):
@@ -626,7 +628,7 @@ func _apply_stagger_to_target(target: Node) -> void:
 	if target_combat.state == CombatState.WINDUP:
 		var attacker_id = npc.get_instance_id() if npc else 0
 		var target_id = target.get_instance_id() if target else 0
-		print("💥 COMBAT: Staggering target (attacker_id=%d, target_id=%d, target_combat=%s, self=%s)" % [attacker_id, target_id, target_combat, self])
+		_combat_d("💥 COMBAT: Staggering target (attacker_id=%d, target_id=%d, target_combat=%s, self=%s)" % [attacker_id, target_id, target_combat, self])
 		target_combat._cancel_attack()
 		# Debug logging (can be disabled for performance)
 		# print("⚔️ %s staggered %s (attack interrupted)" % [
@@ -652,7 +654,7 @@ func _apply_stagger_to_target(target: Node) -> void:
 		var recovery_callable = target_combat._on_recovery_end.bind()
 		if recovery_callable.is_valid():
 			CombatScheduler.schedule(new_recovery_end, recovery_callable, target.get_instance_id())
-			print("💥 COMBAT: Extended recovery for %s by %.2fs (new end time: %d)" % [target.get("npc_name") if target else "target", stagger_time, new_recovery_end])
+			_combat_d("💥 COMBAT: Extended recovery for %s by %.2fs (new end time: %d)" % [target.get("npc_name") if target else "target", stagger_time, new_recovery_end])
 		
 		# Store extended recovery time temporarily (will reset on recovery end)
 		target_combat.recovery_time = extended_recovery
@@ -702,7 +704,7 @@ func _update_attack_profile_from_weapon() -> void:
 	else:
 		# Player - get weapon from slot 1 (right hand)
 		if not is_inside_tree():
-			print("⚠️ COMBAT: Not in scene tree for weapon profile update")
+			_combat_d("⚠️ COMBAT: Not in scene tree for weapon profile update")
 			return
 		
 		var main: Node = get_tree().get_first_node_in_group("main")
@@ -729,27 +731,27 @@ func _load_attack_sprite_sheet() -> void:
 	if nt in ["sheep", "goat"]:
 		return  # Sheep and goats do not melee attack
 
-	print("🎨 ANIMATION: _load_attack_sprite_sheet() called")
+	_combat_d("🎨 ANIMATION: _load_attack_sprite_sheet() called")
 
 	# Load swingclub.png (4 frames: 3 cols x 2 rows)
 	var sprite_sheet_path = "res://assets/sprites/swingclub.png"
-	print("🎨 ANIMATION: Loading sprite sheet from: %s" % sprite_sheet_path)
+	_combat_d("🎨 ANIMATION: Loading sprite sheet from: %s" % sprite_sheet_path)
 	attack_sprite_sheet = load(sprite_sheet_path) as Texture2D
 	
 	if attack_sprite_sheet:
-		print("✅ ANIMATION: Sprite sheet loaded successfully")
+		_combat_d("✅ ANIMATION: Sprite sheet loaded successfully")
 		use_sprite_sheet_animation = true
 		var texture_width = attack_sprite_sheet.get_width()
 		var texture_height = attack_sprite_sheet.get_height()
-		print("🎨 ANIMATION: Texture dimensions - width=%d, height=%d" % [texture_width, texture_height])
+		_combat_d("🎨 ANIMATION: Texture dimensions - width=%d, height=%d" % [texture_width, texture_height])
 		
 		if texture_width > 0 and sprite_sheet_cols > 0 and texture_height > 0 and sprite_sheet_rows > 0:
 			sprite_sheet_frame_width = texture_width / sprite_sheet_cols
 			sprite_sheet_frame_height = texture_height / sprite_sheet_rows
-			print("✅ ANIMATION: Frame size: %dx%d (grid %dx%d)" % [sprite_sheet_frame_width, sprite_sheet_frame_height, sprite_sheet_cols, sprite_sheet_rows])
+			_combat_d("✅ ANIMATION: Frame size: %dx%d (grid %dx%d)" % [sprite_sheet_frame_width, sprite_sheet_frame_height, sprite_sheet_cols, sprite_sheet_rows])
 		else:
 			use_sprite_sheet_animation = false
-			print("❌ ANIMATION: Invalid sprite sheet dimensions")
+			_combat_e("ANIMATION: Invalid sprite sheet dimensions")
 			return
 		
 		# Store default sprite texture (important for restoring after combat)
@@ -757,29 +759,29 @@ func _load_attack_sprite_sheet() -> void:
 		if sprite:
 			if sprite.texture:
 				default_sprite_texture = sprite.texture
-				print("✅ ANIMATION: Default sprite texture stored")
+				_combat_d("✅ ANIMATION: Default sprite texture stored")
 			else:
-				print("⚠️ ANIMATION: Sprite has no texture to store as default")
+				_combat_d("⚠️ ANIMATION: Sprite has no texture to store as default")
 		else:
-			print("⚠️ ANIMATION: Sprite node not found")
+			_combat_d("⚠️ ANIMATION: Sprite node not found")
 	else:
 		use_sprite_sheet_animation = false
-		print("⚠️ ANIMATION: Sprite sheet not found: %s (using default sprites)" % sprite_sheet_path)
+		_combat_d("⚠️ ANIMATION: Sprite sheet not found: %s (using default sprites)" % sprite_sheet_path)
 
 func _set_combat_frame(frame_index: int) -> void:
 	# Internal helper: apply frame 1-4. Grid layout: 1=(0,0), 2=(1,0), 3=(2,0), 4=(0,1)
 	if not npc or not is_instance_valid(npc):
-		print("⚠️ ANIMATION: _set_combat_frame failed - npc invalid (frame=%d)" % frame_index)
+		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - npc invalid (frame=%d)" % frame_index)
 		return
 	if not use_sprite_sheet_animation or not attack_sprite_sheet or sprite_sheet_frame_width <= 0:
-		print("⚠️ ANIMATION: _set_combat_frame failed - sprite sheet not available (frame=%d)" % frame_index)
+		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - sprite sheet not available (frame=%d)" % frame_index)
 		return
 	if frame_index < 1 or frame_index > sprite_sheet_frame_count:
-		print("⚠️ ANIMATION: _set_combat_frame failed - invalid frame index %d (max=%d)" % [frame_index, sprite_sheet_frame_count])
+		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - invalid frame index %d (max=%d)" % [frame_index, sprite_sheet_frame_count])
 		return
 	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 	if not sprite or not is_instance_valid(sprite):
-		print("⚠️ ANIMATION: _set_combat_frame failed - sprite node invalid (frame=%d)" % frame_index)
+		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - sprite node invalid (frame=%d)" % frame_index)
 		return
 	# Map frame_index 1-4 to grid: (0,0), (1,0), (2,0), (0,1)
 	var col: int
@@ -799,26 +801,26 @@ func _set_combat_frame(frame_index: int) -> void:
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if npc.has_method("apply_sprite_offset_for_texture"):
 		npc.apply_sprite_offset_for_texture()
-	print("✅ ANIMATION: Frame %d applied successfully" % frame_index)
+	_combat_d("✅ ANIMATION: Frame %d applied successfully" % frame_index)
 
 func _update_combat_sprite(combat_state: CombatState) -> void:
-	print("🎨 ANIMATION: _update_combat_sprite() called - state=%s" % CombatState.keys()[combat_state] if combat_state < CombatState.size() else "INVALID")
+	_combat_d("🎨 ANIMATION: _update_combat_sprite() called - state=%s" % CombatState.keys()[combat_state] if combat_state < CombatState.size() else "INVALID")
 	
 	if not npc or not is_instance_valid(npc):
-		print("❌ ANIMATION: npc invalid")
+		_combat_e("ANIMATION: npc invalid")
 		return
 	
 	if not use_sprite_sheet_animation or not attack_sprite_sheet:
-		print("⚠️ ANIMATION: Sprite sheet not available (use_sheet=%s, texture=%s)" % [use_sprite_sheet_animation, "valid" if attack_sprite_sheet else "null"])
+		_combat_d("⚠️ ANIMATION: Sprite sheet not available (use_sheet=%s, texture=%s)" % [use_sprite_sheet_animation, "valid" if attack_sprite_sheet else "null"])
 		return
 	
 	if sprite_sheet_frame_width <= 0:
-		print("❌ ANIMATION: Invalid frame width (%d)" % sprite_sheet_frame_width)
+		_combat_e("ANIMATION: Invalid frame width (%d)" % sprite_sheet_frame_width)
 		return
 	
 	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 	if not sprite or not is_instance_valid(sprite):
-		print("❌ ANIMATION: Sprite node invalid")
+		_combat_e("ANIMATION: Sprite node invalid")
 		return
 	
 	# If IDLE, restore default texture instead
@@ -834,14 +836,14 @@ func _update_combat_sprite(combat_state: CombatState) -> void:
 		
 		if is_dead:
 			# NPC is dead - don't restore sprite, keep corpse sprite
-			print("💀 ANIMATION: NPC is dead, keeping corpse sprite (not restoring default)")
+			_combat_d("💀 ANIMATION: NPC is dead, keeping corpse sprite (not restoring default)")
 			return
 		
 		if default_sprite_texture:
 			sprite.texture = default_sprite_texture
 			if npc.has_method("apply_sprite_offset_for_texture"):
 				npc.apply_sprite_offset_for_texture()
-			print("✅ ANIMATION: Restored default sprite texture")
+			_combat_d("✅ ANIMATION: Restored default sprite texture")
 		else:
 			# Default texture is null - try to restore from weapon component
 			var weapon_comp = npc.get_node_or_null("WeaponComponent") if npc else null
@@ -906,23 +908,23 @@ func _flash_sprite_fallback() -> void:
 
 func _on_hit_frame_display_end() -> void:
 	# Switch from hit frame to recovery frame
-	print("🎨 ANIMATION: _on_hit_frame_display_end() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+	_combat_d("🎨 ANIMATION: _on_hit_frame_display_end() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
 	if not npc or not is_instance_valid(npc):
-		print("❌ ANIMATION: npc invalid in hit_frame_display_end")
+		_combat_e("ANIMATION: npc invalid in hit_frame_display_end")
 		return
 	
 	# CRITICAL: Always switch to recovery frame if in RECOVERY state
 	# This prevents getting stuck on HIT frame (frame 3)
 	if state == CombatState.RECOVERY:
-		print("🎨 ANIMATION: Switching to RECOVERY frame (frame 4)")
+		_combat_d("🎨 ANIMATION: Switching to RECOVERY frame (frame 4)")
 		_update_combat_sprite(CombatState.RECOVERY)
 	else:
-		print("⚠️ ANIMATION: Not in RECOVERY state, skipping frame update (state=%s)" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		_combat_d("⚠️ ANIMATION: Not in RECOVERY state, skipping frame update (state=%s)" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		# If we're somehow not in RECOVERY but this was called, force recovery frame anyway
 		# This is a safety net to prevent stuck frames
 		if state == CombatState.IDLE:
-			print("🔧 ANIMATION: State is IDLE but hit_frame_display_end called - attack may have been cancelled")
+			_combat_d("🔧 ANIMATION: State is IDLE but hit_frame_display_end called - attack may have been cancelled")
 		else:
-			print("🔧 ANIMATION: Forcing recovery frame update despite state mismatch")
+			_combat_d("🔧 ANIMATION: Forcing recovery frame update despite state mismatch")
 			_set_combat_frame(4)  # Force frame 4 (recovery) to prevent stuck on frame 3

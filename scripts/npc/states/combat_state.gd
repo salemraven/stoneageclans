@@ -91,12 +91,11 @@ func enter() -> void:
 			var name_val = npc.get("npc_name")
 			if name_val != null:
 				npc_name_safe = str(name_val)
-		print("⚔️ %s entering COMBAT state (target: %s, npc_clan: %s, target_clan: %s)" % [
-			npc_name_safe,
-			target_name,
-			npc_clan,
-			target_clan
-		])
+		UnifiedLogger.log(
+			"COMBAT state enter: %s target=%s clans=%s/%s" % [npc_name_safe, target_name, npc_clan, target_clan],
+			UnifiedLogger.Category.COMBAT,
+			UnifiedLogger.Level.DEBUG
+		)
 		if npc:
 			npc.set_meta("last_combat_entry_logged", combat_target)
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
@@ -142,10 +141,16 @@ func exit() -> void:
 			var name_value = npc.get("npc_name")
 			if name_value != null:
 				npc_name_str = str(name_value)
-		print("⚔️ %s exiting COMBAT state" % npc_name_str)
+		UnifiedLogger.log("COMBAT state exit: %s" % npc_name_str, UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.DEBUG)
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled():
 			pi.combat_ended(npc_name_str, "unknown")
+		# Hunt party: resume hunt state for return journey (raid pattern; hunt priority < combat)
+		if npc.get_meta("hunt_after_combat", false) == true:
+			npc.set_meta("hunt_after_combat", false)
+			if fsm:
+				fsm.change_state("hunt")
+			return
 
 func update(_delta: float) -> void:
 	if not npc:
@@ -600,7 +605,7 @@ func can_enter() -> bool:
 	if DebugConfig and DebugConfig.get("enable_agro_combat_test") and raid_allow and ordered and h != null and is_instance_valid(h) and not hostile:
 		if not _raid_blocked_logged:
 			_raid_blocked_logged = true
-			print("⚠️ COMBAT: raid path blocked (is_hostile=false) — set npc.is_hostile when command_context.is_hostile")
+			push_warning("COMBAT: raid path blocked (is_hostile=false) — set npc.is_hostile when command_context.is_hostile")
 	if raid_ok:
 		# Agro combat test: use boosted range via get_combat_target_candidates so followers engage sooner
 		var radius: float = 300.0
