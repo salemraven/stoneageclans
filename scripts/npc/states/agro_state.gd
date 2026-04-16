@@ -30,9 +30,33 @@ func _safe_wildnpc_name(wildnpc: Node2D) -> String:
 	var n: Variant = wildnpc.get("npc_name")
 	return str(n) if n != null else str(wildnpc.name)
 
+## Drop freed-node refs so FSM does not re-enter agro recover every evaluation (spam + job-cancel loops).
+func _sanitize_agro_refs_on_npc() -> void:
+	if not npc:
+		return
+	var lw: Variant = npc.get("lost_wildnpc")
+	if lw != null and not is_instance_valid(lw):
+		npc.set("lost_wildnpc", null)
+	var at: Variant = npc.get("agro_target")
+	if at != null and not is_instance_valid(at):
+		npc.set("agro_target", null)
+
+## Console only; keeps UnifiedLogger entries unchanged. key should be unique per message class.
+func _agro_console_throttled(key: String, min_interval_sec: float) -> bool:
+	if not npc:
+		return true
+	var now_sec: float = Time.get_ticks_msec() / 1000.0
+	var meta_key: String = "agro_console_" + key
+	var last: float = float(npc.get_meta(meta_key, -99999.0))
+	if now_sec - last < min_interval_sec:
+		return false
+	npc.set_meta(meta_key, now_sec)
+	return true
+
 func enter() -> void:
 	if not npc:
 		return
+	_sanitize_agro_refs_on_npc()
 	
 	# Task System - Step 18: Cancel current job when entering agro
 	_cancel_tasks_if_active()
@@ -92,7 +116,8 @@ func enter() -> void:
 	if is_land_claim_defense:
 		# Land claim defense - push intruder out (agro_target can be player - no npc_name)
 		var intruder_name: String = _safe_target_name(agro_target)
-		print("Caveman %s entering AGRO state (land claim defense), pushing intruder %s out" % [npc.npc_name, intruder_name])
+		if _agro_console_throttled("defend_enter", 2.0):
+			print("Caveman %s entering AGRO state (land claim defense), pushing intruder %s out" % [npc.npc_name, intruder_name])
 		
 		# Log agro state entry
 		UnifiedLogger.log("Caveman agro triggered: entered_agro_land_claim_defense (target: %s, level: %.1f)" % [intruder_name, npc.agro_meter if npc else 0.0], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.INFO, {
@@ -113,7 +138,9 @@ func enter() -> void:
 			var _nname_safe: String = str(_nname) if _nname != null else "unknown"
 			var _agro = npc.get("agro_meter") if npc else null
 			var _agro_val: float = _agro as float if _agro != null else 0.0
-			print("Caveman %s entering AGRO RECOVER state, trying to get wild NPC %s back" % [_nname_safe, wildnpc_name])
+			var throttle_key: String = "recover_enter_%s" % str(lost_wildnpc.get_instance_id())
+			if _agro_console_throttled(throttle_key, 3.0):
+				print("Caveman %s entering AGRO RECOVER state, trying to get wild NPC %s back" % [_nname_safe, wildnpc_name])
 			approach_mode = true
 			
 			# Log agro state entry
@@ -124,15 +151,20 @@ func enter() -> void:
 				"agro_meter": "%.1f" % _agro_val
 			})
 		else:
-			print("Caveman %s entering AGRO RECOVER state, no lost wild NPC found" % npc.npc_name)
+			if _agro_console_throttled("recover_no_target", 3.0):
+				print("Caveman %s entering AGRO RECOVER state, no lost wild NPC found" % npc.npc_name)
 
 func exit() -> void:
 	_cancel_tasks_if_active()
 	if npc:
-		print("Caveman %s exiting AGRO state" % npc.npc_name)
+		if _agro_console_throttled("exit_state", 2.0):
+			print("Caveman %s exiting AGRO state" % npc.npc_name)
 		# Hide hostile indicator
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
+		# Clear NPC props so wander/gather + priority do not immediately re-select agro recover.
+		npc.set("lost_wildnpc", null)
+		npc.set("agro_target", null)
 	# Clear references
 	lost_wildnpc = null
 	agro_target = null
@@ -503,7 +535,7 @@ func update(delta: float) -> void:
 	if lost_wildnpc.has_method("get_stat"):
 		var pval = lost_wildnpc.get_stat("perception")
 		wildnpc_perception = (pval as float) if pval != null else 50.0
-	var perception_range: float = wildnpc_perception * 20.0 * 1.5  # Wild NPC's perception range
+	var _perception_range: float = wildnpc_perception * 20.0 * 1.5  # Reserved for tuning approach bands
 	
 	# Calculate distance to wild NPC
 	var distance_to_wildnpc: float = npc.global_position.distance_to(lost_wildnpc.global_position)
@@ -515,7 +547,8 @@ func update(delta: float) -> void:
 		if distance_to_wildnpc < approach_distance:
 			# Close enough, switch to retreat
 			approach_mode = false
-			print("Caveman %s reached approach distance (%.1fpx), retreating from wild NPC" % [npc.npc_name, distance_to_wildnpc])
+			if _agro_console_throttled("approach_toggle", 4.0):
+				print("Caveman %s reached approach distance (%.1fpx), retreating from wild NPC" % [npc.npc_name, distance_to_wildnpc])
 		else:
 			# Move towards wild NPC
 			if npc.steering_agent:
@@ -525,7 +558,8 @@ func update(delta: float) -> void:
 		if distance_to_wildnpc > retreat_distance:
 			# Far enough, switch to approach
 			approach_mode = true
-			print("Caveman %s reached retreat distance (%.1fpx), approaching wild NPC" % [npc.npc_name, distance_to_wildnpc])
+			if _agro_console_throttled("retreat_toggle", 4.0):
+				print("Caveman %s reached retreat distance (%.1fpx), approaching wild NPC" % [npc.npc_name, distance_to_wildnpc])
 		else:
 			# Move away from wild NPC
 			if npc.steering_agent:
@@ -536,6 +570,7 @@ func update(delta: float) -> void:
 func can_enter() -> bool:
 	if not npc:
 		return false
+	_sanitize_agro_refs_on_npc()
 	
 	# CRITICAL: Cannot enter agro while following - following takes priority
 	if _is_following():
@@ -576,7 +611,10 @@ func can_enter() -> bool:
 		}, UnifiedLogger.Level.DEBUG)
 		return false
 	
-	var lost_wildnpc_name: String = _safe_wildnpc_name(lost_wildnpc) if lost_wildnpc else ""
+	var lw_log: Variant = npc.get("lost_wildnpc")
+	var lost_wildnpc_name: String = ""
+	if lw_log != null and is_instance_valid(lw_log):
+		lost_wildnpc_name = _safe_wildnpc_name(lw_log as Node2D)
 	UnifiedLogger.log_npc("Can enter check: %s can enter agro (agro_meter)" % npc_name, {
 		"npc": npc_name,
 		"state": "agro",
@@ -594,6 +632,7 @@ func get_priority() -> float:
 	# 2. Agro Recover: Lost wild NPC recovery (always priority 10.0, NOT resource-dependent)
 	
 	if npc:
+		_sanitize_agro_refs_on_npc()
 		var nt = npc.get("npc_type") if npc else null
 		var npc_type: String = (nt as String) if nt != null else ""
 		if npc_type == "caveman":
