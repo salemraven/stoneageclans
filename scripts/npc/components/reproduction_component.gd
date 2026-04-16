@@ -150,6 +150,9 @@ func _father_eligible_for_current_pregnancy(father: Node) -> bool:
 	var hcomp = father.get_node_or_null("HealthComponent")
 	if hcomp and hcomp.is_dead:
 		return false
+	# Player has no `clan_name` property — only get_clan_name(). _is_npc_in_land_claim() would always fail.
+	if father.is_in_group("player"):
+		return _is_player_in_land_claim()
 	if not _is_npc_in_land_claim(father as Node2D):
 		return false
 	return true
@@ -645,6 +648,10 @@ func _spawn_baby() -> void:
 			clan_name_final = npc.get("clan_name")
 	
 	print("✓ REPRODUCTION: %s gave birth to baby (clan: %s)" % [npc_name_final, clan_name_final])
+	if npc and npc.get_meta("repro_harness_diag", false):
+		var main_n: Node = tree.get_first_node_in_group("main")
+		if main_n and main_n.has_method("_repro_harness_on_birth"):
+			main_n._repro_harness_on_birth()
 
 func get_pregnancy_status() -> Dictionary:
 	# Return pregnancy status for UI/debug

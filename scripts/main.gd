@@ -47,6 +47,10 @@ const CORPSE_DESPAWN_SEC: float = 120.0  # Corpse despawns after this many secon
 var butcher_start_pos: Vector2 = Vector2.ZERO
 const BUTCHER_MOVE_CANCEL: float = 20.0
 
+## Throttled HUD hint for gather / inventory issues (avoids spam when many nodes overlap)
+var _gather_feedback_last_sec: float = -1000.0
+const GATHER_FEEDBACK_THROTTLE_SEC := 0.65
+
 var player_inventory_ui: PlayerInventoryUI = null
 var building_inventory_ui: BuildingInventoryUI = null
 var npc_inventory_ui: NPCInventoryUI = null
@@ -128,6 +132,13 @@ const DROPDOWN_MENU_UI_SCRIPT = preload("res://scripts/ui/dropdown_menu_ui.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
 ## F5 / --rts-playtest-spawn: isolated player claim + 5 clansmen (matches horn / stance / DEFEND tests)
 const RTS_PLAYTEST_CLAN_NAME := "RTS PLAYTEST"
+## --repro-harness: headless player claim + woman + Living Hut; exits 0 after 2 births (validates Player father fix).
+const REPRO_HARNESS_CLAN_NAME := "REPRO_HARNESS"
+var _repro_harness_active: bool = false
+var _repro_harness_birth_count: int = 0
+var _repro_harness_start_time: float = -1.0
+var _repro_harness_preg_backup: float = -1.0
+var _repro_harness_cool_backup: float = -1.0
 
 # Building placement duration (seconds) - pie timer on slot icon
 const BUILDING_PLACEMENT_DURATION := 1.5
@@ -498,6 +509,8 @@ func _ready() -> void:
 	if pi and pi.has_method("is_playtest_timed") and pi.is_playtest_timed():
 		_playtest_2min_start_time = Time.get_ticks_msec() / 1000.0
 
+	call_deferred("_reproduction_harness_begin_deferred")
+
 func _connect_emergency_defend_horns() -> void:
 	"""Connect emergency_defend_triggered signal on all player-owned land claims."""
 	var claims = get_tree().get_nodes_in_group("land_claims")
@@ -620,6 +633,21 @@ func _update_formation_slots() -> void:
 func _process(delta: float) -> void:
 	if not player:
 		return
+	# Reproduction harness: two births = pass (Player as designated father must stay eligible — see reproduction_component _father_eligible).
+	if _repro_harness_active:
+		var nowh: float = Time.get_ticks_msec() / 1000.0
+		if _repro_harness_birth_count >= 2:
+			print("REPRO_HARNESS_PASS: two births observed (Player father path OK)")
+			_reproduction_harness_restore_balance()
+			_repro_harness_active = false
+			get_tree().quit(0)
+			return
+		if (nowh - _repro_harness_start_time) > 90.0:
+			push_error("REPRO_HARNESS_FAIL: timeout after 90s (birth_count=%d, need 2)" % _repro_harness_birth_count)
+			_reproduction_harness_restore_balance()
+			_repro_harness_active = false
+			get_tree().quit(1)
+			return
 	# Ground items call queue_free() after pickup without always clearing this ref first — stale
 	# freed nodes break distance checks and block Space on berry bushes / trees.
 	if active_collection_resource != null and not is_instance_valid(active_collection_resource):
@@ -2488,6 +2516,10 @@ func _get_player_land_claim_any() -> LandClaim:
 
 func _get_player_clan_name() -> String:
 	"""Clan identity from any player-owned territory (flag or campfire). No proximity check."""
+	if player and player.has_method("get_clan_name"):
+		var from_player: String = player.get_clan_name()
+		if from_player != "":
+			return from_player
 	var land_claims := get_tree().get_nodes_in_group("land_claims")
 	for claim in land_claims:
 		if not is_instance_valid(claim):
@@ -2611,20 +2643,27 @@ func add_building_item_to_player_inventory(building_type: ResourceData.ResourceT
 	print("Main: Player inventory full!")
 	return false
 
-func add_to_inventory(type: ResourceData.ResourceType, amount: int = 1) -> void:
+func show_gather_feedback(message: String) -> void:
+	var t: float = Time.get_ticks_msec() / 1000.0
+	if t - _gather_feedback_last_sec < GATHER_FEEDBACK_THROTTLE_SEC:
+		return
+	_gather_feedback_last_sec = t
+	_show_placement_warning(message)
+
+func add_to_inventory(type: ResourceData.ResourceType, amount: int = 1) -> bool:
 	if not player_inventory_ui:
 		push_warning("add_to_inventory: no PlayerInventoryUI (DragManager failed?) — item not stored: %s" % ResourceData.get_resource_name(type))
-		return
+		return false
+	var ok: bool
 	if ResourceData.is_food(type):
-		var ok: bool = player_inventory_ui.add_item_preferring_food_slots(type, amount)
-		if not ok:
-			push_warning("Inventory full — could not add %s" % ResourceData.get_resource_name(type))
+		ok = player_inventory_ui.add_item_preferring_food_slots(type, amount)
 	else:
-		var ok2: bool = player_inventory_ui.add_item(type, amount)
-		if not ok2:
-			push_warning("Inventory full — could not add %s" % ResourceData.get_resource_name(type))
+		ok = player_inventory_ui.add_item(type, amount)
+	if not ok:
+		show_gather_feedback("Inventory full — make space or deposit items.")
 	if player_inventory_ui.is_open:
 		player_inventory_ui._update_all_slots()
+	return ok
 
 func is_axe_equipped() -> bool:
 	if not player_inventory_ui:
@@ -3118,6 +3157,106 @@ func _debug_spawn_test_npcs() -> void:
 		npc.set("spawn_position", pos)
 		npc.visible = true
 		print("✓ F4: Spawned Wild Woman %s at %s" % [name_w, pos])
+
+func _reproduction_harness_begin_deferred() -> void:
+	if not _cmdline_has("--repro-harness"):
+		return
+	if OS.get_name() == "Web":
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await _reproduction_harness_run()
+
+
+func _reproduction_harness_restore_balance() -> void:
+	if BalanceConfig and _repro_harness_preg_backup >= 0.0:
+		BalanceConfig.pregnancy_seconds = _repro_harness_preg_backup
+		BalanceConfig.birth_cooldown_seconds = _repro_harness_cool_backup
+	_repro_harness_preg_backup = -1.0
+	_repro_harness_cool_backup = -1.0
+
+
+func _repro_harness_on_birth() -> void:
+	_repro_harness_birth_count += 1
+	print("REPRO_HARNESS: observed birth #%d" % _repro_harness_birth_count)
+
+
+func _reproduction_harness_run() -> void:
+	print("═══════════════════════════════════════════════════════════")
+	print("REPRO_HARNESS: claim + woman + Living Hut; Player = designated father")
+	if not player or not world_objects:
+		push_error("REPRO_HARNESS_FAIL: missing player or world_objects")
+		get_tree().quit(1)
+		return
+	_repro_harness_active = true
+	_repro_harness_birth_count = 0
+	_repro_harness_start_time = Time.get_ticks_msec() / 1000.0
+	if BalanceConfig:
+		_repro_harness_preg_backup = BalanceConfig.pregnancy_seconds
+		_repro_harness_cool_backup = BalanceConfig.birth_cooldown_seconds
+		BalanceConfig.pregnancy_seconds = 4.0
+		BalanceConfig.birth_cooldown_seconds = 2.0
+		print("REPRO_HARNESS: pregnancy=%.1fs cooldown=%.1fs (restored on exit)" % [
+			BalanceConfig.pregnancy_seconds, BalanceConfig.birth_cooldown_seconds
+		])
+	var hub_pos := Vector2(12000.0, 12000.0)
+	player.global_position = hub_pos
+	if camera:
+		camera.global_position = hub_pos
+	if world:
+		world.ensure_chunks_for_position(hub_pos)
+	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
+	if not land_claim:
+		push_error("REPRO_HARNESS_FAIL: LandClaim instantiate failed")
+		get_tree().quit(1)
+		return
+	land_claim.global_position = hub_pos
+	land_claim.set_clan_name(REPRO_HARNESS_CLAN_NAME)
+	land_claim.player_owned = true
+	if not land_claim.inventory:
+		land_claim.inventory = _new_land_claim_inventory()
+	world_objects.add_child(land_claim)
+	_despawn_tallgrass_near(hub_pos, land_claim.radius)
+	_despawn_decorative_trees_near(hub_pos, land_claim.radius)
+	register_land_claim(land_claim)
+	land_claim.visible = true
+	_set_player_name(REPRO_HARNESS_CLAN_NAME)
+	player.global_position = hub_pos
+	await get_tree().process_frame
+	var woman_pos: Vector2 = hub_pos + Vector2(50.0, 0.0)
+	var woman: Node = NPC_SCENE.instantiate()
+	if not woman:
+		push_error("REPRO_HARNESS_FAIL: woman instantiate failed")
+		get_tree().quit(1)
+		return
+	var wname: String = "HARNESS_W"
+	woman.set("npc_name", wname)
+	woman.set("npc_type", "woman")
+	woman.set("traits", ["herd"])
+	woman.set("age", 25)
+	var sp_w: Sprite2D = woman.get_node_or_null("Sprite")
+	if sp_w:
+		var tex_w: Texture2D = AssetRegistry.get_woman_sprite()
+		if tex_w:
+			sp_w.texture = tex_w
+			sp_w.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			sp_w.visible = true
+			if woman.has_method("apply_sprite_offset_for_texture"):
+				woman.apply_sprite_offset_for_texture()
+	world_objects.add_child(woman)
+	woman.global_position = woman_pos
+	woman.set("spawn_position", woman_pos)
+	woman.set_meta("repro_harness_diag", true)
+	if woman.has_method("set_clan_name"):
+		woman.set_clan_name(REPRO_HARNESS_CLAN_NAME, "repro_harness")
+	else:
+		woman.set("clan_name", REPRO_HARNESS_CLAN_NAME)
+	woman.visible = true
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_place_herder_hut(land_claim, woman, player)
+	print("REPRO_HARNESS: waiting for 2 births (max 90s). Player in claim + designated father = Player.")
+
 
 func _spawn_rts_playtest_pack_async() -> void:
 	await _spawn_rts_playtest_pack()
