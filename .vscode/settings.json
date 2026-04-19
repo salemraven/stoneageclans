@@ -1,7 +1,7 @@
 {
-  // godot-tools joins workspace root + this string. NEVER use ${workspaceFolder} here (invalid path).
+  // godot-tools: path to Godot 4 binary (geeqlim.godot-tools). macOS default below; Windows devs: tools/godot/Godot_v4.6.1-stable_win64.exe
   // Run task "Godot: Verify Cursor/VS Code setup" after changing this file or tools/godot/godot.cmd
-  "godotTools.editorPath.godot4": "tools/godot/Godot_v4.6.1-stable_win64.exe",
+  "godotTools.editorPath.godot4": "/Applications/Godot.app/Contents/MacOS/Godot",
   "godotTools.lsp.headless": true,
   "godotTools.lsp.autoReconnect.enabled": true,
   "godotTools.editor.revealTerminal": false,

@@ -1,0 +1,534 @@
+[2026-04-18T17:25:19] [DEBUG] [DEBUG] CombatScheduler initialized
+[2026-04-18T17:25:19] [DEBUG] [DEBUG] CombatScheduler _process enabled
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: _load_attack_sprite_sheet() called
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: Loading sprite sheet from: res://assets/sprites/swingclub.png
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] ✅ ANIMATION: Sprite sheet loaded successfully
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: Texture dimensions - width=840, height=560
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] ✅ ANIMATION: Frame size: 280x280 (grid 3x2)
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] ✅ ANIMATION: Default sprite texture stored
+[2026-04-18T17:25:19] [INFO] [SYSTEM] Main._ready() called
+[2026-04-18T17:25:19] [INFO] [SYSTEM] Camera set as current
+[2026-04-18T17:25:19] [INFO] [SYSTEM] World chunks initialized for player position
+[2026-04-18T17:25:19] [INFO] [SYSTEM] NodeCache created and initialized
+[2026-04-18T17:25:19] [DEBUG] [SYSTEM] PerceptionArea init: parent_layer=1 collision_mask=3 radius=380 npc=QS_A
+[2026-04-18T17:25:19] [INFO] [SYSTEM] REPRODUCTION_INIT: Initializing reproduction component npc=QS_A npc_valid=true clan=TEST
+[2026-04-18T17:25:19] [INFO] [SYSTEM] REPRODUCTION_INIT: Successfully initialized for QS_A npc=QS_A clan=TEST
+[2026-04-18T17:25:19] [INFO] [SYSTEM] REPRODUCTION_INIT: Initializing reproduction component npc=QS_A npc_valid=true clan=TEST
+[2026-04-18T17:25:19] [INFO] [SYSTEM] REPRODUCTION_INIT: Successfully initialized for QS_A npc=QS_A clan=TEST
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: _load_attack_sprite_sheet() called
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: Loading sprite sheet from: res://assets/sprites/swingclub.png
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] ✅ ANIMATION: Sprite sheet loaded successfully
+[2026-04-18T17:25:19] [DEBUG] [COMBAT] 🎨 ANIMATION: Texture dimensions - width=840, height=560
+[2026-04-18T17:25:19] [INFO] [NPC] NPC initialized at (0.0, 0.0) (sprite: found) npc=QS_A pos=0.0,0.0 sprite=found
+[2026-04-18T17:25:19] [INFO] [NPC] NPC inventory initialized: 10 slots (started with 1 berry) npc=QS_A slot_count=10 starting_item=berries
+[2026-04-18T17:25:19] [DEBUG] [NPC] Hunger changed: 100.0% → 100.0% (depletion) npc=QS_A old_hunger=100.0% new_hunger=100.0% change=-0.0% reason=depletion deplete_rate=1.00/min
+[2026-04-18T17:25:19] [DEBUG] [NPC] Steering behavior: WANDER - center npc=QS_A behavior=WANDER target=center position=0.0,0.0 radius=320.0
+[2026-04-18T17:25:19] [INFO] [NPC] POSITION: QS_A at (-50.0, -80.0), state=wander, distance_to_claim=94.3/400.0, velocity=20.0 npc=QS_A pos=-50.0,-80.0 state=wander distance_to_claim=94.3 claim_radius=400.0 velocity=20.0
+[2026-04-18T17:25:19] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=wander pos=-50.0,-80.0 vel=16.1,16.8 spd=23.3 task_mv=false idle_brk=false steer_used=true des_vel=19.3,73.5 mode=WANDER tgt=0.0,0.0 w_ctr=-50.0,-80.0 w_rad=320 stuck_s=0.00 path_try=0
+[2026-04-18T17:25:19] [INFO] [SYSTEM] REPRODUCTION_INIT: Initializing reproduction component npc=QS_B npc_valid=true clan=TEST
+[2026-04-18T17:25:19] [INFO] [NPC] NPC initialized at (0.0, 0.0) (sprite: found) npc=QS_B pos=0.0,0.0 sprite=found
+[2026-04-18T17:25:19] [INFO] [NPC] NPC inventory initialized: 10 slots (started with 1 berry) npc=QS_B slot_count=10 starting_item=berries
+[2026-04-18T17:25:19] [DEBUG] [NPC] Hunger changed: 100.0% → 100.0% (depletion) npc=QS_B old_hunger=100.0% new_hunger=100.0% change=-0.0% reason=depletion deplete_rate=1.00/min
+[2026-04-18T17:25:19] [DEBUG] [NPC] Steering behavior: WANDER - center npc=QS_B behavior=WANDER target=center position=0.0,0.0 radius=320.0
+[2026-04-18T17:25:19] [INFO] [NPC] POSITION: QS_B at (-50.0, 80.0), state=wander, distance_to_claim=94.3/400.0, velocity=20.0 npc=QS_B pos=-50.0,80.0 state=wander distance_to_claim=94.3 claim_radius=400.0 velocity=20.0
+[2026-04-18T17:25:19] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=wander pos=-50.0,80.0 vel=-16.1,8.3 spd=18.1 task_mv=false idle_brk=false steer_used=true des_vel=-25.5,-71.6 mode=WANDER tgt=0.0,0.0 w_ctr=-50.0,80.0 w_rad=320 stuck_s=0.00 path_try=0
+[2026-04-18T17:25:20] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-38.3,-61.9 vel=25.0,39.2 spd=46.5 task_mv=false idle_brk=false steer_used=true des_vel=40.9,64.1 mode=WANDER tgt=0.0,0.0 w_ctr=-38.3,-61.9 w_rad=320 stuck_s=0.50 path_try=0
+[2026-04-18T17:25:20] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-58.3,76.6 vel=-16.3,-8.2 spd=18.3 task_mv=false idle_brk=false steer_used=true des_vel=-67.9,-34.2 mode=WANDER tgt=0.0,0.0 w_ctr=-58.3,76.6 w_rad=320 stuck_s=0.50 path_try=0
+[2026-04-18T17:25:20] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-28.7,-46.9 vel=13.2,20.7 spd=24.5 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=0.0,0.0 w_ctr=-28.7,-46.9 w_rad=320 stuck_s=1.02 path_try=0
+[2026-04-18T17:25:20] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - flee_combat (priority=13.0, can_enter=false) npc=QS_B state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_B state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - combat (priority=12.0, can_enter=false) npc=QS_B state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - herd (priority=11.0, can_enter=false) npc=QS_B state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_B - raid (priority=8.5, can_enter=false) npc=QS_B state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:20] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_B best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:20] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-66.0,54.6 vel=-19.1,-66.0 spd=68.7 task_mv=false idle_brk=false steer_used=true des_vel=-21.1,-73.0 mode=WANDER tgt=0.0,0.0 w_ctr=-66.0,54.6 w_rad=320 stuck_s=1.02 path_try=0
+[2026-04-18T17:25:20] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:20] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:21] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-23.2,-37.5 vel=-6.4,13.2 spd=14.7 task_mv=false idle_brk=false steer_used=true des_vel=-75.9,-3.5 mode=WANDER tgt=0.0,0.0 w_ctr=-23.2,-37.5 w_rad=320 stuck_s=1.52 path_try=0
+[2026-04-18T17:25:21] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-74.1,26.6 vel=-14.2,-49.0 spd=51.0 task_mv=false idle_brk=false steer_used=true des_vel=-21.2,-73.0 mode=WANDER tgt=0.0,0.0 w_ctr=-74.1,26.6 w_rad=320 stuck_s=1.52 path_try=0
+[2026-04-18T17:25:21] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-46.4,-33.1 vel=-56.5,7.9 spd=57.0 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=0.0,0.0 w_ctr=-46.4,-33.1 w_rad=320 stuck_s=2.02 path_try=0
+[2026-04-18T17:25:21] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:21] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:21] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-80.9,3.1 vel=-13.4,-46.4 spd=48.4 task_mv=false idle_brk=false steer_used=true des_vel=-21.1,-73.0 mode=WANDER tgt=0.0,0.0 w_ctr=-80.9,3.1 w_rad=320 stuck_s=2.02 path_try=0
+[2026-04-18T17:25:21] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:21] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:22] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-74.3,-29.7 vel=-31.6,-12.6 spd=34.0 task_mv=false idle_brk=false steer_used=true des_vel=-62.5,43.2 mode=WANDER tgt=0.0,0.0 w_ctr=-74.3,-29.7 w_rad=320 stuck_s=2.52 path_try=0
+[2026-04-18T17:25:22] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-87.9,-15.5 vel=-45.8,5.1 spd=46.1 task_mv=false idle_brk=false steer_used=true des_vel=41.6,-63.6 mode=WANDER tgt=0.0,0.0 w_ctr=-87.9,-15.5 w_rad=320 stuck_s=2.52 path_try=0
+[2026-04-18T17:25:22] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-78.1,-44.7 vel=-30.0,0.1 spd=30.0 task_mv=false idle_brk=false steer_used=true des_vel=-67.1,35.6 mode=WANDER tgt=0.0,0.0 w_ctr=-78.1,-44.7 w_rad=320 stuck_s=3.03 path_try=0
+[2026-04-18T17:25:22] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-107.6,-11.7 vel=-12.1,-20.8 spd=24.1 task_mv=false idle_brk=false steer_used=true des_vel=24.2,-72.0 mode=WANDER tgt=0.0,0.0 w_ctr=-107.6,-11.7 w_rad=320 stuck_s=3.02 path_try=0
+[2026-04-18T17:25:22] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:22] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:22] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:22] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:23] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-98.6,-41.5 vel=0.1,-37.7 spd=37.7 task_mv=false idle_brk=false steer_used=true des_vel=-55.0,52.5 mode=WANDER tgt=0.0,0.0 w_ctr=-98.6,-41.5 w_rad=320 stuck_s=3.53 path_try=0
+[2026-04-18T17:25:23] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-111.9,-25.8 vel=-51.0,27.5 spd=57.9 task_mv=false idle_brk=false steer_used=true des_vel=43.9,-62.0 mode=WANDER tgt=0.0,0.0 w_ctr=-111.9,-25.8 w_rad=320 stuck_s=3.52 path_try=0
+[2026-04-18T17:25:23] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-103.1,-52.3 vel=-44.4,15.2 spd=46.9 task_mv=false idle_brk=false steer_used=true des_vel=-71.0,27.1 mode=WANDER tgt=0.0,0.0 w_ctr=-103.1,-52.3 w_rad=320 stuck_s=4.05 path_try=0
+[2026-04-18T17:25:23] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-141.1,-20.2 vel=-61.6,-18.0 spd=64.2 task_mv=false idle_brk=false steer_used=true des_vel=-72.7,-22.2 mode=WANDER tgt=0.0,0.0 w_ctr=-141.1,-20.2 w_rad=320 stuck_s=4.03 path_try=0
+[2026-04-18T17:25:23] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:23] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:23] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:23] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:24] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-122.0,-45.8 vel=-17.2,5.7 spd=18.1 task_mv=false idle_brk=false steer_used=true des_vel=71.3,-26.2 mode=WANDER tgt=0.0,0.0 w_ctr=-122.0,-45.8 w_rad=320 stuck_s=4.55 path_try=0
+[2026-04-18T17:25:24] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-171.8,-29.2 vel=-53.1,-15.5 spd=55.4 task_mv=false idle_brk=false steer_used=true des_vel=-73.0,-21.0 mode=WANDER tgt=0.0,0.0 w_ctr=-171.8,-29.2 w_rad=320 stuck_s=4.53 path_try=0
+[2026-04-18T17:25:24] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-105.5,-52.0 vel=53.7,-20.0 spd=57.3 task_mv=false idle_brk=false steer_used=true des_vel=71.2,-26.5 mode=WANDER tgt=0.0,0.0 w_ctr=-105.5,-52.0 w_rad=320 stuck_s=5.07 path_try=0
+[2026-04-18T17:25:24] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-198.4,-37.0 vel=-49.6,-14.6 spd=51.7 task_mv=false idle_brk=false steer_used=true des_vel=-72.9,-21.5 mode=WANDER tgt=0.0,0.0 w_ctr=-198.4,-37.0 w_rad=320 stuck_s=5.05 path_try=0
+[2026-04-18T17:25:24] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:24] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:24] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:24] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:25] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-80.8,-61.2 vel=41.4,-15.4 spd=44.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=0.0,0.0 w_ctr=-80.8,-61.2 w_rad=320 stuck_s=5.57 path_try=0
+[2026-04-18T17:25:25] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-220.6,-43.5 vel=-40.9,-12.1 spd=42.7 task_mv=false idle_brk=false steer_used=true des_vel=-72.9,-21.4 mode=WANDER tgt=0.0,0.0 w_ctr=-220.6,-43.5 w_rad=320 stuck_s=5.57 path_try=0
+[2026-04-18T17:25:25] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-60.2,-68.9 vel=42.3,-15.8 spd=45.1 task_mv=false idle_brk=false steer_used=true des_vel=71.2,-26.5 mode=WANDER tgt=0.0,0.0 w_ctr=-60.2,-68.9 w_rad=320 stuck_s=6.07 path_try=0
+[2026-04-18T17:25:25] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-239.5,-49.1 vel=-34.1,-10.0 spd=35.6 task_mv=false idle_brk=false steer_used=true des_vel=-72.9,-21.4 mode=WANDER tgt=0.0,0.0 w_ctr=-239.5,-49.1 w_rad=320 stuck_s=6.08 path_try=0
+[2026-04-18T17:25:25] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:25] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:25] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:25] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:26] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-42.8,-75.4 vel=36.0,-13.4 spd=38.4 task_mv=false idle_brk=false steer_used=true des_vel=71.2,-26.6 mode=WANDER tgt=0.0,0.0 w_ctr=-42.8,-75.4 w_rad=320 stuck_s=6.57 path_try=0
+[2026-04-18T17:25:26] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-260.4,-55.2 vel=-48.2,-11.2 spd=49.5 task_mv=false idle_brk=false steer_used=true des_vel=31.9,69.0 mode=WANDER tgt=0.0,0.0 w_ctr=-260.4,-55.2 w_rad=320 stuck_s=6.60 path_try=0
+[2026-04-18T17:25:26] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-23.1,-82.7 vel=44.7,-16.6 spd=47.7 task_mv=false idle_brk=false steer_used=true des_vel=71.3,-26.3 mode=WANDER tgt=0.0,0.0 w_ctr=-23.1,-82.7 w_rad=320 stuck_s=7.07 path_try=0
+[2026-04-18T17:25:26] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-282.2,-49.4 vel=-42.1,17.0 spd=45.4 task_mv=false idle_brk=false steer_used=true des_vel=-70.5,28.3 mode=WANDER tgt=0.0,0.0 w_ctr=-282.2,-49.4 w_rad=320 stuck_s=7.10 path_try=0
+[2026-04-18T17:25:26] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:26] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:26] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:26] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:27] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-5.8,-89.1 vel=12.6,-3.5 spd=13.1 task_mv=false idle_brk=false steer_used=true des_vel=-68.3,33.3 mode=WANDER tgt=-7.6,-88.5 w_ctr=-5.8,-89.1 w_rad=320 stuck_s=7.57 path_try=0
+[2026-04-18T17:25:27] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-298.9,-42.6 vel=-21.4,8.6 spd=23.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=0.0,0.0 w_ctr=-298.9,-42.6 w_rad=320 stuck_s=7.62 path_try=0
+[2026-04-18T17:25:27] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-22.9,-79.8 vel=-49.8,26.2 spd=56.3 task_mv=false idle_brk=false steer_used=true des_vel=-67.2,35.4 mode=WANDER tgt=-7.6,-88.5 w_ctr=-22.9,-79.8 w_rad=320 stuck_s=8.08 path_try=0
+[2026-04-18T17:25:27] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-309.1,-38.5 vel=-16.6,6.7 spd=17.9 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=0.0,0.0 w_ctr=-309.1,-38.5 w_rad=320 stuck_s=8.12 path_try=0
+[2026-04-18T17:25:27] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:27] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:27] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:27] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_MATE: QS_A trying to find mate npc=QS_A clan=TEST
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _start_pregnancy() called npc_valid=true is_pregnant=false has_config=true
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: Checking _can_reproduce() npc=QS_A is_pregnant=false
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _can_reproduce() returned true npc=QS_A result=true
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: QS_A started pregnancy (mate: Player, clan: TEST, timer: 15.0s) npc=QS_A mate=Player clan=TEST timer=15.0
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_MATE: QS_B trying to find mate npc=QS_B clan=TEST
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _start_pregnancy() called npc_valid=true is_pregnant=false has_config=true
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: Checking _can_reproduce() npc=QS_B is_pregnant=false
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _can_reproduce() returned true npc=QS_B result=true
+[2026-04-18T17:25:28] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: QS_B started pregnancy (mate: Player, clan: TEST, timer: 15.0s) npc=QS_B mate=Player clan=TEST timer=15.0
+[2026-04-18T17:25:28] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-47.5,-66.8 vel=-40.9,21.5 spd=46.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-7.6,-88.5 w_ctr=-47.5,-66.8 w_rad=320 stuck_s=8.58 path_try=0
+[2026-04-18T17:25:28] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-317.3,-33.1 vel=-18.5,19.8 spd=27.1 task_mv=false idle_brk=false steer_used=true des_vel=-51.9,55.5 mode=WANDER tgt=-313.6,-36.7 w_ctr=-317.3,-33.1 w_rad=320 stuck_s=8.63 path_try=0
+[2026-04-18T17:25:28] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-68.3,-55.9 vel=-34.9,18.3 spd=39.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-7.6,-88.5 w_ctr=-68.3,-55.9 w_rad=320 stuck_s=9.08 path_try=0
+[2026-04-18T17:25:28] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-324.3,-25.6 vel=-9.1,9.7 spd=13.3 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-324.3,-25.6 w_rad=320 stuck_s=9.13 path_try=0
+[2026-04-18T17:25:28] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:28] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:28] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:28] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:29] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-85.6,-46.8 vel=-31.7,16.6 spd=35.8 task_mv=false idle_brk=false steer_used=true des_vel=-67.3,35.3 mode=WANDER tgt=-7.6,-88.5 w_ctr=-85.6,-46.8 w_rad=320 stuck_s=9.58 path_try=0
+[2026-04-18T17:25:29] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-324.1,-36.0 vel=12.6,-58.9 spd=60.2 task_mv=false idle_brk=false steer_used=true des_vel=15.9,-74.3 mode=WANDER tgt=-313.6,-36.7 w_ctr=-324.1,-36.0 w_rad=320 stuck_s=9.65 path_try=0
+[2026-04-18T17:25:29] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-102.4,-38.0 vel=-47.9,25.1 spd=54.1 task_mv=false idle_brk=false steer_used=true des_vel=-67.3,35.3 mode=WANDER tgt=-7.6,-88.5 w_ctr=-102.4,-38.0 w_rad=320 stuck_s=10.10 path_try=0
+[2026-04-18T17:25:29] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-318.0,-64.6 vel=10.1,-47.6 spd=48.7 task_mv=false idle_brk=false steer_used=true des_vel=15.7,-74.4 mode=WANDER tgt=-313.6,-36.7 w_ctr=-318.0,-64.6 w_rad=320 stuck_s=10.17 path_try=0
+[2026-04-18T17:25:30] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:30] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:30] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:30] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:30] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-120.7,-28.3 vel=-6.3,5.9 spd=8.6 task_mv=false idle_brk=false steer_used=true des_vel=71.4,-26.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-120.7,-28.3 w_rad=320 stuck_s=10.60 path_try=0
+[2026-04-18T17:25:30] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-313.0,-87.9 vel=8.2,-38.8 spd=39.7 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-313.0,-87.9 w_rad=320 stuck_s=10.67 path_try=0
+[2026-04-18T17:25:30] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-100.4,-34.1 vel=64.9,-20.0 spd=67.9 task_mv=false idle_brk=false steer_used=true des_vel=72.6,-22.4 mode=WANDER tgt=-118.4,-29.6 w_ctr=-100.4,-34.1 w_rad=320 stuck_s=11.12 path_try=0
+[2026-04-18T17:25:30] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-308.8,-107.5 vel=6.9,-32.3 spd=33.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-308.8,-107.5 w_rad=320 stuck_s=11.17 path_try=0
+[2026-04-18T17:25:31] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:31] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:31] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:31] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:31] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-71.5,-43.0 vel=48.4,-14.9 spd=50.6 task_mv=false idle_brk=false steer_used=true des_vel=72.7,-22.1 mode=WANDER tgt=-118.4,-29.6 w_ctr=-71.5,-43.0 w_rad=320 stuck_s=11.63 path_try=0
+[2026-04-18T17:25:31] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-305.2,-124.5 vel=9.0,-42.7 spd=43.7 task_mv=false idle_brk=false steer_used=true des_vel=15.7,-74.4 mode=WANDER tgt=-313.6,-36.7 w_ctr=-305.2,-124.5 w_rad=320 stuck_s=11.67 path_try=0
+[2026-04-18T17:25:31] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-47.8,-50.3 vel=44.5,-13.7 spd=46.5 task_mv=false idle_brk=false steer_used=true des_vel=72.6,-22.4 mode=WANDER tgt=-118.4,-29.6 w_ctr=-47.8,-50.3 w_rad=320 stuck_s=12.13 path_try=0
+[2026-04-18T17:25:31] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-300.5,-146.9 vel=8.4,-39.4 spd=40.3 task_mv=false idle_brk=false steer_used=true des_vel=15.8,-74.3 mode=WANDER tgt=-313.6,-36.7 w_ctr=-300.5,-146.9 w_rad=320 stuck_s=12.17 path_try=0
+[2026-04-18T17:25:32] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:32] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:32] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:32] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:32] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-27.3,-56.6 vel=35.8,-11.0 spd=37.5 task_mv=false idle_brk=false steer_used=true des_vel=72.7,-22.3 mode=WANDER tgt=-118.4,-29.6 w_ctr=-27.3,-56.6 w_rad=320 stuck_s=12.65 path_try=0
+[2026-04-18T17:25:32] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-285.5,-168.4 vel=46.2,-51.8 spd=69.4 task_mv=false idle_brk=false steer_used=true des_vel=50.6,-56.7 mode=WANDER tgt=-313.6,-36.7 w_ctr=-285.5,-168.4 w_rad=320 stuck_s=12.68 path_try=0
+[2026-04-18T17:25:32] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-10.0,-62.0 vel=30.4,-9.4 spd=31.9 task_mv=false idle_brk=false steer_used=true des_vel=72.6,-22.5 mode=WANDER tgt=-118.4,-29.6 w_ctr=-10.0,-62.0 w_rad=320 stuck_s=13.17 path_try=0
+[2026-04-18T17:25:32] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-263.7,-192.8 vel=38.0,-42.5 spd=57.0 task_mv=false idle_brk=false steer_used=true des_vel=50.8,-56.6 mode=WANDER tgt=-313.6,-36.7 w_ctr=-263.7,-192.8 w_rad=320 stuck_s=13.18 path_try=0
+[2026-04-18T17:25:33] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:33] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:33] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:33] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:33] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=10.4,-69.5 vel=14.9,-18.5 spd=23.8 task_mv=false idle_brk=false steer_used=true des_vel=-69.4,-30.9 mode=WANDER tgt=-118.4,-29.6 w_ctr=10.4,-69.5 w_rad=320 stuck_s=13.67 path_try=0
+[2026-04-18T17:25:33] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-244.3,-214.6 vel=30.9,-34.6 spd=46.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-244.3,-214.6 w_rad=320 stuck_s=13.70 path_try=0
+[2026-04-18T17:25:33] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=0.1,-84.2 vel=-41.9,-38.3 spd=56.8 task_mv=false idle_brk=false steer_used=true des_vel=-56.1,-51.2 mode=WANDER tgt=-118.4,-29.6 w_ctr=0.1,-84.2 w_rad=320 stuck_s=14.18 path_try=0
+[2026-04-18T17:25:33] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-228.3,-232.5 vel=28.1,-31.4 spd=42.1 task_mv=false idle_brk=false steer_used=true des_vel=50.7,-56.6 mode=WANDER tgt=-313.6,-36.7 w_ctr=-228.3,-232.5 w_rad=320 stuck_s=14.22 path_try=0
+[2026-04-18T17:25:34] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:34] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:34] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:34] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:34] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-18.5,-101.2 vel=-36.9,-33.7 spd=49.9 task_mv=false idle_brk=false steer_used=true des_vel=-56.1,-51.2 mode=WANDER tgt=-118.4,-29.6 w_ctr=-18.5,-101.2 w_rad=320 stuck_s=14.68 path_try=0
+[2026-04-18T17:25:34] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-215.3,-247.1 vel=25.8,-28.9 spd=38.8 task_mv=false idle_brk=false steer_used=true des_vel=50.5,-56.8 mode=WANDER tgt=-313.6,-36.7 w_ctr=-215.3,-247.1 w_rad=320 stuck_s=14.72 path_try=0
+[2026-04-18T17:25:34] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-34.6,-115.9 vel=-28.9,-26.4 spd=39.1 task_mv=false idle_brk=false steer_used=true des_vel=-56.1,-51.3 mode=WANDER tgt=-118.4,-29.6 w_ctr=-34.6,-115.9 w_rad=320 stuck_s=15.20 path_try=0
+[2026-04-18T17:25:34] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-203.0,-260.8 vel=33.6,-37.6 spd=50.4 task_mv=false idle_brk=false steer_used=true des_vel=50.5,-56.7 mode=WANDER tgt=-313.6,-36.7 w_ctr=-203.0,-260.8 w_rad=320 stuck_s=15.23 path_try=0
+[2026-04-18T17:25:35] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:35] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:35] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-47.7,-127.9 vel=-20.9,-19.1 spd=28.3 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-47.7,-127.9 w_rad=320 stuck_s=15.70 path_try=0
+[2026-04-18T17:25:35] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:35] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:35] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-186.0,-272.1 vel=23.5,-13.0 spd=26.9 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-186.0,-272.1 w_rad=320 stuck_s=15.73 path_try=0
+[2026-04-18T17:25:35] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-64.8,-143.4 vel=-29.7,-27.1 spd=40.2 task_mv=false idle_brk=false steer_used=true des_vel=-56.1,-51.2 mode=WANDER tgt=-118.4,-29.6 w_ctr=-64.8,-143.4 w_rad=320 stuck_s=16.22 path_try=0
+[2026-04-18T17:25:35] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-174.7,-278.4 vel=19.7,-10.9 spd=22.5 task_mv=false idle_brk=false steer_used=true des_vel=66.5,-36.7 mode=WANDER tgt=-313.6,-36.7 w_ctr=-174.7,-278.4 w_rad=320 stuck_s=16.25 path_try=0
+[2026-04-18T17:25:36] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-75.8,-153.9 vel=-14.5,-15.4 spd=21.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-75.8,-153.9 w_rad=320 stuck_s=16.72 path_try=0
+[2026-04-18T17:25:36] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:36] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:36] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:36] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:36] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-166.5,-283.4 vel=28.7,-25.6 spd=38.5 task_mv=false idle_brk=false steer_used=true des_vel=54.0,-53.5 mode=WANDER tgt=-313.6,-36.7 w_ctr=-166.5,-283.4 w_rad=320 stuck_s=16.75 path_try=0
+[2026-04-18T17:25:36] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-82.5,-160.9 vel=-12.5,-13.2 spd=18.2 task_mv=false idle_brk=false steer_used=true des_vel=-52.2,-55.3 mode=WANDER tgt=-118.4,-29.6 w_ctr=-82.5,-160.9 w_rad=320 stuck_s=17.23 path_try=0
+[2026-04-18T17:25:36] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-154.7,-294.0 vel=16.1,-14.5 spd=21.7 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-154.7,-294.0 w_rad=320 stuck_s=17.27 path_try=0
+[2026-04-18T17:25:37] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-93.0,-153.8 vel=-20.2,17.6 spd=26.8 task_mv=false idle_brk=false steer_used=true des_vel=-57.3,50.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-93.0,-153.8 w_rad=320 stuck_s=17.75 path_try=0
+[2026-04-18T17:25:37] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:37] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:37] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-147.0,-301.0 vel=9.8,-8.8 spd=13.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-147.0,-301.0 w_rad=320 stuck_s=17.78 path_try=0
+[2026-04-18T17:25:37] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:37] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:37] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-101.1,-146.7 vel=-12.2,10.7 spd=16.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-101.1,-146.7 w_rad=320 stuck_s=18.25 path_try=0
+[2026-04-18T17:25:37] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-143.1,-292.6 vel=7.0,48.6 spd=49.1 task_mv=false idle_brk=false steer_used=true des_vel=10.9,75.2 mode=WANDER tgt=-313.6,-36.7 w_ctr=-143.1,-292.6 w_rad=320 stuck_s=18.28 path_try=0
+[2026-04-18T17:25:38] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-111.0,-134.0 vel=-34.2,50.9 spd=61.3 task_mv=false idle_brk=false steer_used=true des_vel=-42.3,63.1 mode=WANDER tgt=-118.4,-29.6 w_ctr=-111.0,-134.0 w_rad=320 stuck_s=18.77 path_try=0
+[2026-04-18T17:25:38] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-140.0,-270.8 vel=5.8,40.1 spd=40.5 task_mv=false idle_brk=false steer_used=true des_vel=11.0,75.2 mode=WANDER tgt=-313.6,-36.7 w_ctr=-140.0,-270.8 w_rad=320 stuck_s=18.78 path_try=0
+[2026-04-18T17:25:38] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:38] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:38] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:38] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:38] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-130.2,-105.5 vel=-39.7,59.1 spd=71.2 task_mv=false idle_brk=false steer_used=true des_vel=-42.3,63.1 mode=WANDER tgt=-118.4,-29.6 w_ctr=-130.2,-105.5 w_rad=320 stuck_s=19.28 path_try=0
+[2026-04-18T17:25:38] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-137.3,-252.2 vel=4.6,31.8 spd=32.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-137.3,-252.2 w_rad=320 stuck_s=19.28 path_try=0
+[2026-04-18T17:25:39] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-148.3,-78.5 vel=-33.0,49.1 spd=59.2 task_mv=false idle_brk=false steer_used=true des_vel=-42.4,63.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-148.3,-78.5 w_rad=320 stuck_s=19.78 path_try=0
+[2026-04-18T17:25:39] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-134.3,-232.1 vel=6.4,44.4 spd=44.8 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-134.3,-232.1 w_rad=320 stuck_s=19.78 path_try=0
+[2026-04-18T17:25:39] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:39] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:39] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:39] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:39] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-164.1,-55.0 vel=-25.9,38.5 spd=46.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-164.1,-55.0 w_rad=320 stuck_s=20.28 path_try=0
+[2026-04-18T17:25:39] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-131.5,-212.8 vel=4.4,30.2 spd=30.5 task_mv=false idle_brk=false steer_used=true des_vel=11.0,75.2 mode=WANDER tgt=-313.6,-36.7 w_ctr=-131.5,-212.8 w_rad=320 stuck_s=20.30 path_try=0
+[2026-04-18T17:25:40] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-177.4,-35.2 vel=-26.6,39.6 spd=47.7 task_mv=false idle_brk=false steer_used=true des_vel=-42.3,63.2 mode=WANDER tgt=-118.4,-29.6 w_ctr=-177.4,-35.2 w_rad=320 stuck_s=20.78 path_try=0
+[2026-04-18T17:25:40] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-129.8,-201.2 vel=2.9,20.3 spd=20.5 task_mv=false idle_brk=false steer_used=true des_vel=10.9,75.2 mode=WANDER tgt=-313.6,-36.7 w_ctr=-129.8,-201.2 w_rad=320 stuck_s=20.80 path_try=0
+[2026-04-18T17:25:40] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:40] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:40] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:40] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:40] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-188.6,-18.5 vel=-22.2,33.0 spd=39.7 task_mv=false idle_brk=false steer_used=true des_vel=-42.3,63.1 mode=WANDER tgt=-118.4,-29.6 w_ctr=-188.6,-18.5 w_rad=320 stuck_s=21.28 path_try=0
+[2026-04-18T17:25:40] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-134.5,-205.5 vel=-24.9,-40.2 spd=47.2 task_mv=false idle_brk=false steer_used=true des_vel=-40.1,-64.6 mode=WANDER tgt=-313.6,-36.7 w_ctr=-134.5,-205.5 w_rad=320 stuck_s=21.30 path_try=0
+[2026-04-18T17:25:41] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-191.7,-13.4 vel=13.0,-16.8 spd=21.3 task_mv=false idle_brk=false steer_used=true des_vel=46.4,-60.1 mode=WANDER tgt=-118.4,-29.6 w_ctr=-191.7,-13.4 w_rad=320 stuck_s=21.78 path_try=0
+[2026-04-18T17:25:41] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-146.0,-224.1 vel=-19.0,-30.7 spd=36.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-146.0,-224.1 w_rad=320 stuck_s=21.82 path_try=0
+[2026-04-18T17:25:41] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:41] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:41] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:41] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:41] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-182.6,-25.2 vel=35.9,-47.1 spd=59.2 task_mv=false idle_brk=false steer_used=true des_vel=45.9,-60.5 mode=WANDER tgt=-118.4,-29.6 w_ctr=-182.6,-25.2 w_rad=320 stuck_s=22.28 path_try=0
+[2026-04-18T17:25:41] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-155.4,-239.2 vel=-18.0,-28.9 spd=34.0 task_mv=false idle_brk=false steer_used=true des_vel=-40.2,-64.5 mode=WANDER tgt=-313.6,-36.7 w_ctr=-155.4,-239.2 w_rad=320 stuck_s=22.32 path_try=0
+[2026-04-18T17:25:42] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-162.0,-52.3 vel=42.6,-56.0 spd=70.4 task_mv=false idle_brk=false steer_used=true des_vel=46.0,-60.5 mode=WANDER tgt=-118.4,-29.6 w_ctr=-162.0,-52.3 w_rad=320 stuck_s=22.80 path_try=0
+[2026-04-18T17:25:42] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-167.5,-258.7 vel=-21.6,-34.7 spd=40.8 task_mv=false idle_brk=false steer_used=true des_vel=-40.1,-64.6 mode=WANDER tgt=-313.6,-36.7 w_ctr=-167.5,-258.7 w_rad=320 stuck_s=22.82 path_try=0
+[2026-04-18T17:25:42] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:42] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:42] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:42] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:42] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-142.0,-78.6 vel=41.4,-54.4 spd=68.3 task_mv=false idle_brk=false steer_used=true des_vel=45.9,-60.5 mode=WANDER tgt=-118.4,-29.6 w_ctr=-142.0,-78.6 w_rad=320 stuck_s=23.30 path_try=0
+[2026-04-18T17:25:42] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-175.9,-272.1 vel=-13.8,-22.2 spd=26.2 task_mv=false idle_brk=false steer_used=true des_vel=-40.1,-64.6 mode=WANDER tgt=-313.6,-36.7 w_ctr=-175.9,-272.1 w_rad=320 stuck_s=23.32 path_try=0
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: Attempting to spawn baby for QS_A npc=QS_A
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: All checks passed, proceeding to spawn for QS_A npc=QS_A clan=TEST land_claim_valid=true main_valid=true
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: Baby pool check for QS_A (clan: TEST) - can_add: true npc=QS_A clan=TEST can_add=true
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: Calling main._spawn_baby for QS_A npc=QS_A clan=TEST father_valid=false
+[2026-04-18T17:25:43] [INFO] [SYSTEM] SPAWN_BABY: Starting baby spawn clan=TEST mother=QS_A father=TEST position=0.0,0.0
+[2026-04-18T17:25:43] [INFO] [SYSTEM] SPAWN_BABY: Baby pool check - can_add: true clan=TEST mother=QS_A can_add=true
+[2026-04-18T17:25:43] [INFO] [SYSTEM] SPAWN_BABY: Baby NPC instantiated, setting properties clan=TEST mother=QS_A baby_name=BESI
+[2026-04-18T17:25:43] [INFO] [SYSTEM] SPAWN_BABY: Adding baby to scene tree clan=TEST mother=QS_A baby_name=BESI position=0.0,0.0
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: Successfully called _spawn_baby for QS_A npc=QS_A clan=TEST
+[2026-04-18T17:25:43] [INFO] [SYSTEM] REPRODUCTION_SPAWN: Attempting to spawn baby for QS_B npc=QS_B
+[2026-04-18T17:25:43] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-122.3,-104.6 vel=37.6,-49.4 spd=62.1 task_mv=false idle_brk=false steer_used=true des_vel=45.9,-60.6 mode=WANDER tgt=-118.4,-29.6 w_ctr=-122.3,-104.6 w_rad=320 stuck_s=23.82 path_try=0
+[2026-04-18T17:25:43] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-181.6,-281.3 vel=-7.6,-12.2 spd=14.3 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-313.6,-36.7 w_ctr=-181.6,-281.3 w_rad=320 stuck_s=23.83 path_try=0
+[2026-04-18T17:25:43] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:43] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:43] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:43] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:43] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-106.2,-125.8 vel=28.4,-37.5 spd=47.0 task_mv=false idle_brk=false steer_used=true des_vel=45.9,-60.6 mode=WANDER tgt=-118.4,-29.6 w_ctr=-106.2,-125.8 w_rad=320 stuck_s=24.32 path_try=0
+[2026-04-18T17:25:43] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-184.0,-273.3 vel=-2.2,48.8 spd=48.8 task_mv=false idle_brk=false steer_used=true des_vel=-3.4,75.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-184.0,-273.3 w_rad=320 stuck_s=24.33 path_try=0
+[2026-04-18T17:25:44] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-92.1,-144.3 vel=22.8,-30.1 spd=37.7 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-118.4,-29.6 w_ctr=-92.1,-144.3 w_rad=320 stuck_s=24.83 path_try=0
+[2026-04-18T17:25:44] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-185.0,-251.0 vel=-2.0,44.3 spd=44.3 task_mv=false idle_brk=false steer_used=true des_vel=-3.6,75.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-185.0,-251.0 w_rad=320 stuck_s=24.85 path_try=0
+[2026-04-18T17:25:44] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:44] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:44] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:44] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:44] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-83.1,-150.9 vel=5.0,36.0 spd=36.4 task_mv=false idle_brk=false steer_used=true des_vel=0.4,76.0 mode=WANDER tgt=-87.0,-151.1 w_ctr=-83.1,-150.9 w_rad=320 stuck_s=25.35 path_try=0
+[2026-04-18T17:25:44] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-185.8,-232.6 vel=-1.3,29.4 spd=29.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-185.8,-232.6 w_rad=320 stuck_s=25.35 path_try=0
+[2026-04-18T17:25:45] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-80.9,-127.5 vel=4.0,44.9 spd=45.1 task_mv=false idle_brk=false steer_used=true des_vel=6.8,75.7 mode=WANDER tgt=-87.0,-151.1 w_ctr=-80.9,-127.5 w_rad=320 stuck_s=25.87 path_try=0
+[2026-04-18T17:25:45] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-186.8,-211.0 vel=-2.0,44.0 spd=44.0 task_mv=false idle_brk=false steer_used=true des_vel=-3.5,75.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-186.8,-211.0 w_rad=320 stuck_s=25.85 path_try=0
+[2026-04-18T17:25:45] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:45] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:45] [DEBUG] [NPC] Can enter check: QS_B can enter idle (always_available) npc=QS_B state=idle can_enter=true reason=always_available
+[2026-04-18T17:25:45] [DEBUG] [NPC] Can enter check: QS_B can enter wander (woman_in_clan_can_wander) npc=QS_B state=wander can_enter=true reason=woman_in_clan_can_wander clan=TEST
+[2026-04-18T17:25:45] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-79.1,-107.5 vel=3.2,35.6 spd=35.7 task_mv=false idle_brk=false steer_used=true des_vel=6.8,75.7 mode=WANDER tgt=-87.0,-151.1 w_ctr=-79.1,-107.5 w_rad=320 stuck_s=26.38 path_try=0
+[2026-04-18T17:25:45] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-187.6,-192.8 vel=-1.3,28.9 spd=28.9 task_mv=false idle_brk=false steer_used=true des_vel=-3.4,75.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-187.6,-192.8 w_rad=320 stuck_s=26.37 path_try=0
+[2026-04-18T17:25:46] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-77.5,-89.5 vel=4.7,52.1 spd=52.3 task_mv=false idle_brk=false steer_used=true des_vel=6.9,75.7 mode=WANDER tgt=-87.0,-151.1 w_ctr=-77.5,-89.5 w_rad=320 stuck_s=26.88 path_try=0
+[2026-04-18T17:25:46] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-188.1,-181.6 vel=-0.7,14.9 spd=14.9 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-188.1,-181.6 w_rad=320 stuck_s=26.87 path_try=0
+[2026-04-18T17:25:46] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:46] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:46] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:46] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:46] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-200.6,-169.2 vel=-43.2,29.7 spd=52.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-200.6,-169.2 w_rad=320 stuck_s=27.37 path_try=0
+[2026-04-18T17:25:46] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-75.4,-67.0 vel=2.6,28.8 spd=28.9 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-87.0,-151.1 w_ctr=-75.4,-67.0 w_rad=320 stuck_s=27.40 path_try=0
+[2026-04-18T17:25:47] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-222.4,-154.2 vel=-40.6,27.8 spd=49.2 task_mv=false idle_brk=false steer_used=true des_vel=-62.7,42.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-222.4,-154.2 w_rad=320 stuck_s=27.87 path_try=0
+[2026-04-18T17:25:47] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-74.3,-54.0 vel=2.3,25.0 spd=25.1 task_mv=false idle_brk=false steer_used=true des_vel=6.8,75.7 mode=WANDER tgt=-87.0,-151.1 w_ctr=-74.3,-54.0 w_rad=320 stuck_s=27.90 path_try=0
+[2026-04-18T17:25:47] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:47] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:47] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:47] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:47] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-241.6,-141.0 vel=-32.9,22.6 spd=39.9 task_mv=false idle_brk=false steer_used=true des_vel=-62.8,42.8 mode=WANDER tgt=-182.7,-283.1 w_ctr=-241.6,-141.0 w_rad=320 stuck_s=28.38 path_try=0
+[2026-04-18T17:25:47] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-61.4,-51.8 vel=59.3,-11.8 spd=60.5 task_mv=false idle_brk=false steer_used=true des_vel=74.5,-15.1 mode=WANDER tgt=-87.0,-151.1 w_ctr=-61.4,-51.8 w_rad=320 stuck_s=28.42 path_try=0
+[2026-04-18T17:25:48] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-257.0,-130.4 vel=-26.4,18.1 spd=32.0 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-257.0,-130.4 w_rad=320 stuck_s=28.88 path_try=0
+[2026-04-18T17:25:48] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-29.4,-58.2 vel=53.9,-10.8 spd=55.0 task_mv=false idle_brk=false steer_used=true des_vel=74.6,-14.7 mode=WANDER tgt=-87.0,-151.1 w_ctr=-29.4,-58.2 w_rad=320 stuck_s=28.93 path_try=0
+[2026-04-18T17:25:48] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:48] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:48] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:48] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:48] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-273.9,-118.8 vel=-44.9,30.9 spd=54.5 task_mv=false idle_brk=false steer_used=true des_vel=-62.6,43.1 mode=WANDER tgt=-182.7,-283.1 w_ctr=-273.9,-118.8 w_rad=320 stuck_s=29.38 path_try=0
+[2026-04-18T17:25:49] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=-3.1,-63.5 vel=49.0,-9.8 spd=50.0 task_mv=false idle_brk=false steer_used=true des_vel=74.5,-14.9 mode=WANDER tgt=-87.0,-151.1 w_ctr=-3.1,-63.5 w_rad=320 stuck_s=29.43 path_try=0
+[2026-04-18T17:25:49] [INFO] [SESSION] NPC_PRODUCTIVITY_SNAPSHOT worker_total=0 with_task_job=0 idle_worker_no_job=0 pct_workers_with_job=0.0 fsm_states={  } by_clan={  }
+[2026-04-18T17:25:49] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-290.6,-107.4 vel=-21.5,14.8 spd=26.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-290.6,-107.4 w_rad=320 stuck_s=29.90 path_try=0
+[2026-04-18T17:25:49] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=19.7,-68.0 vel=39.9,-8.0 spd=40.6 task_mv=false idle_brk=false steer_used=true des_vel=74.5,-14.8 mode=WANDER tgt=-87.0,-151.1 w_ctr=19.7,-68.0 w_rad=320 stuck_s=29.95 path_try=0
+[2026-04-18T17:25:49] [WARNING] [NPC] STATE_DURATION: BESI in wander for 31.6s (LONG - potentially stuck!) npc=BESI state=wander duration_s=31.6 warning=potentially_stuck
+[2026-04-18T17:25:49] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:49] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:49] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:49] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:49] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-295.1,-113.2 vel=1.6,-46.0 spd=46.1 task_mv=false idle_brk=false steer_used=true des_vel=2.6,-76.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-295.1,-113.2 w_rad=320 stuck_s=30.40 path_try=0
+[2026-04-18T17:25:50] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=38.2,-71.7 vel=31.5,-6.3 spd=32.1 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-87.0,-151.1 w_ctr=38.2,-71.7 w_rad=320 stuck_s=30.45 path_try=0
+[2026-04-18T17:25:50] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-294.3,-137.0 vel=1.2,-34.8 spd=34.8 task_mv=false idle_brk=false steer_used=true des_vel=2.7,-76.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-294.3,-137.0 w_rad=320 stuck_s=30.92 path_try=0
+[2026-04-18T17:25:50] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=59.2,-75.9 vel=44.5,-8.9 spd=45.4 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-87.0,-151.1 w_ctr=59.2,-75.9 w_rad=320 stuck_s=30.97 path_try=0
+[2026-04-18T17:25:51] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:51] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:51] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-293.7,-151.3 vel=0.7,-21.0 spd=21.0 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-293.7,-151.3 w_rad=320 stuck_s=31.43 path_try=0
+[2026-04-18T17:25:51] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:51] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:51] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=63.5,-80.2 vel=-46.4,-10.0 spd=47.5 task_mv=false idle_brk=false steer_used=true des_vel=-74.7,-13.9 mode=WANDER tgt=64.6,-77.0 w_ctr=63.5,-80.2 w_rad=320 stuck_s=31.48 path_try=0
+[2026-04-18T17:25:51] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-293.4,-160.6 vel=0.5,-14.3 spd=14.3 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-293.4,-160.6 w_rad=320 stuck_s=31.93 path_try=0
+[2026-04-18T17:25:51] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=42.9,-84.5 vel=-35.1,-7.4 spd=35.8 task_mv=false idle_brk=false steer_used=true des_vel=-74.3,-15.8 mode=WANDER tgt=64.6,-77.0 w_ctr=42.9,-84.5 w_rad=320 stuck_s=31.98 path_try=0
+[2026-04-18T17:25:52] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-286.8,-177.7 vel=14.3,-32.1 spd=35.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-286.8,-177.7 w_rad=320 stuck_s=32.43 path_try=0
+[2026-04-18T17:25:52] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:52] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:52] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=29.7,-87.3 vel=-18.6,-3.9 spd=19.0 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=64.6,-77.0 w_ctr=29.7,-87.3 w_rad=320 stuck_s=32.50 path_try=0
+[2026-04-18T17:25:52] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:52] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:52] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-280.7,-191.4 vel=10.5,-23.6 spd=25.8 task_mv=false idle_brk=false steer_used=true des_vel=30.9,-69.4 mode=WANDER tgt=-182.7,-283.1 w_ctr=-280.7,-191.4 w_rad=320 stuck_s=32.93 path_try=0
+[2026-04-18T17:25:52] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=21.6,-88.7 vel=-3.1,9.3 spd=9.8 task_mv=false idle_brk=false steer_used=true des_vel=49.7,57.5 mode=WANDER tgt=64.6,-77.0 w_ctr=21.6,-88.7 w_rad=320 stuck_s=33.00 path_try=0
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_MATE: QS_A trying to find mate npc=QS_A clan=TEST
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _start_pregnancy() called npc_valid=true is_pregnant=false has_config=true
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: Checking _can_reproduce() npc=QS_A is_pregnant=false
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _can_reproduce() returned true npc=QS_A result=true
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: QS_A started pregnancy (mate: Player, clan: TEST, timer: 15.0s) npc=QS_A mate=Player clan=TEST timer=15.0
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_MATE: QS_B trying to find mate npc=QS_B clan=TEST
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _start_pregnancy() called npc_valid=true is_pregnant=false has_config=true
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: Checking _can_reproduce() npc=QS_B is_pregnant=false
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: _can_reproduce() returned true npc=QS_B result=true
+[2026-04-18T17:25:53] [INFO] [SYSTEM] REPRODUCTION_PREGNANCY: QS_B started pregnancy (mate: Player, clan: TEST, timer: 15.0s) npc=QS_B mate=Player clan=TEST timer=15.0
+[2026-04-18T17:25:53] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-276.4,-201.1 vel=6.4,-14.4 spd=15.8 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-276.4,-201.1 w_rad=320 stuck_s=33.45 path_try=0
+[2026-04-18T17:25:53] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=34.8,-67.8 vel=39.0,57.6 spd=69.6 task_mv=false idle_brk=false steer_used=true des_vel=42.6,63.0 mode=WANDER tgt=64.6,-77.0 w_ctr=34.8,-67.8 w_rad=320 stuck_s=33.52 path_try=0
+[2026-04-18T17:25:53] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:53] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:53] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:53] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:53] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-280.9,-195.6 vel=-18.7,26.3 spd=32.2 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-280.9,-195.6 w_rad=320 stuck_s=33.95 path_try=0
+[2026-04-18T17:25:53] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=53.1,-40.8 vel=29.0,42.9 spd=51.8 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=64.6,-77.0 w_ctr=53.1,-40.8 w_rad=320 stuck_s=34.03 path_try=0
+[2026-04-18T17:25:54] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-292.8,-178.9 vel=-31.6,44.4 spd=54.5 task_mv=false idle_brk=false steer_used=true des_vel=-44.1,61.9 mode=WANDER tgt=-182.7,-283.1 w_ctr=-292.8,-178.9 w_rad=320 stuck_s=34.45 path_try=0
+[2026-04-18T17:25:54] [INFO] [MOVEMENT] NPC_MOVE npc=QS_A type=woman fsm=reproduction pos=68.3,-18.3 vel=28.8,42.6 spd=51.5 task_mv=false idle_brk=false steer_used=true des_vel=42.6,62.9 mode=WANDER tgt=64.6,-77.0 w_ctr=68.3,-18.3 w_rad=320 stuck_s=34.55 path_try=0
+[2026-04-18T17:25:54] [DEBUG] [NPC] Can enter check: QS_A cannot enter agro (not_caveman) npc=QS_A state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - agro (priority=15.0, can_enter=false) npc=QS_A state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - flee_combat (priority=13.0, can_enter=false) npc=QS_A state=flee_combat priority=13.0 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - build_hut_for_woman (priority=12.5, can_enter=false) npc=QS_A state=build_hut_for_woman priority=12.5 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - combat (priority=12.0, can_enter=false) npc=QS_A state=combat priority=12.0 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - herd (priority=11.0, can_enter=false) npc=QS_A state=herd priority=11.0 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_A - raid (priority=8.5, can_enter=false) npc=QS_A state=raid priority=8.5 can_enter=false
+[2026-04-18T17:25:54] [DEBUG] [NPC] Evaluated 6 states: agro(priority=15.0,can_enter=false) flee_combat(priority=13.0,can_enter=false) build_hut_for_woman(priority=12.5,can_enter=false) combat(priority=12.0,can_enter=false) herd(priority=11.0,can_enter=false) raid(priority=8.5,can_enter=false) -> Best: reproduction (priority=8.0) npc=QS_A best_state=reproduction best_priority=8.0
+[2026-04-18T17:25:54] [DEBUG] [NPC] Can enter check: QS_B cannot enter agro (not_caveman) npc=QS_B state=agro can_enter=false reason=not_caveman npc_type=woman
+[2026-04-18T17:25:54] [DEBUG] [NPC] Priority eval: QS_B - agro (priority=15.0, can_enter=false) npc=QS_B state=agro priority=15.0 can_enter=false
+[2026-04-18T17:25:54] [INFO] [MOVEMENT] NPC_MOVE npc=QS_B type=woman fsm=reproduction pos=-304.0,-163.2 vel=-14.7,20.6 spd=25.3 task_mv=false idle_brk=false steer_used=true des_vel=0.0,0.0 mode=WANDER tgt=-182.7,-283.1 w_ctr=-304.0,-163.2 w_rad=320 stuck_s=34.95 path_try=0
+[2026-04-18T17:25:54] [INFO] [SYSTEM] === Unified Logger Stopped ===

@@ -33,6 +33,7 @@ DebugConfig="*res://scripts/config/debug_config.gd"
 AssetRegistry="*res://scripts/config/asset_registry.gd"
 CompetitionTracker="*res://scripts/competition_tracker.gd"
 NPCActivityTracker="*res://scripts/npc/npc_activity_tracker.gd"
+NPCProductivityInstrument="*res://scripts/logging/npc_productivity_instrument.gd"
 UITheme="*res://scripts/ui/ui_theme.gd"
 SimRng="*res://scripts/network/sim_rng.gd"
 SimClock="*res://scripts/network/sim_clock.gd"
@@ -48,6 +49,7 @@ HerdManager="*res://scripts/systems/herd_manager.gd"
 BalanceConfig="*res://scripts/config/balance_config.gd"
 ChunkUtils="*res://scripts/world/chunk_utils.gd"
 CorpseConfig="*res://scripts/config/corpse_config.gd"
+RuntimeFaultSink="*res://scripts/logging/runtime_fault_sink.gd"
 
 [display]
 
@@ -97,3 +99,7 @@ gather={
 
 environment/defaults/default_clear_color=Color(0.062745, 0.0823529, 0.0901961, 1)
 textures/default_filters/texture_filter=0
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/external_edit_sync/plugin.cfg")
