@@ -2,6 +2,8 @@
 
 Early game survival loop: mechanics, progression, and feel.
 
+**Roadmap note (April 2026):** World **streaming** and **guide hygiene** were brought in line with the codebase: chunk-based procedural fill (`ChunkManager` / `WorldGenConfig` / `MutationStore`), **`guides/game_map.md`** (full technical map reference), **`guides/gdd.md`** / **`guides/main.md`** / **`guides/multiplayer.md`** refreshed, and stale checklists (**`CRITICAL_FIXES`**, **`BATTLE_ROYALE_READINESS`**, root **`playtest_readiness.md`**) removed. **Multiplayer:** `NetworkManager` + partial **`GameSync`** (spawn zones / snapshot scaffolding) — see **`guides/multiplayer.md`**; chunk **interest union** for clients is still a gap. **Combat:** occasional **`[COMBAT] Hit frame - target invalid`** in logs (lifecycle / despawn race) — unrelated to chunk loading but affects early brawls. Early-game **design targets** below (nomadic loops, territory tiers) remain **aspirational** where marked.
+
 ---
 
 ## Hominid Classes
@@ -14,7 +16,12 @@ Early game survival loop: mechanics, progression, and feel.
 | **Homo Erectus** (hard mode) | +15% tool durability; firestarting easier | Primitive, fire-hardened tools; slower but tough. |
 
 ## Spawn & Initial Situation
-You begin alone in a procedural biome (grassy plains edge, forest margin, etc.). Inventory is empty except for your body. Hunger and thirst bars are visible and dropping steadily. It is Day 1, Summer. You must manually consume food items from inventory to restore hunger.
+
+**Implemented today:** You spawn on an **infinite 2D plain** with **dirt-style ground** and **Y-sorted** entities under `WorldObjects`. The **minigame** still spawns starting **AI cavemen** (with land claims), **wild women**, and **sheep/goats** around you (`BalanceConfig` radii). When **`WorldGenConfig.use_chunk_content_streaming`** is on (default), **extra** world filler—**gatherables** (stone, berries, wheat, fiber, wood nodes), **forest-style trees**, **tall grass**, **ground piles**, and sometimes **seeded AI clans**—**streams in as you move** from deterministic **chunk generation** (`world_seed` + chunk coords). Turn streaming **off** to use the legacy **one-shot** resource/grass/tree ring around spawn instead.
+
+**Design target (future flavor):** Present this as a **procedural biome** (plains edge, forest margin, etc.) in UI/lore once **biome-per-chunk** (or similar) exists.
+
+Inventory starts near-empty per current loop; **hunger** is in play. **Thirst / day-night** as described below remain **targets** until fully wired.
 
 The immediate goal is to avoid death from starvation, thirst, or exposure to night cold.
 
@@ -53,7 +60,7 @@ The core cycle is:
 - Use Oldowan to stock wood, stone, meat scraps, and leather scraps.  
 - Process leather scraps and tubers at the hearth once fire is established (still slow due to Oldowan inefficiency).  
 - Cook meat scraps over the hearth for safe consumption and better hunger restoration.  
-- Explore map edges to find potential recruits:  
+- Explore **farther out** (chunk streaming loads content as you walk) to find **wild women**, animals, and resources; design targets for special recruits still apply:  
   - Starving wanderer (share food to recruit)  
   - Wounded child (carry and heal with cooked food)  
   - Lone forager (defeat in combat to recruit)  
@@ -98,7 +105,7 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 | **Radius** | Smaller (e.g. 250px) | Larger (e.g. 400px) | TBD |
 | **Buildings** | Limited (e.g. Living Huts only until upgrade) | Oven, dairy, farm, huts, etc. | Full building set + upgrades |
 | **Production** | Minimal / fire-based only | Bread, cheese, crops, … | TBD |
-| **ClanBrain** | Light or off until upgrade | Full (defenders, searchers, raids) | Full + scaling |
+| **ClanBrain** | **Nomadic** mode on campfire (defenders/searchers/threat; no NPC raid start on player) | Full settled (defenders, searchers, raids) | Full + scaling |
 | **Move / abandon** | **Yes** — pack up, relocate, or abandon and place a new campfire; **clan persists** | Typically fixed; upgrade chain, not nomadic pack-up | Fixed |
 | **Upgrade path** | Campfire → **Flag** (place/replace with flag claim) | Flag → Tier 3 → Tier 4 | N/A |
 
@@ -107,6 +114,12 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 - Same **logical** base: holds clan, NPCs, shared storage, building placement **within that tier’s allow-list**.
 - **UI / RTS / context menus** should key off **player-owned territory** (campfire **or** flag), not “only `LandClaim` type”—so FOLLOW, box select, clan checks, and horn behave the same at the campfire phase.
 - **Differences** are **data/rules**: radius, allowed `ResourceData` building types, whether `ClanBrain` runs full AI, and whether the node can be **packed** or only **upgraded**.
+
+### Gather & craft jobs (same rules, different footprint)
+
+- **Design:** **Tier does not change the job recipe.** *Gather* and *craft* (when materials exist) use the same pipeline for **all** home nodes: `TerritoryJobService` (`territory_job_service.gd`). Campfire and flag both act as a **claim** with `clan_name`, `radius`, and (for craft) a territory **inventory** the worker matches.
+- **What tier changes:** a **smaller `radius`** on Tier 1 means the *search* for resources starts in a **smaller** circle around the camp — that is expected, not a second job system. **Building allow-lists** limit what you can *place*; that is separate from how a gather/craft *job* is built.
+- **Engineering check:** all job entry points should go through this shared service; avoid a “flag only” path that forgets the campfire / nomadic node. **Headless:** `tools/territory_job_service_verify.gd` exercises two in-tree “claims” (small vs large `radius`) with the same clan/worker, same return shape (e.g. `null` when no resources, no crash).
 
 ### Campfire-specific (Tier 1 only)
 
@@ -188,14 +201,14 @@ Planned systems and mechanics for the nomadic early game and beyond.
 - **Eggs** (nest / tree hollow), **honey** (hive)—can overlap with **tree dual-yield** below
 - **Fish** — water-adjacent; more systems
 
-**Implementation order (suggested):** roots + nuts + grubs + wild greens (reuse/extend berry-style where needed) → **fiber + clay** → eggs/honey as **tree interaction** → biome/chunk hooks when world gen is stronger.
+**Implementation order (suggested):** roots + nuts + grubs + wild greens (reuse/extend berry-style where needed) → **fiber + clay** → eggs/honey as **tree interaction** → **biome / per-chunk rules** on top of existing **chunk pipeline** (see **`guides/game_map.md`** — hooks for `ChunkGenerator` / `WorldGenConfig` are live; **biome tables** are not).
 
 ### Trees: Chop vs Hand Forage (Design)
 
 - **Equipped: Oldowan or hafted axe** → current intent: **harvest wood** from tree **GatherableResource** nodes (slow with Oldowan vs axe).
 - **Neither equipped** → allow **hand** interaction on the **same** (or tagged) trees: roll **honey** and/or **bird eggs**; shorter or different timing; separate **cooldown** from lumber if trees feel bad when both share one exhaust meter.
 - **NPCs:** lumber AI should keep expecting **wood** from wood nodes; hand-forage is **player-first** unless a dedicated “forager” behavior is added later.
-- **Decorative-only trees** (visual `decorative_trees`) are not lootable until given an **interactable** child or a nearby **hidden gatherable**—don’t assume every painted tree drops loot without a node.
+- **Chunk-streamed “forest” trees** use the same pattern as legacy spawns: a **`decorative_trees`** wrapper with a **WOOD `GatherableResource`** child—they **are** choppable when streaming is on. Any **purely visual** tree without that child still won’t drop loot until given an interactable or gatherable.
 
 ### Clansmen Carry Travois
 
@@ -242,7 +255,7 @@ Planned systems and mechanics for the nomadic early game and beyond.
 
 **Multiplayer performance:**
 - Central `DecayManager` – staggered batch processing (e.g. every 30s, process 50 candidates)
-- Spatial culling: only tick objects in loaded chunks or near players
+- Spatial culling: only tick objects in **loaded chunks** (see **`ChunkManager`** / **`guides/game_map.md`**) or near players
 - Lazy evaluation: add to candidates when eligible; remove on use or destroy
 
 ### Hut Tier Progression (Thatch → Hide)
