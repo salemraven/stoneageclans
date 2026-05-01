@@ -78,3 +78,25 @@ bash tools/run_playtest_2min_analyze.sh
 ```
 
 Optional: **`OUT_DIR=/abs/path/to/folder`** to control output location. **`MIN_HERD_WILDNPC_ENTERS`** (default **`3`**) and **`MIN_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) tighten **`--strict`** so a ~2 min capture is not vacuous; set to **`0`** to disable either check.
+
+## GitHub Pages (browser build = newest exported Web preset)
+
+GitHub Pages on **`salemraven/stoneageclans`** serves the **`gh-pages`** branch (usually `/` root). That branch is **not** auto-updated from `main`; it only changes when someone runs a **Web export** and pushes those files.
+
+From repo root (Godot 4.x + Web export templates installed):
+
+```bash
+bash tools/deploy_github_pages.sh
+```
+
+Set **`GODOT=/path/to/Godot`** if the macOS default path is wrong.
+
+The script:
+
+1. Runs **`--export-release "Web"`** (see **`export_presets.cfg`** → **`build/web/index.html`**).
+2. Writes **`build/web/BUILD.txt`** with UTC time + current **`main`** short SHA (so you can confirm what was exported).
+3. **`rsync`** into a temporary **`gh-pages`** worktree and **`git push origin gh-pages`**.
+
+After push, wait ~1–2 minutes, then **hard-refresh** the game URL (or DevTools → Disable cache). Open **`…/BUILD.txt`** on the same Pages site to verify the stamp matches your machine.
+
+**Repo Settings → Pages:** Source should be **Deploy from a branch** → **`gh-pages`** → **`/ (root)`**.

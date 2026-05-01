@@ -57,6 +57,12 @@ Tests/**/playtest_report.txt
 Tests/_godot*.txt
 Tests/.DS_Store
 
+# Web export output (deploy to gh-pages with tools/deploy_github_pages.sh — do not commit to main)
+build/web/
+
+# Ephemeral git worktree created by deploy_github_pages.sh
+.deploy_gh_pages_worktree/
+
 # Windows / macOS junk
 Thumbs.db
 desktop.ini
