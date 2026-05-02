@@ -13,7 +13,7 @@ Stone Age Clans uses a **light RTS** model. You don’t micromanage every action
 - Modes block autonomous behavior (gather, wander, etc.)
 - All commands are cancelable
 
-**Code terms:** Fighters in ordered follow use FSM state **`party`** (Follow/Guard/Attack formations). Wild women/animals being escorted use FSM state **`herd`** — different rules (influence, steal). See **`guides/rts.md`** and **`bible.md` Terminology**.
+**Code terms:** Fighters in ordered follow use FSM state **`party`** (Peace/Agro/Hunt stance formations: Follow, Guard, Hide, Attack, Ambush, Stalk, Arc). Wild women/animals being escorted use FSM state **`herd`** — different rules (influence, steal). See **`guides/rts.md`** and **`bible.md` Terminology**.
 
 ---
 
@@ -97,27 +97,45 @@ When the **context menu is closed**, you can drag NPCs for quick commands.
 
 ---
 
-### 4. Follow, Guard, and Attack (HUD stances)
+### 4. Modes & stances — Peace / Agro / Hunt
 
-When clansmen are on **ordered follow**, you set **stance** with the bottom HUD (exact geometry and speeds: **`guides/rts.md`** §4).
+When clansmen are on **ordered follow**, you set **mode** and **stance** with the bottom RTS strip (exact geometry and speeds: **`guides/rts.md`** §4 and **§11a**).
 
-**FOLLOW**
-- Loose escort **behind** the leader; **full** formation speed (**1.0×**) for player and clansmen when moving as a unit.
+**Mode row:** **PEACE** · **AGRO** · **HUNT** (one active). **Stance row:** three buttons whose labels change with the mode, plus **Break**.
 
-**GUARD**
-- **Ring** around the leader; **slower** (**0.75×**) — better for “we might get hit” than for pure travel.
+| Mode | Stances (typical) |
+|------|-------------------|
+| **PEACE** | **FOLLOW**, **GUARD**, **HIDE** — escort, defense ring, or hold cover/crouch |
+| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** — closing line, tight ring, or hide until you swing |
+| **HUNT** | **AMBUSH**, **STALK**, **ARC** — hide-until-swing, slow quiet rear arc, semicircle ahead |
 
-**ATTACK**
-- **Line in front** of the leader; higher aggression tuning; **slower** march (**0.85×** player + formation NPCs vs Follow).
+**Peace — travel vs caution**
+
+- **FOLLOW:** loose escort **behind**; **full** formation speed (**~1.0×**) when moving as a unit.
+- **GUARD:** ring around you; **slower** (**~0.75×**) — “we might get hit.”
+- **HIDE:** seek cover or crouch; hold until you change stance or **Break**.
+
+**Agro — raid closing**
+
+- **ATTACK:** line **ahead**; tuned for combat closing (**~0.85×** march vs Follow — numbers in `STANCE_CONFIG`).
+- **AMBUSH:** hide near cover; followers jump in when **your melee windup** starts (simple trigger).
+
+**Hunt — approach prey**
+
+- **STALK:** wide rear arc, **slower** and **quieter** footsteps — good for closing on deer without sprinting in.
+- **ARC:** curved slots **ahead** of you; aim by moving — no separate “ping prey” button.
 
 **Hunt, raid, long movement — recommended**
-- **Most efficient** way to move the **group** across the map (hunt approach, march to a raid): stay in **Follow** until you are **close** to the prey or objective.
-- **Do not** use **Attack** for long cross-country travel: it **slows** you and the line is meant for **closing into combat**, not marching.
-- When the **target is near**, switch to **Attack** so clansmen fan **ahead** and engage. Optional: **Guard** for a tense approach if you accept slower travel than Follow.
+
+- Move the band in **Peace + FOLLOW** (or GUARD if you want the tighter ring) until you’re **near** the fight or prey.
+- Don’t march forever in **ATTACK** or heavy hunt shapes: those are for **closing**, not cross-map travel.
+- Near contact: **Agro + ATTACK**, or **Hunt + ARC/STALK/AMBUSH** as needed.
 
 **HUD controls**
-- **FOLLOW** / **GUARD** / **ATTACK** — stances (applies to **selection**)
-- **Break** — clear ordered follow (see below)
+
+- Mode + stance buttons apply to **selection**; **Break** clears ordered follow (see below).
+
+Full hunting write-up: **`guides/Phase4/raiding_hunting.md`**.
 
 ---
 
@@ -192,7 +210,7 @@ When clansmen are on **ordered follow**, you set **stance** with the bottom HUD 
 | Defend | Context menu DEFEND, or drag clansman → world (outside claim) |
 | Search | Context menu SEARCH |
 | Work (clear role) | Context menu WORK, or drag clansman → inside land claim |
-| Stances | HUD: FOLLOW (travel) / GUARD / ATTACK (close to fight) — see §4 |
+| Stances | HUD: **PEACE / AGRO / HUNT** modes — three stance buttons each — see §4 & **`Phase4/raiding_hunting.md`** |
 | Break follow | HUD: Break Follow |
 | Hostile | Equip weapon (automatic) |
 
@@ -200,6 +218,7 @@ When clansmen are on **ordered follow**, you set **stance** with the bottom HUD 
 
 ## Related Guides
 
+- **`Phase4/raiding_hunting.md`** — Raid cohesion + **Peace / Agro / Hunt** hunting HUD (stalk, arc, hide, ambush, deer)
 - **`rts.md`** — Authoritative RTS doc: formations, speeds, horn, break, playtest (`guides/rts.md`)
 - `Task_system.md` — Tasks, modes, pull-based work
 - `HERDING_SYSTEM_GUIDE.md` — Herding, influence, stealing
