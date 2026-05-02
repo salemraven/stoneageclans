@@ -190,7 +190,7 @@ func _is_huntable_wild_in_aoh(body: Node) -> bool:
 	if not body.is_in_group("npcs"):
 		return false
 	var nt: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
-	if nt != "mammoth" and nt != "sheep" and nt != "goat":
+	if nt != "mammoth" and nt != "sheep" and nt != "goat" and nt != "deer":
 		return false
 	var bclan: String = ""
 	if body.has_method("get_clan_name"):
@@ -296,8 +296,8 @@ func _draw_radius() -> void:
 	
 	# Create a circle outline for the radius
 	_radius_circle = Line2D.new()
-	_radius_circle.width = 2.0
-	_radius_circle.default_color = Color(1.0, 1.0, 1.0, 0.5)  # Semi-transparent white
+	_radius_circle.width = YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX
+	_radius_circle.default_color = YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
 	
 	# Draw circle with 64 points
 	var points := PackedVector2Array()
@@ -480,7 +480,7 @@ func should_i_defend(npc: Node) -> bool:
 		return false
 	
 	# Check quota
-	var quota: int = get_meta("defender_quota", 1)
+	var quota: int = get_meta("defender_quota", 0)
 	var current_count: int = assigned_defenders.size()
 	
 	# If over quota and this NPC isn't one of the first N defenders, evict

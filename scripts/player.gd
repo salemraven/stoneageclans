@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const WalkAnimation = preload("res://scripts/systems/walk_animation.gd")
+const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
@@ -15,6 +16,8 @@ var _walk_timer := 0.0
 var _equipped_item: ResourceData.ResourceType = ResourceData.ResourceType.NONE as ResourceData.ResourceType
 var _can_move := true
 var _leader_lines_container: Node2D = null
+## Pooled Line2D nodes — updated in place each frame (avoid queue_free + alloc per follower per frame).
+var _leader_line_pool: Array[Line2D] = []
 var herded_count: int = 0  # Deprecated: use HerdManager.get_herd_size(self); kept for save/tools compatibility
 var last_facing: Vector2 = Vector2(0, 1)  # For formation when stationary (followers stay behind)
 
@@ -55,6 +58,8 @@ func _ready() -> void:
 	else:
 		# No name set yet - will be set when clan is created
 		player_name = ""
+	if player_name != "" and not has_meta("player_clan_name"):
+		set_meta("player_clan_name", player_name)
 	
 	# Initialize combat component (player-specific: shorter windup for responsiveness)
 	if combat_component:
@@ -93,8 +98,15 @@ func get_player_name() -> String:
 		return clan
 	return ""
 
-# Return clan name of the player's land claim (for same-clan checks so defenders don't attack player)
+# Return clan name for ally checks (CombatAllyCheck). Must be stable when off-claim or before claim registers.
+# player_name is set to the chosen clan when the campfire/flag dialog confirms — same string as claim.clan_name.
 func get_clan_name() -> String:
+	if player_name != "":
+		return player_name
+	if has_meta("player_clan_name"):
+		var meta_cn = get_meta("player_clan_name", "")
+		if meta_cn is String and (meta_cn as String) != "":
+			return meta_cn as String
 	var main: Node = get_tree().get_first_node_in_group("main")
 	if main and main.has_method("_get_player_land_claim"):
 		var land_claim = main._get_player_land_claim()
@@ -114,6 +126,8 @@ func get_clan_name() -> String:
 func set_player_name(name: String) -> void:
 	player_name = name
 	set_meta(_player_name_meta_key, name)
+	# Mirror for combat / ally resolution (same value as land claim clan_name)
+	set_meta("player_clan_name", name)
 
 func _physics_process(_delta: float) -> void:
 	# Multiplayer: only authority runs input; remote players driven by sync (Phase 4).
@@ -136,12 +150,8 @@ func _physics_process(_delta: float) -> void:
 		move_and_slide()
 		return
 	# Gathering: player may move; gatherable_resource / main cancel the timer and flash red
-	
-	var input_vector := Vector2(
-		_get_axis_strength("move_right", "move_left"),
-		_get_axis_strength("move_down", "move_up")
-	)
-
+	# get_vector: consistent combined-axis handling (keyboard + gamepad) vs manual action_strength diffs.
+	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if input_vector.length_squared() > 1.0:
 		input_vector = input_vector.normalized()
 	if input_vector != Vector2.ZERO:
@@ -149,9 +159,9 @@ func _physics_process(_delta: float) -> void:
 
 	# Speed debuff when very hungry (player does not die)
 	var speed_mult: float = 0.7 if hunger < 30.0 else 1.0
-	# Herding debuff: same as caveman (HerdManager = animals + ordered followers)
-	var herd_n: int = HerdManager.get_herd_size(self) if HerdManager else herded_count
-	if herd_n > 0:
+	# Herding debuff when leading herd animals (women/sheep/goats). Ordered clansmen-only warbands do not slow the player.
+	var herd_animal_n: int = HerdManager.get_herd_animal_count(self) if HerdManager else 0
+	if herd_animal_n > 0 and not (DebugConfig and DebugConfig.disable_herd_leader_speed_debuff):
 		var herd_mult: float = NPCConfig.herd_leader_speed_multiplier if NPCConfig and "herd_leader_speed_multiplier" in NPCConfig else 0.97
 		speed_mult *= herd_mult
 	# Formation debuff: match clansmen speed in GUARD (0.75x) or ATTACK (0.85x) so the group moves as a unit
@@ -165,6 +175,7 @@ func _physics_process(_delta: float) -> void:
 	_prevent_entering_npc_land_claims(_delta)
 	
 	move_and_slide()
+	SoundDetection.maybe_emit_footstep(self)
 	
 	# Manual z_index by sprite foot (draw_order.md)
 	if sprite:
@@ -223,9 +234,6 @@ func _physics_process(_delta: float) -> void:
 	sprite.position.x = _sprite_base_position.x
 	var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
 	sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
-
-func _get_axis_strength(positive: StringName, negative: StringName) -> float:
-	return Input.get_action_strength(positive) - Input.get_action_strength(negative)
 
 func _setup_texture() -> void:
 	_update_sprite_texture()
@@ -337,15 +345,7 @@ func _prevent_entering_npc_land_claims(delta: float) -> void:
 			# No movement restriction - player can freely enter and raid
 			pass
 
-func _draw_leader_lines() -> void:
-	# Draw lines from player to all NPCs following the player
-	if not _leader_lines_container:
-		return
-	
-	# Clear existing lines
-	for child in _leader_lines_container.get_children():
-		child.queue_free()
-	
+func _get_herd_followers_for_lines() -> Array[Node2D]:
 	var followers: Array[Node2D] = []
 	if HerdManager:
 		followers.assign(HerdManager.get_herd(self))
@@ -360,23 +360,55 @@ func _draw_leader_lines() -> void:
 			var npc_herder = herder_prop if herder_prop != null else null
 			if npc_is_herded and npc_herder == self:
 				followers.append(npc_check)
-	
-	# Draw a line to each follower
-	for follower in followers:
-		if not is_instance_valid(follower):
-			continue
-		
-		var line = Line2D.new()
-		line.width = 2.0
-		line.default_color = Color(1.0, 1.0, 1.0, 0.35)  # White, more transparent, behind entities
+	return followers
+
+
+func _follower_is_party_rts_line(follower: Node) -> bool:
+	if not follower or not is_instance_valid(follower):
+		return false
+	var t: String = str(follower.get("npc_type")) if follower.get("npc_type") != null else ""
+	if t != "caveman" and t != "clansman":
+		return false
+	return follower.get("follow_is_ordered") == true
+
+
+func _leader_line_color_for_follower(follower: Node) -> Color:
+	if _follower_is_party_rts_line(follower):
+		return YSortUtils.WORLD_OVERLAY_LINE_PARTY_COLOR
+	return YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
+
+
+func _ensure_leader_line(i: int) -> Line2D:
+	while _leader_line_pool.size() <= i:
+		var line := Line2D.new()
+		line.width = YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX
+		line.default_color = YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
 		line.z_as_relative = false
 		line.z_index = YSortUtils.Z_BEHIND_ENTITIES
-		
-		# Line goes from player (origin in local space) to follower position (in local coordinates)
-		var player_pos: Vector2 = Vector2.ZERO
-		var follower_pos: Vector2 = to_local(follower.global_position)
-		line.points = PackedVector2Array([player_pos, follower_pos])
-		
 		_leader_lines_container.add_child(line)
+		_leader_line_pool.append(line)
+	return _leader_line_pool[i]
+
+
+func _draw_leader_lines() -> void:
+	if not _leader_lines_container:
+		return
+	var followers: Array[Node2D] = _get_herd_followers_for_lines()
+	var n: int = followers.size()
+	if n == 0:
+		for line in _leader_line_pool:
+			line.visible = false
+		return
+	for i in range(n):
+		var follower: Node2D = followers[i]
+		var line: Line2D = _ensure_leader_line(i)
+		if not is_instance_valid(follower):
+			line.visible = false
+			continue
+		line.visible = true
+		line.default_color = _leader_line_color_for_follower(follower)
+		line.points = PackedVector2Array([Vector2.ZERO, to_local(follower.global_position)])
+	for i in range(n, _leader_line_pool.size()):
+		_leader_line_pool[i].visible = false
 
 # Player herding removed - animals attach via HerdInfluenceArea when player enters radius

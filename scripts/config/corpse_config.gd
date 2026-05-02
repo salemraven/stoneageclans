@@ -4,6 +4,7 @@ extends Node
 static var YIELDS: Dictionary = {
 	"sheep": {"meat": 2, "hide": 1, "bone": 0},
 	"goat": {"meat": 2, "hide": 1, "bone": 0},
+	"deer": {"meat": 2, "hide": 1, "bone": 0},
 	"woman": {"meat": 2, "hide": 1, "bone": 2},
 	"caveman": {"meat": 3, "hide": 1, "bone": 2},
 	"clansman": {"meat": 3, "hide": 1, "bone": 2},

@@ -10,6 +10,7 @@ var caveman_spawn_with_boost: bool = false
 var woman_initial: int = 12
 var sheep_initial: int = 3
 var goat_initial: int = 3
+var deer_initial: int = 4
 
 # Respawn intervals (seconds)
 var woman_respawn_interval_sec: float = 60.0
@@ -19,6 +20,7 @@ var sheep_goat_respawn_interval_sec: float = 60.0
 var women_respawn_cap: int = 12
 var sheep_respawn_cap: int = 15
 var goat_respawn_cap: int = 15
+var deer_respawn_cap: int = 12
 
 # Cavemen spawn spread - wide band so clans are not clustered in center
 var caveman_spawn_radius_min: float = 1800.0

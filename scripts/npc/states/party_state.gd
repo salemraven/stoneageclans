@@ -81,9 +81,11 @@ func update(delta: float) -> void:
 
 	var agro: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
 	var agro_break_threshold: float = 70.0
-	if mode == "ATTACK":
+	if mode == "ATTACK" or mode == "ARC":
 		agro_break_threshold = 100.0
-	elif mode == "FOLLOW":
+	elif mode == "AMBUSH":
+		agro_break_threshold = 95.0
+	elif mode == "FOLLOW" or mode == "STALK" or mode == "HIDE":
 		agro_break_threshold = 40.0
 	var formation_active: bool = (agro < agro_break_threshold)
 
@@ -93,8 +95,11 @@ func update(delta: float) -> void:
 	if mode == "GUARD":
 		distance_min = 55.0
 		distance_max = 110.0
-	elif mode == "ATTACK":
+	elif mode == "ATTACK" or mode == "ARC":
 		distance_min = 60.0
+		distance_max = 200.0
+	elif mode == "STALK":
+		distance_min = 70.0
 		distance_max = 200.0
 	else:
 		distance_min = 60.0
@@ -357,6 +362,12 @@ func can_enter() -> bool:
 	var ordered_follow_player: bool = npc.herder.is_in_group("player")
 	var agro_test_npc_leader: bool = _is_agro_combat_test() and not ordered_follow_player
 	var same_clan_npc: bool = PartyCommandUtils.same_clan_warband_herder(npc.herder, npc)
+	var ctxm: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+	var mode_str: String = str(ctxm.get("mode", "FOLLOW"))
+	if mode_str == "HIDE" or mode_str == "AMBUSH":
+		if npc_type_str == "caveman":
+			npc._clear_herd()
+		return false
 	if not ordered_follow_player and not agro_test_npc_leader and not same_clan_npc:
 		if npc_type_str == "caveman":
 			npc._clear_herd()
@@ -365,6 +376,8 @@ func can_enter() -> bool:
 
 func get_priority() -> float:
 	if not npc:
+		if NPCConfig:
+			return NPCConfig.priority_party_herd_inactive
 		return 0.0
 	if needs_catchup:
 		var catchup_priority: float = 15.0
@@ -407,14 +420,18 @@ func _apply_formation_speed(npc_node: Node, mode_str: String, backing: bool, dis
 	elif leader_moving:
 		if mode_str == "GUARD":
 			mult = 0.75
-		elif mode_str == "ATTACK":
+		elif mode_str == "ATTACK" or mode_str == "ARC":
 			mult = 0.85
+		elif mode_str == "STALK":
+			mult = 0.5
 		else:
 			mult = 1.0
 	elif mode_str == "GUARD":
 		mult = 0.75
-	elif mode_str == "ATTACK":
+	elif mode_str == "ATTACK" or mode_str == "ARC":
 		mult = 0.85
+	elif mode_str == "STALK":
+		mult = 0.5
 	else:
 		mult = 1.0
 	if sa.has_method("set_speed_multiplier"):

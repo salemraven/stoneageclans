@@ -21,7 +21,7 @@ This doc matches **implementation** as of April 2026 (`main.gd`, `party_state.gd
 | **Select** | Single click, **drag box** (rect on screen), or context target |
 | **Order follow** | Context **Follow**, or **drag clansman onto player** |
 | **Rally** | **H** (War Horn): clansmen in radius sprint to you; ordered follow + default stance refresh |
-| **Stance** | **Follow** / **Guard** / **Attack** (bottom HUD when clansmen selected) |
+| **Stance** | **Follow** / **Guard** / **Attack** / hunt stances (via PEACE·AGRO·HUNT HUD row — see §11a) |
 | **Break** | **Break** HUD button or **B**: clear ordered follow, reset agro path, send clansmen **back toward land claim** / work |
 | **Defend** | Context / flow for **defend this land claim or campfire** (border formation) — separate from the moving formation stances |
 
@@ -36,9 +36,9 @@ This doc matches **implementation** as of April 2026 (`main.gd`, `party_state.gd
 | **Right-click NPC** | Context menu: Follow, Defend, Search, Work, Info (options depend on target and clan resolution) |
 | **Drag clansman → drop on player** | **Ordered follow** (same clan / valid target) |
 | **Drag box** | Select multiple clansmen (requires resolvable **player clan** / territory) |
-| **H** | **War Horn**: rally clansmen within **rally radius** (~1500 px, `RTS_CONFIG`); registers followers; applies **command context**; detaches **herd** from rallied clansmen if they were leading animals |
+| **H** | **War Horn**: rally clansmen within **rally radius** (~1500 px). In **HUNT** mode, **aborts hunt** (Peace + Follow) instead of rallying. |
 | **B** | **Break** ordered follow (same as Break button) |
-| **Follow / Guard / Attack** (HUD) | Sets **stance** on **selected** clansmen and refreshes **command_context** |
+| **Stance row** (HUD) | Three buttons depend on **PEACE / AGRO / HUNT** mode (see §11a) |
 | **Break** (HUD) | Dismiss formation; `returning_from_break` meta + wander priority so they walk home |
 | **F5** (debug) | Spawns RTS playtest pack: player claim + 5 same-clan clansmen (when running in editor / dev) |
 | **Space** | **Gather** (resources / ground items) — not an RTS unit command |
@@ -50,7 +50,7 @@ This doc matches **implementation** as of April 2026 (`main.gd`, `party_state.gd
 Each ordered clansman carries a **`command_context`** dictionary (on `NPCBase`), built in `main.gd`:
 
 - **`commander_id`**: leader’s instance id (usually player)
-- **`mode`**: `"FOLLOW"` \| `"GUARD"` \| `"ATTACK"`
+- **`mode`**: `"FOLLOW"` \| `"GUARD"` \| `"ATTACK"` \| `"HIDE"` \| `"STALK"` \| `"ARC"` \| `"AMBUSH"`
 - **`stance_aggro_threshold`**, **`stance_chase_dist`**: from **STANCE_CONFIG** (see §5)
 - **`is_hostile`**: derived from player weapon / RTS rules
 - **`issued_at_time`**: timestamp
@@ -126,8 +126,9 @@ Higher threshold = easier to enter combat / chase. **FOLLOW** is passive; **ATTA
 ## 6. Break
 
 - Clears **follower cache** / ordered follow flags and related hostile timers where applicable
-- Sets **`returning_from_break`** meta (time window from `RTS_CONFIG`) and forces **wander** with **high priority** so **gather / herd** do not immediately steal the NPC
-- **Wander** steers toward **land claim** until close, then clears meta so normal work resumes
+- **`invalidate_land_claim_cache()`** on each follower so **`get_my_land_claim()`** resolves fresh after follow ends
+- Sets **`returning_from_break`** = `true` and **`returning_from_break_expire`** = now + **`RTS_CONFIG.break_return_max_sec`** (default 300 s); forces **wander** with **high priority** so **gather / herd** do not immediately steal the NPC
+- **Caveman** and **clansman** followers: **wander** steers toward the clan **land claim** until within ~120 px, then clears metas. Legacy sessions used a single float deadline on `returning_from_break`; that still migrates in **`wander_state`**
 
 ---
 
@@ -176,6 +177,23 @@ Not RTS, but often confused:
 
 ---
 
+## 11a. Peace / Agro / Hunt modes & hunting stances
+
+The bottom RTS HUD has a **mode strip** (**PEACE**, **AGRO**, **HUNT**) plus **three stance buttons** whose labels depend on the mode:
+
+| Mode | Stances |
+|------|---------|
+| **PEACE** | **FOLLOW**, **GUARD**, **HIDE** |
+| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** |
+| **HUNT** | **AMBUSH**, **STALK**, **ARC** |
+
+- **HIDE / AMBUSH** use `hide_state.gd` (cover query + stationary hide). **AMBUSH** releases into combat when the **leader starts a melee swing** (windup).  
+- **STALK** uses a **wider rear arc** and **quiet footsteps** (see `SoundDetection`).  
+- **ARC** uses a **curved ahead-of-leader** slot layout (see `FormationUtils.compute_formation_slots`).  
+- **War Horn (H)** while in **HUNT** mode: **aborts the hunt** — switches to **PEACE**, forces **FOLLOW**, emits a **very loud sound** (spooks prey). Normal horn rally still applies in **PEACE** / **AGRO**.
+
+---
+
 ## 11. Related docs
 
 - **bible.md** — §XVIII (summary), §I primitive command, hunt/raid travel bullets
@@ -185,4 +203,4 @@ Not RTS, but often confused:
 
 ---
 
-*Last updated: April 2026 — aligned with formation slot pipeline, stance STANCE_CONFIG, and gather hitbox fix.*
+*Last updated: May 2026 — Peace/Agro/Hunt modes, hunting stances, deer flee, sound stubs.*

@@ -265,7 +265,7 @@ func _refresh_cached_traits() -> void:
 	_cached.current_state = ""
 	if npc.fsm and npc.fsm.has_method("get_current_state_name"):
 		_cached.current_state = npc.fsm.get_current_state_name()
-	_cached.is_in_herd_mode = _cached.is_herded or _cached.current_state == "herd" or _cached.current_state == "party"
+	_cached.is_in_herd_mode = _cached.is_herded or _cached.current_state == "herd" or _cached.current_state == "party" or _cached.current_state == "hide"
 	_cached.is_gathering = _cached.current_state == "gather"
 	
 	# Position
@@ -996,7 +996,8 @@ func _keep_inside_clan_land_claim() -> Vector2:
 		var clan_name_prop = claim.get("clan_name")
 		if clan_name_prop != null:
 			claim_clan = clan_name_prop as String
-		if claim_clan == clan_name:
+		if not claim_clan.is_empty() and not clan_name.is_empty() \
+				and claim_clan.strip_edges().to_lower() == clan_name.strip_edges().to_lower():
 			my_claim = claim
 			var radius_prop = claim.get("radius")
 			if radius_prop != null:

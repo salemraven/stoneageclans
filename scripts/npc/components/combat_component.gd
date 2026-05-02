@@ -2,6 +2,7 @@ extends Node
 class_name CombatComponent
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 # Combat Component - handles attack logic, damage calculation, combat state
 # Now with event-driven windup/recovery system
@@ -167,6 +168,8 @@ func request_attack(target: Node2D) -> void:
 	state = CombatState.WINDUP
 	current_target = target
 	windup_start_time = Time.get_ticks_msec()  # Track windup start for timeout detection
+	if npc:
+		SoundDetection.emit_attack_swing(npc)
 	
 	# Store default texture before switching to combat frame (fallback if _load_attack_sprite_sheet ran when sprite was null)
 	if not default_sprite_texture:
@@ -241,6 +244,12 @@ func _on_hit_frame() -> void:
 	
 	if not is_instance_valid(current_target):
 		_combat_e("COMBAT: Hit frame - target invalid, cancelling")
+		if DebugConfig and DebugConfig.enable_session_instrumentation:
+			var nn0: String = npc.get("npc_name") if npc and npc.get("npc_name") != null else "?"
+			UnifiedLogger.log_session("COMBAT_HIT_ABORT", {
+				"npc": nn0,
+				"reason": "target_invalid_at_hit_frame"
+			}, UnifiedLogger.Level.INFO)
 		_cancel_attack()
 		return
 	
@@ -268,13 +277,24 @@ func _on_hit_frame() -> void:
 		return
 	
 	if not hit_valid:
-		var whiff_reason: String = "invalid"
-		if current_target and is_instance_valid(current_target):
-			var dist: float = npc.global_position.distance_to(current_target.global_position)
-			if dist > attack_range:
-				whiff_reason = "out_of_range"
-			elif not _is_target_in_attack_arc(current_target):
-				whiff_reason = "out_of_arc"
+		var whiff_reason: String = _hit_validation_failure_reason(current_target)
+		if whiff_reason == "":
+			whiff_reason = "unknown"
+		if DebugConfig and DebugConfig.enable_session_instrumentation:
+			var nnw: String = npc.get("npc_name") if npc and npc.get("npc_name") != null else "?"
+			var tnw: String = "?"
+			if current_target and is_instance_valid(current_target):
+				if current_target is NPCBase:
+					tnw = (current_target as NPCBase).npc_name
+				elif current_target.is_in_group("player"):
+					tnw = "Player"
+				else:
+					tnw = str(current_target.name)
+			UnifiedLogger.log_session("COMBAT_WHIFF", {
+				"attacker": nnw,
+				"target": tnw,
+				"reason": whiff_reason
+			}, UnifiedLogger.Level.INFO)
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled():
 			var nn: String = npc.get("npc_name") if npc.get("npc_name") != null else "unknown"
@@ -524,32 +544,26 @@ func _cancel_attack() -> void:
 	
 	_combat_d("✅ COMBAT: Attack cancelled - state reset to IDLE")
 
-func _validate_hit(target: Node) -> bool:
+func _hit_validation_failure_reason(target: Node) -> String:
+	"""Empty string = would hit; else machine-readable reason for SESSION analysis."""
 	if not is_instance_valid(target):
-		return false
-	
+		return "invalid_target"
 	if not npc:
-		return false
-	
-	# Allies never damage each other (safety net vs friendly fire)
+		return "no_npc"
 	if CombatAllyCheck.is_ally(npc, target):
-		return false
-	
-	# Check if target is alive
+		return "ally"
 	var target_health: HealthComponent = target.get_node_or_null("HealthComponent")
 	if not target_health or target_health.is_dead:
-		return false
-	
-	# Check range
-	var distance = npc.global_position.distance_to(target.global_position)
+		return "dead"
+	var distance: float = npc.global_position.distance_to(target.global_position)
 	if distance > attack_range:
-		return false
-	
-	# Check attack arc (cone in front of attacker; see attack_arc)
+		return "out_of_range"
 	if not _is_target_in_attack_arc(target):
-		return false  # Target moved out of arc - whiff
-	
-	return true
+		return "out_of_arc"
+	return ""
+
+func _validate_hit(target: Node) -> bool:
+	return _hit_validation_failure_reason(target) == ""
 
 func _is_target_in_attack_arc(target: Node) -> bool:
 	# Calculate direction to target

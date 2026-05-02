@@ -7,11 +7,13 @@ class_name FSM
 # Preload state scripts once at parse time (no per-NPC disk I/O)
 const IdleStateScript = preload("res://scripts/npc/states/idle_state.gd")
 const WanderStateScript = preload("res://scripts/npc/states/wander_state.gd")
+const FleePreyStateScript = preload("res://scripts/npc/states/flee_prey_state.gd")
 const SeekStateScript = preload("res://scripts/npc/states/seek_state.gd")
 const EatStateScript = preload("res://scripts/npc/states/eat_state.gd")
 const GatherStateScript = preload("res://scripts/npc/states/gather_state.gd")
 const HerdStateScript = preload("res://scripts/npc/states/herd_state.gd")
 const PartyStateScript = preload("res://scripts/npc/states/party_state.gd")
+const HideStateScript = preload("res://scripts/npc/states/hide_state.gd")
 const HerdWildNPCStateScript = preload("res://scripts/npc/states/herd_wildnpc_state.gd")
 const AgroStateScript = preload("res://scripts/npc/states/agro_state.gd")
 const CombatStateScript = preload("res://scripts/npc/states/combat_state.gd")
@@ -61,11 +63,13 @@ func initialize(npc_ref: NPCBase) -> void:
 	# We'll create states as Node instances with scripts attached
 	_register_state("idle", "")
 	_register_state("wander", "")
+	_register_state("flee_prey", "")
 	_register_state("seek", "")
 	_register_state("eat", "")
 	_register_state("gather", "")
 	_register_state("herd", "")
 	_register_state("party", "")
+	_register_state("hide", "")
 	_register_state("agro", "")
 	_register_state("combat", "")  # Combat state for melee combat
 	_register_state("flee_combat", "")  # Break contact — entered from combat_state or explicit change_state
@@ -119,6 +123,18 @@ func _create_state_instances() -> void:
 		# Set FSM reference after initialization
 		# Directly set fsm property (it's defined in base_state.gd)
 		state.set("fsm", self)
+	
+	if FleePreyStateScript:
+		var fp: Node = Node.new()
+		fp.set_script(FleePreyStateScript)
+		if fp.has_method("initialize"):
+			fp.name = "FleePreyState"
+			add_child(fp)
+			states["flee_prey"] = fp
+			fp.initialize(npc)
+			fp.set("fsm", self)
+		else:
+			fp.queue_free()
 	
 	if SeekStateScript:
 		var state: Node = Node.new()
@@ -195,6 +211,18 @@ func _create_state_instances() -> void:
 		else:
 			push_error("FSM: Failed to attach party_state for %s" % npc_name)
 			party_st.queue_free()
+	
+	if HideStateScript:
+		var hs: Node = Node.new()
+		hs.set_script(HideStateScript)
+		if hs.has_method("initialize"):
+			hs.name = "HideState"
+			add_child(hs)
+			states["hide"] = hs
+			hs.initialize(npc)
+			hs.set("fsm", self)
+		else:
+			hs.queue_free()
 	
 	if HerdWildNPCStateScript:
 		var state: Node = Node.new()
@@ -606,6 +634,14 @@ func _evaluate_states() -> void:
 				var is_ordered_p: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
 				if not is_ordered_p:
 					continue
+			if state_name == "hide":
+				if npc_type_str != "caveman" and npc_type_str != "clansman":
+					continue
+				var is_ordered_h: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
+				if not is_ordered_h:
+					continue
+			if state_name == "flee_prey" and npc_type_str != "deer":
+				continue
 			if state_name == "herd_wildnpc" and npc_type_str != "caveman" and npc_type_str != "clansman":
 				continue
 			if state_name == "defend":
@@ -935,6 +971,29 @@ func change_state(new_state_name: String) -> void:
 		var npc_type: String = (nt3 as String) if nt3 != null else ""
 		if npc_type == "caveman":
 			print("🔵 FSM TRANSITION TO GATHER: %s (from %s, clan_name='%s')" % [npc_name_track, old_state_track, clan_after])
+		if DebugConfig and DebugConfig.enable_session_instrumentation and (npc_type == "caveman" or npc_type == "clansman"):
+			UnifiedLogger.log_session("FSM_TO_GATHER", {
+				"npc": npc_name_track,
+				"type": npc_type,
+				"from": old_state_track,
+				"clan": clan_after
+			}, UnifiedLogger.Level.INFO)
+	
+	# Agro: SESSION line when entering/leaving agro (cavemen only FSM agro; clansmen still have agro_meter)
+	if old_state_track == "agro" or new_state_name == "agro":
+		var nt_ag = npc.get("npc_type") if npc else null
+		var npc_type_ag: String = (nt_ag as String) if nt_ag != null else ""
+		if DebugConfig and DebugConfig.enable_session_instrumentation and DebugConfig.enable_agro_session_logs and (npc_type_ag == "caveman" or npc_type_ag == "clansman"):
+			var am: Variant = npc.get("agro_meter") if npc else null
+			var agro_meter_str: String = "%.2f" % (float(am) if am != null else 0.0)
+			UnifiedLogger.log_session("FSM_AGRO_TRANSITION", {
+				"npc": npc_name_track,
+				"type": npc_type_ag,
+				"from": old_state_track,
+				"to": new_state_name,
+				"clan": clan_after,
+				"agro_meter": agro_meter_str
+			}, UnifiedLogger.Level.INFO)
 	
 	# Log state entry
 	if current_state:
@@ -1028,6 +1087,9 @@ func _compute_priority_cache_key() -> int:
 		h = h * 31 + (dt as Object).get_instance_id()
 	h = h * 31 + int(hc) if hc != null else h
 	h = h * 31 + (1 if fo == true else 0)
+	var ctx = npc.get("command_context")
+	if ctx is Dictionary:
+		h = h * 31 + hash(str(ctx.get("mode", "")))
 	return h
 
 
@@ -1070,4 +1132,12 @@ func force_evaluation() -> void:
 		return
 	_last_force_eval_time = now
 	_evaluate_states()
-	print("🔵 FSM: Forced evaluation for %s" % (npc.get("npc_name") if npc else "unknown"))
+	var fn: String = str(npc.get("npc_name")) if npc and npc.get("npc_name") != null else "unknown"
+	print("🔵 FSM: Forced evaluation for %s" % fn)
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		var nt_f: String = str(npc.get("npc_type")) if npc and npc.get("npc_type") != null else ""
+		UnifiedLogger.log_session("FSM_FORCED_EVAL", {
+			"npc": fn,
+			"type": nt_f,
+			"state": current_state_name
+		}, UnifiedLogger.Level.INFO)

@@ -180,6 +180,7 @@ extends Node
 @export var priority_eat_low: float = 5.0  # Priority when hunger < 80%
 @export var priority_gather_berries: float = 4.0  # Priority when gathering berries (hunger < 90%)
 @export var priority_gather_other: float = 5.5  # Base gather; herd_wildnpc_searching (6.0–6.1) beats when target/pressure high
+@export var priority_gather_productivity: float = 5.8  # When caveman_productivity_test >= 1.0 (gather_state)
 @export var priority_wander: float = 1.0  # Priority for wandering
 @export var priority_idle: float = 0.0  # Priority for idle (lowest)
 
@@ -192,6 +193,46 @@ extends Node
 @export var priority_deposit: float = 11.0  # Protected - core gather→deposit loop, never interrupted by herding
 @export var priority_agro: float = 15.0  # Priority for agro state (highest - interrupts all other states)
 @export var priority_build: float = 9.5  # Priority for build state (place land claim - only when no land claim, 15.0 when has 8+ items)
+
+# Centralized priorities for states that previously used literals (tune here; see guides/phase2/STATE_PRIORITIES.md).
+# Note: fsm._evaluate_states() early-exits to combat then defend before the sorted priority list — see guide.
+@export var priority_combat_state: float = 12.0  # Below priority_agro (15); combat also evaluated early in FSM
+@export var priority_flee_combat: float = 13.0
+@export var priority_craft_blocked: float = 2.0
+@export var priority_craft_below_gather: float = 4.0
+@export var priority_craft_high: float = 12.0
+@export var priority_craft_fallback: float = 2.5
+@export var priority_gather_no_clan: float = 1.0
+@export var priority_gather_inventory_full: float = 5.0
+@export var priority_work_at_building_busy: float = 10.0
+@export var priority_work_at_building_job: float = 9.0
+@export var priority_work_at_building_idle: float = 7.0
+@export var priority_agro_recover: float = 10.0
+@export var priority_agro_defend_boost: float = 2.0  # Added to priority_agro when defending vs caveman/player
+@export var priority_agro_low: float = 3.0
+@export var priority_hunt: float = 9.0
+@export var priority_build_hut_for_woman: float = 12.5
+@export var priority_wander_moving_to_deposit: float = 12.0
+@export var priority_wander_returning_from_break: float = 13.0
+@export var priority_wander_caveman_fallback: float = 0.01
+@export var priority_search: float = 5.5
+@export var priority_raid: float = 8.5
+@export var priority_defend_trait: float = 11.0
+@export var priority_defend_default: float = 3.0
+@export var priority_reproduction: float = 8.0
+@export var priority_occupy_building: float = 7.5
+@export var priority_build_land_claim_urgent: float = 25.0
+@export var priority_seek: float = 2.0
+@export var priority_idle_caveman: float = 0.0
+@export var priority_idle_wild_no_herd: float = 0.0
+@export var priority_idle_woman_clan: float = 0.1
+@export var priority_idle_clan_other: float = 0.3
+@export var priority_idle_random_break: float = 0.5
+@export var priority_party_herd_inactive: float = 0.0
+@export var priority_herd_wildnpc_no_target: float = 5.2
+@export var priority_herd_wildnpc_searching_boosted: float = 6.1
+## Fighters (caveman+clansman) in clan before craft priority can beat gather; aligns with ClanBrain MIN_FIGHTERS_BEFORE_DEFEND
+@export var min_fighters_for_craft_priority_over_gather: int = 4
 
 # ============================================
 # STEERING WEIGHTS
@@ -278,6 +319,32 @@ extends Node
 @export var aoh_radius_max: float = 1200.0
 @export var hunt_party_min_size: int = 2
 @export var hunt_party_max_size: int = 4
+
+@export_group("Hunting / Deer / Sound")
+@export var deer_base_speed: float = 140.0
+@export var deer_hp: int = 25
+@export var deer_perception_visual: float = 250.0
+@export var deer_sound_threshold: float = 0.5
+@export var deer_flee_duration_sec: float = 10.0
+@export var deer_winded_speed_mult: float = 0.6
+@export var deer_winded_duration_sec: float = 3.0
+@export var deer_panic_spread_radius: float = 150.0
+@export var deer_panic_spread_delay_min: float = 0.3
+@export var deer_panic_spread_delay_max: float = 0.5
+@export var sound_footstep_walk_volume: float = 30.0
+@export var sound_footstep_run_volume: float = 60.0
+@export var sound_footstep_stalk_volume: float = 15.0
+@export var sound_attack_swing_volume: float = 100.0
+@export var sound_spear_throw_volume: float = 120.0
+@export var sound_horn_volume: float = 300.0
+@export var sound_footstep_walk_interval: float = 0.3
+@export var sound_footstep_run_interval: float = 0.15
+@export var sound_prey_poll_interval: float = 0.5
+@export var cover_full_detection_reduction: float = 0.9
+@export var cover_exposed_detection_reduction: float = 0.5
+@export var cover_query_max_dist: float = 300.0
+@export var cover_query_cache_duration: float = 0.5
+@export var missed_projectile_despawn_sec: float = 60.0
 
 # ============================================
 # FSM (Finite State Machine)

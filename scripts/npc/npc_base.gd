@@ -5,6 +5,8 @@ class_name NPCBase
 const PerceptionArea = preload("res://scripts/npc/components/perception_area.gd")
 const HerdableComponentScript = preload("res://scripts/npc/components/herdable_component.gd")
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+const MovementDebugInstrument = preload("res://scripts/debug/movement_debug_instrument.gd")
+const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 # Uses global WalkAnimation (class_name in walk_animation.gd)
 
@@ -62,6 +64,12 @@ const ANIMAL_ENTER_RANGE := 220.0
 # Cached "my land claim" lookup (invalidated on clan change)
 var _cached_land_claim: Node = null
 var _cached_land_claim_clan: String = ""
+
+## LandClaim stores clan_name uppercased; NPC/meta may differ by case — use for all claim vs NPC checks.
+func _clan_tags_equal(a: String, b: String) -> bool:
+	if a.is_empty() or b.is_empty():
+		return false
+	return a.strip_edges().to_lower() == b.strip_edges().to_lower()
 
 # Helper function to get clan_name (always checks meta as backup)
 func get_clan_name() -> String:
@@ -239,7 +247,7 @@ func get_my_land_claim() -> Node:
 		_cached_land_claim = null
 		_cached_land_claim_clan = ""
 		return null
-	if _cached_land_claim != null and is_instance_valid(_cached_land_claim) and _cached_land_claim_clan == clan:
+	if _cached_land_claim != null and is_instance_valid(_cached_land_claim) and _clan_tags_equal(_cached_land_claim_clan, clan):
 		return _cached_land_claim
 	_cached_land_claim = null
 	_cached_land_claim_clan = ""
@@ -249,7 +257,7 @@ func get_my_land_claim() -> Node:
 		if not is_instance_valid(claim):
 			continue
 		var claim_clan: String = claim.get("clan_name") if "clan_name" in claim else ""
-		if claim_clan != clan:
+		if not _clan_tags_equal(claim_clan, clan):
 			continue
 		if claim is LandClaim:
 			_cached_land_claim = claim
@@ -261,6 +269,13 @@ func get_my_land_claim() -> Node:
 		_cached_land_claim_clan = clan
 		return fallback_campfire
 	return null
+
+
+func invalidate_land_claim_cache() -> void:
+	"""Force next get_my_land_claim() to scan the scene (e.g. after RTS Break / clan context change)."""
+	_cached_land_claim = null
+	_cached_land_claim_clan = ""
+
 
 # Helper function to check if NPC is dead
 func is_dead() -> bool:
@@ -291,6 +306,14 @@ func get_follow_mode_string() -> String:
 			return "GUARD"
 		FollowMode.ATTACK:
 			return "ATTACK"
+		FollowMode.HIDE:
+			return "HIDE"
+		FollowMode.STALK:
+			return "STALK"
+		FollowMode.ARC:
+			return "ARC"
+		FollowMode.AMBUSH:
+			return "AMBUSH"
 		_:
 			return "FOLLOW"
 
@@ -301,6 +324,14 @@ func set_follow_mode_from_string(s: String) -> void:
 		follow_mode = FollowMode.GUARD
 	elif u == "ATTACK":
 		follow_mode = FollowMode.ATTACK
+	elif u == "HIDE":
+		follow_mode = FollowMode.HIDE
+	elif u == "STALK":
+		follow_mode = FollowMode.STALK
+	elif u == "ARC":
+		follow_mode = FollowMode.ARC
+	elif u == "AMBUSH":
+		follow_mode = FollowMode.AMBUSH
 	else:
 		follow_mode = FollowMode.FOLLOW
 
@@ -445,7 +476,7 @@ var combat_target: Node2D = null  # NPCBase or player when defending vs intruder
 var combat_target_id: int = -1  # Step 3: logic uses ID; resolve to Node at edge only
 var combat_locked: bool = false  # True during windup/recovery (prevents FSM state switching)
 # Follow / Guard / Attack — persistent per clansman (ordered follow uses command_context.mode)
-enum FollowMode { FOLLOW = 0, GUARD = 1, ATTACK = 2 }
+enum FollowMode { FOLLOW = 0, GUARD = 1, ATTACK = 2, HIDE = 3, STALK = 4, ARC = 5, AMBUSH = 6 }
 var follow_mode: int = FollowMode.FOLLOW
 
 # Step 4: CommandContext (commander_id, mode FOLLOW|GUARD|ATTACK, is_hostile, issued_at_time)
@@ -474,8 +505,12 @@ func reset_agro_after_combat() -> void:
 	var v: float = 0.0
 	if mode == "GUARD":
 		v = 40.0
-	elif mode == "ATTACK":
+	elif mode == "ATTACK" or mode == "ARC":
 		v = 69.0
+	elif mode == "AMBUSH":
+		v = 80.0
+	elif mode == "STALK" or mode == "HIDE":
+		v = 0.0
 	else:
 		v = 0.0
 	set("agro_meter", v)
@@ -590,8 +625,8 @@ func _ready() -> void:
 			add_child(growth_comp)
 			baby_growth_component = growth_comp
 	
-	# Create HealthComponent for cavemen, clansmen, women, sheep, goats (so they can be killed/hunted)
-	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat":
+	# Create HealthComponent for cavemen, clansmen, women, sheep, goats, deer (so they can be killed/hunted)
+	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat" or npc_type == "deer":
 		# Health Component
 		var health_comp = get_node_or_null("HealthComponent")
 		if not health_comp:
@@ -610,14 +645,15 @@ func _ready() -> void:
 				combat_comp.name = "CombatComponent"
 				add_child(combat_comp)
 		
-		# Weapon Component
-		var weapon_comp = get_node_or_null("WeaponComponent")
-		if not weapon_comp:
-			var weapon_script = load("res://scripts/npc/components/weapon_component.gd")
-			if weapon_script:
-				weapon_comp = weapon_script.new()
-				weapon_comp.name = "WeaponComponent"
-				add_child(weapon_comp)
+		# Weapon Component — fighters only
+		if npc_type == "caveman" or npc_type == "clansman":
+			var weapon_comp = get_node_or_null("WeaponComponent")
+			if not weapon_comp:
+				var weapon_script = load("res://scripts/npc/components/weapon_component.gd")
+				if weapon_script:
+					weapon_comp = weapon_script.new()
+					weapon_comp.name = "WeaponComponent"
+					add_child(weapon_comp)
 	
 	_sprite_base_position = sprite.position if sprite else Vector2.ZERO
 	
@@ -637,13 +673,18 @@ func _ready() -> void:
 	# Initialize components
 	if stats_component:
 		stats_component.initialize(self)
+		if npc_type == "deer" and NPCConfig:
+			var mult: float = NPCConfig.speed_agility_multiplier
+			stats_component.agility = NPCConfig.deer_base_speed / mult
+			if stats_component.base_stats.has("agility"):
+				stats_component.base_stats["agility"] = stats_component.agility
 	if reproduction_component:
 		reproduction_component.initialize(self)
 	if baby_growth_component:
 		baby_growth_component.initialize(self)
 	
-	# Initialize combat components for cavemen, clansmen, mammoths, women, sheep, goats
-	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "mammoth" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat":
+	# Initialize combat components for cavemen, clansmen, mammoths, women, sheep, goats, deer
+	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "mammoth" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat" or npc_type == "deer":
 		var health_comp = get_node_or_null("HealthComponent")
 		if health_comp and health_comp.has_method("initialize"):
 			health_comp.initialize(self)
@@ -655,6 +696,10 @@ func _ready() -> void:
 				# Sheep/goat: weaker, 1-2 hits to kill
 				health_comp.max_hp = 15
 				health_comp.current_hp = 15
+			elif npc_type == "deer":
+				var dh: int = NPCConfig.deer_hp if NPCConfig else 25
+				health_comp.max_hp = dh
+				health_comp.current_hp = dh
 		
 		var combat_comp = get_node_or_null("CombatComponent")
 		if combat_comp and combat_comp.has_method("initialize"):
@@ -712,7 +757,7 @@ func _ready() -> void:
 	# Setup quality tier based on age (stats)
 	_update_quality_tier()
 	# Randomize skin tone (Dark, Medium, Light) for variety - skip for sheep/goat (they use tint from spawn)
-	if npc_type != "sheep" and npc_type != "goat":
+	if npc_type != "sheep" and npc_type != "goat" and npc_type != "deer":
 		skin_tone = ["Dark", "Medium", "Light"][randi() % 3]
 		_update_visual_tier()
 	elif sprite and has_meta("sheep_goat_tint"):
@@ -730,6 +775,15 @@ func _ready() -> void:
 	# Goats use goatwalk.png (frame 0 = idle); set once ready
 	if npc_type == "goat" and sprite:
 		call_deferred("_apply_goat_idle_once")
+	# Deer: use placeholder texture if not set by spawner
+	if npc_type == "deer" and sprite:
+		var dtex: Texture2D = AssetRegistry.get_deer_sprite()
+		if dtex:
+			sprite.texture = dtex
+			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			sprite.visible = true
+			if has_method("apply_sprite_offset_for_texture"):
+				apply_sprite_offset_for_texture()
 	# Cavemen/clansmen use directional SpriteForge sheets; apply once ready
 	if (npc_type == "caveman" or npc_type == "clansman") and sprite:
 		call_deferred("_apply_caveman_idle_once")
@@ -816,18 +870,23 @@ func _physics_process(delta: float) -> void:
 		_distance_based_update_scale = 1.0
 		_distance_update_interval = 0.0
 	
-	# Update FSM (distance-based scaling: run FSM less often when far from player)
+	# Update FSM (distance-based scaling: run FSM less often when far from player).
+	# Multiplayer: only authority runs AI so clients do not duplicate state evaluation (server is source of truth).
 	if fsm:
-		var effective_delta: float = delta
-		if _distance_based_update_scale < 1.0 and _distance_update_interval > 0.0:
-			_distance_update_accumulator += delta
-			if _distance_update_accumulator < _distance_update_interval:
-				effective_delta = 0.0  # Skip this frame
-			else:
-				effective_delta = _distance_update_accumulator
-				_distance_update_accumulator = 0.0
-		if effective_delta > 0.0 and fsm.has_method("update"):
-			fsm.update(effective_delta)
+		var run_fsm: bool = true
+		if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+			run_fsm = false
+		if run_fsm:
+			var effective_delta: float = delta
+			if _distance_based_update_scale < 1.0 and _distance_update_interval > 0.0:
+				_distance_update_accumulator += delta
+				if _distance_update_accumulator < _distance_update_interval:
+					effective_delta = 0.0  # Skip this frame
+				else:
+					effective_delta = _distance_update_accumulator
+					_distance_update_accumulator = 0.0
+			if effective_delta > 0.0 and fsm.has_method("update"):
+				fsm.update(effective_delta)
 	
 	# Safety check: Cavemen cannot be herded - they are leaders
 	if npc_type == "caveman" and is_herded:
@@ -913,13 +972,10 @@ func _physics_process(delta: float) -> void:
 		if is_wild():
 			_try_join_clan_from_claim()
 	
-	# Check if NPC is inside a forbidden land claim and force them out
-	# BUT: If NPC is herded AND can join clans, allow them to enter (they'll join the clan in herd_state)
-	# OR: If NPC is already part of the clan, they can stay
-	# IMPORTANT: Women who are part of a clan should NEVER be evicted from their own land claim
+	# Check if NPC is inside a land claim they must not occupy — force flee out (wild NPCs, etc.)
+	# Do NOT `return` from _physics_process here: that skipped all movement for clan members in their own claim.
 	var inside_claim: Dictionary = is_inside_land_claim()
 	if not inside_claim.is_empty():
-		# Check if we're already part of this clan (can stay)
 		var claim: Node2D = inside_claim.get("land_claim")
 		var claim_clan: String = ""
 		if claim:
@@ -927,44 +983,27 @@ func _physics_process(delta: float) -> void:
 			if clan_name_prop != null:
 				claim_clan = clan_name_prop as String
 		
-		# If we're already part of this clan, we can stay - NEVER evict clan members
-		if clan_name != "" and clan_name == claim_clan:
-			# Already in the clan, can stay - this is our land claim
-			# This check is critical - women in clans should NEVER be evicted
-			return  # Exit early - no eviction needed
+		var should_evict_from_claim: bool = true
+		if clan_name != "" and _clan_tags_equal(clan_name, claim_clan):
+			should_evict_from_claim = false
+		elif is_herded and can_join_clan():
+			should_evict_from_claim = false
+		elif npc_type == "caveman" or npc_type == "clansman":
+			should_evict_from_claim = false
+		elif (npc_type == "sheep" or npc_type == "goat") and workplace_building and is_instance_valid(workplace_building):
+			should_evict_from_claim = false
 		
-		# If we're herded AND can join clans, we're allowed to enter (will join clan in herd_state)
-		if is_herded and can_join_clan():
-			# Skip eviction - herd_state will handle joining the clan
-			return  # Exit early - no eviction needed
-		
-		# For cavemen and player: They can enter land claims, so don't evict them
-		# Only evict if they're not cavemen/clansmen/player and can't enter
-		if npc_type == "caveman" or npc_type == "clansman":
-			# Cavemen and clansmen can enter land claims - don't evict
-			return
-		
-		# Sheep/goats pathing to Farm/Dairy: don't evict - let them reach their building (in their clan's claim)
-		if (npc_type == "sheep" or npc_type == "goat") and workplace_building and is_instance_valid(workplace_building):
-			return
-		
-		# Check if this is the player (player is not an NPC, so this check is for NPCs)
-		# For non-cavemen NPCs that can't enter, move away
-		var claim_pos: Vector2 = claim.global_position
-		
-		# Calculate direction away from land claim center
-		var direction: Vector2 = (global_position - claim_pos)
-		if direction.length() < 0.1:
-			# At center, pick random direction
-			var angle := randf() * TAU
-			direction = Vector2(cos(angle), sin(angle))
-		else:
-			direction = direction.normalized()
-		
-		# Set flee target (flee FROM center); mark we're evicting so we stop when outside
-		if steering_agent:
-			steering_agent.set_flee_target(claim_pos)  # Flee from center
-			set_meta("eviction_fleeing", true)
+		if should_evict_from_claim and claim:
+			var claim_pos: Vector2 = claim.global_position
+			var direction: Vector2 = (global_position - claim_pos)
+			if direction.length() < 0.1:
+				var angle := randf() * TAU
+				direction = Vector2(cos(angle), sin(angle))
+			else:
+				direction = direction.normalized()
+			if steering_agent:
+				steering_agent.set_flee_target(claim_pos)
+				set_meta("eviction_fleeing", true)
 	else:
 		# Outside forbidden claim - stop eviction FLEE if we were evicting
 		if has_meta("eviction_fleeing") and steering_agent:
@@ -981,7 +1020,7 @@ func _physics_process(delta: float) -> void:
 				var lc_pos: Vector2 = lc.global_position
 				# Skip own clan claim
 				var lc_clan: String = lc.get("clan_name") as String if lc.get("clan_name") != null else ""
-				if clan_name != "" and lc_clan == clan_name:
+				if clan_name != "" and _clan_tags_equal(lc_clan, clan_name):
 					continue
 				var d: float = global_position.distance_to(lc_pos)
 				if d < closest_d:
@@ -1068,6 +1107,9 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return
+	
+	var dbg_desired_vel := Vector2.ZERO
+	var dbg_steering_used := false
 	
 	# Task controls movement (MoveToTask, DropOffTask walking) - don't overwrite velocity
 	if task_runner and task_runner.has_method("controls_movement") and task_runner.controls_movement():
@@ -1236,13 +1278,19 @@ func _physics_process(delta: float) -> void:
 		if velocity.length() < 3.0 and desired_velocity.length() > 2.0:
 			var min_velocity: Vector2 = desired_velocity.normalized() * 3.0
 			velocity = velocity.lerp(min_velocity, 4.0 * delta)  # Smoothly accelerate to minimum
+		dbg_desired_vel = desired_velocity
+		dbg_steering_used = true
 	elif is_idle:
 		# In idle, smoothly stop with gradual deceleration
 		velocity = velocity.lerp(Vector2.ZERO, 6.0 * delta)  # Slightly slower for smoother stop
 	
+	var task_controls_movement: bool = (task_runner != null and task_runner.has_method("controls_movement") and task_runner.controls_movement())
+	MovementDebugInstrument.try_log_physics_step(self, delta, dbg_desired_vel, dbg_steering_used, task_controls_movement, is_idle)
+	
 	# Task (MoveTo/DropOff) already calls move_and_slide - don't double-move
-	if not (task_runner and task_runner.has_method("controls_movement") and task_runner.controls_movement()):
+	if not task_controls_movement:
 		move_and_slide()
+	SoundDetection.maybe_emit_footstep(self)
 	
 	if sprite:
 		YSortUtils.update_object_y_sort(sprite, self)
@@ -1451,8 +1499,8 @@ func _initialize_inventory() -> void:
 			slot_count = NPCConfig.baby_inventory_slots if NPCConfig else 2  # Babies: configurable slots for food
 			can_stack = false
 			max_stack = 1
-		"sheep", "goat":
-			slot_count = 5  # Sheep and goats have 5 inventory slots
+		"sheep", "goat", "deer":
+			slot_count = 5  # Sheep, goats, deer
 			can_stack = false
 			max_stack = 1
 		_:
@@ -1468,13 +1516,12 @@ func _initialize_inventory() -> void:
 		hotbar = InventoryData.new(10, false, 1)  # 10 slots, no stacking
 		# Hotbar slots: 1=right hand, 2=left hand, 3=head, 4=body, 5=legs, 6=feet, 7=neck, 8=backpack, 9=consumable, 0=consumable
 	
-	# Give NPCs 1 berry to start with (so they don't worry about gathering right away)
+	# Give NPCs 1 berry to start with (hunger tutorial) — skip deer/mammoth (wild prey)
 	var berry_item: Dictionary = {
 		"type": ResourceData.ResourceType.BERRIES,
 		"quantity": 1
 	}
-	# Add berry to first available slot
-	if inventory:
+	if npc_type != "deer" and npc_type != "mammoth" and inventory:
 		inventory.set_slot(0, berry_item)
 	
 	# Cavemen start with a land claim item only if not pre-assigned to a claim (AI spawn = claim + caveman together)
@@ -1515,7 +1562,7 @@ func can_enter_land_claim(land_claim: Node2D) -> bool:
 		claim_clan = clan_name_prop as String
 	
 	# Check if NPC belongs to this clan
-	if clan_name != "" and clan_name == claim_clan:
+	if clan_name != "" and _clan_tags_equal(clan_name, claim_clan):
 		return true
 	
 	# CAVEMEN, CLANSMEN, AND PLAYER CAN ENTER ENEMY LAND CLAIMS
@@ -1592,7 +1639,7 @@ func _keep_inside_land_claim() -> void:
 		if clan_name_prop != null:
 			claim_clan = clan_name_prop as String
 		
-		if claim_clan == clan_name:
+		if _clan_tags_equal(claim_clan, clan_name):
 			# Found our land claim
 			my_claim = claim
 			var radius_prop = claim.get("radius")
@@ -1731,8 +1778,8 @@ func _create_follow_line() -> void:
 	# Create a Line2D node for showing connection to herder
 	follow_line = Line2D.new()
 	follow_line.name = "FollowLine"
-	follow_line.width = 2.0  # Thin line
-	follow_line.default_color = Color(1.0, 1.0, 1.0, 0.35)  # White, more transparent, behind entities
+	follow_line.width = YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX
+	follow_line.default_color = YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
 	follow_line.visible = false
 	follow_line.z_as_relative = false
 	follow_line.z_index = YSortUtils.Z_BEHIND_ENTITIES
@@ -1894,8 +1941,9 @@ func is_wild() -> bool:
 		if distance < radius:
 			return false  # Inside a land claim
 	
-	# Only women and animals can be wild
-	# Cavemen are AI players and are never considered wild
+	# Only women and wild animals (not clansmen fighting without clan tag, etc.)
+	if npc_type != "woman" and npc_type != "sheep" and npc_type != "goat" and npc_type != "deer" and npc_type != "mammoth" and npc_type != "baby":
+		return false
 	return true
 
 # Simple chance-based herding - roll chance every frame when caveman is close
@@ -2643,6 +2691,22 @@ func get_debug_info() -> Dictionary:
 	
 	return info
 
+
+func _follower_is_party_rts_line_follower(follower: Node) -> bool:
+	if not follower or not is_instance_valid(follower):
+		return false
+	var t: String = str(follower.get("npc_type")) if follower.get("npc_type") != null else ""
+	if t != "caveman" and t != "clansman":
+		return false
+	return follower.get("follow_is_ordered") == true
+
+
+func _leader_line_color_for_follower(follower: Node) -> Color:
+	if _follower_is_party_rts_line_follower(follower):
+		return YSortUtils.WORLD_OVERLAY_LINE_PARTY_COLOR
+	return YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
+
+
 func _draw_leader_lines() -> void:
 	# Draw lines from this leader to all their followers
 	# Only for cavemen, clansmen, and player; skip when dead or when herded
@@ -2689,8 +2753,8 @@ func _draw_leader_lines() -> void:
 			continue
 		
 		var line = Line2D.new()
-		line.width = 2.0
-		line.default_color = Color(1.0, 1.0, 1.0, 0.35)  # White, more transparent, behind entities
+		line.width = YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX
+		line.default_color = _leader_line_color_for_follower(follower)
 		line.z_as_relative = false
 		line.z_index = YSortUtils.Z_BEHIND_ENTITIES
 		

@@ -41,6 +41,8 @@ func _ready() -> void:
 				detection_range = NPCConfig.aop_radius_mammoth
 			elif npc_type in ["caveman", "clansman", "woman", "sheep", "goat"]:
 				detection_range = NPCConfig.aop_radius_default
+			elif npc_type == "deer":
+				detection_range = NPCConfig.deer_perception_visual
 			else:
 				detection_range = 300.0
 		# Trait overrides (AOP Phase 2): leader/searcher radii when traits exist
@@ -146,6 +148,36 @@ func _is_authority() -> bool:
 	if not parent:
 		return true
 	return parent.is_multiplayer_authority()
+
+func get_deer_threat_centroid(origin: Vector2, radius: float, _for_npc: NPCBase = null) -> Vector2:
+	"""Humans (player, caveman, clansman, woman) within radius — centroid for flee."""
+	_prune_invalid()
+	var pts: Array[Vector2] = []
+	var r2: float = radius * radius
+	for body in nearby_enemies.values():
+		if not is_instance_valid(body):
+			continue
+		var th: HealthComponent = body.get_node_or_null("HealthComponent")
+		if th and th.is_dead:
+			continue
+		var is_player: bool = body.is_in_group("player")
+		var bt: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
+		if not is_player and bt != "caveman" and bt != "clansman" and bt != "woman":
+			continue
+		var d2: float = origin.distance_squared_to(body.global_position)
+		if d2 <= r2:
+			pts.append((body as Node2D).global_position)
+	if pts.is_empty():
+		return Vector2.ZERO
+	var acc := Vector2.ZERO
+	for p in pts:
+		acc += p
+	return acc / float(pts.size())
+
+
+func has_deer_threat_in_radius(origin: Vector2, radius: float, _for_npc: NPCBase = null) -> bool:
+	return get_deer_threat_centroid(origin, radius, _for_npc) != Vector2.ZERO
+
 
 func get_nearest_enemy(origin: Vector2, npc: NPCBase = null) -> Node:
 	_prune_invalid()

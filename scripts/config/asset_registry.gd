@@ -9,6 +9,7 @@ const PLAYER_PATH := "res://assets/sprites/PlayerB.png"
 const WOMAN_PATH := "res://assets/sprites/woman.png"
 const SHEEP_PATH := "res://assets/sprites/sheep.png"
 const GOAT_PATH := "res://assets/sprites/goat.png"
+const DEER_PATH := "res://assets/sprites/deer.png"
 const BABY_PATH := "res://assets/sprites/baby.png"
 const MAMMOTH_PATH := "res://assets/sprites/mammoth.png"
 
@@ -25,6 +26,7 @@ var _player_sprite: Texture2D
 var _woman_sprite: Texture2D
 var _sheep_sprite: Texture2D
 var _goat_sprite: Texture2D
+var _deer_sprite: Texture2D
 var _baby_sprite: Texture2D
 var _mammoth_sprite: Texture2D
 var _landclaim_sprite: Texture2D
@@ -53,6 +55,14 @@ func get_goat_sprite() -> Texture2D:
 	if not _goat_sprite:
 		_goat_sprite = load(GOAT_PATH) as Texture2D
 	return _goat_sprite
+
+func get_deer_sprite() -> Texture2D:
+	if not _deer_sprite:
+		if ResourceLoader.exists(DEER_PATH):
+			_deer_sprite = load(DEER_PATH) as Texture2D
+		else:
+			_deer_sprite = get_goat_sprite()
+	return _deer_sprite
 
 func get_baby_sprite() -> Texture2D:
 	if not _baby_sprite:

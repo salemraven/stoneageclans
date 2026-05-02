@@ -1,6 +1,6 @@
 extends "res://scripts/npc/states/base_state.gd"
 
-# Hunt State — AI clan hunting party (Area of Hunt → chase wild mammoth/sheep/goat)
+# Hunt State — AI clan hunting party (Area of Hunt → chase wild mammoth/sheep/goat/deer)
 # Pull-based: ClanBrain sets hunt intent; mirrors raid_state flow (assemble → move → engage → return).
 
 enum HuntPhase { FORMING, CHASING, KILLING, LOOTING, RETURNING }
@@ -48,6 +48,8 @@ func exit() -> void:
 	_cancel_tasks_if_active()
 	if npc:
 		npc.remove_meta("hunt_after_combat")
+		if npc.has_meta("is_stalking"):
+			npc.remove_meta("is_stalking")
 	if clan_brain and clan_brain.has_method("npc_leave_hunt"):
 		clan_brain.npc_leave_hunt(npc)
 	if npc:
@@ -115,9 +117,15 @@ func _update_chasing(_delta: float) -> void:
 		_loot_timer = 0.0
 		return
 	var prey_pos: Vector2 = prey.global_position
+	var dist: float = npc.global_position.distance_to(prey_pos)
+	var stalk := bool(hint0.get("use_stalk_approach", false))
+	if stalk and dist > 200.0:
+		npc.set_meta("is_stalking", true)
+	else:
+		if npc.has_meta("is_stalking"):
+			npc.remove_meta("is_stalking")
 	if npc.steering_agent:
 		npc.steering_agent.set_target_position(prey_pos)
-	var dist: float = npc.global_position.distance_to(prey_pos)
 	if dist < 120.0:
 		hunt_phase = HuntPhase.KILLING
 
@@ -197,6 +205,8 @@ func can_enter() -> bool:
 
 func get_priority() -> float:
 	# Between raid (8.5) and combat (12)
+	if NPCConfig:
+		return NPCConfig.priority_hunt
 	return 9.0
 
 func get_data() -> Dictionary:
