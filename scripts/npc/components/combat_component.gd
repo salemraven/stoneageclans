@@ -697,6 +697,13 @@ func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> D
 				"arc": PI / 4.0,  # Narrow club arc (directly in front) per AgroGuide Step 1
 				"stagger": 0.15
 			}
+		ResourceData.ResourceType.SPEAR:
+			return {
+				"windup": 0.42,
+				"recovery": 0.72,
+				"arc": PI / 5.0,  # Reach/thrust-forward feel
+				"stagger": 0.16
+			}
 		_:
 			# Default unarmed profile
 			return {

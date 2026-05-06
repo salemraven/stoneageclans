@@ -2,7 +2,7 @@ extends Node
 class_name WeaponComponent
 
 # Weapon Component - tracks equipped weapon, damage bonuses
-# Axe sprite shown only when hostile or defending. Club (WOOD) shown only when aggro, defense, or combat.
+# Axe sprite shown only when hostile or defending. Club (WOOD) / spear (SPEAR) shown when aggro, defense, combat, or follow_ordered.
 
 var npc: NPCBase = null
 var equipped_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
@@ -14,14 +14,11 @@ var _tex_normal: Texture2D = null
 var _tex_axe: Texture2D = null
 var _last_show_axe: bool = false  # Avoid redundant texture swaps
 var _last_show_club: bool = false
+var _last_show_spear: bool = false
 
-func initialize(npc_ref: NPCBase) -> void:
-	npc = npc_ref
-	set_process(true)
 
-## Returns true when club should be visible (agro, hostile, defending, combat, or follow_ordered).
-func should_show_club() -> bool:
-	if not npc or equipped_weapon != ResourceData.ResourceType.WOOD:
+func _club_or_spear_visible_conditions() -> bool:
+	if not npc:
 		return false
 	var is_agro: bool = npc.get("is_agro") if npc.get("is_agro") != null else false
 	var hostile: bool = npc.get("is_hostile") if npc.get("is_hostile") != null else false
@@ -31,6 +28,22 @@ func should_show_club() -> bool:
 	var in_combat: bool = combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE if combat_comp else false
 	var follow_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
 	return is_agro or hostile or defending or in_combat or follow_ordered
+
+func initialize(npc_ref: NPCBase) -> void:
+	npc = npc_ref
+	set_process(true)
+
+## Returns true when club should be visible (agro, hostile, defending, combat, or follow_ordered).
+func should_show_club() -> bool:
+	if not npc or equipped_weapon != ResourceData.ResourceType.WOOD:
+		return false
+	return _club_or_spear_visible_conditions()
+
+## Same visibility rules as club; use when spear is equipped (melee stance).
+func should_show_spear() -> bool:
+	if not npc or equipped_weapon != ResourceData.ResourceType.SPEAR:
+		return false
+	return _club_or_spear_visible_conditions()
 
 func equip_weapon(weapon_type: ResourceData.ResourceType) -> void:
 	equipped_weapon = weapon_type
@@ -43,6 +56,8 @@ func equip_weapon(weapon_type: ResourceData.ResourceType) -> void:
 			weapon_damage_bonus = 0  # Pick doesn't add bonus for now
 		ResourceData.ResourceType.WOOD:
 			weapon_damage_bonus = 0  # Club (wood in slot 1)
+		ResourceData.ResourceType.SPEAR:
+			weapon_damage_bonus = 0  # Spear slot 1
 		_:
 			weapon_damage_bonus = 0
 	
@@ -85,28 +100,33 @@ func _update_weapon_visibility() -> void:
 	
 	var show_axe: bool = false
 	var show_club: bool = false
+	var show_spear: bool = false
 	if equipped_weapon == ResourceData.ResourceType.WOOD:
-		var is_agro: bool = npc.get("is_agro") if npc.get("is_agro") != null else false
-		var hostile: bool = npc.get("is_hostile") if npc.get("is_hostile") != null else false
-		var dt = npc.get("defend_target")
-		var defending: bool = dt != null and is_instance_valid(dt) if dt is Object else false
-		var combat_comp = npc.get_node_or_null("CombatComponent")
-		var in_combat: bool = combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE if combat_comp else false
-		var follow_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
-		show_club = (is_agro or hostile or defending or in_combat or follow_ordered)
+		show_club = _club_or_spear_visible_conditions()
+	elif equipped_weapon == ResourceData.ResourceType.SPEAR:
+		show_spear = _club_or_spear_visible_conditions()
 	elif equipped_weapon == ResourceData.ResourceType.AXE:
 		var hostile: bool = npc.get("is_hostile") if npc.get("is_hostile") != null else false
 		var dt = npc.get("defend_target")
 		var defending: bool = dt != null and is_instance_valid(dt) if dt is Object else false
 		show_axe = hostile or defending
 	
-	if show_axe == _last_show_axe and show_club == _last_show_club:
+	if show_axe == _last_show_axe and show_club == _last_show_club and show_spear == _last_show_spear:
 		return
 	_last_show_axe = show_axe
 	_last_show_club = show_club
+	_last_show_spear = show_spear
 	
 	if show_club:
 		WalkAnimation.apply_club_idle(sprite)
+		if npc.has_method("apply_sprite_offset_for_texture"):
+			npc.apply_sprite_offset_for_texture()
+		return
+	if show_spear:
+		if WalkAnimation.get_spear_walk_sheet():
+			WalkAnimation.apply_spear_idle(sprite)
+		else:
+			WalkAnimation.apply_walk_idle(sprite)
 		if npc.has_method("apply_sprite_offset_for_texture"):
 			npc.apply_sprite_offset_for_texture()
 		return
@@ -150,15 +170,11 @@ func force_apply_idle() -> void:
 		_tex_axe = load(AXE_SPRITE_PATH) as Texture2D
 	var show_axe: bool = false
 	var show_club: bool = false
+	var show_spear: bool = false
 	if equipped_weapon == ResourceData.ResourceType.WOOD:
-		var is_agro: bool = npc.get("is_agro") if npc.get("is_agro") != null else false
-		var hostile = npc.get("is_hostile") if npc.get("is_hostile") != null else false
-		var dt = npc.get("defend_target")
-		var defending = dt != null and is_instance_valid(dt) if dt is Object else false
-		var combat_comp = npc.get_node_or_null("CombatComponent")
-		var in_combat: bool = combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE if combat_comp else false
-		var follow_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
-		show_club = (is_agro or hostile or defending or in_combat or follow_ordered)
+		show_club = _club_or_spear_visible_conditions()
+	elif equipped_weapon == ResourceData.ResourceType.SPEAR:
+		show_spear = _club_or_spear_visible_conditions()
 	elif equipped_weapon == ResourceData.ResourceType.AXE:
 		var hostile = npc.get("is_hostile") if npc.get("is_hostile") != null else false
 		var dt = npc.get("defend_target")
@@ -167,6 +183,18 @@ func force_apply_idle() -> void:
 	if show_club:
 		WalkAnimation.apply_club_idle(sprite)
 		_last_show_club = true
+		_last_show_spear = false
+		_last_show_axe = false
+		if npc.has_method("apply_sprite_offset_for_texture"):
+			npc.apply_sprite_offset_for_texture()
+		return
+	if show_spear:
+		if WalkAnimation.get_spear_walk_sheet():
+			WalkAnimation.apply_spear_idle(sprite)
+		else:
+			WalkAnimation.apply_walk_idle(sprite)
+		_last_show_spear = true
+		_last_show_club = false
 		_last_show_axe = false
 		if npc.has_method("apply_sprite_offset_for_texture"):
 			npc.apply_sprite_offset_for_texture()
@@ -179,6 +207,7 @@ func force_apply_idle() -> void:
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			_last_show_axe = true
 			_last_show_club = false
+			_last_show_spear = false
 			if npc.has_method("apply_sprite_offset_for_texture"):
 				npc.apply_sprite_offset_for_texture()
 		return
@@ -189,6 +218,7 @@ func force_apply_idle() -> void:
 		WalkAnimation.apply_walk_idle(sprite)
 	_last_show_axe = false
 	_last_show_club = false
+	_last_show_spear = false
 	if npc.has_method("apply_sprite_offset_for_texture"):
 		npc.apply_sprite_offset_for_texture()
 

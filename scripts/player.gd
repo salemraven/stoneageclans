@@ -190,7 +190,14 @@ func _physics_process(_delta: float) -> void:
 		var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
 		if not in_combat:
 			var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-			var dir_sheet: DirectionalSpriteSheet = WalkAnimation.get_directional_club_sheet() if show_club else WalkAnimation.get_directional_walk_sheet()
+			var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
+			var dir_sheet: DirectionalSpriteSheet = null
+			if show_club:
+				dir_sheet = WalkAnimation.get_directional_club_sheet()
+			elif show_spear:
+				dir_sheet = WalkAnimation.get_directional_spear_sheet()
+			else:
+				dir_sheet = WalkAnimation.get_directional_walk_sheet()
 			var used_directional := false
 			if dir_sheet:
 				_walk_timer += _delta
@@ -208,6 +215,13 @@ func _physics_process(_delta: float) -> void:
 						var walk_index := int(_walk_timer * WalkAnimation.CLUB_WALK_FPS) % WalkAnimation.CLUB_WALK_FRAMES
 						WalkAnimation.apply_club_walk_frame_by_index(sprite, walk_index)
 						_sprite_base_position = Vector2.ZERO
+				elif show_spear:
+					var spear_sheet := WalkAnimation.get_spear_walk_sheet()
+					if spear_sheet:
+						_walk_timer += _delta
+						var sp_index := int(_walk_timer * WalkAnimation.SPEAR_WALK_FPS) % WalkAnimation.SPEAR_WALK_FRAMES
+						WalkAnimation.apply_spear_walk_frame_by_index(sprite, sp_index)
+						_sprite_base_position = Vector2.ZERO
 				else:
 					var sheet := WalkAnimation.get_walk_sheet()
 					if sheet:
@@ -221,7 +235,14 @@ func _physics_process(_delta: float) -> void:
 		var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
 		if not in_combat:
 			var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-			var dir_sheet: DirectionalSpriteSheet = WalkAnimation.get_directional_club_sheet() if show_club else WalkAnimation.get_directional_idle_sheet()
+			var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
+			var dir_sheet: DirectionalSpriteSheet = null
+			if show_club:
+				dir_sheet = WalkAnimation.get_directional_club_sheet()
+			elif show_spear:
+				dir_sheet = WalkAnimation.get_directional_spear_sheet()
+			else:
+				dir_sheet = WalkAnimation.get_directional_idle_sheet()
 			if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, last_facing):
 				sprite.position = Vector2.ZERO
 				_sprite_base_position = sprite.position
@@ -259,6 +280,16 @@ func _update_sprite_texture() -> void:
 	if _equipped_item == ResourceData.ResourceType.WOOD:
 		# Club: idle = frame 0 of clubwalk.png (scale 0.46 set by apply_club_idle to match walk)
 		WalkAnimation.apply_club_idle(sprite)
+		sprite.position = Vector2.ZERO
+		_sprite_base_position = sprite.position
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		sprite.visible = true
+		return
+	if _equipped_item == ResourceData.ResourceType.SPEAR:
+		if WalkAnimation.get_spear_walk_sheet():
+			WalkAnimation.apply_spear_idle(sprite)
+		else:
+			WalkAnimation.apply_walk_idle(sprite)
 		sprite.position = Vector2.ZERO
 		_sprite_base_position = sprite.position
 		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

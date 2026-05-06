@@ -31,7 +31,8 @@ enum ResourceType {
 	TRAVOIS,
 	MUSHROOM,
 	BUGS,
-	NUTS
+	NUTS,
+	SPEAR
 }
 
 static func get_resource_name(type: ResourceType) -> String:
@@ -65,6 +66,7 @@ static func get_resource_name(type: ResourceType) -> String:
 		ResourceType.MUSHROOM: return "Mushroom"
 		ResourceType.BUGS: return "Bugs"
 		ResourceType.NUTS: return "Nuts"
+		ResourceType.SPEAR: return "Spear"
 		_: return "Unknown"
 
 static func get_resource_color(type: ResourceType) -> Color:
@@ -91,6 +93,7 @@ static func get_resource_color(type: ResourceType) -> Color:
 		ResourceType.MUSHROOM: return Color(0.65, 0.35, 0.45)
 		ResourceType.BUGS: return Color(0.45, 0.5, 0.35)
 		ResourceType.NUTS: return Color(0.55, 0.4, 0.2)
+		ResourceType.SPEAR: return Color(0.45, 0.35, 0.25)
 		_: return Color.WHITE
 
 static func get_resource_icon_path(type: ResourceType) -> String:
@@ -124,10 +127,11 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.MUSHROOM: return "res://assets/sprites/mushroom.png"
 		ResourceType.BUGS: return "res://assets/sprites/bugs.png"
 		ResourceType.NUTS: return "res://assets/sprites/nuts1.png"
+		ResourceType.SPEAR: return "res://assets/sprites/spear.png"
 		_: return ""
 
 static func is_equipment(type: ResourceType) -> bool:
-	return type == ResourceType.AXE or type == ResourceType.PICK or type == ResourceType.WOOD or type == ResourceType.BLADE or type == ResourceType.OLDOWAN or type == ResourceType.TRAVOIS
+	return type == ResourceType.AXE or type == ResourceType.PICK or type == ResourceType.WOOD or type == ResourceType.BLADE or type == ResourceType.OLDOWAN or type == ResourceType.TRAVOIS or type == ResourceType.SPEAR
 
 static func get_resource_tier(_type: ResourceType) -> int:
 	# All basic resources are tier 0 (grey border)
@@ -155,6 +159,7 @@ static func get_resource_tier(_type: ResourceType) -> int:
 		ResourceType.MUSHROOM: return 0
 		ResourceType.BUGS: return 0
 		ResourceType.NUTS: return 0
+		ResourceType.SPEAR: return 1
 		_: return 0
 
 static func get_tier_border_color(tier: int) -> Color:
@@ -196,6 +201,7 @@ static func get_resource_description(type: ResourceType) -> String:
 		ResourceType.MUSHROOM: return "Foraged mushroom. Food."
 		ResourceType.BUGS: return "Insects from tall grass. Food."
 		ResourceType.NUTS: return "Tree nuts. Food."
+		ResourceType.SPEAR: return "Thrown or melee spear. Equip in slot 1."
 		_: return ""
 
 # Get nutrient value for food items (higher = better)

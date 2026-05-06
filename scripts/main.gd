@@ -1264,7 +1264,7 @@ func _input(event: InputEvent) -> void:
 							var slot_item = first_slot.get_item()
 							if not slot_item.is_empty():
 								var it = slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-								if it == ResourceData.ResourceType.AXE or it == ResourceData.ResourceType.PICK or it == ResourceData.ResourceType.WOOD:
+								if it == ResourceData.ResourceType.AXE or it == ResourceData.ResourceType.PICK or it == ResourceData.ResourceType.WOOD or it == ResourceData.ResourceType.SPEAR:
 									has_weapon = true
 						if has_weapon:
 							var npc := _get_npc_under_cursor()
@@ -2468,7 +2468,7 @@ func _player_has_weapon_equipped() -> bool:
 	if not item:
 		return false
 	var t = item.get("type") if item.get("type") != null else -1
-	return t == ResourceData.ResourceType.AXE or t == ResourceData.ResourceType.PICK or t == ResourceData.ResourceType.WOOD
+	return t == ResourceData.ResourceType.AXE or t == ResourceData.ResourceType.PICK or t == ResourceData.ResourceType.WOOD or t == ResourceData.ResourceType.SPEAR
 
 func _update_followers_hostile() -> void:
 	"""Step 4: Derive is_hostile from player weapon; sustain 70 agro when hostile."""
@@ -7266,7 +7266,7 @@ func _try_click_npc_for_inventory() -> void:
 					var slot_item = first_slot.get_item()
 					if not slot_item.is_empty():
 						var it = slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-						if it == ResourceData.ResourceType.AXE or it == ResourceData.ResourceType.PICK or it == ResourceData.ResourceType.WOOD:
+						if it == ResourceData.ResourceType.AXE or it == ResourceData.ResourceType.PICK or it == ResourceData.ResourceType.WOOD or it == ResourceData.ResourceType.SPEAR:
 							_player_attack_npc(npc)
 							break
 			

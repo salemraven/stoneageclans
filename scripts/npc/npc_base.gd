@@ -1380,7 +1380,14 @@ func _physics_process(delta: float) -> void:
 		else:
 			var weapon_comp: Node = get_node_or_null("WeaponComponent")
 			var show_club: bool = weapon_comp and weapon_comp.has_method("should_show_club") and weapon_comp.should_show_club()
-			var dir_sheet: DirectionalSpriteSheet = WalkAnimation.get_directional_club_sheet() if show_club else WalkAnimation.get_directional_walk_sheet()
+			var show_spear: bool = weapon_comp and weapon_comp.has_method("should_show_spear") and weapon_comp.should_show_spear()
+			var dir_sheet: DirectionalSpriteSheet = null
+			if show_club:
+				dir_sheet = WalkAnimation.get_directional_club_sheet()
+			elif show_spear:
+				dir_sheet = WalkAnimation.get_directional_spear_sheet()
+			else:
+				dir_sheet = WalkAnimation.get_directional_walk_sheet()
 			var used_directional := false
 			if dir_sheet and sprite:
 				_walk_timer += delta
@@ -1396,6 +1403,14 @@ func _physics_process(delta: float) -> void:
 						_walk_timer += delta
 						var walk_index := int(_walk_timer * WalkAnimation.CLUB_WALK_FPS) % WalkAnimation.CLUB_WALK_FRAMES
 						WalkAnimation.apply_club_walk_frame_by_index(sprite, walk_index)
+						sprite.flip_h = velocity.x < -15.0
+						apply_sprite_offset_for_texture()
+				elif show_spear:
+					var spear_sheet := WalkAnimation.get_spear_walk_sheet()
+					if spear_sheet:
+						_walk_timer += delta
+						var spi := int(_walk_timer * WalkAnimation.SPEAR_WALK_FPS) % WalkAnimation.SPEAR_WALK_FRAMES
+						WalkAnimation.apply_spear_walk_frame_by_index(sprite, spi)
 						sprite.flip_h = velocity.x < -15.0
 						apply_sprite_offset_for_texture()
 				else:
@@ -1423,7 +1438,14 @@ func _physics_process(delta: float) -> void:
 			else:
 				var weapon_comp: Node = get_node_or_null("WeaponComponent")
 				var show_club: bool = weapon_comp and weapon_comp.has_method("should_show_club") and weapon_comp.should_show_club()
-				dir_sheet = WalkAnimation.get_directional_club_sheet() if show_club else WalkAnimation.get_directional_idle_sheet()
+				var show_spear: bool = weapon_comp and weapon_comp.has_method("should_show_spear") and weapon_comp.should_show_spear()
+				dir_sheet = null
+				if show_club:
+					dir_sheet = WalkAnimation.get_directional_club_sheet()
+				elif show_spear:
+					dir_sheet = WalkAnimation.get_directional_spear_sheet()
+				else:
+					dir_sheet = WalkAnimation.get_directional_idle_sheet()
 				if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, _last_facing):
 					apply_sprite_offset_for_texture()
 				elif weapon_comp and weapon_comp.has_method("force_apply_idle"):
@@ -1449,11 +1471,23 @@ func _apply_caveman_idle_once() -> void:
 	if npc_type != "caveman" and npc_type != "clansman" or not sprite:
 		return
 	var show_club: bool = false
+	var show_spear: bool = false
 	var weapon_comp: Node = get_node_or_null("WeaponComponent")
 	if weapon_comp and weapon_comp.has_method("should_show_club"):
 		show_club = weapon_comp.should_show_club()
-	var dir_sheet: DirectionalSpriteSheet = WalkAnimation.get_directional_club_sheet() if show_club else WalkAnimation.get_directional_idle_sheet()
+	if weapon_comp and weapon_comp.has_method("should_show_spear"):
+		show_spear = weapon_comp.should_show_spear()
+	var dir_sheet: DirectionalSpriteSheet = null
+	if show_club:
+		dir_sheet = WalkAnimation.get_directional_club_sheet()
+	elif show_spear:
+		dir_sheet = WalkAnimation.get_directional_spear_sheet()
+	else:
+		dir_sheet = WalkAnimation.get_directional_idle_sheet()
 	if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, _last_facing):
+		apply_sprite_offset_for_texture()
+	elif show_spear and WalkAnimation.get_spear_walk_sheet():
+		WalkAnimation.apply_spear_idle(sprite)
 		apply_sprite_offset_for_texture()
 
 func apply_sprite_offset_for_texture() -> void:

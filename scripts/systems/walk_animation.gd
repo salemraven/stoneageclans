@@ -1,5 +1,5 @@
 class_name WalkAnimation
-# walk.png and clubwalk.png: same layout — 3 columns, 4 rows.
+# walk.png / clubwalk / spearwalk: frame 0 = idle with that gear; slice cells by COLS×ROWS below.
 # walk.png: 11 frames (0 = idle, 1–10 = walk). clubwalk.png: 11 frames (0 = idle, 1–10 = walk).
 
 const WALK_SHEET_PATH := "res://assets/sprites/walk.png"
@@ -19,6 +19,8 @@ const CLUB_TOTAL_FRAMES := 11   # 0 = idle, 1–10 = walk
 const CLUB_WALK_FRAMES := 10
 const CLUB_WALK_FPS := 7.0
 
+const DIRECTIONAL_SPEAR_PATH := ""
+
 # womanwalk.png: 3 cols 3 rows, 7 frames (0 = idle, 1–6 = walk). Same format as caveman/player.
 const DIRECTIONAL_WOMAN_PATH := ""
 const WOMAN_WALK_SHEET_PATH := "res://assets/sprites/womanwalk.png"
@@ -35,6 +37,7 @@ static var _cached_woman_sheet: Texture2D = null
 static var _cached_dir_sheet: DirectionalSpriteSheet = null
 static var _cached_dir_idle_sheet: DirectionalSpriteSheet = null
 static var _cached_dir_club_sheet: DirectionalSpriteSheet = null
+static var _cached_dir_spear_sheet: DirectionalSpriteSheet = null
 static var _cached_dir_woman_sheet: DirectionalSpriteSheet = null
 
 static func get_walk_sheet() -> Texture2D:
@@ -75,6 +78,13 @@ static func get_directional_club_sheet() -> DirectionalSpriteSheet:
 		if not _cached_dir_club_sheet.is_valid():
 			_cached_dir_club_sheet = null
 	return _cached_dir_club_sheet
+
+static func get_directional_spear_sheet() -> DirectionalSpriteSheet:
+	if _cached_dir_spear_sheet == null and DIRECTIONAL_SPEAR_PATH != "":
+		_cached_dir_spear_sheet = DirectionalSpriteSheet.new(DIRECTIONAL_SPEAR_PATH)
+		if not _cached_dir_spear_sheet.is_valid():
+			_cached_dir_spear_sheet = null
+	return _cached_dir_spear_sheet
 
 static func get_directional_woman_sheet() -> DirectionalSpriteSheet:
 	if _cached_dir_woman_sheet == null and DIRECTIONAL_WOMAN_PATH != "":
@@ -279,3 +289,59 @@ static func apply_goat_walk_frame_by_index(sprite: Sprite2D, walk_index: int) ->
 	if sheet:
 		var frame_index := 1 + (walk_index % GOAT_WALK_FRAMES)
 		apply_goat_frame(sprite, sheet, frame_index)
+
+# --- Spear (spearwalk.png): 9 tiles, 3 cols x 3 rows (sheet e.g. 1500×1500 → 500×500/cell).
+# Frame 0 = spear idle; walk loop uses sheet frames 1–8. ---
+
+const SPEAR_WALK_SHEET_PATH := "res://assets/sprites/spearwalk.png"
+const SPEAR_COLS := 3
+const SPEAR_ROWS := 3
+const SPEAR_TOTAL_FRAMES := 9   # 0 = idle, 1–8 = walk
+const SPEAR_WALK_FRAMES := 8
+const SPEAR_WALK_FPS := 7.0
+
+static var _cached_spear_sheet: Texture2D = null
+
+static func get_spear_walk_sheet() -> Texture2D:
+	if _cached_spear_sheet == null:
+		_cached_spear_sheet = load(SPEAR_WALK_SHEET_PATH) as Texture2D
+	return _cached_spear_sheet
+
+static func get_spear_frame_size(sheet: Texture2D) -> Vector2:
+	if not sheet:
+		return Vector2.ZERO
+	return Vector2(sheet.get_width() / float(SPEAR_COLS), sheet.get_height() / float(SPEAR_ROWS))
+
+static func get_spear_frame_region(sheet: Texture2D, frame_index: int) -> Rect2:
+	var sz := get_spear_frame_size(sheet)
+	if sz.x <= 0 or sz.y <= 0:
+		return Rect2()
+	frame_index = clampi(frame_index, 0, SPEAR_TOTAL_FRAMES - 1)
+	var col := frame_index % SPEAR_COLS
+	var row := frame_index / SPEAR_COLS
+	return Rect2(int(col * sz.x), int(row * sz.y), int(sz.x), int(sz.y))
+
+static func apply_spear_frame(sprite: Sprite2D, sheet: Texture2D, frame_index: int) -> void:
+	if not sprite or not sheet:
+		return
+	var region := get_spear_frame_region(sheet, frame_index)
+	if region.size.x <= 0:
+		return
+	var atlas := AtlasTexture.new()
+	atlas.atlas = sheet
+	atlas.region = region
+	sprite.texture = atlas
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var frame_h := get_spear_frame_size(sheet).y
+	sprite.scale = Vector2(0.46, 0.46) if frame_h >= 128 else Vector2(0.92, 0.92)
+
+static func apply_spear_idle(sprite: Sprite2D) -> void:
+	var sheet := get_spear_walk_sheet()
+	if sheet:
+		apply_spear_frame(sprite, sheet, 0)
+
+static func apply_spear_walk_frame_by_index(sprite: Sprite2D, walk_index: int) -> void:
+	var sheet := get_spear_walk_sheet()
+	if sheet:
+		var frame_index := 1 + (walk_index % SPEAR_WALK_FRAMES)
+		apply_spear_frame(sprite, sheet, frame_index)
