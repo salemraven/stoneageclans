@@ -81,7 +81,6 @@ Track separately so scope doesn’t creep:
 - **Wind / scent** grids.
 - Deep **village civilian** sim for raids.
 - Large **PressureAgent / AnimalBase** refactor — only if Tiers A–C justify it.
-- **Clan insanity / enlightenment meter** — one shared scalar (or bipolar bar) per **clan**, not per individual: **killing** and **cannibalism** push **insanity**; **peaceful** actions (craft, ritual, trade, non-violent gathering, etc. — exact list TBD) add **enlightenment**. System-wide effects on the whole clan (morale, AI thresholds, NPC reactions, or unlock/lock behaviors — design pass when implemented).
 
 ---
 
@@ -116,4 +115,4 @@ Players (or you in logs) describe hunts/raids as **cut off**, **too loud**, **th
 |------|------|
 | 2026-05-01 | Initial phase 2 roadmap. |
 | 2026-05-02 | **Trimmed to in-game tiers only**; removed chat paste; merged hunt, raid, and animal/migration items into A–D + future §8. |
-| 2026-05-06 | §8 Future: clan-wide **insanity / enlightenment** meter (violence & cannibalism vs peaceful play). |
+| 2026-05-06 | Clan **insanity / enlightenment** idea moved to `guides/future implementations/clan_insanity_enlightenment.md` (removed from §8 here). |
