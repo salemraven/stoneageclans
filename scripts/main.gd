@@ -6585,18 +6585,17 @@ func _spawn_mammoths(center_pos: Vector2) -> void:
 
 
 func _get_migration_bounds() -> Rect2:
-	if not ChunkUtils:
-		return Rect2(-4096, -4096, 8192, 8192)
-	if player == null or not is_instance_valid(player):
-		return Rect2(-4096, -4096, 8192, 8192)
-	var player_chunk: Vector2i = ChunkUtils.get_chunk_coords(player.global_position)
-	var buffer: int = 3
-	var min_chunk := Vector2i(player_chunk.x - buffer, player_chunk.y - buffer)
-	var max_chunk := Vector2i(player_chunk.x + buffer, player_chunk.y + buffer)
-	return Rect2(
-		Vector2(min_chunk) * ChunkUtils.CHUNK_SIZE,
-		Vector2(max_chunk - min_chunk + Vector2i.ONE) * ChunkUtils.CHUNK_SIZE
-	)
+	# Player-centered band so migratory animals spawn near the camera (old chunk-buffer rect used map edges ~±6000px from origin).
+	if player and is_instance_valid(player) and ChunkUtils:
+		var p: Vector2 = player.global_position
+		var hc: float = float(NPCConfig.migration_band_half_chunks) if NPCConfig else 1.0
+		var half_px: float = ChunkUtils.CHUNK_SIZE * hc
+		return Rect2(p.x - half_px, p.y - half_px, half_px * 2.0, half_px * 2.0)
+	if player and is_instance_valid(player):
+		var p2: Vector2 = player.global_position
+		var half_fallback: float = 1800.0
+		return Rect2(p2.x - half_fallback, p2.y - half_fallback, half_fallback * 2.0, half_fallback * 2.0)
+	return Rect2(-4096, -4096, 8192, 8192)
 
 
 func _finalize_migratory_npc(npc: Node, spawn_pos: Vector2, entry_side: int, exit_x: float) -> void:

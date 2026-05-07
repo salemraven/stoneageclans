@@ -11,7 +11,7 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
 ## Config (`scripts/config/npc_config.gd`)
 
 - **Enums**: `WildMovement` (MIGRATORY / TERRITORIAL), `WildRole` (PREY / PREDATOR / NONE).
-- **Exports** (Wild NPC Movement): `migration_drift_strength`, `migration_wander_noise`, `migration_despawn_margin`, `territorial_chunk_radius`, `migration_wander_center_bias_scale`.
+- **Exports** (Wild NPC Movement): `migration_drift_strength`, `migration_wander_noise`, `migration_despawn_margin`, `territorial_chunk_radius`, `migration_wander_center_bias_scale`, **`migration_band_half_chunks`** (player-centered spawn band).
 - **Profiles**: `wild_npc_profiles` + `get_wild_profile(type)`.
 
 ## Runtime (`NPCBase`)
@@ -40,6 +40,7 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
 - More “straight across the map” drift: raise `migration_drift_strength` (0–1).
 - Wider meander while still trending: raise `migration_wander_noise` and/or `wander_radius` interaction (migratory uses `roam_radius * noise`).
 - Earlier/later despawn: adjust `migration_despawn_margin`.
+- **See animals on screen**: `migration_band_half_chunks` (default **1.0**) — half-width/half-height of the migratory **rectangle centered on the player**. Too far away? Lower toward **~0.6**. Want a longer crossing? Raise toward **2.0**.
 
 ## Testing (plan checklist)
 

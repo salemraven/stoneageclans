@@ -364,6 +364,8 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var territorial_chunk_radius: int = 2
 ## Horizontal bias (px): shifts wander center toward migration exit each wander refresh.
 @export var migration_wander_center_bias_scale: float = 400.0
+## Migratory spawn + exit corridor: half-size in **chunks**, centered on the **player** (square in X/Y). Old fixed 7-chunk rect put spawns thousands of px off-screen.
+@export_range(0.35, 6.0, 0.05) var migration_band_half_chunks: float = 1.0
 # ============================================
 # FSM (Finite State Machine)
 # ============================================
