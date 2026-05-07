@@ -677,43 +677,48 @@ func _apply_stagger_to_target(target: Node) -> void:
 		target_combat.recovery_time = extended_recovery
 
 func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> Dictionary:
-	# Returns attack profile (windup, recovery, arc, stagger) for weapon type
+	# Returns attack profile: windup, recovery, arc, stagger, attack_range (melee reach in px).
+	# Spear = thrust only (longer range than club); throwing is not implemented.
 	match weapon_type:
 		ResourceData.ResourceType.AXE:
 			return {
 				"windup": 0.45,
 				"recovery": 0.8,
-				"arc": PI,  # 180 degrees (wider for better hit rate)
-				"stagger": 0.2  # 0.2s stagger
+				"arc": PI,
+				"stagger": 0.2,
+				"attack_range": 100.0
 			}
 		ResourceData.ResourceType.PICK:
 			return {
-				"windup": 0.5,  # Slightly slower
+				"windup": 0.5,
 				"recovery": 0.9,
-				"arc": PI,  # 180 degrees (wider for better hit rate)
-				"stagger": 0.25  # More stagger
+				"arc": PI,
+				"stagger": 0.25,
+				"attack_range": 100.0
 			}
 		ResourceData.ResourceType.WOOD:
 			return {
 				"windup": 0.4,
 				"recovery": 0.7,
 				"arc": PI / 4.0,  # Narrow club arc (directly in front) per AgroGuide Step 1
-				"stagger": 0.15
+				"stagger": 0.15,
+				"attack_range": 100.0
 			}
 		ResourceData.ResourceType.SPEAR:
 			return {
 				"windup": 0.42,
 				"recovery": 0.72,
-				"arc": PI / 5.0,  # Reach/thrust-forward feel
-				"stagger": 0.16
+				"arc": PI / 5.0,  # Thrust cone (forward reach)
+				"stagger": 0.16,
+				"attack_range": 136.0  # Longer than club (100) — melee thrust only
 			}
 		_:
-			# Default unarmed profile
 			return {
 				"windup": 0.4,
 				"recovery": 0.7,
 				"arc": PI / 2,
-				"stagger": 0.15
+				"stagger": 0.15,
+				"attack_range": 100.0
 			}
 
 func _get_equipped_weapon_type() -> ResourceData.ResourceType:
@@ -759,6 +764,7 @@ func _update_attack_profile_from_weapon() -> void:
 	base_recovery_time = profile.recovery  # Store base for reset after stagger
 	attack_arc = profile.arc
 	stagger_time = profile.stagger
+	attack_range = profile.get("attack_range", 100.0)
 
 func _load_attack_sprite_sheet() -> void:
 	if not npc:

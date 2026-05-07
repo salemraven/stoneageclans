@@ -91,8 +91,12 @@ static func emit_attack_swing(origin: Node2D) -> void:
 	register_sound(origin.global_position, vol, &"attack")
 
 
+## Reserved for future spear-throw gameplay. Disabled until throw art/VFX and ranged pipeline exist.
 static func emit_spear_throw(origin: Node2D) -> void:
-	if origin == null or not is_instance_valid(origin):
+	const SPEAR_THROW_ENABLED: bool = false
+	if not SPEAR_THROW_ENABLED:
+		return
+	if not origin or not is_instance_valid(origin):
 		return
 	var vol: float = NPCConfig.sound_spear_throw_volume if NPCConfig else 120.0
 	register_sound(origin.global_position, vol, &"throw")

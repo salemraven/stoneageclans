@@ -2,7 +2,8 @@ extends Node
 class_name WeaponComponent
 
 # Weapon Component - tracks equipped weapon, damage bonuses
-# Axe sprite shown only when hostile or defending. Club (WOOD) / spear (SPEAR) shown when aggro, defense, combat, or follow_ordered.
+# Axe sprite shown only when hostile or defending. Club (WOOD) and spear (SPEAR) use the same NPC rules:
+# visible when aggro, hostile, defending, in combat, or follow_ordered — they "have" the weapon; spear is melee thrust only (no throw yet).
 
 var npc: NPCBase = null
 var equipped_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE

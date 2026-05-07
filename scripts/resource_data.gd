@@ -201,7 +201,7 @@ static func get_resource_description(type: ResourceType) -> String:
 		ResourceType.MUSHROOM: return "Foraged mushroom. Food."
 		ResourceType.BUGS: return "Insects from tall grass. Food."
 		ResourceType.NUTS: return "Tree nuts. Food."
-		ResourceType.SPEAR: return "Thrown or melee spear. Equip in slot 1."
+		ResourceType.SPEAR: return "Melee spear (thrust). Longer reach than a club. Equip in slot 1. Spear throwing is not in the game yet."
 		_: return ""
 
 # Get nutrient value for food items (higher = better)

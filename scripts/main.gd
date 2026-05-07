@@ -6796,7 +6796,7 @@ func _spawn_wild_woman(count: int) -> void:
 		print("✓ Respawned Wild Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
 
 func _equip_spear_to_npc(npc: Node) -> void:
-	"""Equip spear on caveman/clansman hotbar slot 0 and WeaponComponent (same visibility rules as club)."""
+	"""Spear behaves like club for NPCs: same stance visibility rules; melee thrust only (walk + spearattack sheet)."""
 	if not npc or not is_instance_valid(npc):
 		return
 	
