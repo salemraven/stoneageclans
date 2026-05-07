@@ -335,6 +335,8 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var deer_flee_duration_sec: float = 10.0
 @export var deer_winded_speed_mult: float = 0.6
 @export var deer_winded_duration_sec: float = 3.0
+## Extra max speed during flee burst (panic sprint). Winded phase still uses `deer_winded_speed_mult` vs base.
+@export var deer_flee_burst_speed_mult: float = 1.35
 @export var deer_panic_spread_radius: float = 150.0
 @export var deer_panic_spread_delay_min: float = 0.3
 @export var deer_panic_spread_delay_max: float = 0.5

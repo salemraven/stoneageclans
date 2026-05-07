@@ -14,6 +14,19 @@ var _panic_emitted: bool = false
 var _stuck_timer: float = 0.0
 
 
+func _apply_burst_flee_speed() -> void:
+	if npc == null or npc.steering_agent == null:
+		return
+	var sa := npc.steering_agent
+	if not sa.has_method("restore_original_speed") or not sa.has_method("set_speed_multiplier"):
+		return
+	sa.restore_original_speed()
+	var mult: float = 1.35
+	if NPCConfig:
+		mult = maxf(float(NPCConfig.deer_flee_burst_speed_mult), 1.0)
+	sa.set_speed_multiplier(mult)
+
+
 func enter() -> void:
 	_cancel_tasks_if_active()
 	_phase = RunPhase.BURST
@@ -23,8 +36,7 @@ func enter() -> void:
 	_stuck_timer = 0.0
 	if npc:
 		npc.remove_meta("deer_cower")
-	if npc and npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
-		npc.steering_agent.restore_original_speed()
+	_apply_burst_flee_speed()
 	if npc:
 		npc.deer_fright_meter = 0.0
 	if not _panic_emitted and npc:
@@ -111,8 +123,7 @@ func update(delta: float) -> void:
 			if centroid != Vector2.ZERO:
 				_apply_run_steering(centroid)
 			if _phase_timer >= wd:
-				if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
-					npc.steering_agent.restore_original_speed()
+				_apply_burst_flee_speed()
 				_phase = RunPhase.BURST
 				_phase_timer = 0.0
 
