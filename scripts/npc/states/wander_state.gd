@@ -3,7 +3,88 @@ extends "res://scripts/npc/states/base_state.gd"
 # Wander state - NPC moves randomly within a radius
 # For cavemen: Also handles automatic land claim placement
 
+const _RTS_FORM_CFG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
+
 var wander_radius: float = 300.0  # Increased wander radius
+
+
+func _wild_wander_center_radius() -> Vector3:
+	var center: Vector2 = npc.global_position
+	var radius: float = wander_radius
+	if npc == null:
+		return Vector3(center.x, center.y, radius)
+
+	if npc.has_method("is_territorial_movement") and npc.is_territorial_movement():
+		var tr_v = npc.get("territorial_radius")
+		var terr_r: float = float(tr_v) if tr_v != null else 0.0
+		if terr_r > 1.0:
+			var anch = npc.get("territorial_anchor")
+			center = anch as Vector2 if anch is Vector2 else npc.global_position
+			radius = terr_r * 0.92
+			return Vector3(center.x, center.y, radius)
+
+	if npc.has_method("is_migratory") and npc.is_migratory() and bool(npc.get("migration_active")):
+		var gp: Vector2 = npc.global_position
+		var exit_x_variant = npc.get("migration_exit_x")
+		var exit_x: float = float(exit_x_variant) if exit_x_variant != null else gp.x
+		var drift_str: float = 0.15
+		var noise_mult: float = 0.7
+		var bias_cap: float = 400.0
+		if NPCConfig:
+			drift_str = clampf(NPCConfig.migration_drift_strength, 0.0, 1.0)
+			noise_mult = maxf(NPCConfig.migration_wander_noise, 0.05)
+			bias_cap = maxf(NPCConfig.migration_wander_center_bias_scale, 16.0)
+		var capped_exit: float = gp.x + clampf(exit_x - gp.x, -bias_cap, bias_cap)
+		center = gp.lerp(Vector2(capped_exit, gp.y), drift_str)
+		var roam_mv = npc.get("roam_radius")
+		var base_rr: float = float(roam_mv) if roam_mv != null else 0.0
+		if base_rr <= 0.001:
+			base_rr = wander_radius * 2.0
+		radius = base_rr * noise_mult
+		return Vector3(center.x, center.y, radius)
+
+	if ChunkUtils:
+		var roam_v2 = npc.get("roam_radius")
+		var roam_chunk: float = float(roam_v2) if roam_v2 != null else 0.0
+		if roam_chunk > 0.0:
+			var cc = npc.get("chunk_center")
+			center = cc as Vector2 if cc is Vector2 else npc.global_position
+			radius = roam_chunk
+			return Vector3(center.x, center.y, radius)
+
+	var spawn_variant = npc.get("spawn_position")
+	var spawn_pos: Vector2 = spawn_variant as Vector2 if spawn_variant is Vector2 else Vector2.ZERO
+	if spawn_pos != Vector2.ZERO:
+		center = spawn_pos
+		radius = wander_radius * 2.0
+
+	return Vector3(center.x, center.y, radius)
+
+
+func _party_npc_break_return_eligible() -> bool:
+	var t: String = str(npc.get("npc_type")) if npc else ""
+	return t == "caveman" or t == "clansman"
+
+
+func _sync_returning_from_break_meta() -> void:
+	if not npc or not npc.has_meta("returning_from_break"):
+		return
+	var v = npc.get_meta("returning_from_break")
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	if v is float:
+		# Legacy: meta was absolute deadline — migrate to bool + expire
+		npc.set_meta("returning_from_break_expire", v)
+		npc.set_meta("returning_from_break", true)
+	elif v == true and not npc.has_meta("returning_from_break_expire"):
+		var max_sec: float = float(_RTS_FORM_CFG.get("break_return_max_sec", 300.0))
+		npc.set_meta("returning_from_break_expire", now_s + max_sec)
+
+
+func _clear_return_home_metas() -> void:
+	if npc.has_meta("returning_from_break"):
+		npc.remove_meta("returning_from_break")
+	if npc.has_meta("returning_from_break_expire"):
+		npc.remove_meta("returning_from_break_expire")
 
 func enter() -> void:
 	# Sheep/goats headed to Farm/Dairy: do NOT overwrite steering - let them reach assigned building
@@ -76,16 +157,9 @@ func enter() -> void:
 				if claim_radius_prop != null:
 					radius = (claim_radius_prop as float) * 0.8  # Wander within 80% of land claim radius (leave buffer near boundary)
 		elif npc.is_wild():
-			# Chunk-bound roaming: use chunk center and roam radius (replaces spawn anchoring)
-			if ChunkUtils and npc.roam_radius > 0:
-				center = npc.chunk_center
-				radius = npc.roam_radius
-			else:
-				# Fallback if chunk not yet initialized
-				var spawn_pos: Vector2 = npc.spawn_position if npc.get("spawn_position") != null else Vector2.ZERO
-				if spawn_pos != Vector2.ZERO:
-					center = spawn_pos
-					radius = wander_radius * 2.0
+			var cr_enter: Vector3 = _wild_wander_center_radius()
+			center = Vector2(cr_enter.x, cr_enter.y)
+			radius = cr_enter.z
 
 			# Clan avoidance: if center too close to land claim, push center away
 			var land_claims := get_tree().get_nodes_in_group("land_claims")
@@ -283,10 +357,14 @@ func update(delta: float) -> void:
 	
 	var npc_type_wander: String = npc.get("npc_type") if npc else ""
 	
-	# BREAK: steer directly toward land claim until arriving, then let normal wander + re-evaluation take over
-	if npc_type_wander == "clansman" and npc.has_meta("returning_from_break"):
-		var until: float = npc.get_meta("returning_from_break") as float
-		if Time.get_ticks_msec() / 1000.0 < until:
+	# BREAK: caveman + clansman steer to own land claim until within range (not time-limited to 15s).
+	_sync_returning_from_break_meta()
+	if _party_npc_break_return_eligible() and npc.has_meta("returning_from_break") and npc.get_meta("returning_from_break") == true:
+		var now_br: float = current_time
+		var expired: bool = npc.has_meta("returning_from_break_expire") and now_br >= float(npc.get_meta("returning_from_break_expire"))
+		if expired:
+			_clear_return_home_metas()
+		else:
 			var break_claim: Node2D = _get_land_claim()
 			if break_claim and is_instance_valid(break_claim) and npc.steering_agent:
 				var dist_to_claim: float = npc.global_position.distance_to(break_claim.global_position)
@@ -296,8 +374,12 @@ func update(delta: float) -> void:
 						npc.steering_agent.set_speed_multiplier(1.0)
 					return
 				else:
-					# Arrived — clear the flag early so normal re-evaluation can resume work
-					npc.remove_meta("returning_from_break")
+					_clear_return_home_metas()
+					return
+			# No claim resolved yet — hold position this frame (avoid random wander pulling them away)
+			elif npc.steering_agent:
+				npc.steering_agent.set_target_position(npc.global_position)
+				return
 	
 	# Handle deposit movement EVERY frame for cavemen/clansmen (was only first frame - they never reached the claim)
 	if npc_type_wander == "caveman" or npc_type_wander == "clansman":
@@ -409,43 +491,34 @@ func update(delta: float) -> void:
 			# Set new interval for next update
 			npc.set_meta("wander_update_interval", randf_range(3.0, 6.0))
 			
-			# Get current wander center and radius
-			var wander_center: Vector2 = npc.global_position
-			var wander_radius_current: float = wander_radius
-
-			# Wild NPCs: chunk-bound roaming (replaces spawn anchoring)
-			if npc.is_wild() and ChunkUtils and npc.roam_radius > 0:
-				wander_center = npc.chunk_center
-				wander_radius_current = npc.roam_radius
-			else:
-				var spawn_pos = npc.get("spawn_position")
-				if spawn_pos != null and spawn_pos != Vector2.ZERO:
-					wander_center = spawn_pos as Vector2
+			# Wild NPCs always use territorial / migratory / chunk helper
+			var cr_phys: Vector3 = _wild_wander_center_radius()
+			var wander_center: Vector2 = Vector2(cr_phys.x, cr_phys.y)
+			var wander_radius_current: float = cr_phys.z
 
 			# Clan avoidance for wild NPCs: push center away if too close to land claim
-			if npc.is_wild():
-				var npc_type_here: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
-				var avoid_radius: float = 800.0 if npc_type_here == "woman" else 600.0
-				if ChunkUtils:
-					avoid_radius = ChunkUtils.WOMAN_CLAN_AVOID_RADIUS if npc_type_here == "woman" else ChunkUtils.CLAN_AVOID_RADIUS
-				if npc_type_here == "mammoth" and NPCConfig:
-					var mp = NPCConfig.get("mammoth_land_claim_avoid_distance")
-					if mp != null:
-						avoid_radius = mp as float
-				var land_claims_wu := get_tree().get_nodes_in_group("land_claims")
-				for claim in land_claims_wu:
-					if not is_instance_valid(claim):
-						continue
-					var claim_pos_wu: Vector2 = claim.global_position
-					var claim_r: float = claim.get("radius") as float if claim.get("radius") != null else 400.0
-					var total_avoid: float = claim_r + avoid_radius
-					if wander_center.distance_to(claim_pos_wu) < total_avoid:
-						var dir_away: Vector2 = (wander_center - claim_pos_wu).normalized()
-						if dir_away.length_squared() < 0.01:
-							dir_away = Vector2(cos(randf() * TAU), sin(randf() * TAU))
-						wander_center = claim_pos_wu + dir_away * total_avoid
-						break
-			
+			var npc_type_here: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
+			var avoid_radius: float = 800.0 if npc_type_here == "woman" else 600.0
+			if ChunkUtils:
+				avoid_radius = ChunkUtils.WOMAN_CLAN_AVOID_RADIUS if npc_type_here == "woman" else ChunkUtils.CLAN_AVOID_RADIUS
+			if npc_type_here == "mammoth" and NPCConfig:
+				var mp = NPCConfig.get("mammoth_land_claim_avoid_distance")
+				if mp != null:
+					avoid_radius = mp as float
+			var land_claims_wu := get_tree().get_nodes_in_group("land_claims")
+			for claim in land_claims_wu:
+				if not is_instance_valid(claim):
+					continue
+				var claim_pos_wu: Vector2 = claim.global_position
+				var claim_r: float = claim.get("radius") as float if claim.get("radius") != null else 400.0
+				var total_avoid: float = claim_r + avoid_radius
+				if wander_center.distance_to(claim_pos_wu) < total_avoid:
+					var dir_away: Vector2 = (wander_center - claim_pos_wu).normalized()
+					if dir_away.length_squared() < 0.01:
+						dir_away = Vector2(cos(randf() * TAU), sin(randf() * TAU))
+					wander_center = claim_pos_wu + dir_away * total_avoid
+					break
+		
 			# Set new wander target with natural variation
 			if npc.steering_agent:
 				npc.steering_agent.set_wander(wander_center, wander_radius_current)
@@ -543,23 +616,41 @@ func update(delta: float) -> void:
 	# This ensures wander is only used as a brief reset after task completion
 
 func get_priority() -> float:
+	var p_dep: float = 12.0
+	var p_break: float = 13.0
+	var p_cave: float = 0.01
+	var p_def: float = 1.0
+	if NPCConfig:
+		p_dep = NPCConfig.priority_wander_moving_to_deposit
+		p_break = NPCConfig.priority_wander_returning_from_break
+		p_cave = NPCConfig.priority_wander_caveman_fallback
+		p_def = NPCConfig.priority_wander
 	# CRITICAL: When moving to deposit, stay in wander until we reach the claim (above herd_wildnpc 11.5)
 	if npc and npc.has_meta("moving_to_deposit"):
-		return 12.0  # Above herd_wildnpc so deposit wins when inventory full
+		return p_dep
 	var npc_type_str: String = npc.get("npc_type") if npc else ""
-	# Clansmen returning from BREAK: high priority so gather/herd cannot steal them back
-	if npc_type_str == "clansman" and npc.has_meta("returning_from_break"):
-		var until: float = npc.get_meta("returning_from_break") as float
-		if Time.get_ticks_msec() / 1000.0 < until:
-			return 13.0  # Above herd (11) and gather (4) — forces return-to-claim walk
-		else:
-			npc.remove_meta("returning_from_break")
+	# Cavemen + clansmen returning from BREAK: high priority so gather/herd cannot steal them back
+	_sync_returning_from_break_meta()
+	if (npc_type_str == "caveman" or npc_type_str == "clansman") and npc.has_meta("returning_from_break"):
+		var now_p: float = Time.get_ticks_msec() / 1000.0
+		var vr = npc.get_meta("returning_from_break")
+		if vr == true:
+			if npc.has_meta("returning_from_break_expire") and now_p >= float(npc.get_meta("returning_from_break_expire")):
+				_clear_return_home_metas()
+			else:
+				return p_break
+		elif vr is float:
+			# Legacy deadline only — treat as active until migrated in update()
+			if now_p < float(vr):
+				return p_break
+			else:
+				npc.remove_meta("returning_from_break")
 	# Cavemen/clansmen: wander is NEVER productive - pure fallback when no gather/herd/defend can enter
 	if npc_type_str == "caveman" or npc_type_str == "clansman":
-		return 0.01  # Only enter when literally no other state can_enter
+		return p_cave
 	
 	# Default state for NPCs - medium priority when no other needs
-	return 1.0
+	return p_def
 
 func get_data() -> Dictionary:
 	return {

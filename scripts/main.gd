@@ -1146,6 +1146,11 @@ func _input(event: InputEvent) -> void:
 		call_deferred("_spawn_rts_playtest_pack_async")
 		get_viewport().set_input_as_handled()
 	
+	# F7: Debug — spawn one migratory deer at chunk band edge (wildlife movement test).
+	if event is InputEventKey and event.keycode == KEY_F7 and event.pressed:
+		_spawn_debug_migratory_deer_f7()
+		get_viewport().set_input_as_handled()
+	
 	# L: TASK SYSTEM TEST — manually trigger logger
 	if event is InputEventKey and event.keycode == KEY_L and event.pressed:
 		_log_task_system_data()
@@ -6578,46 +6583,98 @@ func _spawn_mammoths(center_pos: Vector2) -> void:
 		npc.visible = true
 		print("✓ Spawned Mammoth: %s at %s (wild, 256x256, agro at threats)" % [npc_name, pos])
 
-func _spawn_sheep_and_goats(center_pos: Vector2, parent: Node2D = null) -> void:
+
+func _get_migration_bounds() -> Rect2:
+	if not ChunkUtils:
+		return Rect2(-4096, -4096, 8192, 8192)
+	if player == null or not is_instance_valid(player):
+		return Rect2(-4096, -4096, 8192, 8192)
+	var player_chunk: Vector2i = ChunkUtils.get_chunk_coords(player.global_position)
+	var buffer: int = 3
+	var min_chunk := Vector2i(player_chunk.x - buffer, player_chunk.y - buffer)
+	var max_chunk := Vector2i(player_chunk.x + buffer, player_chunk.y + buffer)
+	return Rect2(
+		Vector2(min_chunk) * ChunkUtils.CHUNK_SIZE,
+		Vector2(max_chunk - min_chunk + Vector2i.ONE) * ChunkUtils.CHUNK_SIZE
+	)
+
+
+func _finalize_migratory_npc(npc: Node, spawn_pos: Vector2, entry_side: int, exit_x: float) -> void:
+	if npc == null or not is_instance_valid(npc):
+		return
+	npc.global_position = spawn_pos
+	npc.set("spawn_position", spawn_pos)
+	npc.migration_entry_side = entry_side
+	npc.migration_exit_x = exit_x
+	if npc.has_method("_apply_wild_profile"):
+		npc._apply_wild_profile()
+	if OS.is_debug_build():
+		var side_name: String = "WEST" if entry_side == -1 else "EAST"
+		print("🦌 MIGRATORY_SPAWN: %s at (%.0f,%.0f) entry=%s exit_x=%.0f" % [
+			npc.get("npc_name"), spawn_pos.x, spawn_pos.y, side_name, exit_x
+		])
+
+
+func _spawn_debug_migratory_deer_f7() -> void:
+	if not world_objects:
+		return
+	var bounds := _get_migration_bounds()
+	var entry_side: int = -1 if randf() < 0.5 else 1
+	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
+	var exit_x: float = bounds.end.x if entry_side == -1 else bounds.position.x
+	var spawn_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 50.0, bounds.end.y - 50.0)
+	var npc: Node = NPC_SCENE.instantiate()
+	if npc == null:
+		return
+	var npc_name: String = "Deer %d" % Time.get_ticks_msec()
+	npc.set("npc_name", npc_name)
+	npc.set("npc_type", "deer")
+	npc.set("traits", [])
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+	if sprite:
+		var texture: Texture2D = AssetRegistry.get_deer_sprite()
+		if texture:
+			sprite.texture = texture
+			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			var tint := _get_random_sheep_goat_tint()
+			sprite.modulate = tint
+			npc.set_meta("sheep_goat_tint", tint)
+			sprite.visible = true
+			if npc.has_method("apply_sprite_offset_for_texture"):
+				npc.apply_sprite_offset_for_texture()
+	world_objects.add_child(npc)
+	_finalize_migratory_npc(npc, Vector2(entry_x, spawn_y), entry_side, exit_x)
+	npc.visible = true
+	print("🧪 DEBUG F7: migratory deer")
+
+
+func _spawn_sheep_and_goats(_center_pos: Vector2, parent: Node2D = null) -> void:
 	var spawn_parent := parent if parent else world_objects
-	# Spawn sheep (group together) and goats (solitary) spread across map
 	var sheep_count := BalanceConfig.sheep_initial if BalanceConfig else 3
 	var goat_count := BalanceConfig.goat_initial if BalanceConfig else 3
-	var spawn_radius: float = BalanceConfig.sheep_goat_spawn_radius if BalanceConfig else 2200.0
-	var group_min: float = BalanceConfig.sheep_goat_group_distance_min if BalanceConfig else 800.0
+	var bounds := _get_migration_bounds()
 	
-	print("Spawning %d sheep and %d goats around center" % [sheep_count, goat_count])
+	print("Spawning %d sheep and %d goats (migratory chunk band)" % [sheep_count, goat_count])
 	
-	# Spawn sheep in groups (2-3 per group)
 	var sheep_per_group := 2
 	var sheep_spawned := 0
 	
 	while sheep_spawned < sheep_count:
-		# Start a new group position (spread out band)
-		var group_angle := randf() * TAU
-		var group_distance := randf_range(group_min, spawn_radius)
-		var group_center := Vector2(cos(group_angle), sin(group_angle)) * group_distance + center_pos
-		
-		# Spawn 2-3 sheep in this group
+		var entry_side: int = -1 if randf() < 0.5 else 1
+		var entry_edge_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
+		var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
+		var base_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
 		var remaining: int = sheep_count - sheep_spawned
-		var group_size: int = sheep_per_group if sheep_per_group < remaining else remaining
+		var group_size: int = maxi(1, mini(sheep_per_group + (1 if randf() < 0.35 else 0), remaining))
 		for j in group_size:
-			var offset_angle := randf() * TAU
-			var offset_distance := randf_range(20.0, 80.0)  # Sheep group close together
-			var sheep_pos := group_center + Vector2(cos(offset_angle), sin(offset_angle)) * offset_distance
-			
+			var spawn_pos := Vector2(entry_edge_x + float(j) * 20.0 * float(entry_side), base_y + randf_range(-52.0, 52.0))
 			var npc: Node = NPC_SCENE.instantiate()
-			if not npc:
+			if npc == null:
 				continue
-			
 			var npc_name: String = "Sheep %d" % (Time.get_ticks_msec() + sheep_spawned * 100 + j)
-			
 			npc.set("npc_name", npc_name)
 			npc.set("npc_type", "sheep")
-			# Sheep need the "herd" trait and group together
-			npc.set("traits", ["herd", "group"])  # Set traits directly
-			
-			# Set sprite texture and random tint (white to almost-black)
+			npc.set("traits", ["herd", "group"])
 			var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 			if sprite:
 				var texture: Texture2D = AssetRegistry.get_sheep_sprite()
@@ -6630,32 +6687,25 @@ func _spawn_sheep_and_goats(center_pos: Vector2, parent: Node2D = null) -> void:
 					sprite.visible = true
 					if npc.has_method("apply_sprite_offset_for_texture"):
 						npc.apply_sprite_offset_for_texture()
-			
 			spawn_parent.add_child(npc)
-			npc.global_position = sheep_pos
-			npc.set("spawn_position", sheep_pos)
+			_finalize_migratory_npc(npc, spawn_pos, entry_side, exit_x_val)
 			npc.visible = true
-			print("✓ Spawned Sheep: %s at %s" % [npc_name, sheep_pos])
+			print("✓ Spawned Sheep: %s at %s" % [npc_name, spawn_pos])
 			sheep_spawned += 1
 	
-	# Spawn goats (solitary, spread out)
 	for i in goat_count:
-		var angle := randf() * TAU
-		var distance := randf_range(group_min, spawn_radius)
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		
+		var g_side: int = -1 if randf() < 0.5 else 1
+		var g_entry_x: float = bounds.position.x if g_side == -1 else bounds.end.x
+		var g_exit_x: float = bounds.end.x if g_side == -1 else bounds.position.x
+		var g_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
+		var g_pos := Vector2(g_entry_x, g_y)
 		var npc: Node = NPC_SCENE.instantiate()
-		if not npc:
+		if npc == null:
 			continue
-		
 		var npc_name: String = "Goat %d" % (Time.get_ticks_msec() + i * 100)
-		
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "goat")
-		# Goats need the "herd" trait but are solitary (no group trait)
-		npc.set("traits", ["herd"])  # Set traits directly - no "group" trait, goats are solitary
-		
-		# Set sprite texture and random tint (white to almost-black)
+		npc.set("traits", ["herd"])
 		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 		if sprite:
 			var texture: Texture2D = AssetRegistry.get_goat_sprite()
@@ -6668,34 +6718,32 @@ func _spawn_sheep_and_goats(center_pos: Vector2, parent: Node2D = null) -> void:
 				sprite.visible = true
 				if npc.has_method("apply_sprite_offset_for_texture"):
 					npc.apply_sprite_offset_for_texture()
-		
 		spawn_parent.add_child(npc)
-		npc.global_position = pos
-		npc.set("spawn_position", pos)
+		_finalize_migratory_npc(npc, g_pos, g_side, g_exit_x)
 		npc.visible = true
-		print("✓ Spawned Goat: %s at %s" % [npc_name, pos])
+		print("✓ Spawned Goat: %s at %s" % [npc_name, g_pos])
 
-func _spawn_deer(center_pos: Vector2, parent: Node2D = null) -> void:
+
+func _spawn_deer(_center_pos: Vector2, parent: Node2D = null) -> void:
 	var spawn_parent := parent if parent else world_objects
 	var deer_total: int = BalanceConfig.deer_initial if BalanceConfig else 4
-	var spawn_radius: float = BalanceConfig.sheep_goat_spawn_radius if BalanceConfig else 2200.0
-	var group_min: float = BalanceConfig.sheep_goat_group_distance_min if BalanceConfig else 800.0
+	var bounds := _get_migration_bounds()
 	var spawned: int = 0
-	print("Spawning %d deer around center" % deer_total)
+	print("Spawning %d deer (migratory chunk band)" % deer_total)
 	while spawned < deer_total:
 		var herd_size: int = 1
 		if randf() < 0.5:
 			herd_size = randi_range(2, 4)
 		herd_size = mini(herd_size, deer_total - spawned)
-		var group_angle := randf() * TAU
-		var group_distance := randf_range(group_min, spawn_radius)
-		var group_center := Vector2(cos(group_angle), sin(group_angle)) * group_distance + center_pos
+		var entry_side: int = -1 if randf() < 0.5 else 1
+		var entry_edge_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
+		var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
+		var band_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
 		for j in herd_size:
-			var offset_angle := randf() * TAU
-			var offset_distance := randf_range(22.0, 72.0)
-			var dpos: Vector2 = group_center + Vector2(cos(offset_angle), sin(offset_angle)) * offset_distance
+			var along: float = float(j) * 24.0 * float(entry_side)
+			var dpos := Vector2(entry_edge_x + along, band_y + randf_range(-40.0, 40.0))
 			var npc: Node = NPC_SCENE.instantiate()
-			if not npc:
+			if npc == null:
 				continue
 			var npc_name: String = "Deer %d" % (Time.get_ticks_msec() + spawned * 91 + j)
 			npc.set("npc_name", npc_name)
@@ -6714,8 +6762,7 @@ func _spawn_deer(center_pos: Vector2, parent: Node2D = null) -> void:
 					if npc.has_method("apply_sprite_offset_for_texture"):
 						npc.apply_sprite_offset_for_texture()
 			spawn_parent.add_child(npc)
-			npc.global_position = dpos
-			npc.set("spawn_position", dpos)
+			_finalize_migratory_npc(npc, dpos, entry_side, exit_x_val)
 			npc.visible = true
 			print("✓ Spawned Deer: %s at %s" % [npc_name, dpos])
 			spawned += 1
@@ -6782,6 +6829,8 @@ func _spawn_wild_woman(count: int) -> void:
 		world_objects.add_child(npc)
 		npc.global_position = pos
 		npc.set("spawn_position", pos)
+		if npc.has_method("_apply_wild_profile"):
+			npc._apply_wild_profile()
 		
 		await get_tree().process_frame
 		
@@ -7036,10 +7085,13 @@ func _spawn_respawn_batch_sheep_goats() -> void:
 	if deer_count < deer_cap:
 		_spawn_one_deer(center_pos, spawn_radius)
 
-func _spawn_one_deer(center_pos: Vector2, spawn_radius: float) -> void:
-	var angle := randf() * TAU
-	var distance := randf_range(800.0, spawn_radius)
-	var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
+func _spawn_one_deer(_center_pos: Vector2, _spawn_radius: float) -> void:
+	var bounds := _get_migration_bounds()
+	var entry_side: int = -1 if randf() < 0.5 else 1
+	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
+	var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
+	var pos_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
+	var pos := Vector2(entry_x, pos_y)
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
 		return
@@ -7061,15 +7113,17 @@ func _spawn_one_deer(center_pos: Vector2, spawn_radius: float) -> void:
 			if npc.has_method("apply_sprite_offset_for_texture"):
 				npc.apply_sprite_offset_for_texture()
 	world_objects.add_child(npc)
-	npc.global_position = pos
-	npc.set("spawn_position", pos)
+	_finalize_migratory_npc(npc, pos, entry_side, exit_x_val)
 	npc.visible = true
 	print("✓ Respawned Wild Deer: %s at %s" % [npc_name, pos])
 
-func _spawn_one_sheep_or_goat(center_pos: Vector2, spawn_radius: float, is_sheep: bool) -> void:
-	var angle := randf() * TAU
-	var distance := randf_range(800.0, spawn_radius)
-	var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
+func _spawn_one_sheep_or_goat(_center_pos: Vector2, _spawn_radius: float, is_sheep: bool) -> void:
+	var bounds := _get_migration_bounds()
+	var entry_side: int = -1 if randf() < 0.5 else 1
+	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
+	var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
+	var pos_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
+	var pos := Vector2(entry_x, pos_y)
 	
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
@@ -7108,8 +7162,7 @@ func _spawn_one_sheep_or_goat(center_pos: Vector2, spawn_radius: float, is_sheep
 				npc.apply_sprite_offset_for_texture()
 	
 	world_objects.add_child(npc)
-	npc.global_position = pos
-	npc.set("spawn_position", pos)
+	_finalize_migratory_npc(npc, pos, entry_side, exit_x_val)
 	npc.visible = true
 	var type_display: String = npc_type.substr(0, 1).to_upper() + npc_type.substr(1)
 	print("✓ Respawned Wild %s: %s at %s" % [type_display, npc_name, pos])
