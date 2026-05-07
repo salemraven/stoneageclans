@@ -5,6 +5,8 @@ const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
+@export var sprite_visual_scale: float = 0.40
+## Slightly smaller than NPC walk sheets (0.46) — tune in inspector. Walk/club/spear only; axe/pick/travois unchanged.
 @export var bounce_amplitude := 2.0
 @export var bounce_speed := 8.0
 
@@ -137,6 +139,7 @@ func _physics_process(_delta: float) -> void:
 		move_and_slide()
 		if sprite:
 			YSortUtils.update_draw_order(sprite, self)
+			_apply_walk_gear_sprite_scale()
 		return
 	# Hunger depletion (player does NOT die from starvation)
 	var rate: float = hunger_deplete_rate
@@ -251,10 +254,22 @@ func _physics_process(_delta: float) -> void:
 			else:
 				_update_sprite_texture()
 
-	# Snap sprite position to prevent sub-pixel blurring
-	sprite.position.x = _sprite_base_position.x
-	var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
-	sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
+	if sprite:
+		_apply_walk_gear_sprite_scale()
+		# Snap sprite position to prevent sub-pixel blurring
+		sprite.position.x = _sprite_base_position.x
+		var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
+		sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
+
+func _apply_walk_gear_sprite_scale() -> void:
+	"""Shrink walk/club/spear vs default WalkAnimation scale (NPCs ~0.46). Axe/pick/travois use their own sizing."""
+	match _equipped_item:
+		ResourceData.ResourceType.NONE, ResourceData.ResourceType.WOOD, ResourceData.ResourceType.SPEAR:
+			var s: float = maxf(sprite_visual_scale, 0.05)
+			sprite.scale = Vector2(s, s)
+		_:
+			pass
+
 
 func _setup_texture() -> void:
 	_update_sprite_texture()
