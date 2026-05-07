@@ -20,6 +20,14 @@ bash tools/run_instrumented_playtest.sh
 
 Runs **`Main.tscn`** headless (`--quit-after 4` = **4 main-loop iterations**, not seconds — see `godot --help`) and **`tee`**s output to **`Tests/logs/instrumented_playtest_<timestamp>.log`**. Set **`GODOT=/path/to/Godot`** if not using the default macOS app path. Uses **`SKIP_SINGLE_INSTANCE=1`**.
 
+## Wild NPC movement verify (profiles + migration despawn)
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/wild_npc_movement_verify.gd
+```
+
+Checks **`NPCConfig`** wild profiles, instantiates **`NPC.tscn`** as deer with a west corridor, applies **`_apply_wild_profile`**, asserts migratory activation, crosses exit **+margin**, and asserts **`queue_free`** from **`_check_migration_despawn`**. Exit **0** prints `WILD_NPC_MOVEMENT_VERIFY_OK`.
+
 ## Boot / load audit (autoload `RuntimeFaultSink`)
 
 Each run writes **`user://runtime_boot_audit.log`** (Editor → open user data folder) with script-load checks for **`PartyCommandUtils`**, **`FormationUtils`**, **`FSM`**, **`Main.tscn`**, **`EntityRegistry`**. Append **`--runtime-boot-audit`** for extra path probes. Disable: **`SKIP_RUNTIME_FAULT_SINK=1`**.

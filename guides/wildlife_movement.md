@@ -19,7 +19,7 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
 - Migratory corridor: `migration_entry_side`, `migration_exit_x`, `migration_active`.
 - Territory: `territorial_anchor`, `territorial_radius`.
 - Helpers: `is_migratory()`, `is_territorial_movement()`, `pause_migration()` / `resume_migration()` (herding overrides migration).
-- **Despawn**: `_check_migration_despawn()` in physics when migratory — skipped if fighting (combat not IDLE) or herded (`_has_migration_corridor`).
+- **Despawn**: `_check_migration_despawn()` when migratory — skipped if **CombatComponent** not IDLE, **valid `combat_target`** (hunted), **`hunt_target_of` meta** lists any valid hunter, or herded (`_has_migration_corridor`).
 
 ## Wander (`scripts/npc/states/wander_state.gd`)
 
@@ -40,3 +40,15 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
 - More “straight across the map” drift: raise `migration_drift_strength` (0–1).
 - Wider meander while still trending: raise `migration_wander_noise` and/or `wander_radius` interaction (migratory uses `roam_radius * noise`).
 - Earlier/later despawn: adjust `migration_despawn_margin`.
+
+## Testing (plan checklist)
+
+| Goal | Command / action |
+|------|------------------|
+| Boot + enums load | `bash tools/run_instrumented_playtest.sh` (expect exit 0; no hard script errors in log) |
+| Profiles + migration + despawn contract | `SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/wild_npc_movement_verify.gd` → `WILD_NPC_MOVEMENT_VERIFY_OK` |
+| F7 spawn + edge logs | In running game **F7** → `MIGRATORY_SPAWN` / `DEBUG F7` lines; deer at west or east band |
+| Drift visually | Watch F7 deer 30–60s — should wander but trend toward **`migration_exit_x`** |
+| Combat/hunt delay despawn | Engage deer in combat / set **`combat_target`** — past exit edge it should **not** despawn until clear |
+| Women territorial | Wild woman wanders near **`territorial_anchor`** (radius from config); profile **TERRITORIAL** |
+| Herd pause/resume | Herd sheep → migration pauses on attach; detach → **`resume_migration()`** |

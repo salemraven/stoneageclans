@@ -2072,6 +2072,18 @@ func _check_migration_despawn() -> void:
 	var combat_comp: CombatComponent = get_node_or_null("CombatComponent") as CombatComponent
 	if combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE:
 		return
+	# Still targeted / hunted — delay despawn until target clears (matches plan: hunt at exit edge).
+	if has_method("resolve_combat_target"):
+		resolve_combat_target()
+	var ct_node: Variant = get("combat_target")
+	if ct_node != null and is_instance_valid(ct_node):
+		return
+	if has_meta("hunt_target_of"):
+		var hunters: Variant = get_meta("hunt_target_of", [])
+		if hunters is Array:
+			for h in hunters:
+				if is_instance_valid(h):
+					return
 	var margin: float = NPCConfig.migration_despawn_margin if NPCConfig else 200.0
 	var past_exit: bool = false
 	if migration_entry_side == -1:
