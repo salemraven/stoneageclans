@@ -74,6 +74,8 @@ func attach(new_herder: Node2D) -> void:
 	_npc.is_herded = true
 	_npc.herder = new_herder
 	_npc.herd_mentality_active = true
+	if _npc.has_method("pause_migration") and _npc.is_migratory():
+		_npc.pause_migration()
 	if HerdManager:
 		HerdManager.register_follower(new_herder, _npc)
 	if "herded_count" in new_herder:
@@ -119,6 +121,8 @@ func detach() -> void:
 	_npc.herder = null
 	_npc.follow_is_ordered = false
 	_npc.herd_mentality_active = false
+	if _npc.has_method("resume_migration") and _npc.is_migratory() and _npc.is_herdable_type:
+		_npc.resume_migration()
 	herder_instance_id = 0
 	if old:
 		detached.emit(old)

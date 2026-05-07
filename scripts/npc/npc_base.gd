@@ -358,6 +358,8 @@ func _start_herd(new_herder: Node2D) -> void:
 	is_herded = true
 	herder = new_herder
 	herd_mentality_active = true
+	if has_method("is_migratory") and is_migratory():
+		pause_migration()
 	if HerdManager:
 		HerdManager.register_follower(new_herder, self)
 	if new_herder and is_instance_valid(new_herder) and "herded_count" in new_herder:
@@ -408,6 +410,8 @@ func _clear_herd() -> void:
 		herd_mentality_active = false
 	if clan_name == "" and ChunkUtils:
 		_init_chunk_roaming()
+	if is_migratory() and is_herdable_type:
+		resume_migration()
 	print("🏠 %s: Herd cleared (no longer following)" % npc_name)
 
 
@@ -465,6 +469,19 @@ var home_chunk: Vector2i = Vector2i.ZERO
 var chunk_center: Vector2 = Vector2.ZERO
 var roam_radius: float = 0.0
 var time_in_current_chunk: float = 0.0
+
+# Wild NPC classification (from NPCConfig.get_wild_profile; migratory spawn sets migration_* before _apply_wild_profile)
+var wild_profile_applied: bool = false
+var wild_movement: int = 0
+var wild_role: int = 0
+var is_herdable_type: bool = false
+var is_defensive: bool = false
+## -1 = entered from west, +1 = from east; 0 = not configured (no migratory despawn).
+var migration_entry_side: int = 0
+var migration_exit_x: float = 0.0
+var migration_active: bool = false
+var territorial_anchor: Vector2 = Vector2.ZERO
+var territorial_radius: float = 0.0
 
 # Caveman aggression tracking — single meter drives combat + agro_state; is_agro is derived
 var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) — combat, hostile indicator, agro_state
@@ -753,6 +770,7 @@ func _ready() -> void:
 	# Initialize chunk-bound roaming for wild NPCs
 	if is_wild() and ChunkUtils:
 		_init_chunk_roaming()
+	call_deferred("_deferred_apply_wild_profile_if_needed")
 
 	# Setup quality tier based on age (stats)
 	_update_quality_tier()
@@ -958,8 +976,10 @@ func _physics_process(delta: float) -> void:
 	elif is_wild():
 		if not is_herded or herder == null:
 			if not multiplayer.has_multiplayer_peer() or is_multiplayer_authority():
-				_update_chunk_boundary(delta)
-	
+				if not (is_migratory() and migration_active):
+					_update_chunk_boundary(delta)
+				_check_migration_despawn()
+
 	# Periodic clan joining check (every 0.5 seconds)
 	# This ensures NPCs join clans when they enter land claims, even if not in herd state
 	if not has_meta("last_clan_join_check_time"):
@@ -1745,6 +1765,8 @@ func _init_chunk_roaming() -> void:
 	"""Initialize chunk-bound roaming from current position. Always zeros time_in_current_chunk."""
 	if not ChunkUtils:
 		return
+	if wild_profile_applied and NPCConfig != null and wild_movement == NPCConfig.WildMovement.MIGRATORY:
+		return
 	home_chunk = ChunkUtils.get_chunk_coords(global_position)
 	chunk_center = ChunkUtils.get_chunk_center(home_chunk)
 	roam_radius = ChunkUtils.ROAM_RADIUS
@@ -1753,6 +1775,8 @@ func _init_chunk_roaming() -> void:
 
 func _update_chunk_boundary(delta: float) -> void:
 	"""Chunk-bound roaming: update home_chunk if NPC stays in new chunk for HOME_UPDATE_TIME."""
+	if is_migratory() and migration_active:
+		return
 	if not ChunkUtils:
 		return
 	var current_chunk: Vector2i = ChunkUtils.get_chunk_coords(global_position)
@@ -1980,7 +2004,98 @@ func is_wild() -> bool:
 		return false
 	return true
 
-# Simple chance-based herding - roll chance every frame when caveman is close
+
+func is_migratory() -> bool:
+	return wild_profile_applied and NPCConfig != null and wild_movement == NPCConfig.WildMovement.MIGRATORY
+
+
+func is_territorial_movement() -> bool:
+	return wild_profile_applied and NPCConfig != null and wild_movement == NPCConfig.WildMovement.TERRITORIAL
+
+
+func is_prey_npc() -> bool:
+	return wild_profile_applied and NPCConfig != null and wild_role == NPCConfig.WildRole.PREY
+
+
+func is_predator_npc() -> bool:
+	return wild_profile_applied and NPCConfig != null and wild_role == NPCConfig.WildRole.PREDATOR
+
+
+func pause_migration() -> void:
+	migration_active = false
+
+
+func resume_migration() -> void:
+	if is_migratory() and migration_entry_side != 0:
+		migration_active = true
+
+
+## Apply wild classification from NPCConfig; call after npc_type/global_position valid. Migratory expects migration_entry_side/exit_x set first when using despawn corridor.
+func _apply_wild_profile() -> void:
+	if not NPCConfig:
+		return
+	var profile: Dictionary = NPCConfig.get_wild_profile(npc_type)
+	wild_profile_applied = true
+	wild_movement = int(profile.get("movement", NPCConfig.WildMovement.TERRITORIAL))
+	wild_role = int(profile.get("role", NPCConfig.WildRole.NONE))
+	is_herdable_type = bool(profile.get("herdable", false))
+	is_defensive = bool(profile.get("defensive", false))
+	if is_migratory():
+		migration_active = (migration_entry_side != 0) and not is_herded
+		if ChunkUtils:
+			roam_radius = ChunkUtils.ROAM_RADIUS
+	elif is_territorial_movement():
+		territorial_anchor = global_position
+		territorial_radius = float(NPCConfig.territorial_chunk_radius) * (ChunkUtils.CHUNK_SIZE if ChunkUtils else 2048.0)
+		if ChunkUtils:
+			_init_chunk_roaming()
+	if OS.is_debug_build():
+		print("🦌 %s: wild_profile movement=%s role=%s herdable=%s defensive=%s migr_active=%s" % [
+			npc_name, wild_movement, wild_role, is_herdable_type, is_defensive, migration_active
+		])
+
+
+func _deferred_apply_wild_profile_if_needed() -> void:
+	if not NPCConfig or wild_profile_applied:
+		return
+	if npc_type in NPCConfig.wild_npc_profiles:
+		_apply_wild_profile()
+
+
+func _has_migration_corridor() -> bool:
+	return is_migratory() and migration_active and migration_entry_side != 0 and not is_herded
+
+
+func _check_migration_despawn() -> void:
+	if not _has_migration_corridor():
+		return
+	var combat_comp: CombatComponent = get_node_or_null("CombatComponent") as CombatComponent
+	if combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE:
+		return
+	var margin: float = NPCConfig.migration_despawn_margin if NPCConfig else 200.0
+	var past_exit: bool = false
+	if migration_entry_side == -1:
+		past_exit = global_position.x > migration_exit_x + margin
+	else:
+		past_exit = global_position.x < migration_exit_x - margin
+	if past_exit:
+		_despawn_migratory()
+
+
+func _despawn_migratory() -> void:
+	if OS.is_debug_build():
+		print("🦌 MIGRATION_COMPLETE: %s despawn x=%.0f exit_x=%.0f" % [npc_name, global_position.x, migration_exit_x])
+	var tree: SceneTree = get_tree()
+	if tree:
+		var pi: Node = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("log_event"):
+			pi.call("log_event", "migration_complete", {"npc": npc_name, "type": npc_type})
+	if EntityRegistry:
+		EntityRegistry.unregister(self)
+	queue_free()
+
+
+## Simple chance-based herding — roll chance every frame when caveman is close.
 # Chance increases with proximity, allows stealing back and forth
 # force_influence_transfer: when true (from HerdInfluenceArea), skip random roll - deterministic transfer
 func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) -> bool:
@@ -1998,6 +2113,8 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 	
 	# Only women, sheep, goats can be herded (not cavemen)
 	if npc_type == "caveman":
+		return false
+	if wild_profile_applied and not is_herdable_type:
 		return false
 	
 	var distance: float = global_position.distance_to(leader.global_position)

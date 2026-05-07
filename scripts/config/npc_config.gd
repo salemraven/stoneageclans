@@ -1,4 +1,11 @@
 extends Node
+
+## Wild NPC classification: how they move across the world.
+enum WildMovement { MIGRATORY, TERRITORIAL }
+
+## Ecological role for combat / future predator AI (herdables use NONE).
+enum WildRole { PREY, PREDATOR, NONE }
+
 # NPC Configuration File
 # This is an autoload singleton - access via NPCConfig in scripts
 # Edit the values below to adjust NPC behavior
@@ -347,11 +354,44 @@ extends Node
 @export var missed_projectile_despawn_sec: float = 60.0
 
 # ============================================
+# WILD NPC MOVEMENT & CLASSIFICATION
+# ============================================
+@export_group("Wild NPC Movement")
+@export var migration_drift_strength: float = 0.15
+@export var migration_wander_noise: float = 0.7
+@export var migration_despawn_margin: float = 200.0
+## Territorial wild NPCs (e.g. women): stay within this many chunks of spawn anchor.
+@export var territorial_chunk_radius: int = 2
+## Horizontal bias (px): shifts wander center toward migration exit each wander refresh.
+@export var migration_wander_center_bias_scale: float = 400.0
+# ============================================
 # FSM (Finite State Machine)
 # ============================================
 @export_group("FSM Settings")
 @export var evaluation_interval: float = 1.0  # How often FSM evaluates states (seconds)
 @export var assignment_check_interval: float = 0.4  # Seconds between building assignment checks per animal
+
+
+## Per npc_type string: movement, ecological role, herdable (woman/sheep/goat only), defensive prey (mammoth).
+var wild_npc_profiles: Dictionary = {
+	"deer": { "movement": WildMovement.MIGRATORY, "role": WildRole.PREY, "herdable": false, "defensive": false },
+	"sheep": { "movement": WildMovement.MIGRATORY, "role": WildRole.NONE, "herdable": true, "defensive": false },
+	"goat": { "movement": WildMovement.MIGRATORY, "role": WildRole.NONE, "herdable": true, "defensive": false },
+	"mammoth": { "movement": WildMovement.MIGRATORY, "role": WildRole.PREY, "herdable": false, "defensive": true },
+	"woman": { "movement": WildMovement.TERRITORIAL, "role": WildRole.NONE, "herdable": true, "defensive": false },
+}
+
+
+func get_wild_profile(npc_type_str: String) -> Dictionary:
+	var def: Dictionary = {
+		"movement": WildMovement.TERRITORIAL,
+		"role": WildRole.NONE,
+		"herdable": false,
+		"defensive": false,
+	}
+	var p: Variant = wild_npc_profiles.get(npc_type_str, def)
+	return p as Dictionary if p is Dictionary else def
+
 
 # ============================================
 # HELPER FUNCTIONS
