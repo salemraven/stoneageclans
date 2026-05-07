@@ -559,6 +559,9 @@ func _invalidate_combat_target() -> void:
 
 # Single source of truth for "work (tasks/jobs) should be aborted" - defending, combat, or ordered follow
 func should_abort_work() -> bool:
+	# Hunters use TaskRunner butcher jobs while still under ordered-follow; must not abort.
+	if has_meta("hunt_butchering") and get_meta("hunt_butchering") == true:
+		return false
 	if defend_target != null and is_instance_valid(defend_target):
 		return true
 	if combat_target != null and is_instance_valid(combat_target):
@@ -3151,6 +3154,20 @@ func _check_and_deposit_items() -> void:
 		var activity_tracker = get_node_or_null("/root/NPCActivityTracker")
 		if activity_tracker and activity_tracker.has_method("log_deposit"):
 			activity_tracker.log_deposit(str(get_instance_id()), total_deposited)
+		var hunt_u: int = int(get_meta("hunt_butcher_units", 0))
+		if hunt_u > 0:
+			var pi_hunt = get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_hunt and pi_hunt.is_enabled() and pi_hunt.has_method("hunt_deposit"):
+				var deposited_by_name: Dictionary = {}
+				for itype in items_to_deposit.keys():
+					var nm: String = ResourceData.get_resource_name(itype) if itype != null else str(itype)
+					deposited_by_name[nm] = int(items_to_deposit[itype])
+				pi_hunt.hunt_deposit(npc_name, deposited_by_name, hunt_u)
+			if has_meta("hunt_butcher_units"):
+				remove_meta("hunt_butcher_units")
+			for lk in ["hunt_loot_meat", "hunt_loot_hide", "hunt_loot_bone"]:
+				if has_meta(lk):
+					remove_meta(lk)
 		var remaining_items: int = inventory.get_used_slots() if inventory.has_method("get_used_slots") else 0
 		var log_msg = "✅ AUTO-DEPOSIT: %s deposited %d items (%d total before, %d remaining) to land claim '%s' (distance: %.1fpx)" % [
 			npc_name, total_deposited, total_items_before, remaining_items, my_clan, distance

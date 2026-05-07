@@ -33,12 +33,12 @@ func _physics_process(delta: float) -> void:
 	
 	if not npc or not is_instance_valid(npc):
 		# NPC is invalid, cancel everything
-		cancel_current_job()
+		cancel_current_job("npc_invalid")
 		return
 	
 	# Cancel tasks if NPC should abort work (defending, combat, or ordered follow)
 	if npc is NPCBase and (npc as NPCBase).should_abort_work():
-		cancel_current_job()
+		cancel_current_job("should_abort_work")
 		return
 	
 	# If no current task, try to get next task from job
@@ -55,20 +55,20 @@ func _physics_process(delta: float) -> void:
 		var now: float = Time.get_ticks_msec() / 1000.0
 		if now > current_job.expire_time:
 			UnifiedLogger.log_npc("TaskRunner: Gather job lease expired - cancelling", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
-			cancel_current_job()
+			cancel_current_job("gather_lease_expired")
 			return
 	
 	# Pre-validate job targets - fail early if building or land_claim became invalid
 	if current_job and current_job.building and not is_instance_valid(current_job.building):
 		if DebugConfig and DebugConfig.enable_debug_mode:
 			UnifiedLogger.log_npc("TaskRunner: Job building invalid - cancelling", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
-		cancel_current_job()
+		cancel_current_job("job_building_invalid")
 		return
 	var task_claim = current_task.get("land_claim")
 	if task_claim != null and not is_instance_valid(task_claim):
 		if DebugConfig and DebugConfig.enable_debug_mode:
 			UnifiedLogger.log_npc("TaskRunner: Task land_claim invalid - cancelling", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
-		cancel_current_job()
+		cancel_current_job("task_land_claim_invalid")
 		return
 	
 	# Run current task
@@ -88,6 +88,14 @@ func _physics_process(delta: float) -> void:
 			# Task completed successfully, advance job to next task
 			if DebugConfig and DebugConfig.enable_debug_mode:
 				UnifiedLogger.log_npc("TaskRunner: Task %s (%s) completed SUCCESS" % [current_job.get_progress_string(), task_type], {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+			if DebugConfig and DebugConfig.enable_session_instrumentation:
+				var npc_ns: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+				var prog_s: String = current_job.get_progress_string() if current_job else ""
+				UnifiedLogger.log_session("WORK_TASK_SUCCESS", {
+					"npc": npc_ns,
+					"task_type": task_type,
+					"progress_before_advance": prog_s
+				}, UnifiedLogger.Level.INFO)
 			current_task = null
 			if current_job:
 				current_job.advance()
@@ -101,9 +109,15 @@ func _physics_process(delta: float) -> void:
 				"job_progress": current_job.get_progress_string(),
 				"task_type": task_type
 			}, UnifiedLogger.Level.WARNING)
+			if DebugConfig and DebugConfig.enable_session_instrumentation:
+				UnifiedLogger.log_session("WORK_TASK_FAILED", {
+					"npc": npc_name,
+					"task_type": task_type,
+					"progress": current_job.get_progress_string() if current_job else ""
+				}, UnifiedLogger.Level.INFO)
 			if current_task:
 				current_task.cancel(npc)
-			cancel_current_job()
+			cancel_current_job("task_failed")
 
 # Assign a job to this TaskRunner
 # @param job: Job object (Step 14: now using Job class)
@@ -118,7 +132,7 @@ func assign_job(job: Job) -> void:
 	
 	# Cancel any existing job
 	if is_active:
-		cancel_current_job()
+		cancel_current_job("assign_job_supersede")
 	
 	current_job = job
 	current_job.reset()  # Reset job to beginning
@@ -136,9 +150,22 @@ func assign_job(job: Job) -> void:
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Assigned job with %d tasks: %s" % [current_job.get_task_count(), str(task_types)], {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		var npc_na: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+		var npc_ty: String = (npc as NPCBase).npc_type if npc is NPCBase and "npc_type" in npc else ""
+		var has_res: bool = current_job and "resource_node" in current_job and current_job.resource_node != null
+		var has_lease_meta: bool = current_job and "expire_time" in current_job
+		UnifiedLogger.log_session("WORK_JOB_ASSIGNED", {
+			"npc": npc_na,
+			"type": npc_ty,
+			"task_count": str(current_job.get_task_count()) if current_job else "0",
+			"tasks": ",".join(task_types),
+			"has_resource_node": str(has_res),
+			"has_lease": str(has_lease_meta)
+		}, UnifiedLogger.Level.INFO)
 
 # Cancel the current job and all tasks
-func cancel_current_job() -> void:
+func cancel_current_job(reason: String = "unspecified") -> void:
 	if current_task:
 		current_task.cancel(npc)
 		current_task = null
@@ -171,9 +198,20 @@ func cancel_current_job() -> void:
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Job cancelled", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		var npc_name_s: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+		var nt: String = (npc as NPCBase).npc_type if npc is NPCBase and "npc_type" in npc else ""
+		UnifiedLogger.log_session("TASK_CANCEL", {
+			"npc": npc_name_s,
+			"type": nt,
+			"reason": reason
+		}, UnifiedLogger.Level.INFO)
 
 # Clear the job (job completed successfully)
 func _clear_job() -> void:
+	var done_npc: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+	var done_type: String = (npc as NPCBase).npc_type if npc is NPCBase and "npc_type" in npc else ""
+	var had_resource: bool = current_job != null and "resource_node" in current_job and current_job.resource_node != null
 	# RULE 2: Release resource slot when job completes
 	if current_job and "resource_node" in current_job:
 		var resource = current_job.resource_node
@@ -203,6 +241,12 @@ func _clear_job() -> void:
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Job completed and cleared", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		UnifiedLogger.log_session("WORK_JOB_COMPLETE", {
+			"npc": done_npc,
+			"type": done_type,
+			"had_resource_node": str(had_resource)
+		}, UnifiedLogger.Level.INFO)
 
 # Advance to the next task in the job
 func _advance_to_next_task() -> void:
@@ -232,15 +276,24 @@ func _advance_to_next_task() -> void:
 		if not res or not is_instance_valid(res):
 			if DebugConfig and DebugConfig.enable_debug_mode:
 				UnifiedLogger.log_npc("TaskRunner: Skipping task %s - resource_node invalid (freed)" % task_type, {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
-			cancel_current_job()
+			cancel_current_job("resource_node_invalid")
+			return
+	
+	# ButcherTask: corpse must remain valid until task starts (despawn / queue_free races)
+	if task_type == "butcher_task.gd" and current_task:
+		var corpse_node: Variant = current_task.get("corpse")
+		if corpse_node == null or not is_instance_valid(corpse_node):
+			if DebugConfig and DebugConfig.enable_debug_mode:
+				UnifiedLogger.log_npc("TaskRunner: Skipping task %s - butcher corpse invalid" % task_type, {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+			cancel_current_job("butcher_corpse_invalid")
 			return
 	
 	# Pre-validate for PickUpTask: NPC must have inventory space (prevents PickUpTask E)
 	if task_type == "pick_up_task.gd" and npc and npc.inventory and not npc.inventory.has_space():
 		if DebugConfig and DebugConfig.enable_debug_mode:
 			UnifiedLogger.log_npc("TaskRunner: Skipping task %s - npc inventory full" % task_type, {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
-		cancel_current_job()
-		return
+			cancel_current_job("inventory_full_pickup")
+			return
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Starting task %s (%s)" % [current_job.get_progress_string(), task_type], {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
@@ -274,6 +327,10 @@ func controls_movement() -> bool:
 	if script_path == "drop_off_task.gd":
 		# DropOffTask creates internal MoveToTask when too far - task controls velocity
 		return current_task.get("_move_task") != null
+	if script_path == "butcher_task.gd":
+		# Approach phase uses an internal MoveToTask; must win over herd steering like gather/move jobs.
+		var internal_move_task: Variant = current_task.get("_move_task") if current_task else null
+		return internal_move_task != null
 	return false
 
 # Get current task status (for debugging)

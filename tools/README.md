@@ -28,6 +28,16 @@ SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/wild_npc_m
 
 Checks **`NPCConfig`** wild profiles, instantiates **`NPC.tscn`** as deer with a west corridor, applies **`_apply_wild_profile`**, asserts migratory activation, crosses exit **+margin**, and asserts **`queue_free`** from **`_check_migration_despawn`**. Exit **0** prints `WILD_NPC_MOVEMENT_VERIFY_OK`.
 
+## Hunt butcher pipeline (loot / TaskRunner meta)
+
+Manual **`ButcherTask`** ticks plus **`TaskRunner.assign_job`** with **`hunt_butchering`** (ordered-follow exemption) and cancellation when forbidden. Exit **0** prints **`TEST_HUNT_BUTCHER_OK`**.
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_hunt_butcher.gd
+```
+
+You may see a **short burst** of benign “Identifier not found: UnifiedLogger / NPCConfig” during the initial script parse — the project completes boot (`RuntimeFaultSink` audit). Increase **`--quit-after`** only if needed for slow machines (`SceneTree --script` uses the main-loop budget).
+
 ## Wild NPC JSONL trace (`--wild-npc-trace`)
 
 Session log for debugging **migration spawns, chunk wildlife batches, and throttled flee positions**:

@@ -339,6 +339,79 @@ func raid_evaluated(clan_name: String, score: float, score_breakdown: Dictionary
 func raid_started(attacker_clan: String, target_clan: String) -> void:
 	_write({"evt": "raid_started", "attacker_clan": attacker_clan, "target_clan": target_clan})
 
+# --- Hunt + butcher pipeline (ClanBrain / HuntState / ButcherTask) ---
+
+func hunt_started(clan_name: String, prey_type: String, hunter_quota: int, need_pressure: float = 0.0, meat_count: int = -1, hide_count: int = -1) -> void:
+	var obj := {
+		"evt": "hunt_started",
+		"clan": clan_name,
+		"prey": prey_type,
+		"quota": hunter_quota,
+		"need_pressure": need_pressure,
+		"meat_count": meat_count,
+		"hide_count": hide_count,
+	}
+	_write(obj)
+
+func hunt_joined(npc_name: String, hunt_phase: String) -> void:
+	_write({"evt": "hunt_joined", "npc": npc_name, "hunt_phase": hunt_phase})
+
+func hunt_phase_changed(clan_name: String, old_phase: String, new_phase: String) -> void:
+	_write({"evt": "hunt_phase_changed", "clan": clan_name, "from": old_phase, "to": new_phase})
+
+func hunt_completed(clan_name: String, reason: String, duration_sec: float) -> void:
+	_write({"evt": "hunt_completed", "clan": clan_name, "reason": reason, "duration_sec": duration_sec})
+
+func hunt_aborted(clan_name: String, reason: String) -> void:
+	_write({"evt": "hunt_aborted", "clan": clan_name, "reason": reason})
+
+func hunt_butcher_started(npc_name: String, corpse_type: String, meat_rem: int, hide_rem: int, bone_rem: int) -> void:
+	_write({
+		"evt": "hunt_butcher_started",
+		"npc": npc_name,
+		"corpse_type": corpse_type,
+		"meat_rem": meat_rem,
+		"hide_rem": hide_rem,
+		"bone_rem": bone_rem,
+	})
+
+func hunt_butcher_extract(npc_name: String, corpse_type: String, resource_name: String, resource_type_int: int, amount: int) -> void:
+	_write({
+		"evt": "hunt_butcher_extract",
+		"npc": npc_name,
+		"corpse_type": corpse_type,
+		"resource": resource_name,
+		"resource_type": resource_type_int,
+		"amount": amount,
+	})
+
+func hunt_butcher_empty(npc_name: String) -> void:
+	_write({"evt": "hunt_butcher_empty", "npc": npc_name})
+
+func hunt_butcher_complete(npc_name: String, corpse_type: String, meat_gained: int, hide_gained: int, bone_gained: int, reason: String) -> void:
+	_write({
+		"evt": "hunt_butcher_complete",
+		"npc": npc_name,
+		"corpse_type": corpse_type,
+		"meat_gained": meat_gained,
+		"hide_gained": hide_gained,
+		"bone_gained": bone_gained,
+		"reason": reason,
+	})
+
+func hunt_prey_escaped(clan_name: String, prey_type: String, reason: String) -> void:
+	_write({"evt": "hunt_prey_escaped", "clan": clan_name, "prey_type": prey_type, "reason": reason})
+
+func hunt_deposit(npc_name: String, items_deposited: Dictionary, hunt_units_before_deposit: int) -> void:
+	var obj := {
+		"evt": "hunt_deposit",
+		"npc": npc_name,
+		"hunt_units": hunt_units_before_deposit,
+	}
+	for k in items_deposited:
+		obj[k] = items_deposited[k]
+	_write(obj)
+
 func raid_joined(npc_name: String, raid_phase: String) -> void:
 	_write({"evt": "raid_joined", "npc": npc_name, "raid_phase": raid_phase})
 

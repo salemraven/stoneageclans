@@ -80,8 +80,10 @@ var resource_status: Dictionary = {
 var clan_metrics: Dictionary = {
 	"population": 0,           # Total clan members (cavemen + clansmen + women + animals)
 	"breeding_females": 0,     # Women in clan
-	"food_total": 0,           # Berries + grain + bread in claim
+	"food_total": 0,           # Food items in claim (berries, grain, bread, meat, milk, etc.)
 	"food_days_buffer": 0.0,   # Proxy: food_total / max(1, population * FOOD_PER_DAY_PROXY)
+	"meat_count": 0,           # MEAT in claim inventory (hunt pressure)
+	"hide_count": 0,           # HIDE in claim inventory (hunt pressure)
 	"herd_value": 0,           # Women + sheep + goats in clan
 	"building_count": 0,       # Buildings (non-claim) with same clan_name
 	"recent_losses": 0         # From territory meta "recent_herd_losses" (future: increment on herd steal)
@@ -490,7 +492,15 @@ func _evaluate_metrics() -> void:
 			+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
 			+ inv.get_count(ResourceData.ResourceType.BUGS)
 			+ inv.get_count(ResourceData.ResourceType.NUTS)
+			+ inv.get_count(ResourceData.ResourceType.MEAT)
+			+ inv.get_count(ResourceData.ResourceType.MILK)
 		)
+		clan_metrics["meat_count"] = inv.get_count(ResourceData.ResourceType.MEAT)
+		clan_metrics["hide_count"] = inv.get_count(ResourceData.ResourceType.HIDE)
+	else:
+		clan_metrics["food_total"] = 0
+		clan_metrics["meat_count"] = 0
+		clan_metrics["hide_count"] = 0
 	
 	var pop: int = maxi(1, clan_metrics["population"])
 	clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * FOOD_PER_DAY_PROXY)
@@ -752,7 +762,7 @@ func _calculate_resource_urgency() -> float:
 
 func _calculate_food_ratio() -> float:
 	"""Calculate food availability ratio (0.0 = starving, 1.0 = fully stocked).
-	Uses clan_metrics['food_total'] which includes berries, grain, bread, mushrooms, bugs, nuts."""
+	Uses clan_metrics['food_total'] which includes berries, grain, bread, mushrooms, bugs, nuts, meat, milk."""
 	var food_total: int = clan_metrics.get("food_total", 0)
 	var population: int = maxi(1, clan_metrics.get("population", 1))
 	# Target: 3 food per population member (same scale as food_days_buffer with FOOD_PER_DAY_PROXY=2)
@@ -973,6 +983,8 @@ func _claim_has_minimum_stock_for_defend(claim: Node) -> bool:
 		+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
 		+ inv.get_count(ResourceData.ResourceType.BUGS)
 		+ inv.get_count(ResourceData.ResourceType.NUTS)
+		+ inv.get_count(ResourceData.ResourceType.MEAT)
+		+ inv.get_count(ResourceData.ResourceType.MILK)
 	)
 	return stone >= MIN_STONE_FOR_DEFEND and wood >= MIN_WOOD_FOR_DEFEND and food >= MIN_FOOD_FOR_DEFEND
 
@@ -1261,8 +1273,12 @@ var hunt_intent: Dictionary = {
 	"start_time": 0.0,
 	"phase_start_time": 0.0,
 	"use_stalk_approach": false,
+	"need_pressure": 0.0,
+	"target_type": "",
 }
 var _last_hunt_time: float = -120.0
+## Emit at most one `hunt_prey_escaped` per hunt when target node is lost (despawn) while ACTIVE.
+var _hunt_prey_lost_logged: bool = false
 
 func _evaluate_raid_opportunity() -> void:
 	"""Evaluate if we should organize a raid using score-based multi-signal approach."""
@@ -1725,6 +1741,23 @@ func _pick_nearest_huntable(candidates: Array) -> Node:
 			best = n
 	return best
 
+## Pressure > 0 when claim needs meat/hide or overall food buffer is low — drives `_evaluate_hunt_opportunity`.
+func _compute_hunt_need_pressure() -> float:
+	var pressure: float = 0.0
+	var meat_thresh: int = 2
+	var hide_thresh: int = 1
+	if NPCConfig:
+		meat_thresh = NPCConfig.hunt_meat_threshold
+		hide_thresh = NPCConfig.hunt_hide_threshold
+	if clan_metrics.get("meat_count", 9999) < meat_thresh:
+		pressure += 0.5
+	if clan_metrics.get("hide_count", 9999) < hide_thresh:
+		pressure += 0.3
+	if clan_metrics.get("food_days_buffer", 99.0) < 2.0:
+		pressure += 0.2
+	return pressure
+
+
 func _evaluate_hunt_opportunity() -> void:
 	if not territory or not is_instance_valid(territory):
 		return
@@ -1734,8 +1767,14 @@ func _evaluate_hunt_opportunity() -> void:
 		return
 	if alert_level >= AlertLevel.SKIRMISH:
 		return
+	var need_pressure: float = _compute_hunt_need_pressure()
+	if need_pressure <= 0.0:
+		return  # Clan is stocked — do not send hunting parties opportunistically
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
-	if now_sec - _last_hunt_time < HUNT_COOLDOWN_SEC:
+	var cooldown_sec: float = HUNT_COOLDOWN_SEC
+	if NPCConfig and need_pressure > 0.5:
+		cooldown_sec = NPCConfig.hunt_cooldown_hungry_sec
+	if now_sec - _last_hunt_time < cooldown_sec:
 		return
 	if cavemen.size() < 2:
 		return
@@ -1754,20 +1793,23 @@ func _evaluate_hunt_opportunity() -> void:
 	var target: Node = _pick_nearest_huntable(huntables)
 	if not target or not is_instance_valid(target):
 		return
-	_start_hunt(target, clampi(available, min_h, max_h))
+	_start_hunt(target, clampi(available, min_h, max_h), need_pressure)
 
-func _start_hunt(target: Node, hunter_quota: int) -> void:
+func _start_hunt(target: Node, hunter_quota: int, need_pressure: float = 0.0) -> void:
 	if not target or not is_instance_valid(target) or not territory:
 		return
 	if is_raiding():
 		return
+	_hunt_prey_lost_logged = false
 	var tname: String = str(target.get("npc_type")) if target.get("npc_type") != null else "prey"
 	var stalk: bool = false
 	if territory and tname == "deer":
 		var dist_claim: float = territory.global_position.distance_to(target.global_position)
 		stalk = dist_claim > 620.0
 	hunt_intent["use_stalk_approach"] = stalk
-	print("🎯 ClanBrain %s: Starting hunt vs %s" % [clan_name, tname])
+	hunt_intent["need_pressure"] = need_pressure
+	hunt_intent["target_type"] = tname
+	print("🎯 ClanBrain %s: Starting hunt vs %s (need_pressure=%.2f)" % [clan_name, tname, need_pressure])
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
 	_last_hunt_time = now_sec
 	var rally_point: Vector2 = territory.global_position + (target.global_position - territory.global_position).normalized() * (territory.radius + 45.0)
@@ -1784,7 +1826,14 @@ func _start_hunt(target: Node, hunter_quota: int) -> void:
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
 		if pi and pi.is_enabled() and pi.has_method("hunt_started"):
-			pi.hunt_started(clan_name, tname, hunter_quota)
+			pi.hunt_started(
+				clan_name,
+				tname,
+				hunter_quota,
+				need_pressure,
+				int(clan_metrics.get("meat_count", 0)),
+				int(clan_metrics.get("hide_count", 0))
+			)
 	_form_hunt_party(hunter_quota)
 
 func _update_hunt() -> void:
@@ -1807,6 +1856,14 @@ func _update_hunt() -> void:
 					_cancel_hunt("recruitment_timeout")
 		HuntIntentState.ACTIVE:
 			if not target or not is_instance_valid(target):
+				if not _hunt_prey_lost_logged:
+					_hunt_prey_lost_logged = true
+					var lost_type: String = str(hunt_intent.get("target_type", "unknown"))
+					var tree0 = territory.get_tree() if territory else null
+					if tree0:
+						var pi0 = tree0.root.get_node_or_null("PlaytestInstrumentor")
+						if pi0 and pi0.is_enabled() and pi0.has_method("hunt_prey_escaped"):
+							pi0.hunt_prey_escaped(clan_name, lost_type, "target_invalid")
 				_log_hunt_phase_change("ACTIVE", "RETREATING")
 				hunt_intent["state"] = HuntIntentState.RETREATING
 				hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
@@ -1871,9 +1928,11 @@ func _reset_hunt_state(reason: String, _from_complete: bool) -> void:
 	hunt_intent["hunter_quota"] = 0
 	hunt_intent["phase_start_time"] = 0.0
 	hunt_intent["use_stalk_approach"] = false
-	if territory:
-		if territory.has_meta("hunt_intent"):
-			territory.remove_meta("hunt_intent")
+	hunt_intent["need_pressure"] = 0.0
+	hunt_intent["target_type"] = ""
+	_hunt_prey_lost_logged = false
+	if territory and territory.has_meta("hunt_intent"):
+		territory.remove_meta("hunt_intent")
 
 func is_hunting() -> bool:
 	return hunt_intent["state"] != HuntIntentState.NONE

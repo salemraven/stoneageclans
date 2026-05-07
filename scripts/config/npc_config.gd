@@ -326,6 +326,12 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var aoh_radius_max: float = 1200.0
 @export var hunt_party_min_size: int = 2
 @export var hunt_party_max_size: int = 4
+## Start hunts when MEAT stock in claim is below this count (hunters idle if clan is stocked).
+@export var hunt_meat_threshold: int = 2
+## Start hunts when HIDE stock in claim is below this count.
+@export var hunt_hide_threshold: int = 1
+## Faster re-hunt when need_pressure is high (meat/hide starvation + buffer).
+@export var hunt_cooldown_hungry_sec: float = 20.0
 
 @export_group("Hunting / Deer / Sound")
 @export var deer_base_speed: float = 140.0

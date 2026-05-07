@@ -51,6 +51,9 @@ var enable_herd_logging: bool = false
 var enable_occupation_drag_logging: bool = false  # Building occupation slot drag-and-drop debug logs
 var enable_occupation_diag: bool = false  # Full occupation flow diagnostic logging (land claim, farm, dairy, women, animals)
 
+## Hunt butcher pipeline: console lines for butcher tasks + hunt LOOTING. CLI: `--hunt-butcher-debug`
+var enable_hunt_butcher_debug: bool = false
+
 ## Migratory wild NPC trace: spawn + throttled ticks → user://wild_npc_trace_*.jsonl. CLI: `--wild-npc-trace`
 var enable_wild_npc_trace: bool = false
 ## Seconds between `wild_migratory_tick` lines per NPC instance.
@@ -170,6 +173,10 @@ func _parse_command_line_args() -> void:
 	if "--wild-npc-trace" in args:
 		enable_wild_npc_trace = true
 		print("✓ Wild NPC trace: spawn + migratory ticks → user://wild_npc_trace_*.jsonl (WildNpcTrace.trace)")
+
+	if "--hunt-butcher-debug" in args:
+		enable_hunt_butcher_debug = true
+		print("✓ Hunt butcher debug: extra console logs for butcher / LOOTING")
 
 func _apply_debug_settings() -> void:
 	# Apply settings to UnifiedLogger if it exists
