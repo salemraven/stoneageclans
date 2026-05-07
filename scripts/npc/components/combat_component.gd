@@ -29,13 +29,15 @@ var stagger_time: float = 0.0  # Stagger duration when hit (0 = no stagger)
 var attack_cooldown: float = 2.0
 var last_attack_time: float = 0.0
 
-# Sprite sheet animation (swingclub.png: 4 frames, 3 cols x 2 rows)
+# Sprite sheets: swingclub.png = 4 frames (3×2 grid). spearattack.png = 4 frames (2×2, 1060×700 sheet).
 var attack_sprite_sheet: Texture2D = null
 var sprite_sheet_frame_width: int = 0  # Width of each frame
 var sprite_sheet_frame_height: int = 0  # Height of each frame
 var sprite_sheet_cols: int = 3
 var sprite_sheet_rows: int = 2
-var sprite_sheet_frame_count: int = 4  # Frames used: (0,0), (1,0), (2,0), (0,1)
+var sprite_sheet_frame_count: int = 4  # Combat frames 1–4 (windup, windup_mid, hit, recovery)
+var sprite_sheet_hit_col: int = 2  # Combat frame 3 (“hit”) cell column in grid (club uses col 2)
+var sprite_sheet_hit_row: int = 0
 var use_sprite_sheet_animation: bool = false  # Enable sprite sheet animation
 var default_sprite_texture: Texture2D = null  # Store original sprite texture
 
@@ -105,14 +107,14 @@ func _process(_delta: float) -> void:
 		# CRITICAL: Check if we've been in RECOVERY for a while but sprite is still on wrong frame
 		# This handles cases where recovery_end was cancelled but state wasn't reset
 		# Force sprite update to recovery frame if we're stuck on hit frame
-		if elapsed > 200 and use_sprite_sheet_animation and sprite_sheet_frame_width > 0:  # After 200ms, we should be on recovery frame
+		if elapsed > 200 and use_sprite_sheet_animation and attack_sprite_sheet and sprite_sheet_frame_width > 0:
 			var sprite: Sprite2D = npc.get_node_or_null("Sprite") if npc else null
 			if sprite and sprite.texture and sprite.texture is AtlasTexture:
 				var atlas = sprite.texture as AtlasTexture
-				var current_frame_x = atlas.region.position.x
-				var hit_frame_x = sprite_sheet_frame_width * 2  # Frame 3 (hit) is at col 2
-				# Check if we're on hit frame (within 5 pixels tolerance)
-				if abs(current_frame_x - hit_frame_x) < 5:
+				var expected_x: int = sprite_sheet_hit_col * sprite_sheet_frame_width
+				var expected_y: int = sprite_sheet_hit_row * sprite_sheet_frame_height
+				var pos: Vector2 = atlas.region.position
+				if abs(pos.x - expected_x) < 5 and abs(pos.y - expected_y) < 5:
 					push_warning("COMBAT ANIM: stuck on HIT frame during RECOVERY; forcing frame 4")
 					_set_combat_frame(4)  # Force recovery frame
 
@@ -163,6 +165,7 @@ func request_attack(target: Node2D) -> void:
 	
 	# Update attack profile from weapon (in case weapon changed)
 	_update_attack_profile_from_weapon()
+	_load_attack_sprite_sheet()
 	
 	# Start windup
 	state = CombatState.WINDUP
@@ -713,31 +716,43 @@ func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> D
 				"stagger": 0.15
 			}
 
-func _update_attack_profile_from_weapon() -> void:
-	# Update attack timings based on equipped weapon
-	var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
-	
-	if npc.has_method("get") and npc.get("npc_type"):
-		# NPC - use WeaponComponent
+func _get_equipped_weapon_type() -> ResourceData.ResourceType:
+	if not npc or not is_instance_valid(npc):
+		return ResourceData.ResourceType.NONE
+	var nt: Variant = npc.get("npc_type")
+	if nt != null and str(nt) != "":
 		var weapon_comp: WeaponComponent = npc.get_node_or_null("WeaponComponent")
+		var wt: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 		if weapon_comp:
-			weapon_type = weapon_comp.equipped_weapon
-	else:
-		# Player - get weapon from slot 1 (right hand)
-		if not is_inside_tree():
-			_combat_d("⚠️ COMBAT: Not in scene tree for weapon profile update")
-			return
-		
-		var main: Node = get_tree().get_first_node_in_group("main")
-		if main and "player_inventory_ui" in main:
-			var player_inventory_ui = main.player_inventory_ui
-			if player_inventory_ui and player_inventory_ui.hotbar_slots.size() > player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
-				var first_slot = player_inventory_ui.hotbar_slots[player_inventory_ui.RIGHT_HAND_SLOT_INDEX]
-				var slot_item = first_slot.get("item_data")
-				if slot_item:
-					weapon_type = slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-	
-	# Apply profile
+			wt = weapon_comp.equipped_weapon
+		if wt == ResourceData.ResourceType.NONE:
+			var hb: Variant = npc.get("hotbar")
+			if hb is InventoryData:
+				var s0: Dictionary = (hb as InventoryData).get_slot(0)
+				if not s0.is_empty():
+					wt = s0.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+		return wt
+	# Player — right hand from main UI
+	if not is_inside_tree():
+		return ResourceData.ResourceType.NONE
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if main and "player_inventory_ui" in main:
+		var player_inventory_ui = main.player_inventory_ui
+		if player_inventory_ui and player_inventory_ui.hotbar_slots.size() > player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
+			var first_slot = player_inventory_ui.hotbar_slots[player_inventory_ui.RIGHT_HAND_SLOT_INDEX]
+			var slot_item = first_slot.get("item_data")
+			if slot_item:
+				return slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	return ResourceData.ResourceType.NONE
+
+func refresh_attack_sprite_sheet() -> void:
+	_update_attack_profile_from_weapon()
+	_load_attack_sprite_sheet()
+
+func _update_attack_profile_from_weapon() -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	var weapon_type: ResourceData.ResourceType = _get_equipped_weapon_type()
 	var profile = _get_attack_profile_for_weapon(weapon_type)
 	windup_time = profile.windup
 	recovery_time = profile.recovery
@@ -750,22 +765,34 @@ func _load_attack_sprite_sheet() -> void:
 		return
 	var nt: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
 	if nt in ["sheep", "goat"]:
-		return  # Sheep and goats do not melee attack
+		return
 
 	_combat_d("🎨 ANIMATION: _load_attack_sprite_sheet() called")
 
-	# Load swingclub.png (4 frames: 3 cols x 2 rows)
-	var sprite_sheet_path = "res://assets/sprites/swingclub.png"
-	_combat_d("🎨 ANIMATION: Loading sprite sheet from: %s" % sprite_sheet_path)
+	var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+	var sprite_sheet_path: String = "res://assets/sprites/swingclub.png"
+	sprite_sheet_cols = 3
+	sprite_sheet_rows = 2
+	sprite_sheet_frame_count = 4
+	sprite_sheet_hit_col = 2
+	sprite_sheet_hit_row = 0
+	if wt == ResourceData.ResourceType.SPEAR:
+		sprite_sheet_path = "res://assets/sprites/spearattack.png"
+		sprite_sheet_cols = 2
+		sprite_sheet_rows = 2
+		sprite_sheet_hit_col = 0
+		sprite_sheet_hit_row = 1
+
+	_combat_d("🎨 ANIMATION: Loading attack sheet: %s (weapon=%s)" % [sprite_sheet_path, ResourceData.get_resource_name(wt)])
 	attack_sprite_sheet = load(sprite_sheet_path) as Texture2D
-	
+
 	if attack_sprite_sheet:
 		_combat_d("✅ ANIMATION: Sprite sheet loaded successfully")
 		use_sprite_sheet_animation = true
-		var texture_width = attack_sprite_sheet.get_width()
-		var texture_height = attack_sprite_sheet.get_height()
+		var texture_width: int = attack_sprite_sheet.get_width()
+		var texture_height: int = attack_sprite_sheet.get_height()
 		_combat_d("🎨 ANIMATION: Texture dimensions - width=%d, height=%d" % [texture_width, texture_height])
-		
+
 		if texture_width > 0 and sprite_sheet_cols > 0 and texture_height > 0 and sprite_sheet_rows > 0:
 			sprite_sheet_frame_width = texture_width / sprite_sheet_cols
 			sprite_sheet_frame_height = texture_height / sprite_sheet_rows
@@ -774,8 +801,7 @@ func _load_attack_sprite_sheet() -> void:
 			use_sprite_sheet_animation = false
 			_combat_e("ANIMATION: Invalid sprite sheet dimensions")
 			return
-		
-		# Store default sprite texture (important for restoring after combat)
+
 		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 		if sprite:
 			if sprite.texture:
@@ -790,7 +816,7 @@ func _load_attack_sprite_sheet() -> void:
 		_combat_d("⚠️ ANIMATION: Sprite sheet not found: %s (using default sprites)" % sprite_sheet_path)
 
 func _set_combat_frame(frame_index: int) -> void:
-	# Internal helper: apply frame 1-4. Grid layout: 1=(0,0), 2=(1,0), 3=(2,0), 4=(0,1)
+	# Apply combat frames 1–4: windup, mid-windup, hit, recovery. Layout depends on sprite_sheet_cols/rows.
 	if not npc or not is_instance_valid(npc):
 		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - npc invalid (frame=%d)" % frame_index)
 		return
@@ -804,16 +830,23 @@ func _set_combat_frame(frame_index: int) -> void:
 	if not sprite or not is_instance_valid(sprite):
 		_combat_d("⚠️ ANIMATION: _set_combat_frame failed - sprite node invalid (frame=%d)" % frame_index)
 		return
-	# Map frame_index 1-4 to grid: (0,0), (1,0), (2,0), (0,1)
 	var col: int
 	var row: int
-	match frame_index:
-		1: col = 0; row = 0
-		2: col = 1; row = 0
-		3: col = 2; row = 0
-		4: col = 0; row = 1
-		_: col = 0; row = 0
-	var frame_x = col * sprite_sheet_frame_width
+	if sprite_sheet_cols == 2 and sprite_sheet_rows == 2:
+		match frame_index:
+			1: col = 0; row = 0
+			2: col = 1; row = 0
+			3: col = 0; row = 1
+			4: col = 1; row = 1
+			_: col = 0; row = 0
+	else:
+		match frame_index:
+			1: col = 0; row = 0
+			2: col = 1; row = 0
+			3: col = 2; row = 0
+			4: col = 0; row = 1
+			_: col = 0; row = 0
+	var frame_x: int = col * sprite_sheet_frame_width
 	var frame_y = row * sprite_sheet_frame_height
 	var atlas_texture = AtlasTexture.new()
 	atlas_texture.atlas = attack_sprite_sheet

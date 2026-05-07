@@ -223,22 +223,22 @@ func _grow_to_clansman() -> void:
 	# Remove baby growth component
 	queue_free()
 	
-	print("✓ Baby %s grew to clansman (clan: %s, inventory upgraded to 10 slots, club equipped)" % [baby_name, clan_name])
+	print("✓ Baby %s grew to clansman (clan: %s, inventory upgraded to 10 slots, spear equipped)" % [baby_name, clan_name])
 
 
 func _setup_clansman_combat_and_club() -> void:
-	"""Add hotbar, wood (club) in hotbar slot 1 (right hand), Combat/Weapon/Health components, and equip club."""
+	"""Add hotbar, spear in slot 0, Combat / Weapon / Health, then equip spear."""
 	if not npc or not is_instance_valid(npc):
 		return
 	var baby_name: String = npc.npc_name if npc else "unknown"
 	# Hotbar (babies don't have one)
 	if not npc.hotbar:
 		npc.hotbar = InventoryData.new(10, false, 1)
-	# Wood (club) in hotbar slot 1 / right hand — basic weapon, shown only when aggro/defense/combat
+	# Spear in hotbar slot 0 — shown when aggro/defense/combat (same visibility as old club stance)
 	if npc.hotbar:
-		npc.hotbar.set_slot(0, {"type": ResourceData.ResourceType.WOOD, "count": 1, "quality": 0})
+		npc.hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
 	if npc.inventory:
-		npc.inventory.add_item(ResourceData.ResourceType.WOOD, 1)  # Ensure they have wood for club
+		npc.inventory.add_item(ResourceData.ResourceType.SPEAR, 1)  # Starter spear backup in inventory
 	# Combat/Weapon/Health components (babies don't have them; reuse npc_base caveman logic)
 	var health_comp = npc.get_node_or_null("HealthComponent")
 	if not health_comp:
@@ -261,16 +261,16 @@ func _setup_clansman_combat_and_club() -> void:
 			weapon_comp = weapon_script.new()
 			weapon_comp.name = "WeaponComponent"
 			npc.add_child(weapon_comp)
-	# Initialize components (order: Health, Weapon, equip club, then Combat so attack profile uses weapon)
+	# Initialize components: Health, Combat (npc ref), Weapon, equip spear — refresh attack sheet picks SPEAR sheet.
 	if health_comp and health_comp.has_method("initialize"):
 		health_comp.initialize(npc)
+	if combat_comp and combat_comp.has_method("initialize"):
+		combat_comp.initialize(npc)
 	if weapon_comp and weapon_comp.has_method("initialize"):
 		weapon_comp.initialize(npc)
 	if weapon_comp and weapon_comp.has_method("equip_weapon"):
-		weapon_comp.equip_weapon(ResourceData.ResourceType.WOOD)
-		UnifiedLogger.log_npc("✓ %s equipped club (melee weapon for defend/hostile)" % baby_name, {
+		weapon_comp.equip_weapon(ResourceData.ResourceType.SPEAR)
+		UnifiedLogger.log_npc("✓ %s equipped spear (melee for defend/hostile)" % baby_name, {
 			"npc": baby_name,
-			"weapon": "club"
+			"weapon": "spear"
 		}, UnifiedLogger.Level.DEBUG)
-	if combat_comp and combat_comp.has_method("initialize"):
-		combat_comp.initialize(npc)

@@ -62,6 +62,10 @@ func equip_weapon(weapon_type: ResourceData.ResourceType) -> void:
 			weapon_damage_bonus = 0
 	
 	# Don't change sprite here — axe visible only when hostile or defend (_process)
+	if npc:
+		var c: CombatComponent = npc.get_node_or_null("CombatComponent") as CombatComponent
+		if c and c.has_method("refresh_attack_sprite_sheet"):
+			c.refresh_attack_sprite_sheet()
 
 func _process(_delta: float) -> void:
 	_update_weapon_visibility()

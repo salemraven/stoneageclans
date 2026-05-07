@@ -343,9 +343,9 @@ func _spawn_replacement_caveman() -> void:
 	
 	var npc_inventory = npc.get("inventory")
 	if npc_inventory:
-		npc_inventory.add_item(ResourceData.ResourceType.WOOD, 1)
+		npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)
 	
-	_equip_club_to_npc(npc)
+	_equip_spear_to_npc(npc)
 	npc.visible = true
 	print("✓ Spawned replacement Caveman: %s at %s with land claim '%s' (AI claim destroyed)" % [npc_name, pos, clan_name])
 
@@ -396,8 +396,8 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	call_deferred("_deferred_finish_caveman_visual", npc)
 	var npc_inventory = npc.get("inventory")
 	if npc_inventory:
-		npc_inventory.add_item(ResourceData.ResourceType.WOOD, 1)
-	_equip_club_to_npc(npc)
+		npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)
+	_equip_spear_to_npc(npc)
 	npc.visible = true
 
 
@@ -1493,16 +1493,22 @@ func _define_action(action_name: StringName, keys: Array) -> void:
 			InputMap.action_add_event(action_name, event)
 
 func _give_starting_items() -> void:
-	# Player starts empty - must gather and craft (Oldowan, Cordage, Campfire, Travois)
+	# Campfire plus starter spear on right-hand hotbar slot (until gather/crafting loop is primary).
 	await get_tree().process_frame
 	
-	# Give player a campfire in inventory (for testing - place it to use)
 	add_building_item_to_player_inventory(ResourceData.ResourceType.CAMPFIRE)
-	
 	if player_inventory_ui:
+		var hotbar_data := player_inventory_ui.get_meta("hotbar_data", null) as InventoryData
+		if hotbar_data:
+			hotbar_data.set_slot(player_inventory_ui.RIGHT_HAND_SLOT_INDEX, {
+				"type": ResourceData.ResourceType.SPEAR,
+				"count": 1,
+				"quality": 0
+			})
 		player_inventory_ui._update_all_slots()
 		player_inventory_ui._update_hotbar_slots()
-		print("Starting items: 1 campfire in inventory")
+		_update_equipment()
+		print("Starting items: campfire in inventory + spear in hotbar slot 1")
 
 func _spawn_initial_resources() -> void:
 	# Wait a frame to ensure player position is set
@@ -3445,9 +3451,9 @@ func _debug_spawn_test_npcs() -> void:
 		var inv = caveman.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.LANDCLAIM, 1)
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)  # Club (basic weapon)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)  # Spear starter
 		await get_tree().process_frame
-		_equip_club_to_npc(caveman)
+		_equip_spear_to_npc(caveman)
 		caveman.visible = true
 		print("✓ F4: Spawned Caveman %s at %s" % [name_c, p0])
 
@@ -3662,8 +3668,8 @@ func _spawn_rts_playtest_pack() -> void:
 		await get_tree().process_frame
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		npc_names.append(unit_name)
 		print("  RTS PLAYTEST: clansman %s at %s" % [unit_name, spawn_pos])
@@ -3711,6 +3717,9 @@ func _update_equipment() -> void:
 		if ResourceData.is_equipment(item_type):
 			if player and player.has_method("set_equipment"):
 				player.set_equipment(item_type)
+	var combat_node: Node = player.get_node_or_null("CombatComponent") if player else null
+	if combat_node and combat_node.has_method("refresh_attack_sprite_sheet"):
+		combat_node.refresh_attack_sprite_sheet()
 
 func _on_drag_ended() -> void:
 	_dbg("🔵 _on_drag_ended() called")
@@ -5839,8 +5848,8 @@ func _setup_agro_combat_test_environment() -> void:
 					npc.apply_sprite_offset_for_texture()
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		if i == 0:
 			clan_a_leader = npc
@@ -5904,8 +5913,8 @@ func _setup_agro_combat_test_environment() -> void:
 					npc.apply_sprite_offset_for_texture()
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		if i == 0:
 			clan_b_leader = npc
@@ -6027,8 +6036,8 @@ func _setup_raid_test_environment() -> void:
 					npc.apply_sprite_offset_for_texture()
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		print("  ClanA: %s at %s" % [npc_name, pos])
 
@@ -6065,8 +6074,8 @@ func _setup_raid_test_environment() -> void:
 					npc.apply_sprite_offset_for_texture()
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		print("  ClanB: %s at %s" % [npc_name, pos])
 
@@ -6254,8 +6263,8 @@ func _setup_gather_test_environment() -> void:
 		# Equip club (add wood to inventory first)
 		var inv = npc.get("inventory")
 		if inv:
-			inv.add_item(ResourceData.ResourceType.WOOD, 1)
-		_equip_club_to_npc(npc)
+			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
+		_equip_spear_to_npc(npc)
 		
 		npc.visible = true
 		print("✓ Created Clansman: %s at %s (clan: %s)" % [npc_name, clansman_pos, test_clan_name])
@@ -6417,9 +6426,9 @@ func _initialize_minigame() -> void:
 		
 		var npc_inventory = npc.get("inventory")
 		if npc_inventory:
-			npc_inventory.add_item(ResourceData.ResourceType.WOOD, 1)  # Club (basic weapon); no LANDCLAIM - already have claim
+			npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)  # Starter spear; no LANDCLAIM — already have claim
 		
-		_equip_club_to_npc(npc)
+		_equip_spear_to_npc(npc)
 		npc.visible = true
 		print("✓ Spawned Caveman: %s at %s with land claim '%s'" % [npc_name, pos, clan_name])
 		
@@ -6786,17 +6795,16 @@ func _spawn_wild_woman(count: int) -> void:
 		npc.visible = true
 		print("✓ Respawned Wild Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
 
-func _equip_club_to_npc(npc: Node) -> void:
-	"""Equip club (wood) to caveman/clansman. Club shown only when in aggro/defense/combat."""
+func _equip_spear_to_npc(npc: Node) -> void:
+	"""Equip spear on caveman/clansman hotbar slot 0 and WeaponComponent (same visibility rules as club)."""
 	if not npc or not is_instance_valid(npc):
 		return
 	
 	await get_tree().process_frame
 	
-	# Ensure NPC has wood in hotbar slot 0 (right hand)
 	var hotbar = npc.get("hotbar")
 	if hotbar:
-		hotbar.set_slot(0, {"type": ResourceData.ResourceType.WOOD, "count": 1, "quality": 0})
+		hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
 	
 	var weapon_comp = npc.get_node_or_null("WeaponComponent")
 	if not weapon_comp:
@@ -6804,12 +6812,12 @@ func _equip_club_to_npc(npc: Node) -> void:
 		weapon_comp = npc.get_node_or_null("WeaponComponent")
 	
 	if weapon_comp and weapon_comp.has_method("equip_weapon"):
-		weapon_comp.equip_weapon(ResourceData.ResourceType.WOOD)
+		weapon_comp.equip_weapon(ResourceData.ResourceType.SPEAR)
 		var npc_name = npc.get("npc_name") if npc.has_method("get") else "unknown"
-		print("⚔️ Equipped %s with club (wood)" % npc_name)
+		print("⚔️ Equipped %s with spear" % npc_name)
 	else:
 		var npc_name = npc.get("npc_name") if npc.has_method("get") else "unknown"
-		print("⚠️ Could not equip club to %s - WeaponComponent not found" % npc_name)
+		print("⚠️ Could not equip spear to %s - WeaponComponent not found" % npc_name)
 
 func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father: NPCBase = null) -> void:
 	var mother_name = mother.get("npc_name") if mother and mother.has_method("get") else "unknown"
