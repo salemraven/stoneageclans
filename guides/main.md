@@ -1,7 +1,7 @@
 # Stone Age Clans – Main Mechanics & Implementation Report
 
-**Date**: February 2026  
-**Status**: Living document – single source for mechanics, gameplay loop, and implementation status.
+**Date**: April 2026  
+**Status**: Living document – single source for mechanics, gameplay loop, and implementation status. **World map / streaming:** `guides/game_map.md`.
 
 ---
 
@@ -119,13 +119,14 @@
 - **Clansmen**: Promoted from babies or from surplus baby pool; full FSM (gather, herd, defend, raid, etc.).
 - **Women**: Wild; herded into claim → claimed; reproduction only in claim radius.
 - **Sheep / Goats**: Herd into claim for future production (wool/milk); no production logic yet.
+- **Deer**: Wild prey (not herdable); **fright meter** + **`flee_prey`** when humans get close / loud sounds; migratory herds when using wild spawn (**`guides/wildlife_movement.md`**).
 - **Babies**: Spawn from reproduction; grow to clansmen after timer (e.g. 1 min test / 13 years design).
 - **Predators / Horses**: Planned (wolves, mammoths; horses for riding/travois); not in.
 
 ### 4.6 NPC AI – FSM & States
 
 - **FSM**: Priority-based; evaluates states every 0.1s; highest valid priority wins.
-- **States (examples)**: Idle, Wander, Gather, Eat, Herd, HerdWildNpc, Combat, Defend, Raid, Build, Reproduction, Seek, Agro, Deposit, Search, WorkAtBuilding, OccupyBuilding, Craft.
+- **States (examples)**: Idle, Wander, Gather, Eat, Herd, HerdWildNpc, **FleePrey (deer)**, Combat, Defend, Raid, Build, Reproduction, Seek, Agro, Deposit, Search, WorkAtBuilding, OccupyBuilding, Craft.
 - **Combat entry**: Agro meter (0–100); e.g. intrusion into claim increases agro; when ≥ 70 enter Combat state.
 - **Pull-based assignment**: ClanBrain sets quotas on land claim (defender_quota, searcher_quota, raid_intent); NPCs read quotas and self-assign in state `can_enter()` (no direct ClanBrain → NPC orders).
 
@@ -194,7 +195,7 @@
 | **Inventory** | Drag-and-drop everywhere; player/building/NPC/corpse/ground; visual feedback; single-item drag. |
 | **Land claim** | Placement, 400px radius, inventory, build menu (I), building cards, clan ownership. |
 | **Buildings** | BuildingRegistry, build menu UI, placement (drag from inventory, 50px buffer), Living Hut / Supply Hut / Shrine / Dairy Farm / Oven; Oven production (Wood+Grain→Bread 15s). |
-| **NPC FSM** | Idle, Wander, Gather, Eat, Herd, HerdWildNpc, Combat, Defend, Raid, Build, Reproduction, Deposit, Search, etc.; priority-based; state blocking (e.g. combat_locked). |
+| **NPC FSM** | Idle, Wander, Gather, Eat, Herd, HerdWildNpc, **flee_prey (deer)**, Combat, Defend, Raid, Build, Reproduction, Deposit, Search, etc.; priority-based; state blocking (e.g. combat_locked). |
 | **NPC components** | Health, Combat, Weapon, Stats (hunger), Reproduction, BabyGrowth, DetectionArea; SteeringAgent (cached traits, herded_count, land claim cache, separation/avoid by intent). |
 | **Tasks & jobs** | Task base, MoveTo, Gather, DropOff, PickUp, Occupy, Wait, etc.; Job; TaskRunner; job generation from claim/buildings; cancel on defend/combat/follow. |
 | **ClanBrain** | Core brain, defense (defender quota), raids (raid state machine, raid_intent), searchers, strategic state, resource tracking, pull-based quotas. |
@@ -240,7 +241,8 @@
 - **Combat**: `combat_component.gd`, `health_component.gd`, `weapon_component.gd`; `systems/combat_scheduler.gd` (autoload).
 - **AI**: `ai/clan_brain.gd`; `ai/task_runner.gd`; `ai/tasks/*.gd`; `ai/jobs/*.gd`.
 - **Buildings**: `buildings/building_registry.gd`, `building_base.gd`, `oven.gd`; `scenes/Building.tscn`.
-- **World**: `land_claim.gd`, `world.gd`, `gatherable_resource.gd`, `ground_item.gd`.
+- **World**: `land_claim.gd`, `world.gd`, `gatherable_resource.gd`, `ground_item.gd`; streamed filler: **`WorldGenConfig`**, **`ChunkManager`**, **`ChunkGenerator`**, **`MutationStore`** (`mutation_store.gd`).
+- **Chunk streaming (map load / procedural filler)**: **`guides/game_map.md`** — `ChunkManager`, `ChunkGenerator`, `WorldGenConfig`, `MutationStore`, spawn toggle.
 - **Systems**: `systems/baby_pool_manager.gd`, `systems/combat_scheduler.gd`.
 
 ---
@@ -248,6 +250,7 @@
 ## 6. References
 
 - **gdd.md** – Official game design (single source of truth for vision).
+- **game_map.md** – Chunk streaming, world seed, what spawns from chunks vs minigame.
 - **phase1.md** – Phase 1 loop (land claim, herding, deposit, agro).
 - **phase2.md** – Phase 2 (reproduction, buildings, combat, tasks, clan death).
 - **Phase3/phase3.md** – Refactor + ClanBrain.
@@ -260,4 +263,4 @@
 
 ---
 
-*Last updated: February 2026. Update as mechanics and implementation change.*
+*Last updated: April 2026. Update as mechanics and implementation change.*

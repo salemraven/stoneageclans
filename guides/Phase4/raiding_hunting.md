@@ -74,12 +74,15 @@ Same **hide / cover** behavior as ambush setup, but **no** “everyone jumps whe
 
 ---
 
-## 5. Deer & sound (prey loop)
+## 5. Deer, flight, and sound (prey loop)
 
-- **Deer** use **`npc_type == "deer"`** on **`NPCBase`**: **not herdable**, **`flee_prey_state`** when humans are sensed or **sound intensity** exceeds **`NPCConfig.deer_sound_threshold`**.
-- **Threats:** Humans (player, caveman, clansman, woman) in **`DetectionArea`** contribute a **centroid** for flee steering.
-- **Panic:** Starting flee emits a **`deer_panic`** style sound event so nearby deer can chain-react (radius/tuning in **`NPCConfig`**).
-- **Stats / tuning:** **`NPCConfig`** — `deer_base_speed`, `deer_hp`, perception, flee duration, winded phase, sound volumes, footstep intervals, cover distances.
+- **Deer** use **`npc_type == "deer"`** on **`NPCBase`**: **not herdable**. The FSM **`flee_prey`** state runs **`flee_prey_state.gd`** — panicked run from human **centroid** steering + optional **sound** spook.
+- **Threats:** Player, cavemen, clansmen, and women inside **`DetectionArea`** counts are turned into a **centroid** in **`PerceptionArea.get_deer_threat_centroid`**. A **distance fallback** ensures the **player** still counts **inside visual range** if **`body_entered` overlap misses**.
+- **“Fright” meter** (`NPCBase.deer_fright_meter`): accumulates while humans register in range (fill **`deer_fright_fill_per_sec`**, faster when the **player is closer**), decays when safe / herded (**`deer_fright_decay_per_sec`**). Crossing **`deer_fright_flee_at`** (against **`deer_fright_meter_max`**) forces **`flee_prey`** so approach feels like mounting pressure—not one frame.
+- **Sound:** Loud ambient events vs **`deer_sound_threshold`** still contribute to **`flee_prey.can_enter()`** / ongoing threat checks inside **`flee_prey_state`** (`SoundDetection`).
+- **Panic:** Starting flee emits a **`deer_panic`** sound so nearby deer can chain-react (**`deer_panic_spread_*`** radius / delays).
+- **Burst sprint:** **`deer_flee_burst_speed_mult`** applies during **burst** phase on **`SteeringAgent`**; **winded** phase uses **`deer_winded_speed_mult`**; **`exit`** / leaving state restores **`original_max_speed`**.
+- **Stats / tuning (`NPCConfig`, hunting group):** `deer_base_speed`, `deer_hp`, **`deer_perception_visual`**, **`deer_sound_threshold`**, **`deer_fright_*`**, **`deer_flee_burst_speed_mult`**, **`deer_flee_duration_sec`**, **`deer_winded_*`**, footstep volumes.
 - **Loot:** **`CorpseConfig`** includes **`deer`** → meat / hide like sheep/goat pattern.
 
 ---
@@ -100,7 +103,7 @@ Same **hide / cover** behavior as ambush setup, but **no** “everyone jumps whe
 | Follower movement | `scripts/npc/states/party_state.gd` |
 | Hide / ambush | `scripts/npc/states/hide_state.gd`, `scripts/systems/cover_query.gd` |
 | Sound | `scripts/systems/sound_detection.gd` (preload where used — no global autoload) |
-| Deer flee | `scripts/npc/states/flee_prey_state.gd`, `scripts/npc/components/perception_area.gd` |
+| Deer flee, fright meter, perception | `scripts/npc/states/flee_prey_state.gd`, `scripts/npc/components/perception_area.gd`, `scripts/npc/npc_base.gd`, `scripts/config/npc_config.gd` |
 | AI hunt stalk flag | `scripts/ai/clan_brain.gd`, `scripts/npc/states/hunt_state.gd` |
 | Spawn / balance | `scripts/main.gd` (`_spawn_deer`, respawn batch), `scripts/config/balance_config.gd` |
 
@@ -108,11 +111,12 @@ Same **hide / cover** behavior as ambush setup, but **no** “everyone jumps whe
 
 ## 8. Related docs
 
+- **`guides/Phase4/Raiding_hunting_phase2.md`** — Deeper raid/hunt roadmap (phase 2: doctrine, telemetry, raid/hunt parity, guardrails).
 - **`guides/rts.md`** — Full RTS reference including **§11a** (modes).
 - **`guides/rtsguide.md`** — Player-facing RTS overview (selection, drag, hostile).
-- **`docs/hunting_system_edge_cases.md`** — Locked answers & edge cases.
+- **`guides/wildlife_movement.md`** — Migratory vs territorial wild NPCs, chunk spawn, **deer flight / fright / debug JSONL**.
 - **`bible.md`** — Lore / primitive command tone.
 
 ---
 
-*Last updated: May 2026 — Peace/Agro/Hunt HUD, deer + flee + sound stubs, hide/ambush, ARC/STALK formations.*
+*Last updated: May 2026 — Deer fright meter, player proximity fallback, flee burst speed; wild NPC trace / playtest probes (see `guides/wildlife_movement.md`).*

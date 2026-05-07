@@ -203,4 +203,4 @@ The bottom RTS HUD has a **mode strip** (**PEACE**, **AGRO**, **HUNT**) plus **t
 
 ---
 
-*Last updated: May 2026 — Peace/Agro/Hunt modes, hunting stances, deer flee, sound stubs.*
+*Last updated: May 2026 — Peace/Agro/Hunt modes, hunting stances; deer use fright meter + flee burst (see `guides/Phase4/raiding_hunting.md`).*

@@ -218,7 +218,8 @@ Full hunting write-up: **`guides/Phase4/raiding_hunting.md`**.
 
 ## Related Guides
 
-- **`Phase4/raiding_hunting.md`** — Raid cohesion + **Peace / Agro / Hunt** hunting HUD (stalk, arc, hide, ambush, deer)
+- **`Phase4/raiding_hunting.md`** — Raid cohesion + **Peace / Agro / Hunt** hunting HUD (stalk, arc, hide, ambush, deer fright / flee tuning)
+- **`wildlife_movement.md`** — Wild profiles, chunk migratory spawn, deer flight meter + JSONL trace flags
 - **`rts.md`** — Authoritative RTS doc: formations, speeds, horn, break, playtest (`guides/rts.md`)
 - `Task_system.md` — Tasks, modes, pull-based work
 - `HERDING_SYSTEM_GUIDE.md` — Herding, influence, stealing

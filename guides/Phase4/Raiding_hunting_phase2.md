@@ -22,7 +22,7 @@
 - **Player:** Peace / Agro / Hunt HUD, STALK / ARC / AMBUSH / HIDE, horn **aborts** Hunt (loud), formations from **`FormationUtils`** + **`rts_formation_config.gd`**.
 - **AI hunt:** `HuntPhase` forming → chasing → killing → looting → returning; **`get_hunt_intent()`**, **`use_stalk_approach`** / **`is_stalking`**, abort grace if brain/claim flickers.
 - **AI raid:** Mirror pattern in **`raid_state`** + ClanBrain party form/disband.
-- **Deer:** **`flee_prey_state`**, **`NPCConfig`** thresholds, sound / panic hooks.
+- **Deer:** **`flee_prey_state`**, **`NPCConfig`** thresholds, **fright meter + burst flee speed** on **`NPCBase`** / **`SteeringAgent`**, sound / panic hooks, **player proximity centroid fallback** in **`PerceptionArea`**.
 
 ---
 
@@ -30,8 +30,8 @@
 
 | ID | Feature | What to implement | Touchpoints |
 |----|---------|-------------------|-------------|
-| **A1** | **Prey pressure (prey-side)** | One accumulated scalar (e.g. 0–100) from **sound**, **visible threats**, **sprint proxy**, decay when calm; map to **few** substates (graze / alert / nervous / flee) instead of binary detect→flee. | `flee_prey_state.gd` (or deer-specific component), `sound_detection.gd`, `NPCConfig` weights |
-| **A2** | **Prey stamina** | Drain while sprinting in flee; recover when calm; cap speed / turn rate when low (you may already have “winded” hooks — extend and tune). | `flee_prey_state.gd`, `npc_base` / steering caps |
+| **A1** | **Prey pressure (prey-side)** | One accumulated scalar (0–100-style) from **visible threats** + decay; map to **few** substates (graze / alert / nervous / flee) instead of binary detect→flee. **Partial (shipped):** **`deer_fright_*`** meter + forced **`flee_prey`** — still one flee state, no separate graze/alert substates yet. | **`npc_base.gd`**, **`flee_prey_state.gd`**, **`perception_area.gd`**, **`sound_detection.gd`**, **`NPCConfig`** |
+| **A2** | **Prey stamina** | Drain while sprinting in flee; recover when calm; cap speed / turn rate when low (**winded** hooks). **Partial:** burst vs winded speed multipliers (**`deer_flee_burst_speed_mult`** / **`deer_winded_speed_mult`**); no dedicated stamina pool yet. | **`flee_prey_state.gd`**, **`npc_base` / `steering_agent`** |
 | **A3** | **Directional flee** | Replace “always away from centroid” with **scored candidate directions** (away from humans, toward open space, soft herd bias) — cheap dot-product scoring, no navmesh requirement. | `flee_prey_state.gd` |
 | **A4** | **Hunt LOOTING** | Replace short timer with **corpse / loot spawn** (or pickup task) + **one** log line (PlaytestInstrumentor / SESSION) for tuning. | `hunt_state.gd`, corpse/loot pipeline, `CorpseConfig` |
 | **A5** | **Combat exit cleanup** | Audit **`hunt_after_combat`**, **`combat_target`**, agro meter when leaving hunt or combat so hunters don’t stick in combat after prey dies. | `hunt_state.gd`, `combat_state.gd` |

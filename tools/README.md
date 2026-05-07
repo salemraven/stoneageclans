@@ -28,6 +28,18 @@ SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/wild_npc_m
 
 Checks **`NPCConfig`** wild profiles, instantiates **`NPC.tscn`** as deer with a west corridor, applies **`_apply_wild_profile`**, asserts migratory activation, crosses exit **+margin**, and asserts **`queue_free`** from **`_check_migration_despawn`**. Exit **0** prints `WILD_NPC_MOVEMENT_VERIFY_OK`.
 
+## Wild NPC JSONL trace (`--wild-npc-trace`)
+
+Session log for debugging **migration spawns, chunk wildlife batches, and throttled flee positions**:
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --path . --wild-npc-trace
+```
+
+Writes **`user://wild_npc_trace_*.jsonl`**. Toggle in editor: **`DebugConfig.enable_wild_npc_trace`**; tick spacing: **`wild_npc_trace_interval_sec`**.
+
+**Related guide:** **`guides/wildlife_movement.md`** (Debugging section). **`--playtest-capture`** also records **`migration_complete`** and richer **`npc_world_probe`** rows (deer/mammoth + **`mig_*`** fields).
+
 ## Boot / load audit (autoload `RuntimeFaultSink`)
 
 Each run writes **`user://runtime_boot_audit.log`** (Editor → open user data folder) with script-load checks for **`PartyCommandUtils`**, **`FormationUtils`**, **`FSM`**, **`Main.tscn`**, **`EntityRegistry`**. Append **`--runtime-boot-audit`** for extra path probes. Disable: **`SKIP_RUNTIME_FAULT_SINK=1`**.
