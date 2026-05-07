@@ -22,6 +22,9 @@ var _land_claims_cache_valid: bool = false
 var _npcs_cache: Array = []
 var _npcs_cache_valid: bool = false
 
+## Chunk streaming: seeded migratory wildlife per loaded chunk (see _spawn_wildlife_for_loaded_chunk).
+var _wildlife_chunk_rng_salt_v1 := &"wild_migratory_v1"
+
 var active_collection_resource: Node2D = null  # Only one resource can be collected at a time (GatherableResource or GroundItem)
 # Space on tall grass that has bugs (meta): gather timer + bugs; other grass does nothing
 const TALLGRASS_HAS_BUGS_META := &"has_bugs"
@@ -6528,12 +6531,18 @@ func _initialize_minigame() -> void:
 		npc.visible = true
 		print("✓ Spawned Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
 	
+	
 	# Spawn mammoths (wild, non-herdable, agro at threats in AOP)
 	# _spawn_mammoths(center_pos)  # DISABLED - for testing
 	
-	# Spawn sheep and goats (huntable, meat from corpses)
-	_spawn_sheep_and_goats(center_pos, spawn_parent)
-	_spawn_deer(center_pos, spawn_parent)
+	var _wgc_wild_stream: Node = get_node_or_null("/root/WorldGenConfig")
+	var _use_wild_chunk_stream: bool = _wgc_wild_stream != null and bool(_wgc_wild_stream.get("use_chunk_content_streaming"))
+	if _use_wild_chunk_stream:
+		# Deer/sheep/goats: ChunkManager rolls seeded herds per terrain chunk load (below); avoids empty world + avoids duplicating mega ring spawns here.
+		pass
+	else:
+		_spawn_sheep_and_goats(center_pos, spawn_parent)
+		_spawn_deer(center_pos, spawn_parent)
 	
 	# NORMAL MODE: Enable respawn systems
 	_start_women_respawn_system()
@@ -6582,6 +6591,126 @@ func _spawn_mammoths(center_pos: Vector2) -> void:
 		npc.set("spawn_position", pos)
 		npc.visible = true
 		print("✓ Spawned Mammoth: %s at %s (wild, 256x256, agro at threats)" % [npc_name, pos])
+
+
+func _wildlife_rng_for_chunk(world_seed: int, cx: int, cy: int, salt: StringName) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	var h: int = hash(Vector3i(world_seed, cx, cy))
+	h = hash(str(h) + str(salt))
+	rng.seed = int(h) if h != 0 else 1
+	return rng
+
+
+func _wildlife_chunk_migratory_corridor(origin: Vector2, rng: RandomNumberGenerator) -> Dictionary:
+	var entry_side: int = (-1 if rng.randf() < 0.5 else 1)
+	var margin: float = 115.0
+	var west_edge: float = origin.x + margin
+	var east_edge: float = origin.x + ChunkUtils.CHUNK_SIZE - margin
+	var entry_edge_x: float = west_edge if entry_side == -1 else east_edge
+	var exit_x_val: float = east_edge if entry_side == -1 else west_edge
+	return {"entry_side": entry_side, "entry_edge_x": entry_edge_x, "exit_x": exit_x_val}
+
+
+## ChunkManager calls this once per streamed terrain chunk — migratory herds are parented under world_objects.
+func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc == null or not bool(wgc.get("use_chunk_content_streaming")):
+		return
+	if not bool(wgc.get("wild_migratory_chunk_spawns_enabled")):
+		return
+	if not ChunkUtils or not world_objects:
+		return
+	var ws := int(wgc.world_seed)
+	var rng: RandomNumberGenerator = _wildlife_rng_for_chunk(ws, chunk.x, chunk.y, _wildlife_chunk_rng_salt_v1)
+	if rng.randf() > float(wgc.get("wild_migratory_chunk_pass_chance")):
+		return
+	var pmin: int = int(wgc.get("wild_migratory_packs_min"))
+	var pmax: int = maxi(pmin, int(wgc.get("wild_migratory_packs_max")))
+	var packs: int = rng.randi_range(pmin, pmax)
+	var origin: Vector2 = Vector2(float(chunk.x), float(chunk.y)) * ChunkUtils.CHUNK_SIZE
+	for pack_i in packs:
+		var roll: float = rng.randf()
+		var corr: Dictionary = _wildlife_chunk_migratory_corridor(origin, rng)
+		var entry_side: int = int(corr["entry_side"])
+		var exit_x_chunk: float = float(corr["exit_x"])
+		var entry_edge_x: float = float(corr["entry_edge_x"])
+		var base_y: float = origin.y + rng.randf_range(140.0, ChunkUtils.CHUNK_SIZE - 140.0)
+		if roll < 0.38:
+			var herd_n := rng.randi_range(2, mini(6, BalanceConfig.deer_initial + 3 if BalanceConfig else 7))
+			for hh in herd_n:
+				var sx := entry_edge_x + float(hh) * 30.0 * float(entry_side)
+				var sy := base_y + rng.randf_range(-44.0, 44.0)
+				var dnpc := NPC_SCENE.instantiate()
+				if dnpc == null:
+					continue
+				dnpc.set("npc_name", "Deer %d" % (Time.get_ticks_msec() ^ (pack_i << 12) ^ (hh + 991)))
+				dnpc.set("npc_type", "deer")
+				dnpc.set("traits", [])
+				var dspr: Sprite2D = dnpc.get_node_or_null("Sprite")
+				if dspr:
+					var dtex := AssetRegistry.get_deer_sprite()
+					if dtex:
+						dspr.texture = dtex
+						dspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+						var dtint := _get_random_sheep_goat_tint()
+						dspr.modulate = dtint
+						dnpc.set_meta("sheep_goat_tint", dtint)
+						dspr.visible = true
+						if dnpc.has_method("apply_sprite_offset_for_texture"):
+							dnpc.apply_sprite_offset_for_texture()
+				world_objects.add_child(dnpc)
+				_finalize_migratory_npc(dnpc, Vector2(sx, sy), entry_side, exit_x_chunk)
+				dnpc.visible = true
+		elif roll < 0.72:
+			var herd_s := rng.randi_range(2, mini(6, BalanceConfig.sheep_initial + 5 if BalanceConfig else 15))
+			for ss in herd_s:
+				var spx := entry_edge_x + float(ss) * 22.0 * float(entry_side)
+				var spy := base_y + rng.randf_range(-50.0, 50.0)
+				var snpc := NPC_SCENE.instantiate()
+				if snpc == null:
+					continue
+				snpc.set("npc_name", "Sheep %d" % (Time.get_ticks_msec() ^ (pack_i << 8) ^ (ss << 4)))
+				snpc.set("npc_type", "sheep")
+				snpc.set("traits", ["herd", "group"])
+				var sspr: Sprite2D = snpc.get_node_or_null("Sprite")
+				if sspr:
+					var stex := AssetRegistry.get_sheep_sprite()
+					if stex:
+						sspr.texture = stex
+						sspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+						var stint := _get_random_sheep_goat_tint()
+						sspr.modulate = stint
+						snpc.set_meta("sheep_goat_tint", stint)
+						sspr.visible = true
+						if snpc.has_method("apply_sprite_offset_for_texture"):
+							snpc.apply_sprite_offset_for_texture()
+				world_objects.add_child(snpc)
+				_finalize_migratory_npc(snpc, Vector2(spx, spy), entry_side, exit_x_chunk)
+				snpc.visible = true
+		else:
+			var gpx := entry_edge_x
+			var gpy := origin.y + rng.randf_range(140.0, ChunkUtils.CHUNK_SIZE - 140.0)
+			var goat := NPC_SCENE.instantiate()
+			if goat == null:
+				continue
+			goat.set("npc_name", "Goat %d" % (Time.get_ticks_msec() ^ (pack_i << 10)))
+			goat.set("npc_type", "goat")
+			goat.set("traits", ["herd"])
+			var gspr: Sprite2D = goat.get_node_or_null("Sprite")
+			if gspr:
+				var gtex := AssetRegistry.get_goat_sprite()
+				if gtex:
+					gspr.texture = gtex
+					gspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+					var gtint := _get_random_sheep_goat_tint()
+					gspr.modulate = gtint
+					goat.set_meta("sheep_goat_tint", gtint)
+					gspr.visible = true
+					if goat.has_method("apply_sprite_offset_for_texture"):
+						goat.apply_sprite_offset_for_texture()
+			world_objects.add_child(goat)
+			_finalize_migratory_npc(goat, Vector2(gpx, gpy), entry_side, exit_x_chunk)
+			goat.visible = true
 
 
 func _get_migration_bounds() -> Rect2:

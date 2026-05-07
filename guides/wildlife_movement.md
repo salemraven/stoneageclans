@@ -29,18 +29,25 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
   3. Else legacy chunk roam (`chunk_center` / `roam_radius`).
   4. Else spawn-position fallback.
 
-## Spawning (`main.gd`)
+## Spawning (`main.gd` + `ChunkManager`)
 
-- Initial and respawn spawns for **deer**, **sheep**, **goats** use `_get_migration_bounds()` (player-centered chunk rectangle) plus `_finalize_migratory_npc()` (sets corridor + `_apply_wild_profile()`).
-- **F7**: `_spawn_debug_migratory_deer_f7()` for a single test deer.
-- Women: `_spawn_wild_woman` calls `_apply_wild_profile()` after position so territorial anchor matches spawn.
+- **`WorldGenConfig.use_chunk_content_streaming == true`** (default): Migratory deer / sheep / goats are **rolled per streamed terrain chunk** when it loads (`Main._spawn_wildlife_for_loaded_chunk`). Corridor is **across that chunk’s width** (west↔east edge): animals sit on **`world_objects`**, so **chunk unload does not delete them** while they migrate. The old “one mega ring near the player” batch in `_initialize_minigame` is **skipped** to avoid doubling. Tune rolls in **`WorldGenConfig`** — `wild_migratory_chunk_spawns_enabled`, `wild_migratory_chunk_pass_chance`, `wild_migratory_packs_min` / `_max`.
+
+- **`use_chunk_content_streaming == false`**: Legacy single batch — **`_spawn_sheep_and_goats`** + **`_deer`** still use **`_get_migration_bounds()`** (player-centered band) plus **`_finalize_migratory_npc()`**.
+
+- Respawn timers still top up hunted species after corridors complete / caps allow.
+
+- **F7**: `_spawn_debug_migratory_deer_f7()` near player migration band.
+
+- Women: territorial ring + **`_spawn_wild_woman`** **`_apply_wild_profile()`** after position where applicable.
 
 ## Quick tuning
 
 - More “straight across the map” drift: raise `migration_drift_strength` (0–1).
 - Wider meander while still trending: raise `migration_wander_noise` and/or `wander_radius` interaction (migratory uses `roam_radius * noise`).
 - Earlier/later despawn: adjust `migration_despawn_margin`.
-- **See animals on screen**: `migration_band_half_chunks` (default **1.0**) — half-width/half-height of the migratory **rectangle centered on the player**. Too far away? Lower toward **~0.6**. Want a longer crossing? Raise toward **2.0**.
+- **See animals on screen**: `migration_band_half_chunks` … (legacy / non-streaming batch only).
+- **Chunk streaming wildlife density**: `WorldGenConfig.wild_migratory_chunk_pass_chance`, `wild_migratory_packs_min` / `wild_migratory_packs_max`, or set `wild_migratory_chunk_spawns_enabled` false to rely on respawn timers only.
 
 ## Testing (plan checklist)
 
