@@ -979,6 +979,9 @@ func _physics_process(delta: float) -> void:
 				if not (is_migratory() and migration_active):
 					_update_chunk_boundary(delta)
 				_check_migration_despawn()
+				var _wtrace: Node = get_tree().root.get_node_or_null("WildNpcTrace")
+				if _wtrace and _wtrace.has_method("maybe_sample_migratory"):
+					_wtrace.maybe_sample_migratory(self)
 
 	# Periodic clan joining check (every 0.5 seconds)
 	# This ensures NPCs join clans when they enter land claims, even if not in herd state
@@ -2101,7 +2104,22 @@ func _despawn_migratory() -> void:
 	if tree:
 		var pi: Node = tree.root.get_node_or_null("PlaytestInstrumentor")
 		if pi and pi.is_enabled() and pi.has_method("log_event"):
-			pi.call("log_event", "migration_complete", {"npc": npc_name, "type": npc_type})
+			pi.log_event("migration_complete", {
+				"npc": npc_name,
+				"type": npc_type,
+				"x": snappedf(global_position.x, 1.0),
+				"y": snappedf(global_position.y, 1.0),
+				"exit_x": snappedf(migration_exit_x, 1.0),
+			})
+		var wnt: Node = tree.root.get_node_or_null("WildNpcTrace")
+		if wnt and wnt.has_method("trace"):
+			wnt.trace("migration_complete", {
+				"npc": npc_name,
+				"type": npc_type,
+				"x": snappedf(global_position.x, 1.0),
+				"y": snappedf(global_position.y, 1.0),
+				"exit_x": snappedf(migration_exit_x, 1.0),
+			})
 	if EntityRegistry:
 		EntityRegistry.unregister(self)
 	queue_free()

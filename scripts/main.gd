@@ -6628,6 +6628,9 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 	var pmax: int = maxi(pmin, int(wgc.get("wild_migratory_packs_max")))
 	var packs: int = rng.randi_range(pmin, pmax)
 	var origin: Vector2 = Vector2(float(chunk.x), float(chunk.y)) * ChunkUtils.CHUNK_SIZE
+	var wild_trace: Node = get_node_or_null("/root/WildNpcTrace")
+	if wild_trace and wild_trace.has_method("trace"):
+		wild_trace.trace("wild_chunk_spawn_start", {"cx": chunk.x, "cy": chunk.y, "packs": packs})
 	for pack_i in packs:
 		var roll: float = rng.randf()
 		var corr: Dictionary = _wildlife_chunk_migratory_corridor(origin, rng)
@@ -6741,6 +6744,23 @@ func _finalize_migratory_npc(npc: Node, spawn_pos: Vector2, entry_side: int, exi
 		print("🦌 MIGRATORY_SPAWN: %s at (%.0f,%.0f) entry=%s exit_x=%.0f" % [
 			npc.get("npc_name"), spawn_pos.x, spawn_pos.y, side_name, exit_x
 		])
+	var wnt: Node = get_node_or_null("/root/WildNpcTrace")
+	if wnt and wnt.has_method("trace"):
+		var cx: int = 0
+		var cy: int = 0
+		if ChunkUtils:
+			cx = int(floor(spawn_pos.x / float(ChunkUtils.CHUNK_SIZE)))
+			cy = int(floor(spawn_pos.y / float(ChunkUtils.CHUNK_SIZE)))
+		wnt.trace("migratory_spawn", {
+			"name": str(npc.get("npc_name")) if npc.get("npc_name") != null else str(npc.name),
+			"type": str(npc.get("npc_type")) if npc.get("npc_type") != null else "?",
+			"x": snappedf(spawn_pos.x, 1.0),
+			"y": snappedf(spawn_pos.y, 1.0),
+			"entry_side": entry_side,
+			"exit_x": snappedf(exit_x, 1.0),
+			"chunk_cx": cx,
+			"chunk_cy": cy,
+		})
 
 
 func _spawn_debug_migratory_deer_f7() -> void:

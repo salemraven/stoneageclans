@@ -51,6 +51,23 @@ var enable_herd_logging: bool = false
 var enable_occupation_drag_logging: bool = false  # Building occupation slot drag-and-drop debug logs
 var enable_occupation_diag: bool = false  # Full occupation flow diagnostic logging (land claim, farm, dairy, women, animals)
 
+## Migratory wild NPC trace: spawn + throttled ticks → user://wild_npc_trace_*.jsonl. CLI: `--wild-npc-trace`
+var enable_wild_npc_trace: bool = false
+## Seconds between `wild_migratory_tick` lines per NPC instance.
+var wild_npc_trace_interval_sec: float = 2.5
+
+## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
+var enable_session_quickstart: bool = false
+var session_quit_after_seconds: float = 0.0
+var enable_session_instrumentation: bool = false
+var enable_agro_session_logs: bool = false
+var disable_herd_leader_speed_debuff: bool = false
+
+## Movement debug samples (MovementDebugInstrument reads via .get — must exist to avoid cast errors).
+var enable_movement_debug: bool = false
+var movement_debug_interval_sec: float = 0.5
+var movement_debug_filter: String = "clansman"
+
 # Performance monitoring settings
 var performance_log_interval: float = 1.0  # Log performance stats every N seconds
 var frame_time_warning_threshold: float = 16.67  # Warn if frame time exceeds this (ms) - 60 FPS threshold
@@ -149,6 +166,10 @@ func _parse_command_line_args() -> void:
 	if "--playtest-2min" in args or "--playtest-4min" in args:
 		test_overrides["herd_resist_disabled"] = true
 		print("✓ Herd resistance disabled for playtest (deterministic transport)")
+
+	if "--wild-npc-trace" in args:
+		enable_wild_npc_trace = true
+		print("✓ Wild NPC trace: spawn + migratory ticks → user://wild_npc_trace_*.jsonl (WildNpcTrace.trace)")
 
 func _apply_debug_settings() -> void:
 	# Apply settings to UnifiedLogger if it exists

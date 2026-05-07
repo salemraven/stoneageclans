@@ -137,6 +137,16 @@ func _write(obj: Dictionary) -> void:
 func is_enabled() -> bool:
 	return _enabled
 
+
+## Generic JSONL row when capture is on (used by NPCBase migration_complete, tests, hooks).
+func log_event(evt_name: String, payload: Dictionary = {}) -> void:
+	if not _enabled:
+		return
+	var row: Dictionary = {"evt": str(evt_name)}
+	for k in payload:
+		row[k] = payload[k]
+	_write(row)
+
 func is_playtest_2min() -> bool:
 	return _playtest_2min
 
@@ -521,7 +531,7 @@ func _capture_snapshot() -> void:
 	var ai_clansman_states: Dictionary = {}
 	var npc_probes: Array = []
 	const MAX_NPC_PROBE: int = 64
-	const _PROBE_TYPES: Array = ["caveman", "clansman", "woman", "sheep", "goat"]
+	const _PROBE_TYPES: Array = ["caveman", "clansman", "woman", "sheep", "goat", "deer", "mammoth"]
 	# Player is not in group "npcs" — add one row for distance-to-AI analysis
 	var pnode: Node = tree.get_first_node_in_group("player")
 	if pnode and is_instance_valid(pnode) and not (pnode.has_method("is_dead") and pnode.is_dead()):
@@ -606,7 +616,7 @@ func _capture_snapshot() -> void:
 					var nnh = hr.get("npc_name")
 					hname = str(nnh) if nnh != null else str(hr.name)
 				var cnm: String = str(n.get("clan_name")) if n.get("clan_name") != null else ""
-				npc_probes.append({
+				var prow: Dictionary = {
 					"name": str(n.get("npc_name")) if n.get("npc_name") != null else str(n.name),
 					"type": nt_p,
 					"clan": cnm,
@@ -618,7 +628,12 @@ func _capture_snapshot() -> void:
 					"is_herded": n.get("is_herded") == true,
 					"follow_ordered": n.get("follow_is_ordered") == true,
 					"herder": hname,
-				})
+				}
+				if n.get("migration_active") != null:
+					prow["mig_act"] = n.get("migration_active") == true
+					prow["mig_side"] = int(n.get("migration_entry_side")) if n.get("migration_entry_side") != null else 0
+					prow["mig_exit"] = snappedf(float(n.get("migration_exit_x")), 1) if n.get("migration_exit_x") != null else 0.0
+				npc_probes.append(prow)
 	var snap: Dictionary = {
 		"evt": "snapshot",
 		"fps": Engine.get_frames_per_second(),
