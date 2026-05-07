@@ -338,6 +338,12 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var deer_panic_spread_radius: float = 150.0
 @export var deer_panic_spread_delay_min: float = 0.3
 @export var deer_panic_spread_delay_max: float = 0.5
+## Fright "meter" while a human is inside deer vision; at `deer_fright_flee_at`, forces `flee_prey`.
+@export var deer_fright_meter_max: float = 100.0
+@export var deer_fright_fill_per_sec: float = 60.0
+@export var deer_fright_decay_per_sec: float = 45.0
+@export var deer_fright_flee_at: float = 65.0
+
 @export var sound_footstep_walk_volume: float = 30.0
 @export var sound_footstep_run_volume: float = 60.0
 @export var sound_footstep_stalk_volume: float = 15.0

@@ -168,11 +168,36 @@ func get_deer_threat_centroid(origin: Vector2, radius: float, _for_npc: NPCBase 
 		if d2 <= r2:
 			pts.append((body as Node2D).global_position)
 	if pts.is_empty():
+		# Fallback: Area overlap can miss MovingBody corner cases — treat player inside radius as threat.
+		var ply: Vector2 = _deer_player_threat_pos(origin, r2)
+		if ply != Vector2.ZERO:
+			return ply
 		return Vector2.ZERO
 	var acc := Vector2.ZERO
 	for p in pts:
 		acc += p
 	return acc / float(pts.size())
+
+
+func _deer_player_threat_pos(origin: Vector2, radius_sq: float) -> Vector2:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return Vector2.ZERO
+	var pn: Node = tree.get_first_node_in_group("player")
+	if pn == null or not (pn is Node2D):
+		return Vector2.ZERO
+	if not is_instance_valid(pn):
+		return Vector2.ZERO
+	var n2 := pn as Node2D
+	var h: Node = n2.get_node_or_null("HealthComponent")
+	if h:
+		var dead_v: Variant = h.get("is_dead")
+		if dead_v == true:
+			return Vector2.ZERO
+	var d2: float = origin.distance_squared_to(n2.global_position)
+	if d2 <= radius_sq:
+		return n2.global_position
+	return Vector2.ZERO
 
 
 func has_deer_threat_in_radius(origin: Vector2, radius: float, _for_npc: NPCBase = null) -> bool:

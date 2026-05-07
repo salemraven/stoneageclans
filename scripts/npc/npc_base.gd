@@ -480,6 +480,9 @@ var is_defensive: bool = false
 var migration_entry_side: int = 0
 var migration_exit_x: float = 0.0
 var migration_active: bool = false
+
+## Deer prey: builds toward flee when humans register in vision (see NPCConfig.deer_fright_*).
+var deer_fright_meter: float = 0.0
 var territorial_anchor: Vector2 = Vector2.ZERO
 var territorial_radius: float = 0.0
 
@@ -812,6 +815,51 @@ func _exit_tree() -> void:
 	if OccupationSystem:
 		OccupationSystem.unassign(self, "exited_tree")
 
+
+func _deer_update_fright_meter_try_flee(delta: float) -> void:
+	if npc_type != "deer" or delta <= 0.0:
+		return
+	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+		return
+	if not fsm:
+		return
+	var max_m: float = 100.0
+	var fill: float = 60.0
+	var decay: float = 45.0
+	var flee_at: float = 65.0
+	var r: float = 250.0
+	if NPCConfig:
+		max_m = maxf(float(NPCConfig.deer_fright_meter_max), 1.0)
+		fill = maxf(float(NPCConfig.deer_fright_fill_per_sec), 0.0)
+		decay = maxf(float(NPCConfig.deer_fright_decay_per_sec), 0.0)
+		flee_at = clampf(float(NPCConfig.deer_fright_flee_at), 0.5, max_m * 0.99)
+		r = maxf(float(NPCConfig.deer_perception_visual), 32.0)
+	var pa := get_node_or_null("DetectionArea") as PerceptionArea
+	if pa != null:
+		r = pa.detection_range
+	if fsm.current_state_name == "flee_prey":
+		deer_fright_meter = move_toward(deer_fright_meter, 0.0, decay * delta)
+		return
+	if is_herded:
+		deer_fright_meter = move_toward(deer_fright_meter, 0.0, decay * delta)
+		return
+	var centroid: Vector2 = Vector2.ZERO
+	if pa != null:
+		centroid = pa.get_deer_threat_centroid(global_position, r, self)
+	var threatened: bool = centroid != Vector2.ZERO
+	if threatened:
+		var proximity_boost: float = 1.0
+		var pnode: Node = get_tree().get_first_node_in_group("player") if get_tree() else null
+		if pnode is Node2D and is_instance_valid(pnode):
+			var dd: float = global_position.distance_to((pnode as Node2D).global_position)
+			proximity_boost += clampf((r - dd) / maxf(r, 1.0), 0.0, 3.5)
+		deer_fright_meter = minf(deer_fright_meter + fill * proximity_boost * delta, max_m)
+	else:
+		deer_fright_meter = maxf(deer_fright_meter - decay * delta, 0.0)
+	if deer_fright_meter >= flee_at and fsm.has_method("change_state"):
+		fsm.change_state("flee_prey")
+
+
 func _physics_process(delta: float) -> void:
 	# Check if dead - if so, stop all processing
 	var health_comp: HealthComponent = get_node_or_null("HealthComponent")
@@ -861,7 +909,9 @@ func _physics_process(delta: float) -> void:
 	
 	# Update wants
 	_update_wants(delta)
-	
+
+	_deer_update_fright_meter_try_flee(delta)
+
 	# Apply buffs/debuffs
 	_apply_buffs_debuffs(delta)
 	

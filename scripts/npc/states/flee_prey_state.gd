@@ -25,6 +25,8 @@ func enter() -> void:
 		npc.remove_meta("deer_cower")
 	if npc and npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
 		npc.steering_agent.restore_original_speed()
+	if npc:
+		npc.deer_fright_meter = 0.0
 	if not _panic_emitted and npc:
 		_panic_emitted = true
 		SoundDetection.register_sound(npc.global_position, 95.0, &"deer_panic")
