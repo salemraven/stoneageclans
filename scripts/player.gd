@@ -5,9 +5,7 @@ const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
-## Walk/club/spear (and matches DirectionalSpriteSheet base ~0.46 when shrunk ~2× on screen).
-@export var sprite_visual_scale: float = 0.22
-## Axe/pick/travois: must match NPC weapon_component (inherits ~0.46 after walk_idle); Player used 1.0 before (~2× too tall).
+## Flat textures only (male1a / pick / travois). Sheet animations (walk/club/spear) use WalkAnimation scale — spear sheet is matched to walk cell size in walk_animation.gd.
 @export var sprite_equipment_scale: float = 0.46
 @export var bounce_amplitude := 2.0
 @export var bounce_speed := 8.0
@@ -141,7 +139,7 @@ func _physics_process(_delta: float) -> void:
 		move_and_slide()
 		if sprite:
 			YSortUtils.update_draw_order(sprite, self)
-			_apply_player_sprite_visual_scale()
+			_apply_player_equipment_sprite_scale()
 		return
 	# Hunger depletion (player does NOT die from starvation)
 	var rate: float = hunger_deplete_rate
@@ -154,7 +152,7 @@ func _physics_process(_delta: float) -> void:
 		set_meta("formation_velocity", velocity)
 		move_and_slide()
 		if sprite:
-			_apply_player_sprite_visual_scale()
+			_apply_player_equipment_sprite_scale()
 		return
 	# Gathering: player may move; gatherable_resource / main cancel the timer and flash red
 	# get_vector: consistent combined-axis handling (keyboard + gamepad) vs manual action_strength diffs.
@@ -259,23 +257,21 @@ func _physics_process(_delta: float) -> void:
 				_update_sprite_texture()
 
 	if sprite:
-		_apply_player_sprite_visual_scale()
+		_apply_player_equipment_sprite_scale()
 		# Snap sprite position to prevent sub-pixel blurring
 		sprite.position.x = _sprite_base_position.x
 		var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
 		sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
 
-func _apply_player_sprite_visual_scale() -> void:
-	"""WalkAnimation / DirectionalSpriteSheet set their own scale each frame; we override with inspector targets."""
+func _apply_player_equipment_sprite_scale() -> void:
 	if not sprite:
 		return
-	var s: float
 	match _equipped_item:
 		ResourceData.ResourceType.AXE, ResourceData.ResourceType.PICK, ResourceData.ResourceType.TRAVOIS:
-			s = maxf(sprite_equipment_scale, 0.05)
+			var seq: float = maxf(sprite_equipment_scale, 0.05)
+			sprite.scale = Vector2(seq, seq)
 		_:
-			s = maxf(sprite_visual_scale, 0.05)
-	sprite.scale = Vector2(s, s)
+			pass  # WalkAnimation / DirectionalSpriteSheet own scale for walk/club/spear/NONE.
 
 
 func _setup_texture() -> void:

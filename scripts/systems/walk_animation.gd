@@ -321,6 +321,30 @@ static func get_spear_frame_region(sheet: Texture2D, frame_index: int) -> Rect2:
 	var row := frame_index / SPEAR_COLS
 	return Rect2(int(col * sz.x), int(row * sz.y), int(sz.x), int(sz.y))
 
+## Match spearwalk on-screen footprint to walk.png/clubwalk (same world height: walk_cell × walk_basis ≈ spear_cell × result).
+static func spear_walk_sprite_scale_for_sheet(sheet: Texture2D) -> float:
+	var walk_tex := get_walk_sheet()
+	if not walk_tex or not sheet:
+		return 0.46
+	var walk_h := get_frame_size(walk_tex).y
+	var spear_h := get_spear_frame_size(sheet).y
+	if walk_h <= 0 or spear_h <= 0:
+		return 0.46
+	var walk_basis: float = 0.46 if walk_h >= 128 else 0.92
+	return walk_basis * (walk_h / spear_h)
+
+
+static func spear_attack_sprite_scale_for_frame_height(frame_pixel_height: int) -> float:
+	var walk_tex := get_walk_sheet()
+	if not walk_tex or frame_pixel_height <= 0:
+		return 0.46
+	var walk_h := get_frame_size(walk_tex).y
+	if walk_h <= 0:
+		return 0.46
+	var walk_basis: float = 0.46 if walk_h >= 128 else 0.92
+	return walk_basis * (walk_h / float(frame_pixel_height))
+
+
 static func apply_spear_frame(sprite: Sprite2D, sheet: Texture2D, frame_index: int) -> void:
 	if not sprite or not sheet:
 		return
@@ -332,8 +356,8 @@ static func apply_spear_frame(sprite: Sprite2D, sheet: Texture2D, frame_index: i
 	atlas.region = region
 	sprite.texture = atlas
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	var frame_h := get_spear_frame_size(sheet).y
-	sprite.scale = Vector2(0.46, 0.46) if frame_h >= 128 else Vector2(0.92, 0.92)
+	var sx: float = spear_walk_sprite_scale_for_sheet(sheet)
+	sprite.scale = Vector2(sx, sx)
 
 static func apply_spear_idle(sprite: Sprite2D) -> void:
 	var sheet := get_spear_walk_sheet()

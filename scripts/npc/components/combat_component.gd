@@ -859,6 +859,9 @@ func _set_combat_frame(frame_index: int) -> void:
 	atlas_texture.region = Rect2(frame_x, frame_y, sprite_sheet_frame_width, sprite_sheet_frame_height)
 	sprite.texture = atlas_texture
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if _get_equipped_weapon_type() == ResourceData.ResourceType.SPEAR and sprite_sheet_frame_height > 0:
+		var sas: float = WalkAnimation.spear_attack_sprite_scale_for_frame_height(sprite_sheet_frame_height)
+		sprite.scale = Vector2(sas, sas)
 	if npc.has_method("apply_sprite_offset_for_texture"):
 		npc.apply_sprite_offset_for_texture()
 	_combat_d("✅ ANIMATION: Frame %d applied successfully" % frame_index)
