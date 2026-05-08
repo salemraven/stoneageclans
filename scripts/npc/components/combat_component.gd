@@ -45,6 +45,10 @@ var default_sprite_texture: Texture2D = null  # Store original sprite texture
 var windup_start_time: int = 0  # Track when windup started (for timeout detection)
 var recovery_start_time: int = 0  # Track when recovery started (for timeout detection)
 
+## Hit-frame slack: both combatants move during windup; strict range/arc at impact caused mass whiffs + windup spam.
+const STRIKE_RANGE_SLACK_MULT: float = 1.28
+const STRIKE_ARC_MIN_HALF_RAD: float = 0.96  # ~55° — floor so narrow club profile still lands in pack fights
+
 func _combat_d(msg: String) -> void:
 	UnifiedLogger.log(msg, UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.DEBUG)
 
@@ -559,48 +563,59 @@ func _hit_validation_failure_reason(target: Node) -> String:
 	if not target_health or target_health.is_dead:
 		return "dead"
 	var distance: float = npc.global_position.distance_to(target.global_position)
-	if distance > attack_range:
+	var strike_range: float = attack_range * STRIKE_RANGE_SLACK_MULT
+	if distance > strike_range:
 		return "out_of_range"
-	if not _is_target_in_attack_arc(target):
+	if not _is_target_in_strike_arc(target):
 		return "out_of_arc"
 	return ""
 
 func _validate_hit(target: Node) -> bool:
 	return _hit_validation_failure_reason(target) == ""
 
-func _is_target_in_attack_arc(target: Node) -> bool:
-	# Calculate direction to target
-	var direction_to_target = (target.global_position - npc.global_position).normalized()
-	
-	# Get attacker's facing direction
+func _get_melee_facing_direction() -> Vector2:
 	var facing_direction: Vector2
-	if npc.has_method("get") and npc.get("velocity"):
-		var velocity = npc.get("velocity") as Vector2
+	if npc and npc.has_method("get") and npc.get("velocity") != null:
+		var velocity: Vector2 = npc.get("velocity") as Vector2
 		if velocity.length_squared() > 0.1:
-			# Use movement direction as facing
 			facing_direction = velocity.normalized()
 		else:
-			# Not moving - use sprite flip or default
 			var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 			if sprite:
-				# Sprite flipped = facing left, not flipped = facing right
 				facing_direction = Vector2(-1 if sprite.flip_h else 1, 0)
 			else:
-				# Default to right
 				facing_direction = Vector2(1, 0)
-	else:
-		# Player or NPC without velocity - check sprite
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			facing_direction = Vector2(-1 if sprite.flip_h else 1, 0)
+	elif npc:
+		var sprite_fb: Sprite2D = npc.get_node_or_null("Sprite")
+		if sprite_fb:
+			facing_direction = Vector2(-1 if sprite_fb.flip_h else 1, 0)
 		else:
 			facing_direction = Vector2(1, 0)
-	
-	# Calculate angle between facing direction and direction to target
-	var angle = direction_to_target.angle_to(facing_direction)
-	
-	# Check if angle is within attack arc (half arc on each side)
+	else:
+		facing_direction = Vector2(1, 0)
+	return facing_direction
+
+
+func _is_target_in_attack_arc(target: Node) -> bool:
+	var direction_to_target: Vector2 = (target.global_position - npc.global_position)
+	if direction_to_target.length_squared() < 0.0001:
+		return false
+	direction_to_target = direction_to_target.normalized()
+	var facing_direction: Vector2 = _get_melee_facing_direction()
+	var angle: float = direction_to_target.angle_to(facing_direction)
 	return abs(angle) <= attack_arc / 2.0
+
+
+## At impact frame: tolerate facing drift / vertical offset vs side-view sprite forward (narrow weapon arc was trivially failing).
+func _is_target_in_strike_arc(target: Node) -> bool:
+	var direction_to_target: Vector2 = (target.global_position - npc.global_position)
+	if direction_to_target.length_squared() < 0.0001:
+		return false
+	direction_to_target = direction_to_target.normalized()
+	var facing_direction: Vector2 = _get_melee_facing_direction()
+	var ang: float = abs(direction_to_target.angle_to(facing_direction))
+	var half_allow: float = maxf(attack_arc * 0.5, STRIKE_ARC_MIN_HALF_RAD)
+	return ang <= half_allow
 
 func is_target_in_attack_arc(target: Node) -> bool:
 	return _is_target_in_attack_arc(target)

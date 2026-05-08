@@ -398,7 +398,8 @@ func update(_delta: float) -> void:
 						if not npc.has_meta("last_attack_request_time"):
 							npc.set_meta("last_attack_request_time", 0)
 						var last_attack_time = npc.get_meta("last_attack_request_time", 0)
-						var attack_cooldown = 50  # 50ms minimum between attacks (faster combat)
+						# Longer gap reduces visual “twitch” when hit frames whiff (was 50ms).
+						var attack_cooldown = 220
 						
 						if now - last_attack_time >= attack_cooldown:
 							# Head-on aligned and in range - request attack
@@ -657,7 +658,8 @@ func can_enter() -> bool:
 	return false
 
 func get_priority() -> float:
-	# High priority - combat overrides most states
+	if NPCConfig:
+		return NPCConfig.priority_combat_state
 	return 12.0
 
 func _find_nearest_enemy() -> void:
