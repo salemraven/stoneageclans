@@ -17,7 +17,7 @@ var _stuck_timer: float = 0.0
 func _apply_burst_flee_speed() -> void:
 	if npc == null or npc.steering_agent == null:
 		return
-	var sa := npc.steering_agent
+	var sa: Node = npc.steering_agent
 	if not sa.has_method("restore_original_speed") or not sa.has_method("set_speed_multiplier"):
 		return
 	sa.restore_original_speed()

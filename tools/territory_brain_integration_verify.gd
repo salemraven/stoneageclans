@@ -59,4 +59,10 @@ func _run() -> void:
 		return
 
 	print("TERRITORY_BRAIN_INTEGRATION_OK: nearby enemy Campfire detected (count=%d)" % claims.size())
+
+	# Shell gate greps JSONL for clan_brain_eval. Brain only logs after ~EVALUATION_INTERVAL sim seconds.
+	if brain and brain.has_method(&"update"):
+		for __i in range(620):
+			brain.update(0.01)
+
 	quit(0)

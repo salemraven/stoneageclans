@@ -328,6 +328,33 @@ func baby_spawned(clan_name: String, mother_name: String, father_name: String, s
 func baby_grew_to_clansman(npc_name: String, clan_name: String) -> void:
 	_write({"evt": "baby_grew_to_clansman", "npc": npc_name, "clan": clan_name})
 
+# --- ClanBrain eval (NPC / territory integration JSONL gates) ---
+func clan_brain_eval(clan_name: String, metrics: Dictionary) -> void:
+	var obj := {"evt": "clan_brain_eval", "clan": clan_name}
+	for k in metrics.keys():
+		obj[k] = metrics[k]
+	_write(obj)
+
+func clan_brain_food_ratio(clan_name: String, food_total: int, population: int, target: int, ratio: float) -> void:
+	_write({
+		"evt": "clan_brain_food_ratio",
+		"clan": clan_name,
+		"food_total": food_total,
+		"population": population,
+		"target": target,
+		"ratio": ratio,
+	})
+
+func clan_brain_quota_update(clan_name: String, defender_quota: int, searcher_quota: int, cavemen_count: int, alert_level_str: String) -> void:
+	_write({
+		"evt": "clan_brain_quota_update",
+		"clan": clan_name,
+		"defender_quota": defender_quota,
+		"searcher_quota": searcher_quota,
+		"cavemen": cavemen_count,
+		"alert_level": alert_level_str,
+	})
+
 # --- Raid test events (ClanBrain / RaidState) ---
 
 func raid_evaluated(clan_name: String, score: float, score_breakdown: Dictionary) -> void:
