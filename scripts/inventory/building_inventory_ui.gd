@@ -1520,7 +1520,7 @@ func _try_build_building(building: BuildingRegistry.BuildingData) -> void:
 	
 	# Check if player can afford building
 	if not BuildingRegistry.can_afford_building(building, inv):
-		var missing := BuildingRegistry.get_missing_materials(building, land_claim.inventory)
+		var missing := BuildingRegistry.get_missing_materials(building, inv)
 		var missing_str := ""
 		for mat in missing:
 			missing_str += "%d %s, " % [missing[mat], mat.capitalize()]
