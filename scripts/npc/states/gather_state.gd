@@ -9,8 +9,11 @@ extends "res://scripts/npc/states/base_state.gd"
 var gather_target: Node2D = null  # Kept for get_data(); always null in job-only
 var _last_target_search_time: float = -999.0  # Throttle: avoid per-frame scans
 var _no_job_retry_time: float = -999.0  # Block can_enter for 3s after job+target both fail (prevents spam)
+## After land_claim.generate_gather_job() returns null, wait before trying again (reduces WORK_GATHER_NO_RESOURCE spam + CPU).
+var _no_gather_job_backoff_until: float = -999.0
 const SEARCH_THROTTLE: float = 0.5  # Min seconds between job pull attempts
 const NO_JOB_RETRY_SEC: float = 3.0
+const NO_GATHER_JOB_BACKOFF_SEC: float = 4.0
 
 # State completion: done when inventory at threshold (need to deposit)
 func is_complete() -> bool:
@@ -78,6 +81,8 @@ func update(_delta: float) -> void:
 		return
 	if not npc.task_runner.has_job():
 		var now: float = Time.get_ticks_msec() / 1000.0
+		if now < _no_gather_job_backoff_until:
+			return
 		if now - _last_target_search_time < SEARCH_THROTTLE:
 			return
 		_last_target_search_time = now
@@ -113,6 +118,10 @@ func can_enter() -> bool:
 	# CRITICAL: Cannot gather while following - following takes priority
 	if _is_following():
 		return false  # Following - cannot gather
+	# Led cavefolk (raid/hunt party, etc.) should not chop while herded — party/hunt states take over.
+	var nt_led: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if (nt_led == "caveman" or nt_led == "clansman") and npc.get("is_herded") == true:
+		return false
 	# Agro combat test leaders are driven by main — must not stop to gather
 	if npc.has_meta("agro_combat_test_leader"):
 		return false
@@ -182,29 +191,34 @@ func can_enter() -> bool:
 	return true
 
 func get_priority() -> float:
+	var p_low: float = 1.0
+	var p_full: float = 5.0
+	if NPCConfig:
+		p_low = NPCConfig.priority_gather_no_clan
+		p_full = NPCConfig.priority_gather_inventory_full
 	if not npc:
-		return 1.0
+		return p_low
 	
 	# Only for cavemen and clansmen
 	var npc_type = npc.get("npc_type")
 	var is_clansman = (npc_type == "clansman")
 	if npc_type != "caveman" and npc_type != "clansman":
-		return 1.0
+		return p_low
 	
 	var clan_name: String = npc.get_clan_name() if npc else ""
 	if clan_name == "":
 		var npc_name = npc.get("npc_name") if npc else "unknown"
 		if is_clansman:
-			UnifiedLogger.log_npc("🧑 CLANSMAN GATHER PRIORITY: %s priority=1.0 (no_clan)" % npc_name, {
-				"npc": npc_name, "state": "gather", "priority": "1.0", "reason": "no_clan"
+			UnifiedLogger.log_npc("🧑 CLANSMAN GATHER PRIORITY: %s priority=%s (no_clan)" % [npc_name, p_low], {
+				"npc": npc_name, "state": "gather", "priority": str(p_low), "reason": "no_clan"
 			}, UnifiedLogger.Level.DEBUG)
-		return 1.0  # No land claim, low priority
+		return p_low
 	
 	# SIMPLIFIED: Lower priority if inventory full (need to deposit)
 	var used_slots: int = _get_used_slots()
 	var threshold: int = _get_inventory_threshold()
 	if used_slots >= threshold:
-		return 5.0
+		return p_full
 	
 	# Config-driven; productivity mode boosts so gather beats herd-search
 	var priority: float = 4.0
@@ -213,7 +227,7 @@ func get_priority() -> float:
 		if config_priority != null:
 			priority = config_priority as float
 		if "caveman_productivity_test" in NPCConfig and (NPCConfig.caveman_productivity_test as float) >= 1.0:
-			priority = 5.8  # Below herd-search (6.0) so cavemen commit to herding when target in range; still beats wander (0.01)
+			priority = NPCConfig.priority_gather_productivity
 	return priority
 
 # Helper functions
@@ -247,6 +261,8 @@ func _try_pull_gather_job() -> bool:
 	# Check if TaskRunner is idle (no current job)
 	if npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
 		return false  # Already has a job
+	if npc.has_method("should_abort_work") and npc.should_abort_work():
+		return false
 	
 	var land_claim: Node = npc.get_my_land_claim()
 	if not land_claim:
@@ -258,8 +274,10 @@ func _try_pull_gather_job() -> bool:
 	
 	var job: Job = land_claim.generate_gather_job(npc)
 	if not job:
+		_no_gather_job_backoff_until = Time.get_ticks_msec() / 1000.0 + NO_GATHER_JOB_BACKOFF_SEC
 		return false  # No job available
 	
+	_no_gather_job_backoff_until = -999.0
 	# Assign job to TaskRunner
 	if npc.task_runner.has_method("assign_job"):
 		npc.task_runner.assign_job(job)

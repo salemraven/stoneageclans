@@ -166,6 +166,9 @@ func assign_job(job: Job) -> void:
 
 # Cancel the current job and all tasks
 func cancel_current_job(reason: String = "unspecified") -> void:
+	if current_task == null and current_job == null:
+		is_active = false
+		return
 	if current_task:
 		current_task.cancel(npc)
 		current_task = null

@@ -566,7 +566,12 @@ func should_abort_work() -> bool:
 		return true
 	if combat_target != null and is_instance_valid(combat_target):
 		return true
-	return follow_is_ordered == true
+	if follow_is_ordered == true:
+		return true
+	# Raid/hunt followers (and led cavefolk): mirrors gather exclusion — don't run claim jobs while herded by a leader.
+	if npc_type == "caveman" or npc_type == "clansman":
+		return is_herded
+	return false
 var search_home_claim: Node = null  # Land claim to return to when searching (ant-style loop)
 var lost_wildnpc: Node2D = null  # The wild NPC that was lost (to try to get back)
 var is_hostile: bool = false  # True when agro level is high enough for hostile mode
