@@ -99,6 +99,20 @@ bash tools/run_exhaustive_earlygame_verify.sh
 - **`SKIP_LONG_MAIN=1`** — skip long Main + strict analyzer (still runs base + TerritoryJobService).
 - **`python3 scripts/logging/analyze_playtest.py --strict [--min-herd-wildnpc-enters N] [--min-session-sec SEC] path/to/playtest_session.jsonl`** — herd flicker, `herd_count_change`, and optional **coverage** thresholds; exits `1` on violation.
 
+**Combat / agro stability (same script):**
+
+- Runs **after every analysis** — prints summaries from `npc_fsm_transition`, `agro_threshold_crossed`, and enhanced `npc_world_probe` combat rows (`ctl_d`, `agro`, `c_lock`, `fsm_thr` on cavemen/clansmen).
+- **`--strict-stability`** exits `1` if any threshold trips (all tunable via CLI flags):
+  - **Combat churn:** too many FSM transitions touching `combat` / `flee_combat` in a sliding window (default 14 transitions / 14s per fighter).
+  - **Agro ping-pong:** too many directional flips on `agro_threshold_crossed` per NPC per window (default 14 flips / 30s).
+  - **Frozen combat probes:** successive snapshot streak in combat with **target in range** but **near-zero velocity**, excluding `combat_locked` windup/recovery (default 6 snapshots at capture interval).
+
+Example:
+
+```bash
+python3 scripts/logging/analyze_playtest.py ~/path/playtest_session.jsonl --strict --strict-stability
+```
+
 ## 2-minute NPC playtest + JSONL strict analysis (~2 min)
 
 Runs **`Main`** headless with **`--playtest-2min`** and **`--playtest-capture`** (no `--quit-after` — combining quit-after with timed playtest can end the run in ~1s). Writes JSONL + `godot.log`, **`git` commit** in `commit.txt`, then **`analyze_playtest.py --strict`**.

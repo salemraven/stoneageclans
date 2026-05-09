@@ -729,6 +729,18 @@ func _capture_snapshot() -> void:
 					"follow_ordered": n.get("follow_is_ordered") == true,
 					"herder": hname,
 				}
+				# Combat stability (analyzer: frozen-in-combat, agro readout alongside motion)
+				if (state == "combat" or state == "flee_combat") and (nt_p == "caveman" or nt_p == "clansman"):
+					var am_raw: Variant = n.get("agro_meter")
+					prow["agro"] = snappedf(float(am_raw) if am_raw != null else 0.0, 1)
+					var ct_p: Variant = n.get("combat_target")
+					var ctd: float = -1.0
+					if ct_p is Node2D and is_instance_valid(ct_p):
+						ctd = n.global_position.distance_to((ct_p as Node2D).global_position)
+					prow["ctl_d"] = snappedf(ctd, 1)
+					prow["c_lock"] = n.get("combat_locked") == true
+					var sc_raw: Variant = n.get("_distance_based_update_scale")
+					prow["fsm_thr"] = snappedf(float(sc_raw) if sc_raw != null else 1.0, 3)
 				if n.get("migration_active") != null:
 					prow["mig_act"] = n.get("migration_active") == true
 					prow["mig_side"] = int(n.get("migration_entry_side")) if n.get("migration_entry_side") != null else 0
