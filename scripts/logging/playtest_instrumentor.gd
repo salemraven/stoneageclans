@@ -112,6 +112,14 @@ func _start() -> void:
 		var session: Dictionary = {"t": 0.0, "evt": "session_start", "path": _file_path}
 		if "--npc-only-world" in ua:
 			session["npc_only_world"] = true
+		var ws_idx: int = ua.find("--playtest-world-seed")
+		if ws_idx >= 0 and ws_idx + 1 < ua.size():
+			var wss: String = str(ua[ws_idx + 1]).strip_edges()
+			if wss.is_valid_int():
+				session["playtest_world_seed_cli"] = int(wss)
+		var _wgc_instrument: Node = get_node_or_null("/root/WorldGenConfig")
+		if _wgc_instrument != null:
+			session["world_seed"] = int(_wgc_instrument.world_seed)
 		if _party_test:
 			session["party_test"] = true
 		if _agro_combat_test:

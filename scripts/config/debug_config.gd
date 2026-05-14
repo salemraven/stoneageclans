@@ -21,6 +21,10 @@ var enable_raid_test: bool = false
 # Playtest capture for normal play: when true, instrumentor records to user://playtest_*.jsonl (no --playtest-capture needed)
 var playtest_capture_always: bool = false
 
+## NPC-only timed playtest: raise hunt need pressure so ClanBrain starts AoH hunts (`hunt_started` JSONL). Normal play: always false.
+var npc_only_world_hunt_stress: bool = false
+
+
 # Test-only overrides (assert they never affect normal gameplay)
 var test_overrides: Dictionary = {
 	"allow_raid_without_player": true,  # Combat can_enter raid path when herder=leader

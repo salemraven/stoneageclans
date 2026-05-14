@@ -10,10 +10,12 @@
 #   ANALYZER_EXTRA_ARGS            — extra analyze_playtest.py flags (space-separated)
 #   ULTIMATE_MIN_CLAN_BRAIN_EVALS  — passed as --min-clanbrain-eval-events (default 1)
 #   ULTIMATE_MIN_QUOTA_UPDATES     — if >0, adds --min-clanbrain-quota-updates
-#   ULTIMATE_NPC_SIM_MIN_GATHER    — default 8
-#   ULTIMATE_NPC_SIM_MIN_HUNT      — default 1
-#   ULTIMATE_NPC_SIM_MIN_GROWTH    — default 1
-#   MIN_NPC_SESSION_SEC_FOR_ANALYZE — default 90 (--min-npc-session-sec)
+#   ULTIMATE_NPC_SIM_MIN_GATHER         — default 8
+#   ULTIMATE_NPC_SIM_MIN_HUNT_WORLD     — default 1 (--min-npc-hunt-world)
+#   ULTIMATE_NPC_SIM_MIN_HUNT_BRAIN     — default 1 (--min-npc-hunt-brain)
+#   ULTIMATE_NPC_SIM_MIN_GROWTH_UNIQUE   — default 1 (deduped baby keys)
+#   MIN_NPC_SESSION_SEC_FOR_ANALYZE     — default 90 (--min-npc-session-sec)
+#   PLAYTEST_WORLD_SEED                 — default 88442201; set "random" to omit --playtest-world-seed
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,11 +34,11 @@ OUT="${OUT_DIR:-$ROOT/Tests/logs/playtest_npc_only_2min_${STAMP}}"
 mkdir -p "$OUT"
 
 echo ">>> NPC-only world: playtest 2min + capture -> $OUT"
-"$GODOT" --path "$ROOT" --headless -- \
-	--npc-only-world \
-	--playtest-2min \
-	--playtest-capture \
-	--playtest-log-dir "$OUT" \
+GODOT_USER=(--npc-only-world --playtest-2min --playtest-capture --playtest-log-dir "$OUT")
+if [[ "${PLAYTEST_WORLD_SEED:-}" != "random" ]]; then
+	GODOT_USER+=(--playtest-world-seed "${PLAYTEST_WORLD_SEED:-88442201}")
+fi
+"$GODOT" --path "$ROOT" --headless -- "${GODOT_USER[@]}" \
 	>"$OUT/godot.log" 2>&1
 EC=$?
 echo "EXIT:$EC" >>"$OUT/godot.log"
@@ -55,8 +57,9 @@ fi
 MIN_EVAL="${ULTIMATE_MIN_CLAN_BRAIN_EVALS:-1}"
 MIN_QUOTA="${ULTIMATE_MIN_QUOTA_UPDATES:-0}"
 MIN_GATHER="${ULTIMATE_NPC_SIM_MIN_GATHER:-8}"
-MIN_HUNT="${ULTIMATE_NPC_SIM_MIN_HUNT:-1}"
-MIN_GROWTH="${ULTIMATE_NPC_SIM_MIN_GROWTH:-1}"
+MIN_HUNT_WORLD="${ULTIMATE_NPC_SIM_MIN_HUNT_WORLD:-1}"
+MIN_HUNT_BRAIN="${ULTIMATE_NPC_SIM_MIN_HUNT_BRAIN:-1}"
+MIN_GROW_UNIQUE="${ULTIMATE_NPC_SIM_MIN_GROWTH_UNIQUE:-1}"
 MIN_NPC_SESS="${MIN_NPC_SESSION_SEC_FOR_ANALYZE:-90}"
 
 AN_CMD=(
@@ -66,8 +69,9 @@ AN_CMD=(
 	"--strict-npc-sim"
 	"--require-npc-only-session"
 	"--min-npc-gather-fsm" "$MIN_GATHER"
-	"--min-npc-hunt-signals" "$MIN_HUNT"
-	"--min-npc-growth-events" "$MIN_GROWTH"
+	"--min-npc-hunt-world" "$MIN_HUNT_WORLD"
+	"--min-npc-hunt-brain" "$MIN_HUNT_BRAIN"
+	"--min-npc-growth-unique" "$MIN_GROW_UNIQUE"
 	"--min-npc-session-sec" "$MIN_NPC_SESS"
 )
 if [[ "$MIN_QUOTA" =~ ^[0-9]+$ ]] && [[ "${MIN_QUOTA}" -gt 0 ]]; then

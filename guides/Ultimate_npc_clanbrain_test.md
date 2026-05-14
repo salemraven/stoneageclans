@@ -32,7 +32,7 @@ Environment:
 - **`ULTIMATE_LONG_2MIN=1`** — also runs **`bash tools/run_playtest_2min_analyze.sh`** (~2 min `Main`): herd **`--strict`** plus **`--strict-clanbrain`** via **`ANALYZER_EXTRA_ARGS`**.
 - **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`** (short ClanBrain JSONL and NPC-only analyzer).
 - **`ULTIMATE_MIN_QUOTA_UPDATES`** — default **`0`**; set **`1`** if the short ClanBrain slice must prove quota logs.
-- **`ULTIMATE_NPC_SIM_MIN_GATHER`** / **`ULTIMATE_NPC_SIM_MIN_HUNT`** / **`ULTIMATE_NPC_SIM_MIN_GROWTH`** — thresholds for **`--strict-npc-sim`** on the NPC-only JSONL (defaults **`8`** / **`1`** / **`1`**). **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) gates **`max(t)`** on that capture.
+- **`ULTIMATE_NPC_SIM_MIN_GATHER`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_WORLD`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_BRAIN`** / **`ULTIMATE_NPC_SIM_MIN_GROWTH_UNIQUE`** — NPC-only analyzer thresholds (defaults **`8`** / **`1`** / **`1`** / **`1`**). **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) gates **`max(t)`**. **`PLAYTEST_WORLD_SEED`** default **`88442201`** on the bundled NPC-only runners; **`random`** omits **`--playtest-world-seed`**. JSONL **`session_start`** stores **`playtest_world_seed_cli`** when the CLI flag is present (and **`world_seed`** when **`WorldGenConfig`** is on the tree at capture start).
 
 ### 1.2 JSONL capture (full instrumentation)
 
@@ -52,6 +52,7 @@ Writes `playtest_session.jsonl` with structured events.
 |------|----------|
 | `--playtest-2min` | 2-min timed run, auto-quit, 2s snapshots |
 | `--npc-only-world` | Hub AI/wildlife sim: player pinned/hidden at origin (with `--playtest-*`, proves ClanBrain without moving an avatar) |
+| `--playtest-world-seed <int>` | Fixed **`WorldGenConfig.world_seed`** for reproducible streamed content (recommended for CI); omit if you intentionally want randomized seed rolls |
 | `--playtest-4min` | 4-min timed run |
 | `--raid-test` | Tags session for raid validation, 2s snapshots |
 | `--party-test` | Party/formation validation |
@@ -437,7 +438,7 @@ Use on captures run with **`--npc-only-world`** ( **`session_start`** includes *
 ```bash
 python3 scripts/logging/analyze_playtest.py \
   --strict-npc-sim --require-npc-only-session \
-  [--min-npc-gather-fsm N] [--min-npc-hunt-signals N] [--min-npc-growth-events N] \
+  [--min-npc-gather-fsm N] [--min-npc-hunt-world N] [--min-npc-hunt-brain N] [--min-npc-growth-unique N] \
   [--min-npc-session-sec SEC] \
   playtest_session.jsonl
 ```
@@ -445,10 +446,11 @@ python3 scripts/logging/analyze_playtest.py \
 Fails when thresholds miss counts of:
 
 - **`npc_fsm_transition`** for **`caveman`/`clansman`** touching **`gather`** states,
-- **Hunt activity:** **`hunt_started`** / **`hunt_joined`** / **`hunt_phase_changed`**, plus **`npc_fsm_transition`** on **`caveman`/`clansman`** touching **`hunt`**, plus **`deer`/`mammoth`** transitions touching **`flee_prey`** (prey reacting to hunters),
-- **`baby_spawned`** + **`baby_grew_to_clansman`**.
+- **World hunt proxy:** **`deer`/`mammoth`** **`npc_fsm_transition`** rows touching **`flee_prey`** (prey under pressure — not always attributable to AoH alone).
+- **Brain hunt telemetry:** **`hunt_started`** / **`hunt_joined`** / **`hunt_phase_changed`**, plus fighter **`hunt`** FSM transitions. For NPC-only **~120 s** captures, **`Main`** enables **`DebugConfig.npc_only_world_hunt_stress`** (timed **`--npc-only-world`** only) so clans still evaluate hunts when cupboards are stocked, which makes `hunt_started` appear **without lying in production saves**.
+- **Growth:** count of **unique** keys (**`baby_spawned`**: **`clan`+`mother`+`father`+`slot_count`**; **`baby_grew_to_clansman`**: **`npc`+`clan`**) — ignores duplicate JSONL spam.
 
-Bundled runner: **`bash tools/run_playtest_npc_only_2min_analyze.sh`** (sets ClanBrain strict + NPC sim thresholds via env vars documented in that script).
+Bundled runners: **`bash tools/run_playtest_npc_only_2min_analyze.sh`** or **`powershell -File tools/run_playtest_npc_only_2min_analyze.ps1`**.
 
 ### 6.2 Stability mode
 
@@ -467,7 +469,7 @@ Fails on:
 |-------|-----------|
 | Brain runs | ≥1 `clan_brain_eval` in 2min run |
 | No friendly fire | `friendly_fire_instrumented_hits == 0` |
-| Hunts valid | No `hunt_started` with herdable **`prey`** (`sheep`/`goat`/`woman`); **`--strict-clanbrain`** enforce allowlist |
+| Hunts valid | No bad **`hunt_started`** prey (**`--strict-clanbrain`**); NPC strict adds separate **world vs brain** hunt floors |
 | Raids form | Heuristic stress only: after `raid_started`, expect **`party_formed`** shortly (not enforced by analyzer yet) |
 
 ### 6.4 Combined example

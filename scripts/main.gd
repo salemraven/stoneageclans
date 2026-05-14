@@ -202,6 +202,36 @@ func _cmdline_npc_only_world() -> bool:
 	return _cmdline_has("--npc-only-world")
 
 
+## Deterministic streamed world for playtest harness (`--playtest-world-seed <int>`). Ignored when absent.
+func _apply_playtest_world_seed_from_cli() -> void:
+	if OS.get_name() == "Web":
+		return
+	var ua := OS.get_cmdline_user_args()
+	var idx: int = ua.find("--playtest-world-seed")
+	if idx < 0 or idx + 1 >= ua.size():
+		return
+	var s: String = str(ua[idx + 1]).strip_edges()
+	if not s.is_valid_int():
+		push_warning("Main: invalid --playtest-world-seed (not integer): %s" % s)
+		return
+	var seed_val: int = int(s)
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc:
+		wgc.world_seed = seed_val
+
+
+## See `DebugConfig.npc_only_world_hunt_stress`: only for NPC-only + timed playtests.
+func _apply_npc_only_playtest_hunt_stress() -> void:
+	if not _npc_only_world:
+		return
+	var ua := OS.get_cmdline_user_args()
+	if "--playtest-2min" not in ua and "--playtest-4min" not in ua:
+		return
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc:
+		dc.npc_only_world_hunt_stress = true
+
+
 func _new_land_claim_inventory() -> InventoryData:
 	var n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
 	var m: int = BalanceConfig.land_claim_inventory_max_stack if BalanceConfig else 999999
@@ -620,6 +650,8 @@ func _notification(what: int) -> void:
 func _ready() -> void:
 	# Log startup
 	_npc_only_world = _cmdline_npc_only_world()
+	_apply_playtest_world_seed_from_cli()
+	_apply_npc_only_playtest_hunt_stress()
 	UnifiedLogger.log_system("Main._ready() called")
 	
 	add_to_group("main")

@@ -5,7 +5,7 @@ Strict modes:
   --strict                 Fail on herd invariants (+ optional coverage thresholds).
   --strict-stability      Fail on combat FSM churn, agro ping-pong, or frozen combat probes.
   --strict-clanbrain      Fail on bad hunt_started prey, friendly-fire JSONL markers, optional brain coverage.
-  --strict-npc-sim        Fail if AI clans lack gather FSM touches, hunt telemetry, or population growth signals.
+  --strict-npc-sim        Fail if gather / layered hunt-world+hunt-brain / unique growth thresholds miss.
 
 See tools/README.md for capture flags (--playtest-capture, --playtest-2min).
 """
@@ -16,7 +16,7 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 def _loads_events(path: Path) -> List[Dict[str, Any]]:
@@ -308,24 +308,21 @@ def analyze_strict_npc_sim(
     *,
     require_npc_only_session: bool,
     min_gather_fsm_touches: int,
-    min_hunt_signals: int,
-    min_growth_events: int,
+    min_hunt_world_signals: int,
+    min_hunt_brain_signals: int,
+    min_growth_unique_events: int,
     min_session_sec: float,
     violations_out: List[str],
 ) -> None:
-    """Proof that AI clans gather, hunt pipeline runs, and population grows (JSONL oracle).
-
-    Gather: npc_fsm_transition rows for caveman/clansman touching gather state.
-    Hunt: hunt_started / hunt_joined / hunt_phase_changed, plus prey (deer/mammoth)
-          npc_fsm_transition rows touching flee_prey (pressure from hunters).
-    Growth: baby_spawned + baby_grew_to_clansman.
-    """
+    """Layered proof: gather FSM; hunt world vs AoH/brain telemetry; deduped growth keys."""
 
     _mark_start = len(violations_out)
 
     gather_fsm_touches = 0
-    hunt_signals = 0
-    growth_events = 0
+    hunt_world_signals = 0
+    hunt_brain_signals = 0
+    baby_spawn_keys: Set[Tuple[Any, ...]] = set()
+    baby_grew_keys: Set[Tuple[Any, ...]] = set()
 
     prey_types_for_hunt_evidence = frozenset({"deer", "mammoth"})
 
@@ -339,26 +336,41 @@ def analyze_strict_npc_sim(
                 if "gather" in frm or "gather" in to:
                     gather_fsm_touches += 1
                 if "hunt" in frm or "hunt" in to:
-                    hunt_signals += 1
+                    hunt_brain_signals += 1
             elif t_raw in prey_types_for_hunt_evidence:
                 if "flee_prey" in frm or "flee_prey" in to:
-                    hunt_signals += 1
+                    hunt_world_signals += 1
         elif evt == "hunt_started":
-            hunt_signals += 1
+            hunt_brain_signals += 1
         elif evt in ("hunt_joined", "hunt_phase_changed"):
-            hunt_signals += 1
-        elif evt in ("baby_spawned", "baby_grew_to_clansman"):
-            growth_events += 1
+            hunt_brain_signals += 1
+        elif evt == "baby_spawned":
+            baby_spawn_keys.add(
+                (
+                    e.get("clan"),
+                    e.get("mother"),
+                    e.get("father"),
+                    e.get("slot_count", -1),
+                )
+            )
+        elif evt == "baby_grew_to_clansman":
+            baby_grew_keys.add((e.get("npc"), e.get("clan")))
+
+    growth_unique = len(baby_spawn_keys) + len(baby_grew_keys)
 
     max_t = max((float(e.get("t", 0)) for e in events), default=0.0)
 
     print("\n--- NPC world sim strict (AI gather / hunt / growth) ---")
     print(f"  npc_fsm_transition gather touches (caveman/clansman): {gather_fsm_touches}")
+    print(f"  hunt world (prey flee_prey FSM): {hunt_world_signals}")
     print(
-        "  hunt signals (AoH JSONL + fighter hunt FSM + prey flee_prey FSM): "
-        f"{hunt_signals}"
+        "  hunt brain (hunt_started/joined/phase + fighter hunt FSM): "
+        f"{hunt_brain_signals}"
     )
-    print(f"  growth events (baby spawn/grew): {growth_events}")
+    print(
+        f"  growth unique (spawn keys={len(baby_spawn_keys)}, grew keys={len(baby_grew_keys)} "
+        f"total={growth_unique})"
+    )
     print(f"  max event t: {max_t:.1f}s")
 
     if require_npc_only_session:
@@ -379,19 +391,31 @@ def analyze_strict_npc_sim(
         print(f"  VIOLATION: {msg}")
         violations_out.append(msg)
 
-    if min_hunt_signals > 0 and hunt_signals < min_hunt_signals:
-        msg = f"coverage:npc_sim_hunt_signals have={hunt_signals} need>={min_hunt_signals}"
+    if min_hunt_world_signals > 0 and hunt_world_signals < min_hunt_world_signals:
+        msg = (
+            f"coverage:npc_sim_hunt_world have={hunt_world_signals} "
+            f"need>={min_hunt_world_signals}"
+        )
         print(f"  VIOLATION: {msg}")
         violations_out.append(msg)
 
-    if min_growth_events > 0 and growth_events < min_growth_events:
-        msg = f"coverage:npc_sim_growth have={growth_events} need>={min_growth_events}"
+    if min_hunt_brain_signals > 0 and hunt_brain_signals < min_hunt_brain_signals:
+        msg = (
+            f"coverage:npc_sim_hunt_brain have={hunt_brain_signals} "
+            f"need>={min_hunt_brain_signals}"
+        )
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if min_growth_unique_events > 0 and growth_unique < min_growth_unique_events:
+        msg = (
+            f"coverage:npc_sim_growth_unique have={growth_unique} need>={min_growth_unique_events}"
+        )
         print(f"  VIOLATION: {msg}")
         violations_out.append(msg)
 
     if len(violations_out) == _mark_start:
         print("  ✓ NPC sim strict thresholds satisfied")
-
 
 
 def analyze(
@@ -416,8 +440,9 @@ def analyze(
     strict_npc_sim: bool = False,
     require_npc_only_session: bool = False,
     min_npc_gather_fsm_touches: int = 1,
-    min_npc_hunt_signals: int = 1,
-    min_npc_growth_events: int = 1,
+    min_npc_hunt_world_signals: int = 1,
+    min_npc_hunt_brain_signals: int = 1,
+    min_npc_growth_unique_events: int = 1,
     min_npc_sim_session_sec: float = 110.0,
 ) -> int:
     events = _loads_events(path)
@@ -431,6 +456,10 @@ def analyze(
         print(f"Session path: {session.get('path', '?')}")
         if session.get("npc_only_world"):
             print("  npc_only_world: true")
+        if session.get("world_seed") is not None:
+            print(f"  world_seed: {session.get('world_seed')}")
+        if session.get("playtest_world_seed_cli") is not None:
+            print(f"  playtest_world_seed_cli: {session.get('playtest_world_seed_cli')}")
         print()
 
     # Herd enter/exit flicker: exit -> enter gap under rapid_reenter_sec (matches herd_wildnpc_reentry_cooldown_sec intent)
@@ -614,8 +643,9 @@ def analyze(
             session,
             require_npc_only_session=require_npc_only_session,
             min_gather_fsm_touches=min_npc_gather_fsm_touches,
-            min_hunt_signals=min_npc_hunt_signals,
-            min_growth_events=min_npc_growth_events,
+            min_hunt_world_signals=min_npc_hunt_world_signals,
+            min_hunt_brain_signals=min_npc_hunt_brain_signals,
+            min_growth_unique_events=min_npc_growth_unique_events,
             min_session_sec=min_npc_sim_session_sec,
             violations_out=npc_sim_violations,
         )
@@ -666,21 +696,31 @@ def main() -> None:
         help="With --strict-npc-sim: min npc_fsm_transition rows touching gather for caveman/clansman",
     )
     ap.add_argument(
-        "--min-npc-hunt-signals",
+        "--min-npc-hunt-world",
+        type=int,
+        default=1,
+        metavar="N",
+        help="With --strict-npc-sim: min prey flee_prey FSM transitions (deer/mammoth)",
+    )
+    ap.add_argument(
+        "--min-npc-hunt-brain",
         type=int,
         default=1,
         metavar="N",
         help=(
-            "With --strict-npc-sim: min hunt-related signals "
-            "(hunt_started/joined/phase + fighter hunt FSM + deer/mammoth flee_prey FSM)"
+            "With --strict-npc-sim: min AoH/brain hunt signals "
+            "(hunt_started/joined/phase + caveman/clansman hunt FSM transitions)"
         ),
     )
     ap.add_argument(
-        "--min-npc-growth-events",
+        "--min-npc-growth-unique",
         type=int,
         default=1,
         metavar="N",
-        help="With --strict-npc-sim: min baby_spawned+baby_grew_to_clansman rows",
+        help=(
+            "With --strict-npc-sim: min UNIQUE growth keys "
+            "(dedup baby_spawned by clan/mother/father/slot_count; grew by npc,clan)"
+        ),
     )
     ap.add_argument(
         "--min-npc-session-sec",
@@ -810,8 +850,9 @@ def main() -> None:
             strict_npc_sim=args.strict_npc_sim,
             require_npc_only_session=args.require_npc_only_session,
             min_npc_gather_fsm_touches=args.min_npc_gather_fsm,
-            min_npc_hunt_signals=args.min_npc_hunt_signals,
-            min_npc_growth_events=args.min_npc_growth_events,
+            min_npc_hunt_world_signals=args.min_npc_hunt_world,
+            min_npc_hunt_brain_signals=args.min_npc_hunt_brain,
+            min_npc_growth_unique_events=args.min_npc_growth_unique,
             min_npc_sim_session_sec=args.min_npc_session_sec,
         )
     )

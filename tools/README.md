@@ -70,9 +70,11 @@ Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_ver
 bash tools/run_ultimate_npc_clanbrain_test.sh
 ```
 
-Optional: **`SKIP_NPC_ONLY_2MIN=1`** skips the bundled NPC-only capture. **`ULTIMATE_LONG_2MIN=1`** also runs **`run_playtest_2min_analyze.sh`** (~2 min **`Main`**) with herd **`--strict`** plus **`ANALYZER_EXTRA_ARGS`** including **`--strict-clanbrain`**. Tunables: **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`**, **`ULTIMATE_MIN_QUOTA_UPDATES`**, **`ULTIMATE_NPC_SIM_*`**, **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (see guide).
+Optional: **`SKIP_NPC_ONLY_2MIN=1`** skips the bundled NPC-only capture. **`ULTIMATE_LONG_2MIN=1`** also runs **`run_playtest_2min_analyze.sh`** (~2 min **`Main`**) with herd **`--strict`** plus **`ANALYZER_EXTRA_ARGS`** including **`--strict-clanbrain`**. Tunables: **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`**, **`ULTIMATE_MIN_QUOTA_UPDATES`**, **`ULTIMATE_NPC_SIM_*`**, **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`**, **`PLAYTEST_WORLD_SEED`** (see **`guides/Ultimate_npc_clanbrain_test.md`**).
 
-Standalone: **`bash tools/run_playtest_npc_only_2min_analyze.sh`**.
+Windows: **`powershell -NoProfile -File tools/run_playtest_npc_only_2min_analyze.ps1`** (same env vars).
+
+Standalone Bash: **`bash tools/run_playtest_npc_only_2min_analyze.sh`** (passes deterministic **`--playtest-world-seed`** unless **`PLAYTEST_WORLD_SEED=random`**).
 
 Cli: **`analyze_playtest.py --strict-clanbrain`**, **`--strict-npc-sim`**, **`--require-npc-only-session`**, **`--min-npc-*`**, **`--allowed-ai-hunt-prey`**, **`--min-clanbrain-eval-events`**, **`--min-clanbrain-quota-updates`**.
 

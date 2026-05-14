@@ -1768,6 +1768,9 @@ func _evaluate_hunt_opportunity() -> void:
 	if alert_level >= AlertLevel.SKIRMISH:
 		return
 	var need_pressure: float = _compute_hunt_need_pressure()
+	var hunt_stress := DebugConfig != null and bool(DebugConfig.npc_only_world_hunt_stress)
+	if hunt_stress:
+		need_pressure = maxf(need_pressure, 0.6)
 	if need_pressure <= 0.0:
 		return  # Clan is stocked — do not send hunting parties opportunistically
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
