@@ -39,8 +39,9 @@
 7. Combat (agro on intrusion; melee with windup/recovery; death → corpse looting).
 8. Defend (ClanBrain defender quota; NPCs self-assign Defend state).
 9. Raid (ClanBrain raid intent; NPCs self-assign Raid state; move → engage → loot → retreat).
-10. Reproduction (women in claim reproduce; babies spawn, grow to clansmen).
-11. Tasks (NPCs pull jobs: Gather, DropOff, MoveTo, etc. from land claim/buildings).
+10. Hunt / wild prey (NPC clans only: **deer** / **mammoth** in **Area of Hunt** → **`hunt_intent`** → **`hunt_state`**; sheep/goats stay **herd** path, not AoH hunt targets).
+11. Reproduction (women in claim reproduce; babies spawn, grow to clansmen).
+12. Tasks (NPCs pull jobs: Gather, DropOff, MoveTo, etc. from land claim/buildings).
 
 ---
 
@@ -195,10 +196,10 @@
 | **Inventory** | Drag-and-drop everywhere; player/building/NPC/corpse/ground; visual feedback; single-item drag. |
 | **Land claim** | Placement, 400px radius, inventory, build menu (I), building cards, clan ownership. |
 | **Buildings** | BuildingRegistry, build menu UI, placement (drag from inventory, 50px buffer), Living Hut / Supply Hut / Shrine / Dairy Farm / Oven; Oven production (Wood+Grain→Bread 15s). |
-| **NPC FSM** | Idle, Wander, Gather, Eat, Herd, HerdWildNpc, **flee_prey (deer)**, Combat, Defend, Raid, Build, Reproduction, Deposit, Search, etc.; priority-based; state blocking (e.g. combat_locked). |
+| **NPC FSM** | Idle, Wander, Gather, Eat, Herd, HerdWildNpc, **flee_prey (deer)**, **hunt_state (NPC clans vs AoH prey)**, Combat, Defend, Raid, Build, Reproduction, Deposit, Search, etc.; priority-based; state blocking (e.g. combat_locked). |
 | **NPC components** | Health, Combat, Weapon, Stats (hunger), Reproduction, BabyGrowth, DetectionArea; SteeringAgent (cached traits, herded_count, land claim cache, separation/avoid by intent). |
 | **Tasks & jobs** | Task base, MoveTo, Gather, DropOff, PickUp, Occupy, Wait, etc.; Job; TaskRunner; job generation from claim/buildings; cancel on defend/combat/follow. |
-| **ClanBrain** | Core brain, defense (defender quota), raids (raid state machine, raid_intent), searchers, strategic state, resource tracking, pull-based quotas. |
+| **ClanBrain** | Core brain: defense (defender quota), raids (**raid_intent**), NPC-clan hunts (**hunt_intent** / AoH prey only — deer/mammoth), searchers (**herd_wildnpc** for herdables), strategic state, resource tracking, pull-based quotas. |
 | **Reproduction** | ReproductionComponent/State; birth timer; baby spawn; BabyGrowthComponent; promotion to clansman. |
 | **Herding** | Start/stop; herded_count on player/NPC; claim conversion; herd stealing; Phase 3 refactor (event-based count, no scan). |
 | **Phase 3 refactor** | Cache NPC traits, cache land claims, herded_count, split separation/avoid by intent, intent delay, velocity smoothing, arrival offset, micro-wander; ClanBrain Phases 1–5. |

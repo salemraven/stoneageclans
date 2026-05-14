@@ -1,80 +1,90 @@
 # State Priority Hierarchy
 
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-05-13 (Hunt row: AoH = PREY only)
 
-This document defines the priority system for NPC FSM states. Higher priority states take precedence. The FSM evaluates states in priority order; the first state with `can_enter() == true` and priority > current state wins.
+**Source of truth:** Numeric defaults live in [`scripts/config/npc_config.gd`](../../scripts/config/npc_config.gd) under `@export_group("State Priorities")` (and related exports such as `priority_combat_state`, `priority_craft_*`, `priority_defend_*`, etc.). This document summarizes behavior; tune the autoload for gameplay changes.
 
-## Priority Values (Highest to Lowest)
+## FSM evaluation order (critical)
+
+In [`scripts/npc/fsm.gd`](../../scripts/npc/fsm.gd) `_evaluate_states()`:
+
+1. **Combat** — If `combat_state.can_enter()`, the FSM switches to combat and **returns** (before the sorted priority pass).
+2. **Defend** — If `defend_state.can_enter()`, the FSM switches to defend and **returns** (before the sorted priority pass). This implements the defend directive / quota (“bypasses work priority” per in-code comment).
+3. **Sorted list** — Remaining states are sorted by `get_priority()`; first with `can_enter() == true` wins (subject to transport lock, craft lock, etc.).
+
+So “highest number in the table” does not always win if combat/defend short-circuit first.
+
+## Priority Values (reference — see NPCConfig for exact floats)
 
 ### Critical (Life/Death)
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Combat** | 12.0 | Melee combat; overrides most states |
-| **Agro (defend)** | 10.0–12.0 | Land claim defense: 12.0 when targeting caveman/player; 10.0 for recover; 3.0 when not ready |
-| **Wander (deposit)** | 12.0 | When `moving_to_deposit` – above herd so deposit wins when inventory full |
+| State | Config keys (examples) | Notes |
+|-------|-------------------------|-------|
+| **Combat** | `priority_combat_state` | Melee combat; also evaluated **early** in FSM |
+| **Agro** | `priority_agro`, `priority_agro_recover`, `priority_agro_low`, `priority_agro_defend_boost` | Recover vs defend paths; caveman land defense adds boost vs caveman/player |
+| **Flee combat** | `priority_flee_combat` | Disengage |
+| **Wander (deposit)** | `priority_wander_moving_to_deposit`, `priority_wander_returning_from_break` | High priority return/deposit legs |
 
-### Player Commands
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Herd (catchup)** | 15.0 | When too far from leader (player-ordered follow) |
-| **Herd (following)** | 11.0 | Following player or clan leader |
+### Player / follow
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Herd catchup** | `herd_catchup_priority` (see NPCConfig) | When far from leader |
+| **Herd / Party** | `priority_herd`, `priority_party_herd_inactive` | Following |
 
 ### Build
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Build (8+ items)** | 25.0 | Caveman has 8+ items – must place land claim |
-| **Build (default)** | 9.5 | Has land claim item, cooldown expired; +0.5 if wild NPCs nearby |
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Build (urgent)** | `priority_build_land_claim_urgent` | 8+ items / claim placement |
+| **Build (default)** | `priority_build` | Land claim when ready |
 
-### Herd Wild NPC (Search/Lead)
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Herd Wild NPC (leading woman)** | 12.0 | Leading herd with woman |
-| **Herd Wild NPC (leading)** | 11.5 | Leading herd (sheep/goat) |
-| **Herd Wild NPC (target close)** | 11.5 | Target within 500px |
-| **Herd Wild NPC (searching, pressure ≥0.8)** | 6.1 | Clan needs women; beats gather |
-| **Herd Wild NPC (searching)** | 5.5 | No target or target far; below gather |
+### Herd Wild NPC
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Leading** | `priority_herd_wildnpc_woman`, `priority_herd_wildnpc` | |
+| **Searching** | `priority_herd_wildnpc_searching`, `priority_herd_wildnpc_searching_boosted`, `priority_herd_wildnpc_no_target` | |
 
-### Defense & Work
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Defend** | 3.0–11.0 | Caveman: 3.0 (prefer gather/herd). Clansman: 11.0; protective: 11.0; solitary: 8.0 |
-| **Raid** | 8.5 | AI raiding enemy claims |
-| **Reproduction** | 8.0 | Women seeking mates or gestating |
+### Defense & work
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Defend** | `priority_defend_trait`, `priority_defend_default` | Trait “protective/guardian” uses trait priority; also evaluated **early** when `can_enter` |
+| **Raid** | `priority_raid` | |
+| **Hunt** | `priority_hunt` | **NPC ClanBrain hunting only.** Targets **`WildRole.PREY`** in **Area of Hunt** (see **`NPCConfig.is_ai_hunt_prey_type`**, `land_claim`); sheep/goats use **herd_wildnpc**, not this hunt quota |
+| **Search** | `priority_search` | |
+| **Craft** | `priority_craft_*`, `min_fighters_for_craft_priority_over_gather` | Craft vs gather uses `StateEconomyRules` + fighter count |
+| **Reproduction** | `priority_reproduction` | |
+| **Occupy / work building** | `priority_occupy_building`, `priority_work_at_building_*` | |
 
 ### Eat
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Eat (very hungry <30%)** | 10.0 | Config: `priority_eat_very_hungry` |
-| **Eat (hungry <50%)** | 7.0 | Config: `priority_eat_hungry` |
-| **Eat (low <80%)** | 5.0 | Config: `priority_eat_low` |
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Eat tiers** | `priority_eat_very_hungry`, `priority_eat_hungry`, `priority_eat_low` | |
 
 ### Gather
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Gather (inventory full)** | 5.0 | Need to deposit |
-| **Gather (productivity)** | 6.0 | When `caveman_productivity_test` enabled |
-| **Gather (default)** | 4.0 | Config: `priority_gather_other` |
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Gather** | `priority_gather_no_clan`, `priority_gather_inventory_full`, `priority_gather_other`, `priority_gather_productivity`, `caveman_productivity_test` | |
 
 ### Fallback
-| State | Priority | Notes |
-|-------|----------|-------|
-| **Wander (caveman/clansman)** | 0.01 | Only when no other state can enter |
-| **Wander (other)** | 1.0 | Default for women, animals |
-| **Idle** | 0.0 | Cavemen/wild herdables never idle |
+| State | Config keys | Notes |
+|-------|-------------|-------|
+| **Wander** | `priority_wander`, `priority_wander_caveman_fallback` | |
+| **Idle** | `priority_idle_*` | Tiered by NPC type |
+| **Seek** | `priority_seek` | |
 
 ## Priority Rules
 
-1. **Combat (12.0) interrupts work** – Life over gather, herd, build.
-2. **Herd catchup (15.0) beats herd (11.0)** – Catch up to leader first.
-3. **Combat (12.0) beats herd (11.0)** – Life over follow orders.
-4. **Build (25.0) beats agro (10–12)** – Place land claim when 8+ items.
-5. **Defend (11.0) beats herd_wildnpc (5.5–11.5)** – Clansmen defend when slot available.
-6. **Gather blocked when breeding_females == 0** – Cavemen must get a woman first.
+1. **Combat / defend early exit** — Checked before the global priority sort (see above).
+2. **Herd catchup** — Typically beats normal herd when far from leader.
+3. **Build urgent** — Very high vs most states when caveman must place claim.
+4. **Craft lock** — When actively crafting with a job, only defend/combat paths short-circuit (see `fsm.gd`).
+5. **Gather** — Blocked when `can_enter` false (no claim, inventory, etc.) regardless of priority number.
 
 ## Notes
 
-- Priorities are evaluated every FSM cycle (throttled ~0.1s).
-- States sorted by priority descending; first `can_enter() == true` wins.
-- `can_enter()` can block a state regardless of priority.
-- Min state change cooldown prevents rapid switching.
-- Craft lock: only combat may interrupt when actively crafting.
+- FSM evaluation interval: near player ~0.1s, far ~0.25s (`fsm.gd`); **additional** distance scaling skips whole FSM ticks in `npc_base.gd` — see [Movement guide](../movement.md#fsm-evaluation-vs-distance-scaling).
+- **Multiplayer:** `fsm.update` runs only on `is_multiplayer_authority()` when a multiplayer peer is active (`npc_base.gd`).
+- Min state change cooldown reduces thrashing.
+- Economy rule helper: [`scripts/npc/state_economy_rules.gd`](../../scripts/npc/state_economy_rules.gd).
+
+## Regression
+
+- After instrumented runs, `tools/assert_session_economy.sh` can assert minimum `WORK_GATHER_BUILT` and max `[ERROR]` lines. Enable with `ASSERT_ECONOMY=1` when using `run_session_instrument.sh`.

@@ -8,7 +8,7 @@
 
 - Five cavemen spawn in the map.
 - Each caveman must place a land claim to enable full behavior.
-- Once a claim exists, cavemen target wild NPCs (women, sheep, goats) and resource nodes.
+- Once a claim exists, cavemen focus on **herdables** (women, sheep, goats) plus resource nodes (**herding** / search quotas — separate from ClanBrain **Area of Hunt** hunts, which only target configured **PREY** types like deer/mammoth).
 - Herding is the primary acquisition method.
 - Herd ownership is contested by proximity.
 - Claim areas are defended by push behavior.

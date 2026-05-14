@@ -20,7 +20,7 @@
 ## Current foundation (do not break)
 
 - **Player:** Peace / Agro / Hunt HUD, STALK / ARC / AMBUSH / HIDE, horn **aborts** Hunt (loud), formations from **`FormationUtils`** + **`rts_formation_config.gd`**.
-- **AI hunt:** `HuntPhase` forming → chasing → killing → looting → returning; **`get_hunt_intent()`**, **`use_stalk_approach`** / **`is_stalking`**, abort grace if brain/claim flickers.
+- **AI hunt:** `HuntPhase` forming → chasing → killing → looting → returning; **`get_hunt_intent()`**, **`use_stalk_approach`** / **`is_stalking`**, abort grace if brain/claim flickers. **AoH prey only:** deer/mammoth via **`NPCConfig.is_ai_hunt_prey_type`**; sheep/goat/woman stay **herd** (`herd_wildnpc`), not ClanBrain hunt targets.
 - **AI raid:** Mirror pattern in **`raid_state`** + ClanBrain party form/disband.
 - **Deer:** **`flee_prey_state`**, **`NPCConfig`** thresholds, **fright meter + burst flee speed** on **`NPCBase`** / **`SteeringAgent`**, sound / panic hooks, **player proximity centroid fallback** in **`PerceptionArea`**.
 

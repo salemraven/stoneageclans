@@ -8,11 +8,20 @@ This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_
 - **Territorial**: wild NPC has a fixed **anchor** at first profile apply time and wanders mainly inside a **radius** derived from configured chunk radius (see `NPCConfig.territorial_chunk_radius`).
 - **Wild profile**: per `npc_type` — movement mode, predator/prey role (for combat / future AI), whether they can be **herded**, and defensive flag.
 
+### AI ClanBrain hunts vs herd recruitment
+
+| **Role** (`NPCConfig.WildRole`) | Typical types | ClanBrain **Area of Hunt** (`LandClaim`) | Caveman path |
+| --- | --- | --- | --- |
+| `PREY` | `deer`, `mammoth` (`wild_npc_profiles`) | Counted in **`get_huntables_in_aoh()`** when **`NPCConfig.is_ai_hunt_prey_type(type)`** | **`hunt_state`** parties when ClanBrain **`hunt_intent`** is active |
+| `NONE` + **herdable** | `sheep`, `goat`, `woman` | Not AoH hunt targets | **`herd_wildnpc`** (search quota) |
+
+Player-led hunts use RTS **Peace / Agro / Hunt** and can attack valid combat targets independently (see **`guides/Phase4/raiding_hunting.md`**).
+
 ## Config (`scripts/config/npc_config.gd`)
 
 - **Enums**: `WildMovement` (MIGRATORY / TERRITORIAL), `WildRole` (PREY / PREDATOR / NONE).
 - **Exports** (Wild NPC Movement): `migration_drift_strength`, `migration_wander_noise`, `migration_despawn_margin`, `territorial_chunk_radius`, `migration_wander_center_bias_scale`, **`migration_band_half_chunks`** (player-centered spawn band).
-- **Profiles**: `wild_npc_profiles` + `get_wild_profile(type)`.
+- **Profiles**: `wild_npc_profiles` + `get_wild_profile(type)` + **`is_ai_hunt_prey_type(type)`** (true only for **`WildRole.PREY`** — AoH / ClanBrain hunts).
 
 ## Runtime (`NPCBase`)
 

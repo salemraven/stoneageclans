@@ -48,7 +48,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **command_context** | Dictionary on ordered clansmen: `mode` (FOLLOW / GUARD / ATTACK), tuning, `commander_id`, `issued_at_time`. Player path: `main.gd`; NPC leader path: **`PartyCommandUtils`**. |
 | **formation_slots** | Leader **meta** (player or male NPC): slot positions / steer targets for each follower. Player: `main._update_formation_slots`; NPC leader: **`FormationUtils.publish_slots_for_npc_leader`**. |
 | **follow_is_ordered** | True while clansmen are in ordered party follow (player drag, menu, **War Horn** rally, or **ClanBrain** raid party). Blocks cross-clan **herd steal** on wild herdables. |
-| **Break** | RTS control (**B** or HUD): dismiss ordered follow; followers return toward **land claim** / work. Sets **`returning_from_break`** meta so clansmen path home before low-priority jobs steal the FSM. |
+| **Break** | RTS control (**B** or HUD): dismiss ordered follow; **caveman** + **clansman** steer to clan **land claim** (metas **`returning_from_break`** + **`returning_from_break_expire`**). Claim cache invalidated on break. |
 | **War Horn** | **H**: rally clansmen in radius (~1500 px per **`RTS_CONFIG`**); applies ordered follow + stance context; herders **detach herd** so they can form up. |
 | **Stance** | **Follow**, **Guard**, **Attack** — affects agro threshold, chase distance, and **formation_speed_mult** (player + clansmen). **Guard** while moving = ring around leader; **not** the same as static **defend** on the claim border. |
 | **RTS_CONFIG** | `scripts/config/rts_formation_config.gd` — rally radius, horn cooldown, leash, catch-up multiplier, snapshot interval, stance numbers. |
@@ -70,7 +70,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **Campfire** | A **small, movable** clan base — a **mobile land claim** (same role as a claim, smaller radius, nomadic). |
 | **Flag** | The **permanent** land claim — settled clan territory (the main **LandClaim**-style base). Destroying an **enemy** flag triggers a **total wipe** (inventories, buildings, clansmen dead, women/herdables scatter as **wild**). |
 | **Village** | **Land claim at scale**: large radius, many huts/buildings; **ClanBrain** drives **supply/demand** and (planned) richer task assignment. Campfire supports up to **3 Living Huts** then you need a **flag** claim. |
-| **Nomadic base** | Synonym context for **campfire** — smaller radius, fewer slots, **no ClanBrain**, no heavy buildings. |
+| **Nomadic base** | Synonym context for **campfire** — smaller radius, fewer slots; **ClanBrain** runs in **nomadic** mode (same script as the flag, lighter defense weights). |
 
 ---
 
@@ -116,7 +116,9 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 
 | Term | Definition |
 |------|------------|
-| **ClanBrain** | **RefCounted** AI strategy object owned by a **flag** land claim (not campfire). Sets **defender quota**, **searcher quota**, **raid_intent**, strategic mood, economic weights. NPCs **pull** quotas and self-assign states. |
+| **ClanBrain** | **RefCounted** AI strategy object owned by a **territory** node (**LandClaim** flag or **Campfire**). Sets **defender quota**, **searcher quota**, **raid_intent** and **hunt_intent** (NPC clans; see **Area of Hunt**), strategic mood, economic weights. NPCs **pull** quotas and self-assign states. Player clans get neighbor/threat parity; NPC raids still skip the player unless design adds them. |
+| **Area of Hunt (AoH)** | Zone on **land claim** wider than the claim footprint. Counts **`WildRole.PREY`** wildlife (**deer**, **mammoth** via **`NPCConfig.is_ai_hunt_prey_type`**) that ClanBrain uses for **`hunt_intent`**. **Herdables** (sheep, goat, woman) can be in the zone but are **not** AoH hunt targets — they route through **`herd_wildnpc`** / search. |
+| **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties — player uses RTS **Peace / Agro / Hunt**. |
 | **Defender quota** | How many clansmen **ClanBrain** wants on **defend** duty at the claim edge. |
 | **Searcher quota** | How many clansmen should **search / herd wild** herdables (wilderness recruitment). |
 | **Strategic state** | ClanBrain mood: **PEACEFUL**, **DEFENSIVE**, **AGGRESSIVE**, **RAIDING**, **RECOVERING** (gates budgets and intent). |
