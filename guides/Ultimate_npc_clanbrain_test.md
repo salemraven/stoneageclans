@@ -4,7 +4,7 @@
 
 **Non-goals:** Full worldgen/chunk exhaustive runs (separate doc), UI/UX polish, player-only mechanics.
 
-**Last Updated:** 2026-05-13
+**Last Updated:** 2026-05-14
 
 ---
 
@@ -30,6 +30,7 @@ Environment:
 
 - **`SKIP_NPC_ONLY_2MIN=1`** — skip the NPC-only ~120 s step + **`--strict-npc-sim`** gate (saves ~2 min wall time).
 - **`ULTIMATE_LONG_2MIN=1`** — also runs **`bash tools/run_playtest_2min_analyze.sh`** (~2 min `Main`): herd **`--strict`** plus **`--strict-clanbrain`** via **`ANALYZER_EXTRA_ARGS`**.
+- **`ULTIMATE_ECONOMY_5MIN=1`** — append **5-min economy stress test** (`--playtest-5min --npc-only-world`): validates hunger/eat loop working (≥10 `npc_ate` events), **zero starvation deaths** (`--strict-economy --max-starvation-deaths 0 --min-eat-events 10`). Proves long-term play sustainability.
 - **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`** (short ClanBrain JSONL and NPC-only analyzer).
 - **`ULTIMATE_MIN_QUOTA_UPDATES`** — default **`0`**; set **`1`** if the short ClanBrain slice must prove quota logs.
 - **`ULTIMATE_NPC_SIM_MIN_GATHER`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_WORLD`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_BRAIN`** / **`ULTIMATE_NPC_SIM_MIN_GROWTH_UNIQUE`** — NPC-only analyzer thresholds (defaults **`8`** / **`1`** / **`1`** / **`1`**). **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) gates **`max(t)`**. **`PLAYTEST_WORLD_SEED`** default **`88442201`** on the bundled NPC-only runners; **`random`** omits **`--playtest-world-seed`**. JSONL **`session_start`** stores **`playtest_world_seed_cli`** when the CLI flag is present (and **`world_seed`** when **`WorldGenConfig`** is on the tree at capture start).
@@ -116,6 +117,11 @@ Set `DebugConfig.enable_session_instrumentation = true` for FSM/agro/task logs i
 - `task_no_job` — why NPC couldn't get work
 - `land_claim_placed`, `milestone_building_placed`
 - `baby_spawned`, `baby_grew_to_clansman`
+
+### I. Hunger & sustainability (NEW)
+- `npc_hunger_threshold` — fires when NPC crosses 80%, 50%, 30% hunger (direction: above/below)
+- `npc_ate` — fires when NPC successfully eats food (food type, hunger before/after)
+- `npc_died` — includes `cause` field: `"combat"`, `"starvation"`, or `"unknown"`
 
 ---
 
@@ -278,6 +284,31 @@ Each scenario has **Setup**, **Stimulus**, **Expected JSONL**, **Pass criteria**
 **Expected:** No `raid_evaluated` or `hunt_started` for player clan.
 
 **Pass:** Player drives hunting/raiding via RTS, not brain automation.
+
+---
+
+### 4.12 Economy sustainability (5-min stress test)
+
+**Setup:** NPC-only world (`--npc-only-world --playtest-5min`), seeded spawn.
+
+**Stimulus:** Let NPCs run for 5 minutes without player intervention.
+
+**Expected JSONL:**
+1. Multiple `npc_ate` events (≥10) — NPCs finding and eating food
+2. Multiple `npc_hunger_threshold` crossings — hunger system active
+3. Zero `npc_died` with `cause: "starvation"` — economy sustains population
+
+**Pass criteria:**
+- `--strict-economy --max-starvation-deaths 0 --min-eat-events 10`
+- Proves hunger wiring works: NPCs drain hunger, eat, recover
+- No death spiral from food shortage
+
+**Run:**
+```bash
+ULTIMATE_ECONOMY_5MIN=1 bash tools/run_ultimate_npc_clanbrain_test.sh
+# Or standalone:
+bash tools/run_playtest_npc_only_5min_economy.sh
+```
 
 ---
 
@@ -452,6 +483,24 @@ Fails when thresholds miss counts of:
 
 Bundled runners: **`bash tools/run_playtest_npc_only_2min_analyze.sh`** or **`powershell -File tools/run_playtest_npc_only_2min_analyze.ps1`**.
 
+### 6.1d Economy sustainability (`--strict-economy`)
+
+Use on longer captures (5+ min) to validate hunger/eat loop and starvation prevention.
+
+```bash
+python3 scripts/logging/analyze_playtest.py \
+  --strict-economy \
+  [--max-starvation-deaths N] [--min-eat-events N] \
+  playtest_session.jsonl
+```
+
+Fails when:
+
+- **`npc_died`** events with `cause: "starvation"` exceed `--max-starvation-deaths` (default -1 = off, set 0 for no starvation allowed)
+- **`npc_ate`** events below `--min-eat-events` (hunger/eat loop must be active)
+
+Bundled runner: **`bash tools/run_playtest_npc_only_5min_economy.sh`** (zero starvation, ≥10 eat events).
+
 ### 6.2 Stability mode
 
 ```bash
@@ -471,6 +520,8 @@ Fails on:
 | No friendly fire | `friendly_fire_instrumented_hits == 0` |
 | Hunts valid | No bad **`hunt_started`** prey (**`--strict-clanbrain`**); NPC strict adds separate **world vs brain** hunt floors |
 | Raids form | Heuristic stress only: after `raid_started`, expect **`party_formed`** shortly (not enforced by analyzer yet) |
+|| No starvation | Zero `npc_died` with `cause: "starvation"` in 5-min run (`--strict-economy --max-starvation-deaths 0`) |
+|| NPCs eating | ≥10 `npc_ate` events in 5-min run (`--strict-economy --min-eat-events 10`) |
 
 ### 6.4 Combined example
 

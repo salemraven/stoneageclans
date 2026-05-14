@@ -18,6 +18,7 @@ var _agro_combat_test: bool = false  # When true, capture is for agro combat tes
 var _raid_test: bool = false  # When true, capture is for ClanBrain raid test
 var _playtest_2min: bool = false  # When true, 2-min productivity test; shorter snapshot, state counts
 var _playtest_4min: bool = false  # When true, 4-min productivity test
+var _playtest_5min: bool = false  # When true, 5-min economy stress test
 var _playtest_duration_sec: float = 120.0  # Auto-quit after this many seconds
 var _combat_started_count: int = 0  # For invariant check
 var _friendly_fire_instrumented_hits: int = 0  # combat_hit where target is ally (should stay 0 if pipeline is correct)
@@ -38,6 +39,11 @@ func _ready() -> void:
 		_enabled = true
 		_playtest_4min = true
 		_playtest_duration_sec = 240.0
+		_snapshot_interval = 2.0
+	if "--playtest-5min" in args:
+		_enabled = true
+		_playtest_5min = true
+		_playtest_duration_sec = 300.0
 		_snapshot_interval = 2.0
 	# DebugConfig.playtest_capture_always: enable capture for normal play without cmdline
 	var dc = get_node_or_null("/root/DebugConfig")
@@ -71,6 +77,8 @@ func _ready() -> void:
 			print("✓ 2-min productivity test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 		if _playtest_4min:
 			print("✓ 4-min productivity test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
+		if _playtest_5min:
+			print("✓ 5-min economy stress test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 
 const MARKER_FILE := "user://last_playtest_path.txt"
 
@@ -126,10 +134,12 @@ func _start() -> void:
 			session["agro_combat_test"] = true
 		if _raid_test:
 			session["raid_test"] = true
-		if _playtest_2min or _playtest_4min:
+		if _playtest_2min or _playtest_4min or _playtest_5min:
 			session["playtest_2min"] = true
 		if _playtest_4min:
 			session["playtest_4min"] = true
+		if _playtest_5min:
+			session["playtest_5min"] = true
 		session["playtest_duration_sec"] = _playtest_duration_sec
 		_write(session)
 
@@ -161,14 +171,14 @@ func is_playtest_2min() -> bool:
 	return _playtest_2min
 
 func is_playtest_timed() -> bool:
-	return _playtest_2min or _playtest_4min
+	return _playtest_2min or _playtest_4min or _playtest_5min
 
 func get_playtest_duration_sec() -> float:
 	return _playtest_duration_sec
 
 func end_playtest_2min() -> void:
 	"""Call before quit: write test_run_ended, flush."""
-	if not _enabled or not (_playtest_2min or _playtest_4min):
+	if not _enabled or not (_playtest_2min or _playtest_4min or _playtest_5min):
 		return
 	_write({"evt": "test_run_ended_2min"})
 	if _file and _file.is_open():
@@ -307,6 +317,12 @@ func perception_query(npc_name: String, query_type: String, result_count: int, r
 
 func npc_died(npc_name: String, clan_name: String, cause: String) -> void:
 	_write({"evt": "npc_died", "npc": npc_name, "clan": clan_name, "cause": cause})
+
+func npc_hunger_threshold(npc_name: String, clan_name: String, threshold: int, direction: String, hunger_percent: float) -> void:
+	_write({"evt": "npc_hunger_threshold", "npc": npc_name, "clan": clan_name, "threshold": threshold, "direction": direction, "hunger_pct": hunger_percent})
+
+func npc_ate(npc_name: String, clan_name: String, food_type: String, hunger_before: float, hunger_after: float) -> void:
+	_write({"evt": "npc_ate", "npc": npc_name, "clan": clan_name, "food": food_type, "before_pct": hunger_before, "after_pct": hunger_after})
 
 func task_no_job(npc_name: String, building_name: String, reason: String, same_clan_count: int) -> void:
 	_write({"evt": "task_no_job", "npc": npc_name, "building": building_name, "reason": reason, "same_clan_count": same_clan_count})

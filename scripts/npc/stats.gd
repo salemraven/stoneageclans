@@ -97,7 +97,9 @@ func update(delta: float) -> void:
 	# Log hunger changes and threshold crossings
 	var npc_name: String = npc.get("npc_name") if npc else "unknown"
 	
-	# Log threshold crossings (80%, 50%, 30%)
+	# Log threshold crossings (80%, 50%, 30%) + JSONL instrumentation
+	var pi: Node = npc.get_node_or_null("/root/PlaytestInstrumentor") if npc else null
+	var clan_str: String = str(npc.get("clan_name")) if npc and npc.get("clan_name") != null else ""
 	if old_hunger_percent >= 80.0 and new_hunger_percent < 80.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 80% (below)", {
 			"npc": npc_name,
@@ -105,6 +107,8 @@ func update(delta: float) -> void:
 			"direction": "below",
 			"hunger": "%.1f%%" % new_hunger_percent
 		}, UnifiedLogger.Level.DEBUG)
+		if pi and pi.has_method("npc_hunger_threshold"):
+			pi.npc_hunger_threshold(npc_name, clan_str, 80, "below", new_hunger_percent)
 	elif old_hunger_percent < 80.0 and new_hunger_percent >= 80.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 80% (above)", {
 			"npc": npc_name,
@@ -112,6 +116,8 @@ func update(delta: float) -> void:
 			"direction": "above",
 			"hunger": "%.1f%%" % new_hunger_percent
 		}, UnifiedLogger.Level.DEBUG)
+		if pi and pi.has_method("npc_hunger_threshold"):
+			pi.npc_hunger_threshold(npc_name, clan_str, 80, "above", new_hunger_percent)
 	
 	if old_hunger_percent >= 50.0 and new_hunger_percent < 50.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 50% (below)", {
@@ -120,6 +126,8 @@ func update(delta: float) -> void:
 			"direction": "below",
 			"hunger": "%.1f%%" % new_hunger_percent
 		}, UnifiedLogger.Level.DEBUG)
+		if pi and pi.has_method("npc_hunger_threshold"):
+			pi.npc_hunger_threshold(npc_name, clan_str, 50, "below", new_hunger_percent)
 	elif old_hunger_percent < 50.0 and new_hunger_percent >= 50.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 50% (above)", {
 			"npc": npc_name,
@@ -127,6 +135,8 @@ func update(delta: float) -> void:
 			"direction": "above",
 			"hunger": "%.1f%%" % new_hunger_percent
 		}, UnifiedLogger.Level.DEBUG)
+		if pi and pi.has_method("npc_hunger_threshold"):
+			pi.npc_hunger_threshold(npc_name, clan_str, 50, "above", new_hunger_percent)
 	
 	if old_hunger_percent >= 30.0 and new_hunger_percent < 30.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 30% (below)", {
@@ -135,6 +145,8 @@ func update(delta: float) -> void:
 			"direction": "below",
 			"hunger": "%.1f%%" % new_hunger_percent
 		}, UnifiedLogger.Level.DEBUG)
+		if pi and pi.has_method("npc_hunger_threshold"):
+			pi.npc_hunger_threshold(npc_name, clan_str, 30, "below", new_hunger_percent)
 	elif old_hunger_percent < 30.0 and new_hunger_percent >= 30.0:
 		UnifiedLogger.log_npc("Hunger threshold crossed: 30% (above)", {
 			"npc": npc_name,

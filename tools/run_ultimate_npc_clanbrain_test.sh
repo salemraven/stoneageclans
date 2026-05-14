@@ -9,6 +9,7 @@
 #   GODOT                      — optional path to Godot
 #   ULTIMATE_LONG_2MIN=1       — append 2‑min instrumented Main + herd strict (adds ~2 min wall time).
 #                               Passes ANALYZER_EXTRA_ARGS to include --strict-clanbrain there too.
+#   ULTIMATE_ECONOMY_5MIN=1    — append 5‑min NPC-only economy stress test (hunger/eat/starvation gate).
 #   SKIP_ULTIMATE_2MIN=1       — omit long step even if defaulted elsewhere (explicit skip)
 #   SKIP_NPC_ONLY_2MIN=1       — skip ~120s NPC-only Main + analyze (--npc-only-world proof)
 #
@@ -108,6 +109,22 @@ bash "$ROOT/tools/run_playtest_2min_analyze.sh"
 LONG_EC=$?
 if [[ "${FINAL_EC}" -ne 0 ]] || [[ "${LONG_EC}" -ne 0 ]]; then
 	FINAL_EC=1
+fi
+
+if [[ "${ULTIMATE_ECONOMY_5MIN:-}" == "1" ]]; then
+	ECON_OUT="$BUNDLE/npc_only_5min_economy"
+	mkdir -p "$ECON_OUT"
+	echo ""
+	echo ">>> 5-min NPC-only economy stress test: bash tools/run_playtest_npc_only_5min_economy.sh"
+	export OUT_DIR="$ECON_OUT"
+	bash "$ROOT/tools/run_playtest_npc_only_5min_economy.sh"
+	ECON_EC=$?
+	if [[ "${FINAL_EC}" -eq 0 ]] && [[ "${ECON_EC}" -ne 0 ]]; then
+		FINAL_EC="${ECON_EC}"
+	fi
+else
+	echo ""
+	echo "(Set ULTIMATE_ECONOMY_5MIN=1 to add ~5-min economy stress test: hunger/eat loop + no starvation)"
 fi
 
 echo ""

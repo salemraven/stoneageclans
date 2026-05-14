@@ -302,6 +302,61 @@ def analyze_strict_clanbrain(
         print("  ✓ ClanBrain strict thresholds satisfied")
 
 
+def analyze_economy_sustainability(
+    events: Sequence[Dict[str, Any]],
+    *,
+    max_starvation_deaths: int,
+    min_eat_events: int,
+    violations_out: List[str],
+) -> None:
+    """Analyze economy sustainability: death causes, hunger/eat loop, population health."""
+
+    _mark_start = len(violations_out)
+
+    deaths_by_cause: Dict[str, int] = defaultdict(int)
+    eat_events = 0
+    hunger_threshold_below_30 = 0
+    hunger_threshold_above_80 = 0
+
+    for e in events:
+        evt = e.get("evt")
+        if evt == "npc_died":
+            cause = str(e.get("cause", "unknown")).lower()
+            deaths_by_cause[cause] += 1
+        elif evt == "npc_ate":
+            eat_events += 1
+        elif evt == "npc_hunger_threshold":
+            threshold = int(e.get("threshold", 0))
+            direction = str(e.get("direction", ""))
+            if threshold == 30 and direction == "below":
+                hunger_threshold_below_30 += 1
+            elif threshold == 80 and direction == "above":
+                hunger_threshold_above_80 += 1
+
+    starvation_deaths = deaths_by_cause.get("starvation", 0)
+    combat_deaths = deaths_by_cause.get("combat", 0)
+    unknown_deaths = deaths_by_cause.get("unknown", 0)
+    total_deaths = sum(deaths_by_cause.values())
+
+    print("\n--- Economy Sustainability ---")
+    print(f"  Deaths: total={total_deaths} (combat={combat_deaths}, starvation={starvation_deaths}, unknown={unknown_deaths})")
+    print(f"  Eat events (npc_ate): {eat_events}")
+    print(f"  Hunger thresholds: below_30={hunger_threshold_below_30}, above_80={hunger_threshold_above_80}")
+
+    if max_starvation_deaths >= 0 and starvation_deaths > max_starvation_deaths:
+        msg = f"economy:starvation_deaths have={starvation_deaths} max_allowed={max_starvation_deaths}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if min_eat_events > 0 and eat_events < min_eat_events:
+        msg = f"economy:eat_events have={eat_events} need>={min_eat_events}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if len(violations_out) == _mark_start:
+        print("  ✓ Economy sustainability thresholds satisfied")
+
+
 def analyze_strict_npc_sim(
     events: Sequence[Dict[str, Any]],
     session: Optional[Dict[str, Any]],
@@ -444,6 +499,9 @@ def analyze(
     min_npc_hunt_brain_signals: int = 1,
     min_npc_growth_unique_events: int = 1,
     min_npc_sim_session_sec: float = 110.0,
+    strict_economy: bool = False,
+    max_starvation_deaths: int = -1,
+    min_eat_events: int = 0,
 ) -> int:
     events = _loads_events(path)
     violations: list[str] = []
@@ -657,6 +715,22 @@ def analyze(
         else:
             print("STRICT NPC SIM OK")
 
+    economy_violations: list[str] = []
+    if strict_economy:
+        analyze_economy_sustainability(
+            events,
+            max_starvation_deaths=max_starvation_deaths,
+            min_eat_events=min_eat_events,
+            violations_out=economy_violations,
+        )
+        if economy_violations:
+            print(f"STRICT ECONOMY FAIL: {len(economy_violations)} issue(s)")
+            for v in economy_violations:
+                print(f"  - {v}")
+            exit_code = max(exit_code, 1)
+        else:
+            print("STRICT ECONOMY OK")
+
     return exit_code
 
 
@@ -682,6 +756,25 @@ def main() -> None:
         "--strict-npc-sim",
         action="store_true",
         help="Exit 1 if AI gather/hunt/growth JSONL signals fall below thresholds (use with --npc-only-world captures)",
+    )
+    ap.add_argument(
+        "--strict-economy",
+        action="store_true",
+        help="Exit 1 if starvation deaths exceed threshold or eat events too low (economy sustainability)",
+    )
+    ap.add_argument(
+        "--max-starvation-deaths",
+        type=int,
+        default=-1,
+        metavar="N",
+        help="With --strict-economy: fail if more than N starvation deaths (-1 = off, 0 = no starvation allowed)",
+    )
+    ap.add_argument(
+        "--min-eat-events",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-economy: fail if fewer than N npc_ate events (0 = off)",
     )
     ap.add_argument(
         "--require-npc-only-session",
@@ -854,6 +947,9 @@ def main() -> None:
             min_npc_hunt_brain_signals=args.min_npc_hunt_brain,
             min_npc_growth_unique_events=args.min_npc_growth_unique,
             min_npc_sim_session_sec=args.min_npc_session_sec,
+            strict_economy=args.strict_economy,
+            max_starvation_deaths=args.max_starvation_deaths,
+            min_eat_events=args.min_eat_events,
         )
     )
 

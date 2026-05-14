@@ -334,6 +334,13 @@ func update(delta: float) -> void:
 					"hunger_after": "%.1f" % new_hunger_percent
 				})
 				
+				# JSONL instrumentation: track eating for economy validation
+				var pi_eat = npc.get_node_or_null("/root/PlaytestInstrumentor")
+				if pi_eat and pi_eat.has_method("npc_ate"):
+					var clan_str: String = str(npc.clan_name) if npc.clan_name else ""
+					var before_pct: float = (npc.stats_component.get_stat("hunger") - restore_amount) / npc.stats_component.hunger_max * 100.0
+					pi_eat.npc_ate(npc.npc_name, clan_str, resource_name, before_pct, new_hunger_percent)
+				
 				# If still below 80% and we have more food, stay in eat state
 				# Otherwise, exit to allow gather state to gather food to maintain inventory
 				var eat_threshold: float = 80.0  # Default
@@ -692,13 +699,11 @@ func get_priority() -> float:
 					else:
 						return NPCConfig.priority_eat_low
 				else:
-					# Fallback priorities
 					if hunger_percent < 30.0:
 						return 10.0
 					elif hunger_percent < 50.0:
 						return 7.0
-					else:
-						return 5.0
+					return 5.0
 	
 	return 0.0
 

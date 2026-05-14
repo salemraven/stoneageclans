@@ -11,6 +11,7 @@ var current_hp: int = 30
 var is_dead: bool = false
 var last_attacker: Node = null  # Who last attacked this NPC
 var death_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE  # Weapon used to kill
+var death_cause: String = ""  # Set before calling die() for non-combat deaths (starvation, etc.)
 
 signal health_changed(current_hp: int, max_hp: int)
 signal npc_died(npc: Node)
@@ -100,7 +101,9 @@ func die() -> void:
 				npc_name_str = str(npc.get("npc_name"))
 			if npc.get("clan_name") != null:
 				clan_str = str(npc.get("clan_name"))
-			if last_attacker:
+			if death_cause != "":
+				cause_str = death_cause
+			elif last_attacker:
 				cause_str = "combat"
 			pi.npc_died(npc_name_str, clan_str, cause_str)
 	
@@ -129,7 +132,7 @@ func die() -> void:
 	# This ensures resource slots are freed when NPC dies
 	if npc and npc.task_runner:
 		if npc.task_runner.has_method("cancel_current_job"):
-			npc.task_runner.cancel_current_job()
+			npc.task_runner.cancel_current_job("npc_death")
 			var npc_name_str: String = "unknown"
 			if npc:
 				var name_value = npc.get("npc_name")

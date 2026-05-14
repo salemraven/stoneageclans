@@ -889,6 +889,9 @@ func _physics_process(delta: float) -> void:
 		if BalanceConfig:
 			safety = BalanceConfig.starvation_safety_seconds
 		if elapsed >= safety:
+			var hc: HealthComponent = get_node_or_null("HealthComponent")
+			if hc:
+				hc.death_cause = "starvation"
 			die()
 	
 	# Agro decay: always run. Slower in combat so chasers eventually give up.
