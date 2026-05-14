@@ -83,13 +83,13 @@ Same **hide / cover** behavior as ambush setup, but **no** “everyone jumps whe
 - **Panic:** Starting flee emits a **`deer_panic`** sound so nearby deer can chain-react (**`deer_panic_spread_*`** radius / delays).
 - **Burst sprint:** **`deer_flee_burst_speed_mult`** applies during **burst** phase on **`SteeringAgent`**; **winded** phase uses **`deer_winded_speed_mult`**; **`exit`** / leaving state restores **`original_max_speed`**.
 - **Stats / tuning (`NPCConfig`, hunting group):** `deer_base_speed`, `deer_hp`, **`deer_perception_visual`**, **`deer_sound_threshold`**, **`deer_fright_*`**, **`deer_flee_burst_speed_mult`**, **`deer_flee_duration_sec`**, **`deer_winded_*`**, footstep volumes.
-- **Loot:** **`CorpseConfig`** includes **`deer`** → meat / hide like sheep/goat pattern.
+- **Loot:** **`CorpseConfig`** includes **`deer`** → meat / hide (similar drop pattern to domestic animals when butchered elsewhere).
 
 ---
 
 ## 6. AI clans (same systems)
 
-- **ClanBrain** still raises hunt intent from **Area of Hunt** huntables (**deer**, sheep, goat, mammoth — claim-side filters).
+- **ClanBrain** raises hunt intent from **Area of Hunt** targets that are **wild prey only** (**deer**, **mammoth** — `NPCConfig.WildRole.PREY`). **Sheep and goat stay herd-only** (`herd_wildnpc`); they must not appear in the hunt list (`land_claim._is_huntable_wild_in_aoh`).
 - **Doctrine stub:** For **deer**, if prey is **far** from the claim, **`use_stalk_approach`** can be set so **`hunt_state`** marks hunters **`is_stalking`** while closing — quieter approach until they’re near.
 
 ---

@@ -409,6 +409,12 @@ func get_wild_profile(npc_type_str: String) -> Dictionary:
 	return p as Dictionary if p is Dictionary else def
 
 
+## Wild types AI ClanBrain may hunt (Area of Hunt / `hunt_state`). Sheep, goat, and woman are herd-only (`WildRole.NONE`).
+func is_ai_hunt_prey_type(npc_type_str: String) -> bool:
+	var p: Dictionary = get_wild_profile(npc_type_str)
+	return p.get("role", WildRole.NONE) == WildRole.PREY
+
+
 # ============================================
 # HELPER FUNCTIONS
 # ============================================

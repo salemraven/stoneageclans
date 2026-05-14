@@ -15,7 +15,7 @@ var sprite: Sprite2D = null
 var radius_indicator: Node2D = null
 var _radius_circle: Line2D = null
 var _collision_area: Area2D = null
-## Area of Hunt (AOH): wider than claim radius; huntable wild NPCs entering trigger ClanBrain hunt eval (server-side).
+## Area of Hunt (AOH): wider than claim radius; **wild prey** entering triggers ClanBrain hunt eval (deer, mammoth — not herdables).
 @export var aoh_radius: float = 800.0
 @export var aoh_radius_trait_multiplier: float = 1.0
 var _aoh_zone: Area2D = null
@@ -190,7 +190,9 @@ func _is_huntable_wild_in_aoh(body: Node) -> bool:
 	if not body.is_in_group("npcs"):
 		return false
 	var nt: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
-	if nt != "mammoth" and nt != "sheep" and nt != "goat" and nt != "deer":
+	if NPCConfig == null:
+		return false
+	if not NPCConfig.is_ai_hunt_prey_type(nt):
 		return false
 	var bclan: String = ""
 	if body.has_method("get_clan_name"):

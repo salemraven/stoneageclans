@@ -3,7 +3,7 @@ extends "res://scripts/npc/states/base_state.gd"
 const _ButcherTaskScript := preload("res://scripts/ai/tasks/butcher_task.gd")
 const _JobScript := preload("res://scripts/ai/jobs/job.gd")
 
-# Hunt State — AI clan hunting party (Area of Hunt → chase wild mammoth/sheep/goat/deer)
+# Hunt State — AI clan hunting party (Area of Hunt → chase wild prey: deer, mammoth). Sheep/goat are herd-only.
 # Pull-based: ClanBrain sets hunt intent; mirrors raid_state flow (assemble → move → engage → return).
 
 enum HuntPhase { FORMING, CHASING, KILLING, LOOTING, RETURNING }
