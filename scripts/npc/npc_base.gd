@@ -1585,13 +1585,21 @@ func apply_sprite_offset_for_texture() -> void:
 	_sprite_base_position = sprite.position
 
 func _initialize_wants() -> void:
-	# Initialize hunger want
+	var max_meter: float = 100.0
+	var meter_val: float = max_meter
+	if stats_component and stats_component.hunger_max > 0.0:
+		meter_val = clampf((stats_component.hunger / stats_component.hunger_max) * max_meter, 0.0, max_meter)
+	var deplete: float = 1.0
+	var thresh: float = 80.0
+	if NPCConfig:
+		deplete = float(NPCConfig.hunger_deplete_rate)
+		thresh = float(NPCConfig.hunger_gather_threshold)
 	wants.append({
 		"name": "hunger",
-		"meter": 100.0,
-		"max": 100.0,
-		"deplete_rate": 1.0,  # per minute
-		"threshold": 80.0  # Seek food when below this
+		"meter": meter_val,
+		"max": max_meter,
+		"deplete_rate": deplete,
+		"threshold": thresh
 	})
 
 func _initialize_inventory() -> void:
@@ -1937,6 +1945,11 @@ func _update_wants(delta: float) -> void:
 		return
 	
 	for want in wants:
+		var wname: String = str(want.get("name", ""))
+		var max_meter: float = float(want.get("max", 100.0))
+		if wname == "hunger" and stats_component and stats_component.hunger_max > 0.0:
+			want["meter"] = clampf((stats_component.hunger / stats_component.hunger_max) * max_meter, 0.0, max_meter)
+			continue
 		var deplete_rate: float = want.get("deplete_rate", 0.0) as float
 		var meter: float = want.get("meter", 0.0) as float
 		meter = max(0.0, meter - (deplete_rate * delta / 60.0))  # Convert to per-second

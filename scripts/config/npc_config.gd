@@ -19,7 +19,7 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var hunger_gather_threshold: float = 80.0  # NPCs gather berries when hunger drops below this %
 @export var hunger_eat_threshold: float = 80.0  # NPCs eat when hunger drops below this %
 @export var hunger_restore_percent: float = 5.0  # Each berry restores this % of max hunger
-@export var hunger_deplete_rate: float = 20.0  # Hunger depletes this amount per minute (1 point every 3 seconds = 20 per minute)
+@export var hunger_deplete_rate: float = 28.0  # Hunger points drained per simulated minute (raising = need food more often)
 @export var hunger_start_percent: float = 100.0  # Starting hunger percentage
 @export var food_items_to_keep_in_inventory: int = 1  # NPCs keep this many food items in inventory before stopping collection
 @export var prefer_higher_nutrient_food: bool = true  # NPCs prefer higher nutrient foods (meat > berries) when maintaining inventory

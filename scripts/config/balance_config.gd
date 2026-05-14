@@ -52,7 +52,7 @@ var bread_hunger_percent: float = 15.0
 var milk_hunger_percent: float = 6.0
 
 # Hunger depletion (per minute)
-var hunger_deplete_rate_per_min: float = 15.0
+var hunger_deplete_rate_per_min: float = 28.0
 
 # Oldowan slower than specialized tools (multiplier on collection time)
 var oldowan_gather_multiplier: float = 1.5

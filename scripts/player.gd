@@ -26,7 +26,7 @@ var last_facing: Vector2 = Vector2(0, 1)  # For formation when stationary (follo
 # Player hunger (does NOT die from starvation - only penalties)
 var hunger: float = 100.0
 var hunger_max: float = 100.0
-var hunger_deplete_rate: float = 15.0  # Per minute (BalanceConfig or default)
+var hunger_deplete_rate: float = 28.0  # Per minute (BalanceConfig or default)
 
 # Eat progress display (world-space pie timer, same pattern as NPCs)
 var eat_progress_display: Node2D = null

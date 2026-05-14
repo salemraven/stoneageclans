@@ -41,10 +41,27 @@ func initialize(npc_ref: Node) -> void:
 	var start_percent: float = 75.0
 	var config := get_node_or_null("/root/NPCConfig")
 	if config != null:
-		# NPCConfig has an exported 'hunger_start_percent' variable
 		start_percent = float(config.hunger_start_percent)
 	hunger = hunger_max * (start_percent / 100.0)
 	stamina = stamina_max
+	
+	# Per-minute hunger drain: use NPCConfig for NPCs that use the Eat/hunger loop; wild prey / mammoths 0.
+	hunger_deplete_rate = 0.0
+	if npc != null:
+		var nt: String = npc.get("npc_type") if npc.get("npc_type") != null else ""
+		match nt:
+			"deer", "mammoth":
+				pass
+			_:
+				var uses_food_need: bool = nt in ["caveman", "clansman", "woman", "human", "baby", "sheep", "goat"]
+				if uses_food_need:
+					var wild_npc: bool = npc.has_method("is_wild") and npc.is_wild()
+					if wild_npc:
+						pass
+					elif config != null:
+						hunger_deplete_rate = maxf(0.0, float(config.hunger_deplete_rate))
+					else:
+						hunger_deplete_rate = 1.0
 	
 	# Store base values
 	base_stats = {
