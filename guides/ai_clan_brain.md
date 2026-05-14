@@ -1,7 +1,7 @@
 # AI Clan Brain System
 
-**Status:** Implemented. Defense, searcher, and raid systems active; strategic pressures drive quotas.  
-**Last Updated:** 2026-02-21 (metric-driven evaluation loop added)
+**Status:** Implemented. Defense, searcher, raid, and **NPC-clan hunting** (Area of Hunt) active; strategic pressures drive quotas.  
+**Last Updated:** 2026-05-13 (hunt AoH = wild prey only; sheep/goat herd-only)
 
 ## Overview
 
@@ -10,8 +10,9 @@ AI controller for NPC clans. It:
 - Sets **defender** and **searcher** quotas on the land claim (NPCs self-assign via pull-based model)
 - Requires **minimum land claim stock** (10 stone, 10 wood, 10 food) before allowing defenders, unless under alert
 - Runs full assignment logic only when clan has **2+ cavemen/clansmen** (single caveman stays free to herd/gather)
-- **Player clans:** Quota = **max(n/4, defender pool size)**. Example: 4 fighters → base 1 defender; drag a second clansman to the **map outside** the claim → pool 2 → quota 2 (**2:2**). Drag **inside** the claim → work, pool drops, quota follows; no raid evaluation
+- **Player clans:** Baseline **n/4**; **player_defend_ratio** 0 = auto (baseline + drag pool only); **>0** adds **ceil(n × ratio)** into the same **max(baseline, preference, pool)** clamp. Drag clansmen to the **map outside** the claim to grow the pool; drag **inside** to work and shrink it; no NPC raid evaluation on the player from this brain
 - **NPC clans:** Can set **raid intent**; raiders discover intent and self-assign via RaidState
+- **NPC clans:** Can raise **hunt intent** when **wild prey** (not herdables) is inside the land claim’s **Area of Hunt**; hunters self-assign via `hunt_state` (same pull pattern as raids)
 - Tracks resources, threats, strategic state, and alert level
 
 **Location:** `scripts/ai/clan_brain.gd` (RefCounted; no `_process`. Land claim calls `brain.update(delta)` each frame.)
@@ -125,6 +126,20 @@ If **score ≥ 1.0** and there is a valid target (weak enemy or best raid target
 
 ---
 
+## Hunting system (NPC clans only)
+
+Player-led warbands already use RTS **Peace / Agro / Hunt** stances separately (see **`guides/Phase4/raiding_hunting.md`**). This section is **AI clans**:
+
+- **What gets hunted:** Only wild NPC types classified as **`WildRole.PREY`** in **`NPCConfig.wild_npc_profiles`** — currently **`deer`** and **`mammoth`**. **`NPCConfig.is_ai_hunt_prey_type(npc_type)`** is the gate (single source of truth).
+- **What does *not* get hunted by ClanBrain parties:** **`sheep`**, **`goat`**, and **`woman`** use **`WildRole.NONE`** plus **`herdable: true`**. Cavemen recruit them via **`herd_wildnpc`** (`searcher_quota`), **not** via `hunt_intent`.
+- **Area of Hunt (AOH):** Each **Land Claim** owns a circular **`AreaOfHunt`** (wider than the claim footprint). Wild bodies that pass **`LandClaim._is_huntable_wild_in_aoh()`** append to **`get_huntables_in_aoh()`**. That helper requires PREY-type + excludes same-clan stamped wildlife.
+- **Opportunity evaluation:** ClanBrain **`_evaluate_hunt_opportunity()`** (NPC clans, not mid-raid/skirmish, meat/hide pressure, cooldown, enough free fighters) reads **`territory.get_huntables_in_aoh()`**, picks nearest valid prey, and calls **`_start_hunt()`** → **`hunt_intent`** mirrored on **`land_claim` meta** for **`hunt_state`**.
+- **Player clan:** ClanBrain skips hunt/raid party logic when **`player_owned`** (RTS player drives hunting).
+
+Pull-based recap: ClanBrain stores **intent + quotas** on the territory; **never** micromanages which exact NPC hunts — **`hunt_state.can_enter()`** checks **`should_npc_hunt(npc)`**, quota, defenders, ordered-follow, etc.
+
+---
+
 ## Strategic state (NPC clans)
 
 - **StrategicState:** PEACEFUL, DEFENSIVE, AGGRESSIVE, RAIDING, RECOVERING.
@@ -209,6 +224,7 @@ Each calls `trigger_alert(level)` (throttled 0.5s per level) → `clan_brain.on_
 | `searcher_quota` | ClanBrain `_update_searcher_assignments()` or single-caveman branch | herd_wildnpc_state `can_enter()` |
 | `defenders_can_search` | ClanBrain | herd_wildnpc_state (defenders can search when quota full if true) |
 | `raid_intent` | ClanBrain `_start_raid()` | raid_state (via clan_brain.get_raid_intent) |
+| `hunt_intent` | ClanBrain `_start_hunt()` | hunt_state (`get_hunt_intent()`, rally, prey reference) |
 | `economic_priority_weights` | ClanBrain `_update_economic_weights()` | Future FSM/job selection |
 
 ### Defender/searcher pools (land claim)
@@ -232,6 +248,10 @@ Land claim also has `reserve_items(worker, items)`, `release_items(worker)` for 
 - `get_clan_brain()`, `get_threat_level()`, `get_strategic_state()`, `is_raiding()`, `get_clan_strength()`, `get_clan_brain_debug()` — delegate to ClanBrain.
 - `start_player_emergency_defend()` — Player clicked DEFEND; calls `clan_brain.start_player_emergency_defend()`.
 
+### Campfire (same brain, nomadic mode)
+
+**Campfire** is in group `land_claims` and runs the **same** `ClanBrain` script as the flag. `initialize()` detects `Campfire` and sets `brain_mode = "nomadic"`. **Single writer** for `defender_quota` meta: only ClanBrain (or `_update_player_defender_quota` refresh after UI/drag). **Player preference:** `player_defend_ratio` on the territory — **0** = auto (baseline **n/4** slots + drag pool); **>0** = `ceil(n * ratio)` combined with baseline and pool via `max(...)`. **Alerts:** `trigger_alert` / `report_intruder` / `report_skirmish` / `report_raid` mirror the flag so intrusions notify `clan_brain.on_alert`. Enemy **campfires** are included in `_refresh_nearby_enemies` (duck-typed territory nodes in `land_claims`).
+
 ---
 
 ## NPC tasks and decisions
@@ -241,7 +261,7 @@ NPCs do **not** receive direct orders. They read quotas and intent from the land
 ### FSM state flow (pull-based)
 
 1. FSM evaluates states by **priority** (highest valid `can_enter()` wins).
-2. States read **land claim meta** (defender_quota, searcher_quota, raid_intent) or **ClanBrain** (should_npc_raid, get_raid_intent).
+2. States read **land claim meta** (defender_quota, searcher_quota, raid_intent, hunt_intent) or **ClanBrain** (should_npc_raid, should_npc_hunt, get_raid_intent, get_hunt_intent).
 3. If under quota, NPC calls `add_defender(npc)` / `add_searcher(npc)` and enters state.
 4. On exit, NPC calls `remove_defender(npc)` / `remove_searcher(npc)` (except when transitioning to combat).
 
@@ -283,6 +303,20 @@ Default matches cavemen: gather (~4–6), search (5.5), work (7–10), and herd_
 
 **File:** `scripts/npc/states/raid_state.gd` — reads raid_intent, rally_point, target_position from clan_brain.
 
+### Hunt state (priority ~`priority_hunt` from `NPCConfig`; between raid and combat)
+
+| Check | Action |
+|-------|--------|
+| caveman or clansman | Required |
+| Not `follow_is_ordered` (unless hunt butcher meta — see codebase) | See `hunt_state.gd` |
+| Not defending | Block when `defend_target` set |
+| `clan_brain.is_hunting()` | Required |
+| `clan_brain.should_npc_hunt(npc)` | True when under hunter quota |
+
+**Targets:** Hunt intent **`target`** is always **PREY-role** wildlife (deer/mammoth today). Sheep/goats are **never** valid AoH hunt targets for ClanBrain.
+
+**File:** `scripts/npc/states/hunt_state.gd`.
+
 ### Economic jobs (TaskRunner, not FSM state selection)
 
 | State | Job source | Pull |
@@ -299,14 +333,14 @@ Jobs are **pulled** by NPCs when entering state; no ClanBrain or land claim push
 
 ### Priority order (FSM, approximate)
 
-Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian (11.0) &gt; Raid (8.5) &gt; Reproduction (8.0) &gt; Work at building (7–10) &gt; Search (5.5) &gt; Gather (4–6) &gt; **Defend default (3.0)** &gt; Craft (2–12) &gt; Wander (0.01–12). Following (herd with herder) overrides raid; combat has highest priority.
+Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian (11.0) &gt; Raid (8.5) &gt; Hunt (~9.x, `NPCConfig.priority_hunt`) &gt; Reproduction (8.0) &gt; Work at building (7–10) &gt; Search (5.5) &gt; Gather (4–6) &gt; **Defend default (3.0)** &gt; Craft (2–12) &gt; Wander (0.01–12). Following (herd with herder) overrides raid; combat has highest priority.
 
 ---
 
 ## Integration summary
 
 - **Land claim** owns ClanBrain, stores quotas and pools, reports alerts, generates gather/craft jobs.
-- **ClanBrain** sets quotas, raid_intent, economic_priority_weights; never assigns specific NPCs.
+- **ClanBrain** sets quotas, raid_intent, **hunt_intent** (when prey in AoH), economic_priority_weights; never assigns specific NPCs.
 - **NPCs** read quotas and intent, self-assign to defend/search/raid; pull jobs from land claim and buildings.
 
 ---
@@ -338,6 +372,7 @@ Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian 
 - **State:** `get_clan_members()`, `get_fighters()`, `get_threat_level()`, `get_strategic_state()`, `get_defend_ratio()`, `get_search_ratio()`, `get_gather_ratio()`, `get_resource_status()`, `get_debug_info()`.
 - **Defense:** `get_defender_quota()`, `get_current_defender_count()`, `needs_more_defenders()`, `is_defender_slot_available()`, `force_defend_all()`, `start_player_emergency_defend()`.
 - **Raids:** `is_raiding()`, `get_raid_state()`, `get_raid_intent()`, `should_npc_raid(npc)`, `npc_join_raid(npc)`, `npc_leave_raid(npc)`, `get_raid_target_position()`, `get_raid_rally_point()`.
+- **Hunts:** `is_hunting()`, `get_hunt_intent()`, `should_npc_hunt(npc)`, `npc_join_hunt(npc)`, `npc_leave_hunt(npc)` (mirror raid pull pattern).
 - **Searchers:** `get_searcher_quota()`, `get_current_searcher_count()`, `needs_more_searchers()`, `is_searcher_slot_available()`.
 - **Resources:** `is_resource_critical(name)`, `needs_resources()`, `get_gathering_priorities()`, `get_most_needed_resource()`.
 
@@ -349,4 +384,6 @@ Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian 
 - **Land claim (ownership, update, alerts):** `scripts/land_claim.gd`
 - **Defend state (pull-based):** `scripts/npc/states/defend_state.gd`
 - **Raid state (pull-based):** `scripts/npc/states/raid_state.gd`
+- **Hunt state / AoH prey filter:** `scripts/npc/states/hunt_state.gd`, **`NPCConfig.is_ai_hunt_prey_type()`**, `scripts/land_claim.gd`
+- **Player hunt HUD & deer behavior:** `guides/Phase4/raiding_hunting.md`
 - **Combat / agro:** `guides/AgroGuide.md`, `scripts/npc/states/combat_state.gd`
