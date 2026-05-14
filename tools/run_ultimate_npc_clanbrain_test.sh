@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Ultimate NPC & ClanBrain gate (guides/Ultimate_npc_clanbrain_test.md):
+# Smoke + territory/brain integration + ClanBrain capture + analyze_playtest --strict-clanbrain.
+#
+# Usage (repo root): bash tools/run_ultimate_npc_clanbrain_test.sh
+#
+# Env:
+#   GODOT                      — optional path to Godot
+#   ULTIMATE_LONG_2MIN=1       — append 2‑min instrumented Main + herd strict (adds ~2 min wall time).
+#                               Passes ANALYZER_EXTRA_ARGS to include --strict-clanbrain there too.
+#   SKIP_ULTIMATE_2MIN=1       — omit long step even if defaulted elsewhere (explicit skip)
+#
+# Analyzer env for the ClanBrain JSONL step:
+#   ULTIMATE_MIN_CLAN_BRAIN_EVALS   — default 1 (require ≥N clan_brain_eval)
+#   ULTIMATE_MIN_QUOTA_UPDATES      — default 0 (optional; set 1 to insist on quotas in short Main)
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+mkdir -p Tests/logs
+STAMP="$(date +%Y%m%d_%H%M%S)"
+BUNDLE="$ROOT/Tests/logs/ultimate_npc_cb_${STAMP}"
+mkdir -p "$BUNDLE"
+
+SUMMARY="$BUNDLE/summary.log"
+MIN_EVAL="${ULTIMATE_MIN_CLAN_BRAIN_EVALS:-1}"
+MIN_QUOTA="${ULTIMATE_MIN_QUOTA_UPDATES:-0}"
+
+exec > >(tee -a "$SUMMARY") 2>&1
+
+echo "=============================================="
+echo "ultimate_npc_clanbrain_test ${STAMP}"
+echo "bundle: ${BUNDLE}"
+echo "repo: ${ROOT}"
+echo "=============================================="
+
+bash "$ROOT/tools/run_instrumented_playtest.sh"
+
+bash "$ROOT/tools/run_territory_brain_integration_verify.sh"
+
+echo ""
+echo ">>> ClanBrain capture into bundle (same JSONL analyzed below)"
+export CLAN_BRAIN_LOG_DIR="$BUNDLE/clan_brain_main"
+mkdir -p "$CLAN_BRAIN_LOG_DIR"
+bash "$ROOT/tools/run_clan_brain_test.sh"
+
+JSONL="$BUNDLE/clan_brain_main/playtest_session.jsonl"
+if [[ ! -f "$JSONL" ]]; then
+	echo "FAIL: missing $JSONL"
+	exit 1
+fi
+
+AN_CMD=(
+	python3 "$ROOT/scripts/logging/analyze_playtest.py"
+	"--strict-clanbrain"
+	"--min-clanbrain-eval-events" "$MIN_EVAL"
+)
+if [[ "$MIN_QUOTA" =~ ^[0-9]+$ ]] && [[ "${MIN_QUOTA}" -gt 0 ]]; then
+	AN_CMD+=("--min-clanbrain-quota-updates" "$MIN_QUOTA")
+fi
+echo ""
+echo ">>> ${AN_CMD[*]} $JSONL"
+"${AN_CMD[@]}" "$JSONL"
+ANA_EC=$?
+
+if [[ "${SKIP_ULTIMATE_2MIN:-}" == "1" ]]; then
+	echo ""
+	echo ">>> Long 2-min playtest — SKIPPED (SKIP_ULTIMATE_2MIN=1)"
+	exit "$ANA_EC"
+fi
+
+if [[ "${ULTIMATE_LONG_2MIN:-}" != "1" ]]; then
+	echo ""
+	echo "(Set ULTIMATE_LONG_2MIN=1 to add ~2-min herd-heavy Main + --strict --strict-clanbrain)"
+	exit "${ANA_EC}"
+fi
+
+FINAL_EC="${ANA_EC}"
+OUT_LONG="$BUNDLE/playtest_2min"
+mkdir -p "$OUT_LONG"
+echo ""
+echo ">>> Long step: bash tools/run_playtest_2min_analyze.sh (OUT_DIR)"
+export OUT_DIR="$OUT_LONG"
+export ANALYZER_EXTRA_ARGS="--strict-clanbrain"
+bash "$ROOT/tools/run_playtest_2min_analyze.sh"
+LONG_EC=$?
+if [[ "${FINAL_EC}" -eq 0 ]]; then
+	FINAL_EC=$LONG_EC
+fi
+
+echo ""
+echo "Ultimate NPC / ClanBrain bundle: ${BUNDLE} (exit=${FINAL_EC})"
+exit "${FINAL_EC}"

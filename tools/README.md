@@ -62,6 +62,18 @@ godot --path . --player-move-trace
 
 Hold A/D to see `[PlayerMoveTrace]` in the console.
 
+## Ultimate NPC & ClanBrain test (recommended gate)
+
+Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_verify`** + short ClanBrain **`Main`** capture + **`analyze_playtest.py --strict-clanbrain`** (AoH hunt prey allowlist, friendly-fire JSONL markers). Details: **`guides/Ultimate_npc_clanbrain_test.md`**.
+
+```bash
+bash tools/run_ultimate_npc_clanbrain_test.sh
+```
+
+Optional: **`ULTIMATE_LONG_2MIN=1`** also runs **`run_playtest_2min_analyze.sh`** (~2 min **`Main`**) with herd **`--strict`** plus **`ANALYZER_EXTRA_ARGS`** including **`--strict-clanbrain`**. Tunables: **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** (default 1), **`ULTIMATE_MIN_QUOTA_UPDATES`** (default 0).
+
+Cli: **`analyze_playtest.py --strict-clanbrain`**, **`--allowed-ai-hunt-prey`**, **`--min-clanbrain-eval-events`**, **`--min-clanbrain-quota-updates`**.
+
 ## Early-game verification (CI-style bundle)
 
 Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **reproduction harness** (Player designated-father / two births), and optionally the longer **ClanBrain** Main session.
@@ -72,7 +84,7 @@ bash tools/run_earlygame_verify.sh
 
 - **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 5 (~15s `Main` + JSONL assertions); steps 1–4 stay.
 - **`SKIP_REPRO_HARNESS=1`** — skip step 4 (`--repro-harness` ~12–15s).
-- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, `run_ultimate_npc_clanbrain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
 
 ## Reproduction regression (Player + two births)
 

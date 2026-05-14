@@ -20,12 +20,21 @@ if [[ ! -x "$GODOT" ]]; then
 fi
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_DIR="Tests/logs/clan_brain_test_${STAMP}"
+# Optional stable dir for bundles (ultimate test): absolute or repo-relative path via CLAN_BRAIN_LOG_DIR
+if [[ -n "${CLAN_BRAIN_LOG_DIR:-}" ]]; then
+	if [[ "${CLAN_BRAIN_LOG_DIR}" = /* ]]; then
+		LOG_DIR="${CLAN_BRAIN_LOG_DIR}"
+	else
+		LOG_DIR="$ROOT/${CLAN_BRAIN_LOG_DIR}"
+	fi
+else
+	LOG_DIR="$ROOT/Tests/logs/clan_brain_test_${STAMP}"
+fi
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/output.log"
 
 export SKIP_SINGLE_INSTANCE=1
-export GODOT_TEST_LOG_DIR="$ROOT/$LOG_DIR"
+export GODOT_TEST_LOG_DIR="$LOG_DIR"
 
 echo "=============================================="
 echo "ClanBrain Validation Test ${STAMP}"
@@ -33,12 +42,13 @@ echo "=============================================="
 echo "Log dir: $LOG_DIR"
 echo ""
 
-# Godot --quit-after is SECONDS (not frames). ~15s gives ~3 ClanBrain eval cycles at 5s each.
+# Godot `--quit-after` is main-loop iterations in 4.x, not seconds; this value (~15+) is tuned so the
+# session survives long enough to emit `clan_brain_eval`. See godot `--help`.
 SECONDS_RUN=15
 {
-	echo ">>> Main.tscn headless --quit-after $SECONDS_RUN (seconds)"
+	echo ">>> Main.tscn headless --quit-after $SECONDS_RUN (main-loop iterations; see docs)"
 	echo "=============================================="
-	"$GODOT" --path "$ROOT" --headless --quit-after "$SECONDS_RUN" -- --playtest-capture --playtest-log-dir "$ROOT/$LOG_DIR" 2>&1
+	"$GODOT" --path "$ROOT" --headless --quit-after "$SECONDS_RUN" -- --playtest-capture --playtest-log-dir "$LOG_DIR" 2>&1
 	echo ""
 	echo "=============================================="
 	echo "Game session complete"

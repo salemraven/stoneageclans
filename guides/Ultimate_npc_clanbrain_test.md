@@ -18,6 +18,20 @@ bash tools/run_instrumented_playtest.sh
 
 Boots `Main.tscn` headless for ~4 iterations; logs to `Tests/logs/`.
 
+### 1.1b One-command bundled gate (recommended)
+
+Runs instrumented smoke, territory/brain integration, short ClanBrain `Main` capture, and **`analyze_playtest.py --strict-clanbrain`** (AoH prey allowlist + friendly-fire JSONL gates). Outputs under **`Tests/logs/ultimate_npc_cb_<timestamp>/`**.
+
+```bash
+bash tools/run_ultimate_npc_clanbrain_test.sh
+```
+
+Environment:
+
+- **`ULTIMATE_LONG_2MIN=1`** — also runs **`bash tools/run_playtest_2min_analyze.sh`** (~2 min `Main`): herd **`--strict`** plus **`--strict-clanbrain`** via **`ANALYZER_EXTRA_ARGS`**.
+- **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`**.
+- **`ULTIMATE_MIN_QUOTA_UPDATES`** — default **`0`**; set **`1`** if the short ClanBrain slice must prove quota logs.
+
 ### 1.2 JSONL capture (full instrumentation)
 
 ```bash
@@ -75,7 +89,7 @@ Set `DebugConfig.enable_session_instrumentation = true` for FSM/agro/task logs i
 - `party_formed`, `party_disbanded`, `party_formation_tick`
 
 ### D. Hunters (NPC clans)
-- `hunt_started` — prey type, quota, pressure, meat/hide counts
+- `hunt_started` — JSON field **`prey`** (analyzer also accepts **`prey_type`**); quota + pressures + meat/hide counts
 - `hunt_joined`, `hunt_phase_changed`
 - `hunt_completed`, `hunt_aborted`, `hunt_prey_escaped`
 - `hunt_butcher_*`, `hunt_deposit`
@@ -210,7 +224,7 @@ Each scenario has **Setup**, **Stimulus**, **Expected JSONL**, **Pass criteria**
 **Stimulus:** ClanBrain evaluates hunt opportunity.
 
 **Expected:**
-1. `hunt_started` with `prey_type: "deer"` or `"mammoth"` (NEVER sheep/goat)
+1. `hunt_started` with **`prey`**: `"deer"` or `"mammoth"` only (never sheep/goat/woman)
 2. `hunt_joined` events
 3. `hunt_phase_changed` (FORMING → CHASING → KILLING → LOOTING → RETURNING)
 4. `hunt_butcher_*` events
@@ -218,7 +232,7 @@ Each scenario has **Setup**, **Stimulus**, **Expected JSONL**, **Pass criteria**
 
 **Pass:** Only PREY-role wildlife hunted; full pipeline completes.
 
-**Oracle assertion:** No `hunt_started` where `prey_type` is sheep, goat, or woman.
+**Oracle assertion:** No `hunt_started` where **`prey`** / **`prey_type`** names a herd animal or woman (`sheep`/`goat`/`woman`).
 
 ---
 
@@ -398,6 +412,21 @@ Fails on:
 - Herd invariant violations
 - Coverage thresholds not met
 
+### 6.1b ClanBrain strict mode (`--strict-clanbrain`)
+
+```bash
+python3 scripts/logging/analyze_playtest.py --strict-clanbrain [--min-clanbrain-eval-events N] \
+  [--min-clanbrain-quota-updates N] [--allowed-ai-hunt-prey deer,mammoth] playtest_session.jsonl
+```
+
+Fails on:
+
+- **`hunt_started`** with missing prey id, **`prey`** in `{sheep, goat, woman}`, or **`prey`** outside `--allowed-ai-hunt-prey` (default **`deer`,`mammoth`** — matches `NPCConfig.WildRole.PREY`).
+- Instrumented **friendly-fire** markers: `friendly_fire_combat_started`, `combat_hit` with **`friendly_fire: true`**, `test_failed_friendly_fire`.
+- Optional coverage: **`--min-clanbrain-eval-events`**, **`--min-clanbrain-quota-updates`**.
+
+Combined with **`--strict`** / **`--strict-stability`** in one invocation when you want herd + combat + AoH gates together.
+
 ### 6.2 Stability mode
 
 ```bash
@@ -415,10 +444,16 @@ Fails on:
 |-------|-----------|
 | Brain runs | ≥1 `clan_brain_eval` in 2min run |
 | No friendly fire | `friendly_fire_instrumented_hits == 0` |
-| Hunts valid | No `hunt_started` with herdable prey_type |
-| Raids form | If `raid_started`, then `party_formed` follows |
+| Hunts valid | No `hunt_started` with herdable **`prey`** (`sheep`/`goat`/`woman`); **`--strict-clanbrain`** enforce allowlist |
+| Raids form | Heuristic stress only: after `raid_started`, expect **`party_formed`** shortly (not enforced by analyzer yet) |
 
----
+### 6.4 Combined example
+
+```bash
+python3 scripts/logging/analyze_playtest.py \
+  --strict --strict-clanbrain --min-clanbrain-eval-events 1 \
+  Tests/logs/ultimate_npc_cb_*/clan_brain_main/playtest_session.jsonl
+```
 
 ## 7. Failure Triage Playbook
 
@@ -450,12 +485,7 @@ Fails on:
 
 **Context:** Currently ClanBrain is a RefCounted owned by land claim. In MP, running it on clients means duplicate computation and potential desync.
 
-**Recommended answer:** **No.** ClanBrain should run **server-only**. Clients receive quota/intent values via land_claim meta sync. Add guard:
-```gdscript
-func update(delta: float) -> void:
-    if multiplayer and multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
-        return
-```
+**Recommended answer:** **No** simulation on clients. **`scripts/land_claim.gd`** `_process` already skips **`clan_brain.update(delta)`** when **`get_multiplayer().has_multiplayer_peer()`** and **`not multiplayer.is_server()`**. Replicating raid/hunt intents to clients cleanly is separate backlog.
 
 ---
 
@@ -540,16 +570,7 @@ This is significant refactor—flag for Phase 5 of MP roadmap.
 
 **Context:** We fixed this today—want to prevent regression.
 
-**Recommended answer:** Add to `analyze_playtest.py`:
-```python
-def check_hunt_targets(events):
-    VALID_PREY = {"deer", "mammoth"}
-    for e in events:
-        if e.get("evt") == "hunt_started":
-            prey = e.get("prey_type", "")
-            if prey not in VALID_PREY:
-                fail(f"Invalid hunt target: {prey}")
-```
+**Recommended answer:** **`analyze_playtest.py --strict-clanbrain`** — validates each **`hunt_started`** **`prey`** / **`prey_type`** against **`--allowed-ai-hunt-prey`** (default **`deer`,`mammoth`**) and fails on herdables (**`sheep`**, **`goat`**, **`woman`**).
 
 ---
 

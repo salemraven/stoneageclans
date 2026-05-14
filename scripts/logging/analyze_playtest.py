@@ -3,7 +3,8 @@
 
 Strict modes:
   --strict                 Fail on herd invariants (+ optional coverage thresholds).
-  --strict-stability      Fail on combat FSM churn, agro threshold ping-pong, or frozen combat probes.
+  --strict-stability      Fail on combat FSM churn, agro ping-pong, or frozen combat probes.
+  --strict-clanbrain      Fail on bad hunt_started prey, friendly-fire JSONL markers, optional brain coverage.
 
 See tools/README.md for capture flags (--playtest-capture, --playtest-2min).
 """
@@ -33,6 +34,10 @@ def _loads_events(path: Path) -> List[Dict[str, Any]]:
 
 COMBAT_TOUCH_STATES = frozenset({"combat", "flee_combat"})
 AI_FIGHTER_TYPES = frozenset({"caveman", "clansman"})
+
+# AoH / ClanBrain hunts: PREY-role types only (`NPCConfig.is_ai_hunt_prey_type`; see guides).
+DEFAULT_AI_HUNT_PREY_TYPES = frozenset({"deer", "mammoth"})
+FORBIDDEN_HUNT_PREY_TYPES = frozenset({"sheep", "goat", "woman"})
 
 
 def analyze_combat_fsm_churn(
@@ -215,6 +220,87 @@ def analyze_frozen_combat_probes(
         print("  ✓ No frozen combat streak detected (or no ctl_d-enhanced probes in capture)")
 
 
+def _parse_allowed_hunt_prey(arg: Optional[str]) -> frozenset:
+    """Comma-separated prey type names; empty -> DEFAULT_AI_HUNT_PREY_TYPES."""
+    if not arg or not arg.strip():
+        return DEFAULT_AI_HUNT_PREY_TYPES
+    names = frozenset(s.strip().lower() for s in arg.split(",") if s.strip())
+    return names if names else DEFAULT_AI_HUNT_PREY_TYPES
+
+
+def analyze_strict_clanbrain(
+    events: Sequence[Dict[str, Any]],
+    allowed_hunt_prey: frozenset,
+    min_clan_brain_eval_events: int,
+    min_quota_update_events: int,
+    violations_out: List[str],
+) -> None:
+    """AoH hunt targets + friendly-fire JSONL gates (ultimate NPC / ClanBrain spec)."""
+
+    hunt_rows = [e for e in events if e.get("evt") == "hunt_started"]
+
+    ff_combat_started = sum(1 for e in events if e.get("evt") == "friendly_fire_combat_started")
+    ff_test_fail = sum(1 for e in events if e.get("evt") == "test_failed_friendly_fire")
+    ff_hits_rows = sum(1 for e in events if e.get("evt") == "combat_hit" and e.get("friendly_fire") is True)
+
+    brain_eval_ct = sum(1 for e in events if e.get("evt") == "clan_brain_eval")
+    quota_up_ct = sum(1 for e in events if e.get("evt") == "clan_brain_quota_update")
+
+    print("\n--- ClanBrain strict (JSONL oracle) ---")
+    print(f"  hunt_started rows: {len(hunt_rows)}")
+    print(
+        "  friendly_fire signals: combat_started="
+        f"{ff_combat_started}, combat_hit(ff)={ff_hits_rows}, test_failed="
+        f"{ff_test_fail}"
+    )
+    print(f"  clan_brain_eval: {brain_eval_ct}, clan_brain_quota_update: {quota_up_ct}")
+
+    for e in hunt_rows:
+        # Instrumentor writes `prey` (historical specs said prey_type — accept both).
+        prey = str(e.get("prey", "") or e.get("prey_type", "") or "").strip().lower()
+        clan = e.get("clan", "?")
+        if not prey:
+            msg = "hunt_started:missing_prey_identifier"
+            print(f"  VIOLATION: {msg} clan={clan} row keys={sorted(e.keys())}")
+            violations_out.append(msg)
+            continue
+        if prey in FORBIDDEN_HUNT_PREY_TYPES:
+            msg = f"hunt_started:herdable_or_invalid_prey:{prey}"
+            print(f"  VIOLATION: {msg} clan={clan}")
+            violations_out.append(msg)
+        elif prey not in allowed_hunt_prey:
+            msg = f"hunt_started:prey_not_in_allowed_set:{prey}"
+            print(f"  VIOLATION: {msg} clan={clan} (allowed={sorted(allowed_hunt_prey)})")
+            violations_out.append(msg)
+
+    if ff_combat_started > 0:
+        violations_out.append(f"friendly_fire:combat_started_events={ff_combat_started}")
+        print(f"  VIOLATION: friendly_fire_combat_started ×{ff_combat_started}")
+    if ff_hits_rows > 0:
+        violations_out.append(f"friendly_fire:combat_hit_rows={ff_hits_rows}")
+        print(f"  VIOLATION: combat_hit with friendly_fire ×{ff_hits_rows}")
+    if ff_test_fail > 0:
+        violations_out.append(f"friendly_fire:test_failed_marker×{ff_test_fail}")
+        print(f"  VIOLATION: test_failed_friendly_fire ×{ff_test_fail}")
+
+    if min_clan_brain_eval_events > 0 and brain_eval_ct < min_clan_brain_eval_events:
+        msg = f"coverage:clan_brain_eval have={brain_eval_ct} need>={min_clan_brain_eval_events}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_quota_update_events > 0 and quota_up_ct < min_quota_update_events:
+        msg = f"coverage:clan_brain_quota_update have={quota_up_ct} need>={min_quota_update_events}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    clan_brain_violations_only = [
+        v
+        for v in violations_out
+        if v.startswith(("hunt_started", "friendly_fire", "coverage:clan_brain"))
+    ]
+    if not clan_brain_violations_only:
+        print("  ✓ ClanBrain strict thresholds satisfied")
+
+
 def analyze(
     path: Path,
     strict: bool,
@@ -223,6 +309,10 @@ def analyze(
     min_session_sec: float,
     *,
     strict_stability: bool = False,
+    strict_clanbrain: bool = False,
+    allowed_hunt_prey: frozenset = DEFAULT_AI_HUNT_PREY_TYPES,
+    min_clanbrain_eval_events: int = 0,
+    min_clanbrain_quota_updates: int = 0,
     combat_churn_window_sec: float = 14.0,
     max_combat_touches_window: int = 14,
     agro_flip_window_sec: float = 30.0,
@@ -398,6 +488,23 @@ def analyze(
     elif strict_stability:
         print("STRICT STABILITY OK: combat/agro anomaly thresholds satisfied")
 
+    clanbrain_violations: list[str] = []
+    if strict_clanbrain:
+        analyze_strict_clanbrain(
+            events,
+            allowed_hunt_prey,
+            min_clanbrain_eval_events,
+            min_clanbrain_quota_updates,
+            clanbrain_violations,
+        )
+        if clanbrain_violations:
+            print(f"STRICT CLANBRAIN FAIL: {len(clanbrain_violations)} issue(s)")
+            for v in clanbrain_violations:
+                print(f"  - {v}")
+            exit_code = max(exit_code, 1)
+        else:
+            print("STRICT CLANBRAIN OK")
+
     return exit_code
 
 
@@ -413,6 +520,32 @@ def main() -> None:
         "--strict-stability",
         action="store_true",
         help="Exit 1 if combat churn, agro ping-pong, or frozen combat probe streak exceeds thresholds",
+    )
+    ap.add_argument(
+        "--strict-clanbrain",
+        action="store_true",
+        help="Exit 1 on invalid AoH hunt JSONL prey, friendly-fire hits, optional clan_brain eval/quota thresholds",
+    )
+    ap.add_argument(
+        "--allowed-ai-hunt-prey",
+        type=str,
+        default="",
+        metavar="LIST",
+        help="Comma-separated allowlist for hunt_started (default deer,mammoth). Use with --strict-clanbrain.",
+    )
+    ap.add_argument(
+        "--min-clanbrain-eval-events",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N clan_brain_eval events (0 = off)",
+    )
+    ap.add_argument(
+        "--min-clanbrain-quota-updates",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N clan_brain_quota_update rows (0 = off)",
     )
     ap.add_argument(
         "--rapid-reenter-sec",
@@ -490,6 +623,8 @@ def main() -> None:
         print(f"File not found: {path}")
         sys.exit(1)
 
+    allowed_hp = _parse_allowed_hunt_prey(args.allowed_ai_hunt_prey)
+
     sys.exit(
         analyze(
             path,
@@ -498,6 +633,10 @@ def main() -> None:
             args.min_herd_wildnpc_enters,
             args.min_session_sec,
             strict_stability=args.strict_stability,
+            strict_clanbrain=args.strict_clanbrain,
+            allowed_hunt_prey=allowed_hp,
+            min_clanbrain_eval_events=args.min_clanbrain_eval_events,
+            min_clanbrain_quota_updates=args.min_clanbrain_quota_updates,
             combat_churn_window_sec=args.combat_churn_window,
             max_combat_touches_window=args.max_combat_touches_window,
             agro_flip_window_sec=args.agro_flip_window,
