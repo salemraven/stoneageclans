@@ -20,7 +20,7 @@ Boots `Main.tscn` headless for ~4 iterations; logs to `Tests/logs/`.
 
 ### 1.1b One-command bundled gate (recommended)
 
-Runs instrumented smoke, territory/brain integration, short ClanBrain `Main` capture, and **`analyze_playtest.py --strict-clanbrain`** (AoH prey allowlist + friendly-fire JSONL gates). Outputs under **`Tests/logs/ultimate_npc_cb_<timestamp>/`**.
+Runs instrumented smoke, territory/brain integration, short ClanBrain `Main` capture, **`analyze_playtest.py --strict-clanbrain`**, then **by default** a **~120 s NPC-only `Main`** (`--npc-only-world`, player hidden at origin) with **`analyze_playtest.py --strict-clanbrain --strict-npc-sim`** so AI clans must show gather FSM touches, hunt telemetry, and baby/growth signals. Bundle root **`Tests/logs/ultimate_npc_cb_<timestamp>/`** contains **`npc_only_2min/`**.
 
 ```bash
 bash tools/run_ultimate_npc_clanbrain_test.sh
@@ -28,9 +28,11 @@ bash tools/run_ultimate_npc_clanbrain_test.sh
 
 Environment:
 
+- **`SKIP_NPC_ONLY_2MIN=1`** — skip the NPC-only ~120 s step + **`--strict-npc-sim`** gate (saves ~2 min wall time).
 - **`ULTIMATE_LONG_2MIN=1`** — also runs **`bash tools/run_playtest_2min_analyze.sh`** (~2 min `Main`): herd **`--strict`** plus **`--strict-clanbrain`** via **`ANALYZER_EXTRA_ARGS`**.
-- **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`**.
+- **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`** (short ClanBrain JSONL and NPC-only analyzer).
 - **`ULTIMATE_MIN_QUOTA_UPDATES`** — default **`0`**; set **`1`** if the short ClanBrain slice must prove quota logs.
+- **`ULTIMATE_NPC_SIM_MIN_GATHER`** / **`ULTIMATE_NPC_SIM_MIN_HUNT`** / **`ULTIMATE_NPC_SIM_MIN_GROWTH`** — thresholds for **`--strict-npc-sim`** on the NPC-only JSONL (defaults **`8`** / **`1`** / **`1`**). **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) gates **`max(t)`** on that capture.
 
 ### 1.2 JSONL capture (full instrumentation)
 
@@ -49,6 +51,7 @@ Writes `playtest_session.jsonl` with structured events.
 | Flag | Behavior |
 |------|----------|
 | `--playtest-2min` | 2-min timed run, auto-quit, 2s snapshots |
+| `--npc-only-world` | Hub AI/wildlife sim: player pinned/hidden at origin (with `--playtest-*`, proves ClanBrain without moving an avatar) |
 | `--playtest-4min` | 4-min timed run |
 | `--raid-test` | Tags session for raid validation, 2s snapshots |
 | `--party-test` | Party/formation validation |
@@ -426,6 +429,26 @@ Fails on:
 - Optional coverage: **`--min-clanbrain-eval-events`**, **`--min-clanbrain-quota-updates`**.
 
 Combined with **`--strict`** / **`--strict-stability`** in one invocation when you want herd + combat + AoH gates together.
+
+### 6.1c NPC world sim strict (`--strict-npc-sim`)
+
+Use on captures run with **`--npc-only-world`** ( **`session_start`** includes **`npc_only_world: true`**). Pass **`--require-npc-only-session`** so generic JSONLs cannot accidentally pass.
+
+```bash
+python3 scripts/logging/analyze_playtest.py \
+  --strict-npc-sim --require-npc-only-session \
+  [--min-npc-gather-fsm N] [--min-npc-hunt-signals N] [--min-npc-growth-events N] \
+  [--min-npc-session-sec SEC] \
+  playtest_session.jsonl
+```
+
+Fails when thresholds miss counts of:
+
+- **`npc_fsm_transition`** for **`caveman`/`clansman`** touching **`gather`** states,
+- **Hunt activity:** **`hunt_started`** / **`hunt_joined`** / **`hunt_phase_changed`**, plus **`npc_fsm_transition`** on **`caveman`/`clansman`** touching **`hunt`**, plus **`deer`/`mammoth`** transitions touching **`flee_prey`** (prey reacting to hunters),
+- **`baby_spawned`** + **`baby_grew_to_clansman`**.
+
+Bundled runner: **`bash tools/run_playtest_npc_only_2min_analyze.sh`** (sets ClanBrain strict + NPC sim thresholds via env vars documented in that script).
 
 ### 6.2 Stability mode
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Ultimate NPC & ClanBrain gate (guides/Ultimate_npc_clanbrain_test.md):
-# Smoke + territory/brain integration + ClanBrain capture + analyze_playtest --strict-clanbrain.
+# Smoke + territory/brain integration + ClanBrain capture + analyze_playtest --strict-clanbrain
+# + NPC-only ~120s Main (--npc-only-world) + analyze (--strict-clanbrain --strict-npc-sim).
 #
 # Usage (repo root): bash tools/run_ultimate_npc_clanbrain_test.sh
 #
@@ -9,6 +10,7 @@
 #   ULTIMATE_LONG_2MIN=1       — append 2‑min instrumented Main + herd strict (adds ~2 min wall time).
 #                               Passes ANALYZER_EXTRA_ARGS to include --strict-clanbrain there too.
 #   SKIP_ULTIMATE_2MIN=1       — omit long step even if defaulted elsewhere (explicit skip)
+#   SKIP_NPC_ONLY_2MIN=1       — skip ~120s NPC-only Main + analyze (--npc-only-world proof)
 #
 # Analyzer env for the ClanBrain JSONL step:
 #   ULTIMATE_MIN_CLAN_BRAIN_EVALS   — default 1 (require ≥N clan_brain_eval)
@@ -65,19 +67,37 @@ echo ">>> ${AN_CMD[*]} $JSONL"
 "${AN_CMD[@]}" "$JSONL"
 ANA_EC=$?
 
+FINAL_EC="${ANA_EC}"
+
+if [[ "${SKIP_NPC_ONLY_2MIN:-}" != "1" ]]; then
+	NPC_OUT="$BUNDLE/npc_only_2min"
+	mkdir -p "$NPC_OUT"
+	echo ""
+	echo ">>> NPC-only world (~120s): bash tools/run_playtest_npc_only_2min_analyze.sh (OUT_DIR)"
+	export OUT_DIR="$NPC_OUT"
+	export ANALYZER_EXTRA_ARGS=""
+	bash "$ROOT/tools/run_playtest_npc_only_2min_analyze.sh"
+	NPC_EC=$?
+	if [[ "${FINAL_EC}" -eq 0 ]] && [[ "${NPC_EC}" -ne 0 ]]; then
+		FINAL_EC="${NPC_EC}"
+	fi
+else
+	echo ""
+	echo ">>> NPC-only world step SKIPPED (SKIP_NPC_ONLY_2MIN=1)"
+fi
+
 if [[ "${SKIP_ULTIMATE_2MIN:-}" == "1" ]]; then
 	echo ""
 	echo ">>> Long 2-min playtest — SKIPPED (SKIP_ULTIMATE_2MIN=1)"
-	exit "$ANA_EC"
+	exit "$FINAL_EC"
 fi
 
 if [[ "${ULTIMATE_LONG_2MIN:-}" != "1" ]]; then
 	echo ""
 	echo "(Set ULTIMATE_LONG_2MIN=1 to add ~2-min herd-heavy Main + --strict --strict-clanbrain)"
-	exit "${ANA_EC}"
+	exit "${FINAL_EC}"
 fi
 
-FINAL_EC="${ANA_EC}"
 OUT_LONG="$BUNDLE/playtest_2min"
 mkdir -p "$OUT_LONG"
 echo ""
@@ -86,8 +106,8 @@ export OUT_DIR="$OUT_LONG"
 export ANALYZER_EXTRA_ARGS="--strict-clanbrain"
 bash "$ROOT/tools/run_playtest_2min_analyze.sh"
 LONG_EC=$?
-if [[ "${FINAL_EC}" -eq 0 ]]; then
-	FINAL_EC=$LONG_EC
+if [[ "${FINAL_EC}" -ne 0 ]] || [[ "${LONG_EC}" -ne 0 ]]; then
+	FINAL_EC=1
 fi
 
 echo ""

@@ -5,6 +5,7 @@ Strict modes:
   --strict                 Fail on herd invariants (+ optional coverage thresholds).
   --strict-stability      Fail on combat FSM churn, agro ping-pong, or frozen combat probes.
   --strict-clanbrain      Fail on bad hunt_started prey, friendly-fire JSONL markers, optional brain coverage.
+  --strict-npc-sim        Fail if AI clans lack gather FSM touches, hunt telemetry, or population growth signals.
 
 See tools/README.md for capture flags (--playtest-capture, --playtest-2min).
 """
@@ -301,6 +302,98 @@ def analyze_strict_clanbrain(
         print("  ✓ ClanBrain strict thresholds satisfied")
 
 
+def analyze_strict_npc_sim(
+    events: Sequence[Dict[str, Any]],
+    session: Optional[Dict[str, Any]],
+    *,
+    require_npc_only_session: bool,
+    min_gather_fsm_touches: int,
+    min_hunt_signals: int,
+    min_growth_events: int,
+    min_session_sec: float,
+    violations_out: List[str],
+) -> None:
+    """Proof that AI clans gather, hunt pipeline runs, and population grows (JSONL oracle).
+
+    Gather: npc_fsm_transition rows for caveman/clansman touching gather state.
+    Hunt: hunt_started / hunt_joined / hunt_phase_changed, plus prey (deer/mammoth)
+          npc_fsm_transition rows touching flee_prey (pressure from hunters).
+    Growth: baby_spawned + baby_grew_to_clansman.
+    """
+
+    _mark_start = len(violations_out)
+
+    gather_fsm_touches = 0
+    hunt_signals = 0
+    growth_events = 0
+
+    prey_types_for_hunt_evidence = frozenset({"deer", "mammoth"})
+
+    for e in events:
+        evt = e.get("evt")
+        if evt == "npc_fsm_transition":
+            t_raw = str(e.get("type", "") or "").strip().lower()
+            frm = str(e.get("from", ""))
+            to = str(e.get("to", ""))
+            if t_raw in AI_FIGHTER_TYPES:
+                if "gather" in frm or "gather" in to:
+                    gather_fsm_touches += 1
+                if "hunt" in frm or "hunt" in to:
+                    hunt_signals += 1
+            elif t_raw in prey_types_for_hunt_evidence:
+                if "flee_prey" in frm or "flee_prey" in to:
+                    hunt_signals += 1
+        elif evt == "hunt_started":
+            hunt_signals += 1
+        elif evt in ("hunt_joined", "hunt_phase_changed"):
+            hunt_signals += 1
+        elif evt in ("baby_spawned", "baby_grew_to_clansman"):
+            growth_events += 1
+
+    max_t = max((float(e.get("t", 0)) for e in events), default=0.0)
+
+    print("\n--- NPC world sim strict (AI gather / hunt / growth) ---")
+    print(f"  npc_fsm_transition gather touches (caveman/clansman): {gather_fsm_touches}")
+    print(
+        "  hunt signals (AoH JSONL + fighter hunt FSM + prey flee_prey FSM): "
+        f"{hunt_signals}"
+    )
+    print(f"  growth events (baby spawn/grew): {growth_events}")
+    print(f"  max event t: {max_t:.1f}s")
+
+    if require_npc_only_session:
+        if session is None or session.get("npc_only_world") is not True:
+            msg = "npc_sim:session_missing_npc_only_world_flag"
+            print(f"  VIOLATION: {msg}")
+            violations_out.append(msg)
+
+    if min_session_sec > 0 and max_t + 1e-6 < min_session_sec:
+        msg = f"coverage:npc_sim_session_sec have_max_t={max_t:.1f}s need>={min_session_sec:g}s"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if min_gather_fsm_touches > 0 and gather_fsm_touches < min_gather_fsm_touches:
+        msg = (
+            f"coverage:npc_sim_gather_fsm have={gather_fsm_touches} need>={min_gather_fsm_touches}"
+        )
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if min_hunt_signals > 0 and hunt_signals < min_hunt_signals:
+        msg = f"coverage:npc_sim_hunt_signals have={hunt_signals} need>={min_hunt_signals}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if min_growth_events > 0 and growth_events < min_growth_events:
+        msg = f"coverage:npc_sim_growth have={growth_events} need>={min_growth_events}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if len(violations_out) == _mark_start:
+        print("  ✓ NPC sim strict thresholds satisfied")
+
+
+
 def analyze(
     path: Path,
     strict: bool,
@@ -320,6 +413,12 @@ def analyze(
     frozen_min_probe_streak: int = 6,
     frozen_max_vel: float = 4.0,
     frozen_max_target_dist: float = 360.0,
+    strict_npc_sim: bool = False,
+    require_npc_only_session: bool = False,
+    min_npc_gather_fsm_touches: int = 1,
+    min_npc_hunt_signals: int = 1,
+    min_npc_growth_events: int = 1,
+    min_npc_sim_session_sec: float = 110.0,
 ) -> int:
     events = _loads_events(path)
     violations: list[str] = []
@@ -329,7 +428,10 @@ def analyze(
 
     session = next((e for e in events if e.get("evt") == "session_start"), None)
     if session:
-        print(f"Session path: {session.get('path', '?')}\n")
+        print(f"Session path: {session.get('path', '?')}")
+        if session.get("npc_only_world"):
+            print("  npc_only_world: true")
+        print()
 
     # Herd enter/exit flicker: exit -> enter gap under rapid_reenter_sec (matches herd_wildnpc_reentry_cooldown_sec intent)
     herd_enters = defaultdict(list)
@@ -505,6 +607,26 @@ def analyze(
         else:
             print("STRICT CLANBRAIN OK")
 
+    npc_sim_violations: list[str] = []
+    if strict_npc_sim:
+        analyze_strict_npc_sim(
+            events,
+            session,
+            require_npc_only_session=require_npc_only_session,
+            min_gather_fsm_touches=min_npc_gather_fsm_touches,
+            min_hunt_signals=min_npc_hunt_signals,
+            min_growth_events=min_npc_growth_events,
+            min_session_sec=min_npc_sim_session_sec,
+            violations_out=npc_sim_violations,
+        )
+        if npc_sim_violations:
+            print(f"STRICT NPC SIM FAIL: {len(npc_sim_violations)} issue(s)")
+            for v in npc_sim_violations:
+                print(f"  - {v}")
+            exit_code = max(exit_code, 1)
+        else:
+            print("STRICT NPC SIM OK")
+
     return exit_code
 
 
@@ -525,6 +647,47 @@ def main() -> None:
         "--strict-clanbrain",
         action="store_true",
         help="Exit 1 on invalid AoH hunt JSONL prey, friendly-fire hits, optional clan_brain eval/quota thresholds",
+    )
+    ap.add_argument(
+        "--strict-npc-sim",
+        action="store_true",
+        help="Exit 1 if AI gather/hunt/growth JSONL signals fall below thresholds (use with --npc-only-world captures)",
+    )
+    ap.add_argument(
+        "--require-npc-only-session",
+        action="store_true",
+        help="With --strict-npc-sim: require session_start.npc_only_world == true",
+    )
+    ap.add_argument(
+        "--min-npc-gather-fsm",
+        type=int,
+        default=1,
+        metavar="N",
+        help="With --strict-npc-sim: min npc_fsm_transition rows touching gather for caveman/clansman",
+    )
+    ap.add_argument(
+        "--min-npc-hunt-signals",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "With --strict-npc-sim: min hunt-related signals "
+            "(hunt_started/joined/phase + fighter hunt FSM + deer/mammoth flee_prey FSM)"
+        ),
+    )
+    ap.add_argument(
+        "--min-npc-growth-events",
+        type=int,
+        default=1,
+        metavar="N",
+        help="With --strict-npc-sim: min baby_spawned+baby_grew_to_clansman rows",
+    )
+    ap.add_argument(
+        "--min-npc-session-sec",
+        type=float,
+        default=110.0,
+        metavar="SEC",
+        help="With --strict-npc-sim: fail if max JSONL t < SEC (0 = off). Default 110 for ~120s playtests.",
     )
     ap.add_argument(
         "--allowed-ai-hunt-prey",
@@ -644,6 +807,12 @@ def main() -> None:
             frozen_min_probe_streak=args.frozen_probe_streak,
             frozen_max_vel=args.frozen_max_vel,
             frozen_max_target_dist=args.frozen_max_target_dist,
+            strict_npc_sim=args.strict_npc_sim,
+            require_npc_only_session=args.require_npc_only_session,
+            min_npc_gather_fsm_touches=args.min_npc_gather_fsm,
+            min_npc_hunt_signals=args.min_npc_hunt_signals,
+            min_npc_growth_events=args.min_npc_growth_events,
+            min_npc_sim_session_sec=args.min_npc_session_sec,
         )
     )
 

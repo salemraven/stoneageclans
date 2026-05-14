@@ -52,7 +52,11 @@ if [[ -n "${ANALYZER_EXTRA_ARGS:-}" ]]; then
 	read -r -a EXTRA <<<"${ANALYZER_EXTRA_ARGS}"
 fi
 echo ">>> analyze_playtest.py ${AN_ARGS[*]} ${ANALYZER_EXTRA_ARGS:-}"
-python3 "$ROOT/scripts/logging/analyze_playtest.py" "${AN_ARGS[@]}" "${EXTRA[@]}" "$JSONL"
+if [[ "${#EXTRA[@]}" -eq 0 ]]; then
+	python3 "$ROOT/scripts/logging/analyze_playtest.py" "${AN_ARGS[@]}" "$JSONL"
+else
+	python3 "$ROOT/scripts/logging/analyze_playtest.py" "${AN_ARGS[@]}" "${EXTRA[@]}" "$JSONL"
+fi
 AN_EC=$?
 
 NULL_TREE="$(grep -c 'Parameter "data.tree" is null' "$OUT/godot.log" 2>/dev/null || echo 0)"

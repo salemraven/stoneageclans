@@ -110,6 +110,8 @@ func _start() -> void:
 			marker.store_string(path_for_marker)
 			marker.close()
 		var session: Dictionary = {"t": 0.0, "evt": "session_start", "path": _file_path}
+		if "--npc-only-world" in ua:
+			session["npc_only_world"] = true
 		if _party_test:
 			session["party_test"] = true
 		if _agro_combat_test:

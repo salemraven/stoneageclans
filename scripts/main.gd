@@ -140,6 +140,9 @@ var _raid_test_start_time: float = -1.0
 # 2-min playtest: productivity monitoring; auto-quit after 120s
 var _playtest_2min_start_time: float = -1.0
 
+## `--npc-only-world`: hub at origin — AI clans + wildlife; player hidden, collisions off (headless ClanBrain proof).
+var _npc_only_world: bool = false
+
 # Session capture: --session-quit-after N (DebugConfig.session_quit_after_seconds)
 var _session_quit_start_time: float = -1.0
 
@@ -193,6 +196,11 @@ func _cmdline_has(flag: String) -> bool:
 	if OS.get_name() == "Web":
 		return false
 	return flag in OS.get_cmdline_args() or flag in OS.get_cmdline_user_args()
+
+
+func _cmdline_npc_only_world() -> bool:
+	return _cmdline_has("--npc-only-world")
+
 
 func _new_land_claim_inventory() -> InventoryData:
 	var n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
@@ -611,6 +619,7 @@ func _notification(what: int) -> void:
 
 func _ready() -> void:
 	# Log startup
+	_npc_only_world = _cmdline_npc_only_world()
 	UnifiedLogger.log_system("Main._ready() called")
 	
 	add_to_group("main")
@@ -1501,6 +1510,9 @@ func _define_action(action_name: StringName, keys: Array) -> void:
 			InputMap.action_add_event(action_name, event)
 
 func _give_starting_items() -> void:
+	if _npc_only_world:
+		print("NPC_ONLY_WORLD: skipping player starting items (no human avatar loop)")
+		return
 	# Campfire plus starter spear on right-hand hotbar slot (until gather/crafting loop is primary).
 	await get_tree().process_frame
 	
@@ -3598,7 +3610,7 @@ func _spawn_rts_playtest_pack_async() -> void:
 
 func _spawn_rts_playtest_pack_if_requested() -> void:
 	var ua: PackedStringArray = _main_cmdline_user_args()
-	if not ("--rts-playtest-spawn" in ua):
+	if _npc_only_world or not ("--rts-playtest-spawn" in ua):
 		return
 	await _spawn_rts_playtest_pack()
 
@@ -6319,9 +6331,18 @@ func _initialize_minigame() -> void:
 		await get_tree().process_frame
 	
 	# Resolve spawn center and parent - fallbacks for headless/edge cases
+	var npc_only := _npc_only_world
 	var center_pos: Vector2
 	var spawn_parent: Node2D
-	if player and is_instance_valid(player):
+	if npc_only:
+		center_pos = Vector2.ZERO
+		if player and is_instance_valid(player):
+			player.global_position = center_pos
+			player.velocity = Vector2.ZERO
+		if world:
+			world.ensure_chunks_for_position(center_pos)
+		print("NPC_ONLY_WORLD: spawn hub at origin (AI-only simulation)")
+	elif player and is_instance_valid(player):
 		center_pos = player.global_position
 	else:
 		center_pos = Vector2.ZERO
@@ -6356,6 +6377,13 @@ func _initialize_minigame() -> void:
 	if DebugConfig.enable_raid_test:
 		await _setup_raid_test_environment()
 		return
+
+	var restore_boost := false
+	var saved_boost_val := false
+	if npc_only and BalanceConfig:
+		saved_boost_val = BalanceConfig.caveman_spawn_with_boost
+		BalanceConfig.caveman_spawn_with_boost = true
+		restore_boost = true
 
 	# Playtest: 4 cavemen spread far apart
 	var caveman_count := BalanceConfig.caveman_count if BalanceConfig else 4
@@ -6548,28 +6576,44 @@ func _initialize_minigame() -> void:
 	_start_women_respawn_system()
 	_start_sheep_goats_respawn_system()
 
+	if restore_boost and BalanceConfig:
+		BalanceConfig.caveman_spawn_with_boost = saved_boost_val
+
+	if npc_only:
+		_finalize_npc_only_world_player()
+
+func _finalize_npc_only_world_player() -> void:
+	if not player or not is_instance_valid(player):
+		return
+	player.visible = false
+	player.velocity = Vector2.ZERO
+	player.collision_layer = 0
+	player.collision_mask = 0
+	print("NPC_ONLY_WORLD: player hidden, collisions off at %s" % str(player.global_position))
+
+
 func _spawn_mammoths(center_pos: Vector2) -> void:
 	var mammoth_count := 2  # Spawn 2 mammoths
 	var spawn_radius := 1200.0  # Far from center - wild megafauna
-	
+
 	print("Spawning %d mammoths" % mammoth_count)
-	
+
 	for i in mammoth_count:
 		var angle := randf() * TAU
 		var distance := randf_range(800.0, spawn_radius)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		
+
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		
+
 		var npc_name: String = "Mammoth %d" % (i + 1)
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "mammoth")
 		npc.set("traits", [])  # No herd trait - cannot be herded
 		npc.set("age", 20)
 		npc.set("agro_meter", 0.0)
-		
+
 		# Mammoth scale (0.6 = 10x smaller than original 6.0)
 		var mammoth_scale: float = 0.6
 		if NPCConfig:
@@ -6577,7 +6621,7 @@ func _spawn_mammoths(center_pos: Vector2) -> void:
 			if s != null:
 				mammoth_scale = s as float
 		npc.scale = Vector2(mammoth_scale, mammoth_scale)
-		
+
 		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 		if sprite:
 			var texture: Texture2D = AssetRegistry.get_mammoth_sprite()
@@ -6585,7 +6629,7 @@ func _spawn_mammoths(center_pos: Vector2) -> void:
 				sprite.texture = texture
 				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 				sprite.visible = true
-		
+
 		world_objects.add_child(npc)
 		npc.global_position = pos
 		npc.set("spawn_position", pos)
