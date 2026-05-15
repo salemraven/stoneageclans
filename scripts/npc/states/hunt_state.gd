@@ -20,6 +20,9 @@ var _hunt_abort_grace_timer: float = 0.0
 const HUNT_ABORT_GRACE_SEC: float = 0.4
 const LOOT_PHASE_TIMEOUT_SEC: float = 15.0
 
+var _hunt_abort_logged: bool = false
+var _hunt_prey_killed_logged: bool = false
+
 func enter() -> void:
 	if not npc:
 		return
@@ -47,9 +50,16 @@ func enter() -> void:
 	if pi and pi.is_enabled() and pi.has_method("hunt_joined"):
 		pi.hunt_joined(nn, HuntPhase.keys()[hunt_phase])
 	_hunt_abort_grace_timer = 0.0
+	_hunt_abort_logged = false
+	_hunt_prey_killed_logged = false
+	if npc:
+		npc.set_meta("chunk_sticky", true)
 
 func exit() -> void:
 	_cancel_tasks_if_active()
+	if npc:
+		if npc.has_meta("chunk_sticky"):
+			npc.remove_meta("chunk_sticky")
 	if npc:
 		npc.remove_meta("hunt_after_combat")
 		if npc.has_meta("is_stalking"):
@@ -79,6 +89,7 @@ func update(delta: float) -> void:
 		_hunt_abort_grace_timer += delta
 		if _hunt_abort_grace_timer < HUNT_ABORT_GRACE_SEC:
 			return
+		_emit_hunt_abort_if_needed("brain_lost")
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -105,6 +116,7 @@ func update(delta: float) -> void:
 func _update_forming(delta: float) -> void:
 	assembly_timer += delta
 	if assembly_timer > assembly_timeout:
+		_emit_hunt_abort_if_needed("assembly_timeout")
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -118,9 +130,16 @@ func _update_chasing(_delta: float) -> void:
 	var hint0: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
 	var prey: Node = hint0.get("target") as Node
 	if not prey or not is_instance_valid(prey):
+		_emit_hunt_abort_if_needed("prey_invalid")
 		hunt_phase = HuntPhase.RETURNING
 		return
-	if prey.has_method("is_dead") and prey.is_dead():
+	var prey_dead: bool = false
+	if prey.has_method("is_dead"):
+		prey_dead = bool(prey.is_dead())
+	else:
+		prey_dead = not is_attack_target_alive(prey)
+	if prey_dead:
+		_emit_hunt_prey_killed_once(prey)
 		hunt_phase = HuntPhase.LOOTING
 		_prepare_looting_entry()
 		return
@@ -141,9 +160,16 @@ func _update_killing() -> void:
 	var hint1: Dictionary = clan_brain.get_hunt_intent() if clan_brain and clan_brain.has_method("get_hunt_intent") else {}
 	var prey: Node = hint1.get("target") as Node
 	if not prey or not is_instance_valid(prey):
+		_emit_hunt_abort_if_needed("prey_invalid_killing")
 		hunt_phase = HuntPhase.RETURNING
 		return
-	if prey.has_method("is_dead") and prey.is_dead():
+	var prey_dead: bool = false
+	if prey.has_method("is_dead"):
+		prey_dead = bool(prey.is_dead())
+	else:
+		prey_dead = not is_attack_target_alive(prey)
+	if prey_dead:
+		_emit_hunt_prey_killed_once(prey)
 		hunt_phase = HuntPhase.LOOTING
 		_prepare_looting_entry()
 		return
@@ -219,6 +245,33 @@ func _corpse_kind(corpse: Node) -> String:
 	if not corpse:
 		return "unknown"
 	return str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "unknown"
+
+func _hunter_clan_name() -> String:
+	if npc and npc.has_method("get_clan_name"):
+		var cn: Variant = npc.get_clan_name()
+		if cn != null:
+			return str(cn)
+	return ""
+
+func _emit_hunt_abort_if_needed(reason: String) -> void:
+	if _hunt_abort_logged or not npc:
+		return
+	_hunt_abort_logged = true
+	var cn: String = _hunter_clan_name()
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("hunt_aborted"):
+		pi.hunt_aborted(cn, reason)
+
+func _emit_hunt_prey_killed_once(prey: Node) -> void:
+	if _hunt_prey_killed_logged or not npc:
+		return
+	_hunt_prey_killed_logged = true
+	var cn: String = _hunter_clan_name()
+	var prey_type: String = _corpse_kind(prey)
+	var killer: String = str(npc.npc_name) if npc.get("npc_name") != null else str(npc.name)
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("hunt_prey_killed"):
+		pi.hunt_prey_killed(cn, prey_type, killer)
 
 func _emit_hunt_butcher_started_evt(corpse: Node) -> void:
 	var pi_evt = npc.get_node_or_null("/root/PlaytestInstrumentor")

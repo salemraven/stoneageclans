@@ -52,7 +52,7 @@ func enter() -> void:
 	else:
 		search_center = npc.global_position if npc else Vector2.ZERO
 		search_distance = 100.0
-	search_angle = randf() * TAU  # Random first ray direction
+	search_angle = _npc_rngf()() * TAU  # Random first ray direction
 	var herded_count: int = npc.herded_count if "herded_count" in npc else 0
 	UnifiedLogger.log_npc("Action started: herd_wildnpc (target-less, herded_count=%d)" % herded_count, {
 		"npc": npc.npc_name,
@@ -381,11 +381,14 @@ func get_priority() -> float:
 		if land_claim_node:
 			var pressure: float = land_claim_node.get_meta("reproduction_pressure", 0.5)
 			if pressure >= 0.8:
-				searching = 6.1  # Beat gather when clan needs women
+				if NPCConfig:
+					searching = NPCConfig.priority_herd_wildnpc_searching_boosted
+				else:
+					searching = 6.1
 		return searching
-	# NO target in range: use low priority so gather (5.8) wins - cavemen gather instead of walking empty rays
-	const NO_TARGET_PRIORITY: float = 5.2  # Below gather 5.8 - stay productive
-	return NO_TARGET_PRIORITY
+	if NPCConfig:
+		return NPCConfig.priority_herd_wildnpc_no_target
+	return 5.2
 
 func _is_leading_woman() -> bool:
 	"""True if any NPC currently following this herder is a woman."""

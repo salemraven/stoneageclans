@@ -84,19 +84,22 @@ Set `DebugConfig.enable_session_instrumentation = true` for FSM/agro/task logs i
 - `test_run_ended`, `test_run_ended_2min`
 
 ### B. ClanBrain & territory
-- `clan_brain_eval` — full metrics dump per evaluation cycle
+- `clan_brain_eval` — full metrics dump per evaluation cycle (includes **`survival_mode`** when brain runs)
 - `clan_brain_food_ratio` — food economy tracking
 - `clan_brain_quota_update` — defender/searcher quotas + alert level
+- `survival_mode_changed` — AI clan entered/exited survival (low fighter count); fields: `entered`, `population`
+- `clan_brain_invariant_failed` — debug assert / quota invariant violation (should stay **0** in CI)
 
 ### C. Raiders
 - `raid_evaluated` — score + breakdown (food pressure, aggression, weak enemy, etc.)
-- `raid_started`, `raid_joined`, `raid_aborted`
+- `raid_started`, `raid_joined`, `raid_aborted`, `raid_completed`
 - `party_formed`, `party_disbanded`, `party_formation_tick`
 
 ### D. Hunters (NPC clans)
 - `hunt_started` — JSON field **`prey`** (analyzer also accepts **`prey_type`**); quota + pressures + meat/hide counts
 - `hunt_joined`, `hunt_phase_changed`
 - `hunt_completed`, `hunt_aborted`, `hunt_prey_escaped`
+- `hunt_prey_killed` — prey died during hunt (`killer`, `prey_type`, clan)
 - `hunt_butcher_*`, `hunt_deposit`
 
 ### E. Herd / search recruitment
@@ -106,6 +109,7 @@ Set `DebugConfig.enable_session_instrumentation = true` for FSM/agro/task logs i
 
 ### F. NPC FSM
 - `npc_fsm_transition` — from/to states, clan, herded_count, follow_ordered
+- `npc_stuck_state_escaped` — FSM watchdog forced exit (max time in state → `wander`)
 - `herd_fsm_transition` — herd/party adjacent
 
 ### G. Combat / agro
@@ -312,6 +316,33 @@ bash tools/run_playtest_npc_only_5min_economy.sh
 
 ---
 
+### 4.13 FSM stuck-state watchdog
+
+**Setup:** Any NPC stuck abnormally long in a state (e.g. combat/hunt) — rare; usually indicates a bug.
+
+**Stimulus:** FSM exceeds per-state max duration.
+
+**Expected JSONL:** `npc_stuck_state_escaped` with `from` = state name, `elapsed_sec` &gt; cap.
+
+**Pass:** NPC transitions to `wander` without freezing; event count should be **low** in normal runs (investigate spikes).
+
+---
+
+### 4.14 AI survival mode (low fighters)
+
+**Setup:** AI clan with **1 caveman** (fighters &lt; `SURVIVAL_MODE_THRESHOLD`).
+
+**Stimulus:** ClanBrain evaluates.
+
+**Expected JSONL:**
+- `survival_mode_changed` with `entered: true`, `population: 1`
+- `clan_brain_eval` rows include `"survival_mode": true`
+- No new `hunt_started` / `raid_started` from brain while in survival (offensive phases skipped)
+
+**Pass:** Search/herd prioritized; brain does not schedule raids/hunts until population recovers.
+
+---
+
 ## 5. Test Scenarios — Multiplayer Readiness
 
 These tests ensure systems will work when server is authoritative.
@@ -358,9 +389,7 @@ if multiplayer and not multiplayer.is_server():
 
 **Test type:** Code audit.
 
-**Requirement:** Any `randf()` / `randi()` in ClanBrain or NPC states must either:
-- Use seeded RNG from `world_seed`
-- Run only on server
+**Requirement:** Gameplay NPC rolls should use **`NPCBase.npc_randf()` / `npc_randi_range()`** (seeded from `WorldGenConfig.world_seed` + NPC identity), not bare `randf()`/`randi()` in state scripts. ClanBrain-level rolls should use a seeded/brain-owned RNG on the same principle. Any remaining global RNG must run **only on the server**.
 
 **Files to audit:**
 - `scripts/ai/clan_brain.gd`

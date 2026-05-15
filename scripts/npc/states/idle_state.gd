@@ -20,10 +20,10 @@ func enter() -> void:
 			min_dur = NPCConfig.idle_duration_min as float
 		if "idle_duration_max" in NPCConfig:
 			max_dur = NPCConfig.idle_duration_max as float
-	idle_duration = randf_range(min_dur, max_dur)
+	idle_duration = _npc_rngf()_range(min_dur, max_dur)
 	current_animation = "look_right"  # Start by looking right
 	animation_timer = 0.0
-	animation_duration = randf_range(1.0, 2.0)  # Duration for first animation
+	animation_duration = _npc_rngf()_range(1.0, 2.0)  # Duration for first animation
 	bounce_offset = Vector2.ZERO
 	
 	# Store base sprite position for bounce animation
@@ -66,7 +66,7 @@ func update(delta: float) -> void:
 			if animation_timer >= animation_duration:
 				current_animation = "look_left"
 				animation_timer = 0.0
-				animation_duration = randf_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
 		
 		"look_left":
 			# Look left for 1-2 seconds
@@ -75,7 +75,7 @@ func update(delta: float) -> void:
 			if animation_timer >= animation_duration:
 				current_animation = "bounce"
 				animation_timer = 0.0
-				animation_duration = randf_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
 		
 		"bounce":
 			# Bounce animation for 1-2 seconds
@@ -88,7 +88,7 @@ func update(delta: float) -> void:
 				# Cycle back to look_right
 				current_animation = "look_right"
 				animation_timer = 0.0
-				animation_duration = randf_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
 				if npc.sprite:
 					npc.sprite.position = base_sprite_position
 					bounce_offset = Vector2.ZERO
@@ -110,12 +110,25 @@ func can_enter() -> bool:
 	return true
 
 func get_priority() -> float:
+	var p_cave: float = 0.0
+	var p_wild: float = 0.0
+	var p_woman: float = 0.1
+	var p_clan: float = 0.3
+	var p_rand: float = 0.5
+	var p_min: float = 0.0
+	if NPCConfig:
+		p_cave = NPCConfig.priority_idle_caveman
+		p_wild = NPCConfig.priority_idle_wild_no_herd
+		p_woman = NPCConfig.priority_idle_woman_clan
+		p_clan = NPCConfig.priority_idle_clan_other
+		p_rand = NPCConfig.priority_idle_random_break
+		p_min = NPCConfig.priority_idle
 	# CRITICAL: Cavemen should NEVER idle - they should always be doing a task (wander, gather, deposit, herd, etc.)
 	# This prevents cavemen from glitching in one spot
 	if npc:
 		var npc_type_str: String = npc.get("npc_type") if npc else ""
 		if npc_type_str == "caveman":
-			return 0.0  # Cavemen should never enter idle - always have a task
+			return p_cave
 		
 		# CRITICAL FIX: Wild NPCs (women, sheep, goats) should also avoid idle when not herded
 		# They should wander instead to prevent oscillation
@@ -123,8 +136,7 @@ func get_priority() -> float:
 			var is_herded_prop = npc.get("is_herded")
 			var is_herded: bool = is_herded_prop as bool if is_herded_prop != null else false
 			if not is_herded:
-				# Not herded - should wander, not idle
-				return 0.0  # Very low priority - wander state will take precedence
+				return p_wild
 	
 	# Women in clans should wander instead of idle (for immersion)
 	# Other clan members can idle when no buildings available and not eating
@@ -135,17 +147,15 @@ func get_priority() -> float:
 		
 		# Women in clans should wander (lower priority than wander state)
 		if npc_type_str == "woman" and clan_name != "":
-			return 0.1  # Very low priority - wander state (1.0) will take precedence
+			return p_woman
 		
 		# Other clan members can idle
 		if clan_name != "":
-			# Higher priority for other clan members to idle (they don't wander or gather)
-			return 0.3
-	# Lowest priority - only when NPC has no other actions
+			return p_clan
 	var force_idle_chance: float = 0.02
 	if NPCConfig and "idle_chance" in NPCConfig:
 		force_idle_chance = NPCConfig.idle_chance as float
-	if randf() < force_idle_chance:
-		return 0.5  # Slightly higher priority to allow idle breaks
-	return 0.0
+	if _npc_rngf()() < force_idle_chance:
+		return p_rand
+	return p_min
 

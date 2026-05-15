@@ -53,6 +53,15 @@ func _agro_console_throttled(key: String, min_interval_sec: float) -> bool:
 	npc.set_meta(meta_key, now_sec)
 	return true
 
+func _agro_session_log(message: String, details: Dictionary) -> void:
+	if not DebugConfig or not DebugConfig.enable_session_instrumentation or not DebugConfig.enable_agro_session_logs:
+		return
+	UnifiedLogger.log_session(message, details)
+
+func _set_agro_exit_reason(reason: String) -> void:
+	if npc:
+		npc.set_meta("agro_exit_reason", reason)
+
 func enter() -> void:
 	if not npc:
 		return
@@ -153,9 +162,34 @@ func enter() -> void:
 		else:
 			if _agro_console_throttled("recover_no_target", 3.0):
 				print("Caveman %s entering AGRO RECOVER state, no lost wild NPC found" % npc.npc_name)
+	
+	var am_enter: Variant = npc.get("agro_meter") if npc else null
+	var am_enter_f: float = float(am_enter) if am_enter != null else 0.0
+	var mode_str: String = "land_claim_defense" if is_land_claim_defense else ("recover" if (lost_wildnpc and is_instance_valid(lost_wildnpc)) else "recover_no_wildnpc")
+	var nc_sess = npc.get("clan_name") if npc else null
+	var clan_sess: String = (nc_sess as String) if nc_sess != null else ""
+	_agro_session_log("AGRO_STATE_ENTER", {
+		"npc": npc.npc_name,
+		"mode": mode_str,
+		"agro_meter": "%.2f" % am_enter_f,
+		"clan": clan_sess
+	})
 
 func exit() -> void:
 	_cancel_tasks_if_active()
+	var exit_reason: String = ""
+	if npc and npc.has_meta("agro_exit_reason"):
+		exit_reason = str(npc.get_meta("agro_exit_reason", ""))
+		npc.remove_meta("agro_exit_reason")
+	var dur_s: float = 0.0
+	if has_meta("entry_time"):
+		dur_s = Time.get_ticks_msec() / 1000.0 - float(get_meta("entry_time", 0.0))
+	if npc:
+		_agro_session_log("AGRO_STATE_EXIT", {
+			"npc": npc.npc_name,
+			"reason": exit_reason if exit_reason != "" else "unknown",
+			"duration_s": "%.2f" % dur_s
+		})
 	if npc:
 		if _agro_console_throttled("exit_state", 2.0):
 			print("Caveman %s exiting AGRO state" % npc.npc_name)
@@ -177,7 +211,16 @@ func update(delta: float) -> void:
 	# Check if still agro (agro_meter drives is_agro on NPCBase)
 	var am: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
 	if am <= 0.0001:
+		_set_agro_exit_reason("meter_zero")
 		fsm.change_state("wander")
+		return
+	
+	if agro_target and not is_attack_target_alive(agro_target):
+		npc.set("agro_target", null)
+		agro_target = null
+		_set_agro_exit_reason("target_dead_or_invalid")
+		if fsm:
+			fsm.change_state("wander")
 		return
 	
 	# CRITICAL: For land claim defense, continuously check if target has left
@@ -233,6 +276,7 @@ func update(delta: float) -> void:
 						# Exit state - transition to gather or wander
 						# Auto-deposit in npc_base.gd will handle depositing when NPC enters land claim (400px range)
 						# No need to transition to deposit_state (removed - auto-deposit handles this)
+						_set_agro_exit_reason("intruder_left_claim")
 						fsm.change_state("gather")
 						return
 	
@@ -375,9 +419,10 @@ func update(delta: float) -> void:
 					# Exit state - transition to gather or wander
 					# Auto-deposit in npc_base.gd will handle depositing when NPC enters land claim (400px range)
 					# No need to transition to deposit_state (removed - auto-deposit handles this)
+					_set_agro_exit_reason("intruder_left_claim")
 					fsm.change_state("gather")
 					return
-		
+	
 		# Continue pushing intruder (don't check for lost woman)
 		return
 	
@@ -396,6 +441,7 @@ func update(delta: float) -> void:
 			npc.set("is_hostile", false)
 			if npc.hostile_indicator:
 				npc.hostile_indicator.visible = false
+			_set_agro_exit_reason("recover_no_wildnpc")
 			fsm.change_state("wander")
 			return
 	
@@ -453,6 +499,7 @@ func update(delta: float) -> void:
 		npc.set("is_hostile", false)
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
+		_set_agro_exit_reason("wildnpc_unrecoverable")
 		fsm.change_state("wander")
 		return
 	
@@ -469,6 +516,7 @@ func update(delta: float) -> void:
 			npc.set("is_hostile", false)
 			if npc.hostile_indicator:
 				npc.hostile_indicator.visible = false
+			_set_agro_exit_reason("recover_no_wildnpc_stale")
 			fsm.change_state("wander")
 			return
 	var wildnpc_herder = lost_wildnpc.get("herder")
@@ -482,6 +530,7 @@ func update(delta: float) -> void:
 		npc.set("is_hostile", false)
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
+		_set_agro_exit_reason("wildnpc_recovered")
 		fsm.change_state("wander")
 		return
 	
@@ -641,8 +690,8 @@ func get_priority() -> float:
 			var has_lost_wildnpc: bool = (lost_wildnpc_prop != null and is_instance_valid(lost_wildnpc_prop as Node2D))
 			
 			if has_lost_wildnpc:
-				# Agro Recover: Lost wild NPC recovery
-				# Always priority 10.0 - resources have NO influence on herd defense
+				if NPCConfig:
+					return NPCConfig.priority_agro_recover
 				return 10.0
 			else:
 				# Agro Defend: Land claim defense
@@ -672,13 +721,12 @@ func get_priority() -> float:
 										is_in_own_claim = true
 						
 						if is_in_wander and is_in_own_claim:
-							# Land claim has 10+ stacks of each item AND in wander mode within own claim
-							# HIGH priority for defense
 							var priority: float = 10.0
 							if NPCConfig:
 								priority = NPCConfig.priority_agro
-							
-							# Land claim defense (targeting another caveman or player) gets even higher priority
+							var boost: float = 2.0
+							if NPCConfig:
+								boost = NPCConfig.priority_agro_defend_boost
 							var agro_target_prop = npc.get("agro_target")
 							if agro_target_prop != null:
 								var target: Node2D = agro_target_prop as Node2D
@@ -686,19 +734,20 @@ func get_priority() -> float:
 									var ttt = target.get("npc_type") if target else null
 									var target_type: String = (ttt as String) if ttt != null else ""
 									var is_player: bool = target.is_in_group("player") if target else false
-									# If target is another caveman or player (land claim defense), boost priority
 									if target_type == "caveman" or is_player:
-										priority += 2.0  # Higher priority for land claim defense (12.0)
-							
+										priority += boost
 							return priority
 						else:
-							# Not in wander mode or not in own land claim - LOW priority
+							if NPCConfig:
+								return NPCConfig.priority_agro_low
 							return 3.0
 					else:
-						# Land claim has <10 stacks of each item - LOW priority (gathering takes precedence)
-						return 3.0  # Lower than gather (8.0-9.5) so gathering happens first
+						if NPCConfig:
+							return NPCConfig.priority_agro_low
+						return 3.0
 				else:
-					# No land claim - use low priority
+					if NPCConfig:
+						return NPCConfig.priority_agro_low
 					return 3.0
 		else:
 			# Not a caveman - use config value or default
@@ -707,7 +756,8 @@ func get_priority() -> float:
 			else:
 				return 10.0
 	
-	# Default to LOW priority
+	if NPCConfig:
+		return NPCConfig.priority_agro_low
 	return 3.0
 
 func get_data() -> Dictionary:

@@ -25,15 +25,9 @@ func _combat_spread_offset(npc_node: Node) -> Vector2:
 
 func _clear_combat_target_and_exit() -> void:
 	"""Clear combat target and force FSM re-evaluation (used when target is invalid e.g. player when following)."""
-	if npc:
-		npc.set("combat_target_id", -1)
-		npc.set("combat_target", null)
-		if "combat_target_id" in npc:
-			npc.combat_target_id = -1
-		if "combat_target" in npc:
-			npc.combat_target = null
-		if fsm and fsm.has_method("force_evaluation"):
-			fsm.force_evaluation()
+	clear_npc_combat_target()
+	if fsm and fsm.has_method("force_evaluation"):
+		fsm.force_evaluation()
 	combat_target = null
 
 func enter() -> void:
@@ -475,7 +469,7 @@ func _target_display_name(t: Node2D) -> String:
 	return "unknown"
 
 func _is_target_still_valid(t: Node2D) -> bool:
-	if not t or not is_instance_valid(t):
+	if not is_attack_target_alive(t):
 		return false
 	# Never target the player if we're following them, same clan, or defending/searching their claim
 	if t.is_in_group("player") and npc:
@@ -500,8 +494,7 @@ func _is_target_still_valid(t: Node2D) -> bool:
 			var tgt_c: String = t.get_clan_name()
 			if my_c != "" and tgt_c != "" and my_c == tgt_c:
 				return false
-	var target_health: HealthComponent = t.get_node_or_null("HealthComponent")
-	return target_health != null and not target_health.is_dead
+	return true
 
 func _stance_combat_agro_threshold() -> float:
 	"""Defenders / non-ordered: 70. Ordered: FOLLOW 90, GUARD 70, ATTACK 50."""
@@ -539,16 +532,13 @@ func can_enter() -> bool:
 	if combat_target_prop != null and is_instance_valid(combat_target_prop):
 		combat_target = combat_target_prop as Node2D
 		# CRITICAL: Validate target before allowing entry (prevents attacking player/friends)
-		if _is_target_still_valid(combat_target):
+		var target_valid: bool = _is_target_still_valid(combat_target)
+		if target_valid:
 			return true
 		else:
 			# Invalid target (e.g. player when following, dead enemy, same-clan)
-			# Clear it and continue to normal target finding
-			npc.set("combat_target_id", -1)
-			npc.set("combat_target", null)
+			clear_npc_combat_target()
 			combat_target = null
-			if "combat_target_id" in npc:
-				npc.combat_target_id = -1
 	
 	# When combat is disabled (testing), never enter combat
 	if NPCConfig and NPCConfig.get("combat_disabled"):

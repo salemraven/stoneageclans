@@ -381,6 +381,24 @@ func clan_brain_quota_update(clan_name: String, defender_quota: int, searcher_qu
 		"alert_level": alert_level_str,
 	})
 
+func clan_brain_invariant_failed(clan_name: String, message: String) -> void:
+	_write({"evt": "clan_brain_invariant_failed", "clan": clan_name, "message": message})
+
+func survival_mode_changed(clan_name: String, entered: bool, population: int) -> void:
+	_write({"evt": "survival_mode_changed", "clan": clan_name, "entered": entered, "population": population})
+
+func npc_stuck_state_escaped(npc_name: String, from_state: String, elapsed_sec: float) -> void:
+	_write({"evt": "npc_stuck_state_escaped", "npc": npc_name, "from": from_state, "elapsed_sec": elapsed_sec})
+
+func hunt_prey_killed(clan_name: String, prey_type: String, killer_name: String) -> void:
+	_write({"evt": "hunt_prey_killed", "clan": clan_name, "prey_type": prey_type, "killer": killer_name})
+
+func raid_completed(attacker_clan: String, reason: String, duration_sec: float, target_clan: String = "") -> void:
+	var d := {"evt": "raid_completed", "attacker_clan": attacker_clan, "reason": reason, "duration_sec": duration_sec}
+	if target_clan != "":
+		d["target_clan"] = target_clan
+	_write(d)
+
 # --- Raid test events (ClanBrain / RaidState) ---
 
 func raid_evaluated(clan_name: String, score: float, score_breakdown: Dictionary) -> void:

@@ -46,7 +46,7 @@ func _pick_hide_destination() -> void:
 		_has_cover = false
 		var away: Vector2 = (npc.global_position - threat)
 		if away.length_squared() < 4.0:
-			away = Vector2(1, 0).rotated(randf() * TAU) * 40.0
+			away = Vector2(1, 0).rotated(_npc_rngf()() * TAU) * 40.0
 		else:
 			away = away.normalized() * 40.0
 		_hide_world = npc.global_position + away

@@ -190,7 +190,7 @@ func enter() -> void:
 				var total_avoid: float = claim_radius + avoid_radius
 				var dir: Vector2 = (center - claim_pos).normalized()
 				if dir.length_squared() < 0.01:
-					dir = Vector2(cos(randf() * TAU), sin(randf() * TAU))
+					dir = Vector2(cos(_npc_rngf()() * TAU), sin(_npc_rngf()() * TAU))
 				center = claim_pos + dir * total_avoid
 		
 		# For cavemen: Ensure wander center is not inside enemy land claim
@@ -202,7 +202,7 @@ func enter() -> void:
 				var attempts: int = 0
 				# Try to find a position outside enemy land claims
 				while _is_position_in_enemy_land_claim(safe_center) and attempts < 20:
-					var random_angle := randf() * TAU
+					var random_angle := _npc_rngf()() * TAU
 					safe_center = center + Vector2(cos(random_angle), sin(random_angle)) * (radius * 0.5)
 					attempts += 1
 				center = safe_center
@@ -214,7 +214,7 @@ func enter() -> void:
 		# Ensure NPC starts moving immediately
 		if npc.velocity.length_squared() < 1.0:
 			# Give a small initial push
-			var random_angle := randf() * TAU
+			var random_angle := _npc_rngf()() * TAU
 			npc.velocity = Vector2(cos(random_angle), sin(random_angle)) * 20.0
 
 func exit() -> void:
@@ -462,7 +462,7 @@ func update(delta: float) -> void:
 		if npc_type_wild == "sheep" or npc_type_wild == "goat":
 			idle_chance = 0.0025  # Reduced from 0.005
 		
-		if randf() < idle_chance:
+		if _npc_rngf()() < idle_chance:
 			var min_dur: float = 1.0
 			var max_dur: float = 3.0
 			if NPCConfig:
@@ -470,7 +470,7 @@ func update(delta: float) -> void:
 					min_dur = NPCConfig.idle_duration_min as float
 				if "idle_duration_max" in NPCConfig:
 					max_dur = NPCConfig.idle_duration_max as float
-			var idle_duration: float = randf_range(min_dur, max_dur)
+			var idle_duration: float = _npc_rngf()_range(min_dur, max_dur)
 			npc.set_meta("wild_npc_idle_end_time", current_time + idle_duration)
 			if npc.steering_agent:
 				npc.steering_agent.set_target_position(npc.global_position)
@@ -480,7 +480,7 @@ func update(delta: float) -> void:
 		if not npc.has_meta("last_wander_target_update"):
 			npc.set_meta("last_wander_target_update", current_time)
 			# Set initial wander interval (3-6 seconds)
-			npc.set_meta("wander_update_interval", randf_range(3.0, 6.0))
+			npc.set_meta("wander_update_interval", _npc_rngf()_range(3.0, 6.0))
 		
 		var last_wander_update: float = npc.get_meta("last_wander_target_update", 0.0)
 		var wander_update_interval: float = npc.get_meta("wander_update_interval", 4.0)  # Default 4s
@@ -489,7 +489,7 @@ func update(delta: float) -> void:
 		if current_time - last_wander_update >= wander_update_interval:
 			npc.set_meta("last_wander_target_update", current_time)
 			# Set new interval for next update
-			npc.set_meta("wander_update_interval", randf_range(3.0, 6.0))
+			npc.set_meta("wander_update_interval", _npc_rngf()_range(3.0, 6.0))
 			
 			# Wild NPCs always use territorial / migratory / chunk helper
 			var cr_phys: Vector3 = _wild_wander_center_radius()
@@ -515,7 +515,7 @@ func update(delta: float) -> void:
 				if wander_center.distance_to(claim_pos_wu) < total_avoid:
 					var dir_away: Vector2 = (wander_center - claim_pos_wu).normalized()
 					if dir_away.length_squared() < 0.01:
-						dir_away = Vector2(cos(randf() * TAU), sin(randf() * TAU))
+						dir_away = Vector2(cos(_npc_rngf()() * TAU), sin(_npc_rngf()() * TAU))
 					wander_center = claim_pos_wu + dir_away * total_avoid
 					break
 		
@@ -575,7 +575,7 @@ func update(delta: float) -> void:
 			var direction_away: Vector2 = (npc.global_position - claim_pos).normalized()
 			if direction_away.length_squared() < 0.01:
 				# If exactly at claim center, pick random direction
-				var random_angle := randf() * TAU
+				var random_angle := _npc_rngf()() * TAU
 				direction_away = Vector2(cos(random_angle), sin(random_angle))
 			
 			var safe_distance: float = total_avoidance_radius + 100.0  # Add buffer
@@ -912,15 +912,15 @@ func _generate_random_clan_name() -> String:
 	const VOWELS: String = "AEIOU"
 	
 	var prefix: String = ""
-	prefix += CONSONANTS[randi() % CONSONANTS.length()]
-	prefix += VOWELS[randi() % VOWELS.length()]
+	prefix += CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
+	prefix += VOWELS[_npc_rngi_max(VOWELS.length())]
 	
 	var name: String = ""
 	for i in 4:
 		if i % 2 == 0:
-			name += CONSONANTS[randi() % CONSONANTS.length()]
+			name += CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
 		else:
-			name += VOWELS[randi() % VOWELS.length()]
+			name += VOWELS[_npc_rngi_max(VOWELS.length())]
 	
 	return (prefix + " " + name).to_upper()
 
@@ -955,7 +955,7 @@ func _find_smart_land_claim_position() -> Vector2:
 	var direction: Vector2 = (current_pos - resource_pos).normalized()
 	if direction.length_squared() < 0.1:
 		# If at same position, use random direction
-		var angle := randf() * TAU
+		var angle := _npc_rngf()() * TAU
 		direction = Vector2(cos(angle), sin(angle))
 	
 	# Place claim at 1000px from resource (optimal distance)

@@ -32,7 +32,7 @@ func exit() -> void:
 	_cancel_tasks_if_active()
 
 func _pick_waypoint() -> void:
-	var angle := randf() * TAU
+	var angle := _npc_rngf()() * TAU
 	var dist := home_radius * OUTWARD_FACTOR
 	waypoint = home_center + Vector2(cos(angle), sin(angle)) * dist
 	if npc and npc.steering_agent:
@@ -78,7 +78,9 @@ func can_enter() -> bool:
 	return home != null and is_instance_valid(home)
 
 func get_priority() -> float:
-	return 5.5  # Above defend (3.0) and gather (~4–6); below herd_wildnpc (~11.5)
+	if NPCConfig:
+		return NPCConfig.priority_search
+	return 5.5
 
 func get_data() -> Dictionary:
 	return {

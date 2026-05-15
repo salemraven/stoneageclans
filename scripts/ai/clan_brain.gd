@@ -43,6 +43,9 @@ const MIN_STONE_FOR_DEFEND: int = 10
 const MIN_WOOD_FOR_DEFEND: int = 10
 const MIN_FOOD_FOR_DEFEND: int = 10  # Total of berries + grain + bread
 
+## When AI clan has fewer than this many fighters, survival mode: no raids/hunts, gather/herd only.
+const SURVIVAL_MODE_THRESHOLD: int = 2
+
 # === Core State ===
 var clan_name: String = ""
 var territory: Node2D = null  # LandClaim or Campfire (group land_claims)
@@ -118,6 +121,8 @@ var raid_aggression: float = 0.5      # 0.0-1.0: How willing to fight (hostile c
 var raid_risk_tolerance: float = 0.3  # 0.0-1.0: Casualties tolerated before retreat
 var raid_organization: float = 0.5    # 0.0-1.0: How tightly raiders stick together
 var raid_loot_focus: float = 0.5      # 0.0=burn/kill, 1.0=steal resources
+## AI clans only: fighters (cavemen+clansmen) &lt; SURVIVAL_MODE_THRESHOLD — skip hunt/raid; focus gather/herd.
+var _is_survival_mode: bool = false
 
 # === Raid Trigger Thresholds ===
 var raid_hunger_threshold: float = 0.3     # Food ratio below this increases raid desire
@@ -192,10 +197,10 @@ func update(delta: float) -> void:
 	# Update alert decay
 	_update_alert_decay(delta)
 	
-	# Phase 3: Update active hunt / raid — skip for player clans (they don't raid/hunt via brain)
-	if not is_player_clan:
+	# Phase 3: Update active hunt / raid — skip for player clans and AI survival mode
+	if not is_player_clan and not _is_survival_mode:
 		_update_hunt()
-	if not is_player_clan:
+	if not is_player_clan and not _is_survival_mode:
 		_update_raid()
 	
 	# Periodic state evaluation
@@ -226,6 +231,7 @@ func _evaluate_clan_state() -> void:
 	_begin_evaluation_snapshot()
 	# Refresh cached data
 	_refresh_clan_members()
+	_update_survival_mode()
 	_refresh_resource_status()
 	
 	# Metric-driven: populate clan_metrics and economic weights
@@ -256,12 +262,18 @@ func _evaluate_clan_state() -> void:
 				territory.remove_defender(d)
 			territory._prune_defenders()
 			# Single caveman: always allow 1 searcher so they go out herding (more women/sheep/goats)
-			territory.set_meta("searcher_quota", 1)
-			territory.set_meta("defenders_can_search", true)
+			if cavemen.size() == 1:
+				territory.set_meta("searcher_quota", 1)
+				territory.set_meta("defenders_can_search", true)
+			else:
+				territory.set_meta("searcher_quota", 0)
+				territory.set_meta("defenders_can_search", false)
 			territory._prune_searchers()
 		# Log evaluation even for small clans (instrumentation)
 		_log_evaluation_snapshot()
 		_clan_brain_debug_print()
+		if OS.is_debug_build():
+			_assert_clan_brain_invariants()
 		return
 	
 	# Threat + pressures: same neighbor/threat bookkeeping for player and AI (NPC raids still gated elsewhere)
@@ -278,14 +290,62 @@ func _evaluate_clan_state() -> void:
 	_log_evaluation_snapshot()
 	_clan_brain_debug_print()
 	
-	# Debug: invariant asserts (guarded by OS.is_debug_build)
-	if OS.is_debug_build() and territory:
-		var dq: int = territory.get_meta("defender_quota", 0)
-		var sq: int = territory.get_meta("searcher_quota", 0)
-		if dq > cavemen.size():
-			push_error("ClanBrain %s: invariant failed defender_quota(%d) > cavemen.size(%d)" % [clan_name, dq, cavemen.size()])
-		if sq > cavemen.size():
-			push_error("ClanBrain %s: invariant failed searcher_quota(%d) > cavemen.size(%d)" % [clan_name, sq, cavemen.size()])
+	if OS.is_debug_build():
+		_assert_clan_brain_invariants()
+
+func _update_survival_mode() -> void:
+	"""Low fighter count: skip offensive brain (hunt/raid in update + strategies); max herd/search via quota paths."""
+	if not territory:
+		return
+	if territory.get("player_owned") == true:
+		if territory.has_meta("survival_mode"):
+			territory.remove_meta("survival_mode")
+		_is_survival_mode = false
+		return
+	var pop: int = cavemen.size()
+	var want: bool = pop > 0 and pop < SURVIVAL_MODE_THRESHOLD
+	if want == _is_survival_mode:
+		territory.set_meta("survival_mode", want)
+		return
+	_is_survival_mode = want
+	territory.set_meta("survival_mode", want)
+	var tree = territory.get_tree() if territory else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("survival_mode_changed"):
+			pi.survival_mode_changed(clan_name, want, pop)
+	if want:
+		if is_hunting():
+			_cancel_hunt("survival_mode")
+		if is_raiding():
+			_cancel_raid("survival_mode")
+
+func _assert_clan_brain_invariants() -> void:
+	if not OS.is_debug_build() or not territory:
+		return
+	var dq: int = int(territory.get_meta("defender_quota", 0))
+	var sq: int = int(territory.get_meta("searcher_quota", 0))
+	var n: int = cavemen.size()
+	if dq < 0 or sq < 0:
+		_report_clan_brain_invariant_failed("negative quota defender=%d searcher=%d" % [dq, sq])
+	if dq > n:
+		_report_clan_brain_invariant_failed("defender_quota(%d) > cavemen(%d)" % [dq, n])
+	if sq > n:
+		_report_clan_brain_invariant_failed("searcher_quota(%d) > cavemen(%d)" % [sq, n])
+	if dq + sq > n:
+		_report_clan_brain_invariant_failed("defender_quota+searcher_quota(%d+%d) > cavemen(%d)" % [dq, sq, n])
+	for d in territory.assigned_defenders:
+		if not is_instance_valid(d):
+			_report_clan_brain_invariant_failed("invalid Node ref in assigned_defenders")
+			break
+
+func _report_clan_brain_invariant_failed(message: String) -> void:
+	push_error("ClanBrain invariant failed (%s): %s" % [clan_name, message])
+	var tree = territory.get_tree() if territory else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("clan_brain_invariant_failed"):
+			pi.clan_brain_invariant_failed(clan_name, message)
 
 func _begin_evaluation_snapshot() -> void:
 	_npc_snapshot.clear()
@@ -388,7 +448,8 @@ func _log_evaluation_snapshot() -> void:
 		"brain_mode": brain_mode,
 		"player_owned": territory.get("player_owned") == true if territory else false,
 		"player_defend_ratio": snappedf(pref_ratio, 0.01),
-		"defender_quota_freeze_reason": freeze_reason
+		"defender_quota_freeze_reason": freeze_reason,
+		"survival_mode": _is_survival_mode
 	}
 	pi.clan_brain_eval(clan_name, metrics)
 
@@ -818,8 +879,8 @@ func _make_strategic_decisions() -> void:
 			StrategicState.keys()[strategic_state]
 		])
 	
-	# Phase 3: Evaluate hunt / raid when stable enough to project force
-	if strategic_state == StrategicState.AGGRESSIVE or strategic_state == StrategicState.PEACEFUL:
+	# Phase 3: Evaluate hunt / raid when stable enough to project force (skipped in survival mode)
+	if not _is_survival_mode and (strategic_state == StrategicState.AGGRESSIVE or strategic_state == StrategicState.PEACEFUL):
 		_evaluate_hunt_opportunity()
 		_evaluate_raid_opportunity()
 
@@ -1050,6 +1111,19 @@ func _update_defender_assignments() -> void:
 			if is_instance_valid(d):
 				to_evict.append(d)
 		for d in to_evict:
+			d.set("defend_target", null)
+			territory.remove_defender(d)
+		territory._prune_defenders()
+		return
+	
+	# Survival (low fighters): no defender quota until intruder+ — focus on herd/gather
+	if _is_survival_mode and alert_level < AlertLevel.INTRUDER:
+		territory.set_meta("defender_quota", 0)
+		var to_evict_survival: Array = []
+		for d in territory.assigned_defenders:
+			if is_instance_valid(d):
+				to_evict_survival.append(d)
+		for d in to_evict_survival:
 			d.set("defend_target", null)
 			territory.remove_defender(d)
 		territory._prune_defenders()
@@ -1553,7 +1627,13 @@ func _complete_raid(reason: String) -> void:
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
 		if pi and pi.is_enabled() and pi.has_method("raid_completed"):
-			pi.raid_completed(clan_name, reason, raid_duration)
+			var target_clan_str: String = ""
+			var rtgt = raid_intent.get("target") if raid_intent else null
+			if rtgt != null and is_instance_valid(rtgt):
+				var cn = rtgt.get("clan_name")
+				if cn != null:
+					target_clan_str = str(cn)
+			pi.raid_completed(clan_name, reason, raid_duration, target_clan_str)
 	
 	_disband_raid_party(reason)
 	
@@ -2076,6 +2156,18 @@ func _update_searcher_assignments() -> void:
 		territory.set_meta("max_active_herders", 0)
 		territory.set_meta("reproduction_pressure", 0.0)
 		territory.set_meta("defenders_can_search", false)
+		territory._prune_searchers()
+		return
+
+	# Survival: max search/herd unless under skirmish+
+	if _is_survival_mode and alert_level < AlertLevel.SKIRMISH:
+		var pressure: float = get_reproduction_pressure()
+		territory.set_meta("reproduction_pressure", pressure)
+		territory.set_meta("breeding_females", clan_metrics["breeding_females"])
+		territory.set_meta("searcher_quota", cavemen.size())
+		territory.set_meta("max_active_herders", cavemen.size())
+		territory.set_meta("searcher_pressure", search_pressure)
+		territory.set_meta("defenders_can_search", true)
 		territory._prune_searchers()
 		return
 

@@ -44,6 +44,9 @@ var bravery: float = -1.0
 # Buffs/Debuffs array: {name, stat, mult, duration, visual}
 var buffs_debuffs: Array[Dictionary] = []
 
+## Deterministic RNG for NPC gameplay (seeded from world + identity). Use npc_randf / npc_randi_range in states.
+var _gameplay_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
 # Wants array: {name, meter, max, deplete_rate, threshold}
 var wants: Array[Dictionary] = []
 
@@ -70,6 +73,20 @@ func _clan_tags_equal(a: String, b: String) -> bool:
 	if a.is_empty() or b.is_empty():
 		return false
 	return a.strip_edges().to_lower() == b.strip_edges().to_lower()
+
+func _init_gameplay_rng() -> void:
+	var ws: int = 0
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and wgc.get("world_seed") != null:
+		ws = int(wgc.world_seed)
+	var mix: int = int(hash(npc_name)) ^ int(hash(String(name))) ^ ws ^ int(get_instance_id())
+	_gameplay_rng.seed = int(mix)
+
+func npc_randf() -> float:
+	return _gameplay_rng.randf()
+
+func npc_randi_range(from_i: int, to_i: int) -> int:
+	return _gameplay_rng.randi_range(from_i, to_i)
 
 # Helper function to get clan_name (always checks meta as backup)
 func get_clan_name() -> String:
@@ -750,6 +767,7 @@ func _ready() -> void:
 		fsm.initialize(self)
 	elif fsm:
 		push_warning("NPCBase: FSM missing initialize() — check scene script on %s" % name)
+	_init_gameplay_rng()
 	
 	# Task System - Step 17: Add TaskRunner component if it doesn't exist
 	if not task_runner:
@@ -820,7 +838,15 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if EntityRegistry:
 		EntityRegistry.unregister(self)
+	if task_runner and task_runner.has_method("has_job") and task_runner.has_job():
+		if task_runner.has_method("cancel_current_job"):
+			task_runner.cancel_current_job("exited_tree")
+		if OS.is_debug_build():
+			push_warning("NPC %s exited tree with an active job — cancelled for cleanup" % str(npc_name))
 	if OccupationSystem:
+		var occ_state = OccupationSystem.get_ref_state(self)
+		if OS.is_debug_build() and occ_state != OccupationSystem.OccupationState.NONE:
+			push_warning("NPC %s exited tree with occupation state %s — unassigning" % [str(npc_name), str(occ_state)])
 		OccupationSystem.unassign(self, "exited_tree")
 
 

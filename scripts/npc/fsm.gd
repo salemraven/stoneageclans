@@ -52,6 +52,25 @@ var min_state_change_cooldown: float = 0.2  # Minimum time between state changes
 const FORCE_EVAL_MIN_INTERVAL_SEC: float = 0.5
 var _last_force_eval_time: float = -999.0
 
+## Max time in a state (sec) before forcing wander. Omitted states = no watchdog.
+const MAX_STATE_DURATION_SEC: Dictionary = {
+	"combat": 120.0,
+	"hunt": 180.0,
+	"raid": 300.0,
+	"gather": 60.0,
+	"defend": 300.0,
+	"search": 120.0,
+	"craft": 120.0,
+	"build": 180.0,
+	"herd_wildnpc": 90.0,
+	"occupy_building": 120.0,
+	"work_at_building": 120.0,
+}
+## After exiting these states, NPC cannot re-enter same state for this many seconds (reduces flicker).
+const STATE_REENTER_COOLDOWN_SEC: float = 2.0
+const STATE_REENTER_COOLDOWN_ON_EXIT: Array[String] = ["combat", "flee_combat", "agro", "defend", "raid", "hunt", "eat", "gather"]
+var _state_reenter_not_before: Dictionary = {}  # state_name -> Time.get_ticks_msec/1000
+
 # Priority cache: state_name -> float; invalidated when combat_target, defend_target, herded_count, follow_is_ordered change
 var _cached_priority: Dictionary = {}
 var _cache_key: int = 0
@@ -459,6 +478,25 @@ func update(delta: float) -> void:
 		current_state.enter()
 		_state_entered = true
 	
+	# Stuck-state watchdog: force wander if a risky state runs too long
+	if current_state and _state_entered and npc:
+		var max_s: float = float(MAX_STATE_DURATION_SEC.get(current_state_name, -1.0))
+		if max_s > 0.0:
+			var t_entry: float = float(current_state.get_meta("entry_time", 0.0))
+			if t_entry <= 0.0:
+				t_entry = Time.get_ticks_msec() / 1000.0
+				current_state.set_meta("entry_time", t_entry)
+			var elapsed_st: float = Time.get_ticks_msec() / 1000.0 - t_entry
+			if elapsed_st > max_s:
+				var nn_wd = npc.get("npc_name") if npc else null
+				var nn_str: String = str(nn_wd) if nn_wd != null else "unknown"
+				push_warning("FSM: %s stuck in %s for %.1fs (forcing wander)" % [nn_str, current_state_name, elapsed_st])
+				var pi_wd = get_node_or_null("/root/PlaytestInstrumentor")
+				if pi_wd and pi_wd.has_method("is_enabled") and pi_wd.is_enabled() and pi_wd.has_method("npc_stuck_state_escaped"):
+					pi_wd.npc_stuck_state_escaped(nn_str, current_state_name, elapsed_st)
+				change_state("wander", true)
+				return
+	
 	# Update current state
 	current_state.update(delta)
 	
@@ -566,7 +604,8 @@ func _evaluate_states() -> void:
 	var should_skip_idle: bool = (npc_type_str == "caveman" or npc_type_str == "clansman")
 	
 	# Random chance to enter idle state (1% - was 5%, caused NPCs to get stuck) - skip for cavemen/clansmen
-	if not should_skip_idle and randf() < 0.01 and current_state_name != "idle":
+	var rchance: float = npc.npc_randf() if npc and npc.has_method("npc_randf") else randf()
+	if not should_skip_idle and rchance < 0.01 and current_state_name != "idle":
 		var idle_state: Node = _get_state("idle")
 		if idle_state and idle_state.has_method("can_enter") and idle_state.can_enter():
 			# Check if any higher priority state wants to activate
@@ -784,9 +823,8 @@ func _evaluate_states() -> void:
 			}, UnifiedLogger.Level.INFO)
 		change_state(best_state)
 
-func change_state(new_state_name: String) -> void:
-	# LOOP PREVENTION: Update last state change time
-	last_state_change_time = Time.get_ticks_msec() / 1000.0
+func change_state(new_state_name: String, bypass_reenter_check: bool = false) -> void:
+	var now_clock: float = Time.get_ticks_msec() / 1000.0
 	
 	# Track clan_name before state change to detect if it's lost during transition
 	var clan_before: String = npc.clan_name if npc else ""
@@ -827,6 +865,12 @@ func change_state(new_state_name: String) -> void:
 		push_error("FSM: State '%s' not registered" % new_state_name)
 		return
 
+	# Re-entry hysteresis: block re-entering the same state too soon after exit (reduces flicker).
+	if not bypass_reenter_check and new_state_name != "flee_combat":
+		var nb_until: float = float(_state_reenter_not_before.get(new_state_name, 0.0))
+		if nb_until > now_clock:
+			return
+
 	# Direct change_state (e.g. npc_base._start_herd) bypasses _evaluate_states; must still honor can_enter.
 	if new_state_name == "herd_wildnpc":
 		var hwn_chk: Node = _get_state("herd_wildnpc")
@@ -866,6 +910,8 @@ func change_state(new_state_name: String) -> void:
 	# Don't change if already in this state
 	if current_state_name == new_state_name:
 		return
+	
+	last_state_change_time = now_clock
 	
 	var old_state: String = current_state_name
 	var nn_prop = npc.get("npc_name") if npc else null
@@ -915,6 +961,10 @@ func change_state(new_state_name: String) -> void:
 	if activity_tracker and activity_tracker.has_method("_on_state_changed"):
 		var npc_id = str(npc.get_instance_id()) if npc else ""
 		activity_tracker._on_state_changed(npc_id, current_state_name, new_state_name, "")
+	
+	# Re-entry cooldown: leaving old_state — block quick re-entry to same state
+	if STATE_REENTER_COOLDOWN_ON_EXIT.has(old_state):
+		_state_reenter_not_before[old_state] = now_clock + STATE_REENTER_COOLDOWN_SEC
 	
 	# Exit current state (set next_state meta so defend can preserve defend_target when going to combat)
 	if npc:

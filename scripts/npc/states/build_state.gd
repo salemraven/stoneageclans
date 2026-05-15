@@ -540,8 +540,9 @@ func get_priority() -> float:
 				total_items += slot.get("count", 0)
 		
 		if total_items >= 8:
-			# TOP PRIORITY: Higher than agro (10.0), eat (10.0), and herd (11.0)
-			return 25.0  # Highest priority - must build land claim now (higher than agro 10.0)
+			if NPCConfig:
+				return NPCConfig.priority_build_land_claim_urgent
+			return 25.0
 		
 		# CRITICAL FIX: If NPC has land claim item and cooldown expired, give high priority
 		# Check conditions directly (don't call can_enter() to avoid recursion issues)
@@ -567,8 +568,9 @@ func get_priority() -> float:
 				# Cooldown expired - check if already has claim
 				var clan_name_check: String = npc.get_clan_name() if npc.has_method("get_clan_name") else (npc.clan_name if npc else "")
 				if clan_name_check == null or clan_name_check == "":
-					# No existing claim - can build! Return high priority
-					return 25.0  # Higher than agro (10.0) to ensure land claim placement happens first
+					if NPCConfig:
+						return NPCConfig.priority_build_land_claim_urgent
+					return 25.0
 	
 	# High priority for building - cavemen should place land claims after herding wild NPCs
 	# Only active when no land claim exists and 15s cooldown is done
@@ -615,24 +617,24 @@ func _generate_random_clan_name() -> String:
 	const VOWELS: String = "AEIOU"
 	
 	# First part: 2-letter prefix (Cv)
-	var prefix_c: String = CONSONANTS[randi() % CONSONANTS.length()]
-	var prefix_v: String = VOWELS[randi() % VOWELS.length()]
+	var prefix_c: String = CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
+	var prefix_v: String = VOWELS[_npc_rngi_max(VOWELS.length())]
 	var prefix: String = prefix_c + prefix_v
 	
 	# Generate 4-letter name (CvCv or CvvC)
-	var pattern: int = randi() % 2  # 0 = CvCv, 1 = CvvC
+	var pattern: int = _npc_rngi_max(2)  # 0 = CvCv, 1 = CvvC
 	
 	if pattern == 0:
 		# CvCv format
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
+		var c1: String = CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
+		var v1: String = VOWELS[_npc_rngi_max(VOWELS.length())]
+		var c2: String = CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
+		var v2: String = VOWELS[_npc_rngi_max(VOWELS.length())]
 		return prefix + " " + c1 + v1 + c2 + v2
 	else:
 		# CvvC format
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
+		var c1: String = CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
+		var v1: String = VOWELS[_npc_rngi_max(VOWELS.length())]
+		var v2: String = VOWELS[_npc_rngi_max(VOWELS.length())]
+		var c2: String = CONSONANTS[_npc_rngi_max(CONSONANTS.length())]
 		return prefix + " " + c1 + v1 + v2 + c2

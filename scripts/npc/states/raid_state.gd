@@ -18,6 +18,7 @@ var land_claim: Node = null
 var clan_brain: RefCounted = null
 var assembly_timeout: float = 30.0  # Max time waiting to assemble
 var assembly_timer: float = 0.0
+var _raid_abort_logged: bool = false
 
 func enter() -> void:
 	if not npc:
@@ -48,6 +49,8 @@ func enter() -> void:
 	
 	var npc_name_str: String = npc.get("npc_name") if npc.get("npc_name") != null else str(npc.name)
 	print("⚔️ RAID_STATE: %s joined raid (phase: ASSEMBLING)" % npc_name_str)
+	_raid_abort_logged = false
+	npc.set_meta("chunk_sticky", true)
 	var tree = npc.get_tree() if npc else null
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
@@ -56,7 +59,8 @@ func enter() -> void:
 
 func exit() -> void:
 	_cancel_tasks_if_active()
-	
+	if npc and npc.has_meta("chunk_sticky"):
+		npc.remove_meta("chunk_sticky")
 	# Leave the raid
 	if clan_brain and clan_brain.has_method("npc_leave_raid"):
 		clan_brain.npc_leave_raid(npc)
@@ -84,6 +88,7 @@ func update(delta: float) -> void:
 	# Check if raid is still active
 	if not clan_brain or not clan_brain.is_raiding():
 		print("⚔️ RAID_STATE: %s - raid ended, exiting" % npc.npc_name)
+		_emit_raid_abort_if_needed("raid_ended")
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -124,6 +129,7 @@ func _update_assembling(delta: float) -> void:
 	# Timeout - if we can't assemble, exit
 	if assembly_timer > assembly_timeout:
 		print("⚔️ RAID_STATE: %s - assembly timeout, exiting" % npc.npc_name)
+		_emit_raid_abort_if_needed("assembly_timeout")
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -144,6 +150,7 @@ func _update_moving(_delta: float) -> void:
 	var target_pos: Vector2 = clan_brain.get_raid_target_position() if clan_brain.has_method("get_raid_target_position") else Vector2.ZERO
 	
 	if target_pos == Vector2.ZERO:
+		_emit_raid_abort_if_needed("no_raid_target_position")
 		# No target - retreat
 		raid_phase = RaidPhase.RETREATING
 		return
@@ -168,6 +175,7 @@ func _update_engaging(_delta: float) -> void:
 	# Look for enemies to fight
 	var raid_target = clan_brain.raid_intent.get("target") if clan_brain else null
 	if not raid_target or not is_instance_valid(raid_target):
+		_emit_raid_abort_if_needed("raid_target_invalid")
 		raid_phase = RaidPhase.RETREATING
 		return
 	
@@ -207,6 +215,24 @@ func _update_retreating(_delta: float) -> void:
 		# No home - just exit
 		if fsm:
 			fsm.change_state("wander")
+
+func _raider_clan_name() -> String:
+	if npc and npc.has_method("get_clan_name"):
+		var cn: Variant = npc.get_clan_name()
+		if cn != null:
+			return str(cn)
+	return ""
+
+func _emit_raid_abort_if_needed(reason: String) -> void:
+	if _raid_abort_logged or not npc:
+		return
+	_raid_abort_logged = true
+	var cn: String = _raider_clan_name()
+	var tree = npc.get_tree() if npc else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("raid_aborted"):
+			pi.raid_aborted(cn, reason)
 
 func _find_nearest_enemy(enemy_clan: String, center: Vector2, search_radius: float) -> Node:
 	"""Find the nearest enemy NPC of the specified clan."""
@@ -305,6 +331,8 @@ func get_priority() -> float:
 	# Raid priority: 8.5
 	# Below combat (9.0) - combat takes over when fighting
 	# Above defend (8.0) - raids override normal defense
+	if NPCConfig:
+		return NPCConfig.priority_raid
 	return 8.5
 
 func get_data() -> Dictionary:

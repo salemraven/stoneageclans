@@ -228,5 +228,40 @@ func _cancel_tasks_if_active() -> void:
 	if _tasks_cancelled_this_state:
 		return
 	if npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
-		npc.task_runner.cancel_current_job()
+		npc.task_runner.cancel_current_job("state_exit_clear_tasks")
 		_tasks_cancelled_this_state = true
+
+## True if node exists and optional HealthComponent is not dead (used by combat/hunt/raid).
+func is_attack_target_alive(target: Node) -> bool:
+	if not target or not is_instance_valid(target):
+		return false
+	var hc: Node = target.get_node_or_null("HealthComponent")
+	if hc != null and "is_dead" in hc:
+		return not bool(hc.is_dead)
+	if target.has_method("is_dead"):
+		return not bool(target.is_dead())
+	return true
+
+## Seeded NPC RNG helpers (fallback to global if not on npc yet).
+func _npc_rngf() -> float:
+	if npc and npc.has_method("npc_randf"):
+		return npc.npc_randf()
+	return randf()
+
+func _npc_rngi_max(exclusive_max: int) -> int:
+	if exclusive_max <= 0:
+		return 0
+	if npc and npc.has_method("npc_randi_range"):
+		return npc.npc_randi_range(0, exclusive_max - 1)
+	return randi() % exclusive_max
+
+## Clear combat target fields on the owning NPC (safe no-op if no npc).
+func clear_npc_combat_target() -> void:
+	if not npc:
+		return
+	npc.set("combat_target_id", -1)
+	npc.set("combat_target", null)
+	if "combat_target_id" in npc:
+		npc.combat_target_id = -1
+	if "combat_target" in npc:
+		npc.combat_target = null
