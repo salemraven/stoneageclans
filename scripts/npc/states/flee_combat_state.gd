@@ -30,7 +30,7 @@ func enter() -> void:
 		sc_deg = NPCConfig.flee_scatter_angle_deg
 		dur = NPCConfig.flee_duration_seconds
 		spd = NPCConfig.flee_speed_multiplier
-	_scatter_radians = deg_to_rad(_npc_rngf()_range(-sc_deg, sc_deg))
+	_scatter_radians = deg_to_rad(_npc_rngf_range(-sc_deg, sc_deg))
 	_flee_until_sec = Time.get_ticks_msec() / 1000.0 + dur
 	# Drop combat and agro so we do not snap back immediately
 	npc.set("combat_target_id", -1)
@@ -64,7 +64,7 @@ func update(delta: float) -> void:
 	var now: float = Time.get_ticks_msec() / 1000.0
 	var away: Vector2 = (npc.global_position - _flee_from_position).normalized()
 	if away.length_squared() < 0.01:
-		away = Vector2.RIGHT.rotated(_npc_rngf()() * TAU)
+		away = Vector2.RIGHT.rotated(_npc_rngf() * TAU)
 	away = away.rotated(_scatter_radians)
 	var bias: Vector2 = _bias_if_heading_into_enemy_claim(npc.global_position, away)
 	away = (away + bias * 0.35).normalized()

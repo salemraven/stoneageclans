@@ -52,7 +52,7 @@ func enter() -> void:
 	else:
 		search_center = npc.global_position if npc else Vector2.ZERO
 		search_distance = 100.0
-	search_angle = _npc_rngf()() * TAU  # Random first ray direction
+	search_angle = _npc_rngf() * TAU  # Random first ray direction
 	var herded_count: int = npc.herded_count if "herded_count" in npc else 0
 	UnifiedLogger.log_npc("Action started: herd_wildnpc (target-less, herded_count=%d)" % herded_count, {
 		"npc": npc.npc_name,

@@ -20,10 +20,10 @@ func enter() -> void:
 			min_dur = NPCConfig.idle_duration_min as float
 		if "idle_duration_max" in NPCConfig:
 			max_dur = NPCConfig.idle_duration_max as float
-	idle_duration = _npc_rngf()_range(min_dur, max_dur)
+	idle_duration = _npc_rngf_range(min_dur, max_dur)
 	current_animation = "look_right"  # Start by looking right
 	animation_timer = 0.0
-	animation_duration = _npc_rngf()_range(1.0, 2.0)  # Duration for first animation
+	animation_duration = _npc_rngf_range(1.0, 2.0)  # Duration for first animation
 	bounce_offset = Vector2.ZERO
 	
 	# Store base sprite position for bounce animation
@@ -66,7 +66,7 @@ func update(delta: float) -> void:
 			if animation_timer >= animation_duration:
 				current_animation = "look_left"
 				animation_timer = 0.0
-				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf_range(1.0, 2.0)  # Set duration for next phase
 		
 		"look_left":
 			# Look left for 1-2 seconds
@@ -75,7 +75,7 @@ func update(delta: float) -> void:
 			if animation_timer >= animation_duration:
 				current_animation = "bounce"
 				animation_timer = 0.0
-				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf_range(1.0, 2.0)  # Set duration for next phase
 		
 		"bounce":
 			# Bounce animation for 1-2 seconds
@@ -88,7 +88,7 @@ func update(delta: float) -> void:
 				# Cycle back to look_right
 				current_animation = "look_right"
 				animation_timer = 0.0
-				animation_duration = _npc_rngf()_range(1.0, 2.0)  # Set duration for next phase
+				animation_duration = _npc_rngf_range(1.0, 2.0)  # Set duration for next phase
 				if npc.sprite:
 					npc.sprite.position = base_sprite_position
 					bounce_offset = Vector2.ZERO
@@ -155,7 +155,7 @@ func get_priority() -> float:
 	var force_idle_chance: float = 0.02
 	if NPCConfig and "idle_chance" in NPCConfig:
 		force_idle_chance = NPCConfig.idle_chance as float
-	if _npc_rngf()() < force_idle_chance:
+	if _npc_rngf() < force_idle_chance:
 		return p_rand
 	return p_min
 

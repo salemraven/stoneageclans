@@ -248,6 +248,10 @@ func _npc_rngf() -> float:
 		return npc.npc_randf()
 	return randf()
 
+## Uniform random float in [from_f, to_f] using seeded NPC RNG when available.
+func _npc_rngf_range(from_f: float, to_f: float) -> float:
+	return lerpf(from_f, to_f, _npc_rngf())
+
 func _npc_rngi_max(exclusive_max: int) -> int:
 	if exclusive_max <= 0:
 		return 0

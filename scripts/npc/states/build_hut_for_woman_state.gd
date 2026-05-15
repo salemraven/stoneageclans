@@ -64,7 +64,7 @@ func _anchor_toward_interior(claim: Node, pos: Vector2) -> Vector2:
 	var b: Vector2 = _claim_ring_bounds(claim)
 	var radial: Vector2 = pos - c
 	if radial.length_squared() < 4.0:
-		radial = Vector2.RIGHT.rotated(_npc_rngf()() * TAU)
+		radial = Vector2.RIGHT.rotated(_npc_rngf() * TAU)
 	else:
 		radial = radial.normalized()
 	var target_dist: float = (b.x + b.y) * 0.5

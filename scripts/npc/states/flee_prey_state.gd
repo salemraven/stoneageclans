@@ -69,7 +69,7 @@ func _apply_run_steering(away_from: Vector2) -> void:
 		return
 	var dir: Vector2 = npc.global_position - away_from
 	if dir.length_squared() < 2.0:
-		dir = Vector2(1, 0).rotated(_npc_rngf()() * TAU)
+		dir = Vector2(1, 0).rotated(_npc_rngf() * TAU)
 	else:
 		dir = dir.normalized()
 	var goal: Vector2 = npc.global_position + dir * 480.0

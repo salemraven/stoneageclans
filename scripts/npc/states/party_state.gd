@@ -198,9 +198,9 @@ func update(delta: float) -> void:
 		var use_formation_speed: bool = false
 
 		var ideal_distance: float = (distance_min + distance_max) / 2.0
-		var distance_variation: float = _npc_rngf()_range(-15.0, 15.0)
+		var distance_variation: float = _npc_rngf_range(-15.0, 15.0)
 		if mode == "GUARD" and follow_ordered:
-			distance_variation = _npc_rngf()_range(-6.0, 6.0)
+			distance_variation = _npc_rngf_range(-6.0, 6.0)
 		var target_distance: float = ideal_distance + distance_variation
 		if mode == "GUARD" and follow_ordered:
 			target_distance = clampf(target_distance, distance_min, distance_max)
@@ -263,7 +263,7 @@ func update(delta: float) -> void:
 		elif distance_to_herder < distance_min:
 			var direction: Vector2 = (npc.global_position - herder_pos).normalized()
 			if direction == Vector2.ZERO:
-				var angle: float = _npc_rngf()() * TAU
+				var angle: float = _npc_rngf() * TAU
 				direction = Vector2(cos(angle), sin(angle))
 			target = herder_pos + direction * target_distance
 			backing_up = true

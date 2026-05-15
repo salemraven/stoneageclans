@@ -32,7 +32,7 @@ func exit() -> void:
 	_cancel_tasks_if_active()
 
 func _pick_waypoint() -> void:
-	var angle := _npc_rngf()() * TAU
+	var angle := _npc_rngf() * TAU
 	var dist := home_radius * OUTWARD_FACTOR
 	waypoint = home_center + Vector2(cos(angle), sin(angle)) * dist
 	if npc and npc.steering_agent:
