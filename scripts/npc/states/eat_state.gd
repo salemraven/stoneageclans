@@ -103,14 +103,13 @@ func update(delta: float) -> void:
 				var food_in_inventory: int = 0
 				# Check inventory
 				if npc.inventory:
-					# Sheep and goats only count berries
+					# Sheep and goats only eat plant foods (grain/berries)
 					if npc_type_check == "sheep" or npc_type_check == "goat":
-						food_in_inventory = npc.inventory.get_count(ResourceData.ResourceType.BERRIES)
+						food_in_inventory = npc.inventory.get_count(ResourceData.ResourceType.GRAIN) + npc.inventory.get_count(ResourceData.ResourceType.BERRIES)
 					else:
 						# Other NPCs count all food types
-						for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-							if ResourceData.is_food(food_type):
-								food_in_inventory += npc.inventory.get_count(food_type)
+						for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+							food_in_inventory += npc.inventory.get_count(food_type)
 				# Also check hotbar (slots 9 and 0 are consumables - indices 8 and 9)
 				if npc.hotbar:
 					for slot_index in [8, 9]:
@@ -197,7 +196,7 @@ func update(delta: float) -> void:
 					if npc_type_check == "sheep" or npc_type_check == "goat":
 						food_types_to_check = [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
 					else:
-						food_types_to_check = [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]
+						food_types_to_check = ResourceData.EDIBLE_FOOD_TYPES
 					
 					for food_type in food_types_to_check:
 						if ResourceData.is_food(food_type):
@@ -224,30 +223,20 @@ func update(delta: float) -> void:
 		
 		# Find best food in inventory
 		if npc.inventory:
-			# For sheep and goats, check for grain (medium) or berries (least)
-			# Prioritize by nutrients: grain (7) > berries (5)
-			# Note: FIBER is NOT a consumable - it's a crafting resource
+			# Sheep and goats only eat plant foods (grain/berries); others eat anything
+			var food_types_to_check: Array
 			if npc_type_str == "sheep" or npc_type_str == "goat":
-				# Check all food types and pick the one with highest nutrients
-				for food_type in [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]:
-					if ResourceData.is_food(food_type):
-						var count: int = npc.inventory.get_count(food_type)
-						if count > 0:
-							var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
-							if nutrient > best_nutrient:
-								best_nutrient = nutrient
-								resource_type = food_type
+				food_types_to_check = [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
 			else:
-				# For other NPCs, check all food types (berries, grain, meat, bread)
-				for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.MEAT, ResourceData.ResourceType.BREAD]:
-					if ResourceData.is_food(food_type):
-						var count: int = npc.inventory.get_count(food_type)
-						if count > 0:
-							var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
-							if nutrient > best_nutrient:
-								best_nutrient = nutrient
-								resource_type = food_type
-								food_source = "inventory"
+				food_types_to_check = ResourceData.EDIBLE_FOOD_TYPES
+			for food_type in food_types_to_check:
+				var count: int = npc.inventory.get_count(food_type)
+				if count > 0:
+					var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
+					if nutrient > best_nutrient:
+						best_nutrient = nutrient
+						resource_type = food_type
+						food_source = "inventory"
 		
 		# Also check hotbar for food (slots 9 and 0 are consumables - indices 8 and 9)
 		if npc.hotbar:
@@ -368,8 +357,8 @@ func update(delta: float) -> void:
 					else:
 						# Other NPCs check all food types in inventory
 						if npc.inventory:
-							for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-								if ResourceData.is_food(food_type) and npc.inventory.get_count(food_type) > 0:
+							for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+								if npc.inventory.get_count(food_type) > 0:
 									has_more_food = true
 									break
 						# Also check hotbar
@@ -488,39 +477,43 @@ func can_enter() -> bool:
 									return true  # Food available in storage
 						else:
 							# Other NPCs check all food types
-							for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-								if ResourceData.is_food(food_type):
-									if claim_inventory.get_count(food_type) > 0:
-										var food_name: String = ResourceData.get_resource_name(food_type)
-										UnifiedLogger.log_npc("Can enter check: %s can enter eat (food_in_storage)" % npc_name, {
-											"npc": npc_name,
-											"state": "eat",
-											"can_enter": true,
-											"reason": "food_in_storage",
-											"hunger_percent": "%.1f%%" % hunger_percent,
-											"food": food_name,
-											"clan": npc.clan_name
-										}, UnifiedLogger.Level.DEBUG)
-										return true  # Food available in storage
+							for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+								if claim_inventory.get_count(food_type) > 0:
+									var food_name: String = ResourceData.get_resource_name(food_type)
+									UnifiedLogger.log_npc("Can enter check: %s can enter eat (food_in_storage)" % npc_name, {
+										"npc": npc_name,
+										"state": "eat",
+										"can_enter": true,
+										"reason": "food_in_storage",
+										"hunger_percent": "%.1f%%" % hunger_percent,
+										"food": food_name,
+										"clan": npc.clan_name
+									}, UnifiedLogger.Level.DEBUG)
+									return true  # Food available in storage
 				break
 		
 		# Also check NPC's own inventory and hotbar (they might have food already)
-		# Check inventory first
+		# Check inventory first (use full food list for humans, limited for livestock)
 		if npc.inventory:
-			for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-				if ResourceData.is_food(food_type):
-					if npc.inventory.get_count(food_type) > 0:
-						var food_name: String = ResourceData.get_resource_name(food_type)
-						UnifiedLogger.log_npc("Can enter check: %s can enter eat (food_in_inventory)" % npc_name, {
-							"npc": npc_name,
-							"state": "eat",
-							"can_enter": true,
-							"reason": "food_in_inventory",
-							"hunger_percent": "%.1f%%" % hunger_percent,
-							"food": food_name,
-							"clan": npc.clan_name
-						}, UnifiedLogger.Level.DEBUG)
-						return true  # Food in inventory
+			var npc_type_inv: String = npc.get("npc_type") if npc else ""
+			var inv_food_types: Array
+			if npc_type_inv == "sheep" or npc_type_inv == "goat":
+				inv_food_types = [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
+			else:
+				inv_food_types = ResourceData.EDIBLE_FOOD_TYPES
+			for food_type in inv_food_types:
+				if npc.inventory.get_count(food_type) > 0:
+					var food_name: String = ResourceData.get_resource_name(food_type)
+					UnifiedLogger.log_npc("Can enter check: %s can enter eat (food_in_inventory)" % npc_name, {
+						"npc": npc_name,
+						"state": "eat",
+						"can_enter": true,
+						"reason": "food_in_inventory",
+						"hunger_percent": "%.1f%%" % hunger_percent,
+						"food": food_name,
+						"clan": npc.clan_name
+					}, UnifiedLogger.Level.DEBUG)
+					return true  # Food in inventory
 		
 		# Check hotbar (slots 9 and 0 are consumables - indices 8 and 9)
 		if npc.hotbar:
@@ -589,29 +582,20 @@ func can_enter() -> bool:
 		
 		# Check inventory first
 		if npc.inventory:
-			# Sheep and goats check for grain or berries (FIBER is NOT a consumable)
-			# Note: FIBER is NOT a consumable - it's a crafting resource
+			# Sheep/goats only eat plant foods; others eat all food types
+			var food_types_check: Array
 			if npc_type_str == "sheep" or npc_type_str == "goat":
-				for food_type in [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]:
-					if ResourceData.is_food(food_type):
-						var count: int = npc.inventory.get_count(food_type)
-						if count > 0:
-							has_food = true
-							var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
-							if nutrient > best_nutrient:
-								best_nutrient = nutrient
-								best_food_type = food_type
+				food_types_check = [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
 			else:
-				# Other NPCs check all food types, prefer highest nutrient
-				for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-					if ResourceData.is_food(food_type):
-						var count: int = npc.inventory.get_count(food_type)
-						if count > 0:
-							has_food = true
-							var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
-							if nutrient > best_nutrient:
-								best_nutrient = nutrient
-								best_food_type = food_type
+				food_types_check = ResourceData.EDIBLE_FOOD_TYPES
+			for food_type in food_types_check:
+				var count: int = npc.inventory.get_count(food_type)
+				if count > 0:
+					has_food = true
+					var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
+					if nutrient > best_nutrient:
+						best_nutrient = nutrient
+						best_food_type = food_type
 		
 		# Also check hotbar (slots 9 and 0 are consumables - indices 8 and 9)
 		if npc.hotbar:
@@ -674,10 +658,10 @@ func get_priority() -> float:
 	if hunger_percent < eat_threshold:
 		# Check if we have any food to eat (inventory or hotbar)
 		var has_food: bool = false
-		# Check inventory
+		# Check inventory - all edible food types
 		if npc.inventory:
-			for food_type in [ResourceData.ResourceType.BERRIES, ResourceData.ResourceType.GRAIN]:
-				if ResourceData.is_food(food_type) and npc.inventory.get_count(food_type) > 0:
+			for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+				if npc.inventory.get_count(food_type) > 0:
 					has_food = true
 					break
 		# Check hotbar (slots 9 and 0 are consumables - indices 8 and 9)
@@ -689,7 +673,7 @@ func get_priority() -> float:
 					if ResourceData.is_food(item_type):
 						has_food = true
 						break
-			if has_food:
+		if has_food:
 				# Use config priorities
 				if NPCConfig:
 					if hunger_percent < 30.0:

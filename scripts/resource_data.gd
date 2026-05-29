@@ -212,32 +212,38 @@ static func get_resource_description(type: ResourceType) -> String:
 #   Meat = 10 points (highest) - when implemented
 # Note: FIBER is NOT a food item - it's a crafting resource
 static func get_food_nutrient_value(type: ResourceType) -> int:
-	match type:
-		ResourceType.BERRIES: return 5
-		ResourceType.GRAIN: return 7
-		ResourceType.MEAT: return 10
-		ResourceType.BREAD: return 15
-		ResourceType.MILK: return 6  # Milk consumable for humans
-		ResourceType.MUSHROOM: return 6
-		ResourceType.BUGS: return 5
-		ResourceType.NUTS: return 7
-		_: return 0
+	# Preference ranking mirrors restore % (rounded).
+	return int(roundf(get_food_hunger_restore_percent(type)))
 
 # Get hunger restoration amount for food items (as percentage of max hunger)
 static func get_food_hunger_restore_percent(type: ResourceType) -> float:
+	if BalanceConfig and BalanceConfig.has_method("get_food_hunger_restore_percent"):
+		return BalanceConfig.get_food_hunger_restore_percent(type)
 	match type:
-		ResourceType.BERRIES: return 5.0
-		ResourceType.GRAIN: return 7.0
-		ResourceType.MEAT: return 10.0
-		ResourceType.BREAD: return 15.0
-		ResourceType.MILK: return 6.0  # Milk consumable for humans
-		ResourceType.MUSHROOM: return 6.0
-		ResourceType.BUGS: return 5.0
-		ResourceType.NUTS: return 7.0
+		ResourceData.ResourceType.BERRIES: return 8.0
+		ResourceData.ResourceType.GRAIN: return 10.0
+		ResourceData.ResourceType.MEAT: return 18.0
+		ResourceData.ResourceType.BREAD: return 22.0
+		ResourceData.ResourceType.MILK: return 10.0
+		ResourceData.ResourceType.MUSHROOM: return 8.0
+		ResourceData.ResourceType.BUGS: return 6.0
+		ResourceData.ResourceType.NUTS: return 9.0
 		_: return 0.0
+
+# All edible food types (single source of truth for iteration)
+const EDIBLE_FOOD_TYPES: Array[ResourceType] = [
+	ResourceType.BERRIES,
+	ResourceType.GRAIN,
+	ResourceType.MEAT,
+	ResourceType.BREAD,
+	ResourceType.MILK,
+	ResourceType.MUSHROOM,
+	ResourceType.BUGS,
+	ResourceType.NUTS
+]
 
 # Check if a resource type is edible food
 static func is_food(type: ResourceType) -> bool:
-	return type == ResourceType.BERRIES or type == ResourceType.GRAIN or type == ResourceType.BREAD or type == ResourceType.MEAT or type == ResourceType.MILK or type == ResourceType.MUSHROOM or type == ResourceType.BUGS or type == ResourceType.NUTS
+	return type in EDIBLE_FOOD_TYPES
 	# Note: GRAIN comes from harvesting WHEAT, but GRAIN is the food item stored in inventory
 	# FIBER is NOT a consumable - it's a resource used for crafting
