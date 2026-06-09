@@ -6,12 +6,12 @@
 ## Documents Updated:
 
 ### Guides:
-1. ✅ `guides/CavemanGuide.md` - Added rule at top and in states section
-2. ✅ `guides/NPCGUIDE.md` - Updated wander state description
-3. ✅ `guides/Priority.md` - Updated wander priority description
-4. ✅ `guides/HARMONIOUS_PRIORITY_SYSTEM.md` - Updated wander in priority tiers
-5. ✅ `guides/GatherGuide.md` - Updated all wander references
-6. ✅ `guides/WANDER_STATE_RULE.md` - **NEW** - Dedicated document for this rule
+1. ✅ `bible/CavemanGuide.md` - Added rule at top and in states section
+2. ✅ `bible/NPCGUIDE.md` - Updated wander state description
+3. ✅ `bible/Priority.md` - Updated wander priority description
+4. ✅ `bible/HARMONIOUS_PRIORITY_SYSTEM.md` - Updated wander in priority tiers
+5. ✅ `bible/GatherGuide.md` - Updated all wander references
+6. ✅ `bible/WANDER_STATE_RULE.md` - **NEW** - Dedicated document for this rule
 
 ### Tests:
 1. ✅ `Tests/PRODUCTIVITY_REQUIREMENT.md` - Added wander rule section

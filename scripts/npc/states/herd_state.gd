@@ -137,6 +137,8 @@ func can_enter() -> bool:
 
 func get_priority() -> float:
 	if not npc:
+		if NPCConfig:
+			return NPCConfig.priority_party_herd_inactive
 		return 0.0
 	var priority: float = 11.0
 	if NPCConfig:

@@ -104,8 +104,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		if npc.progress_display:
 			var icon_path: String = ResourceData.get_resource_icon_path(ResourceData.ResourceType.BLADE)
 			var icon: Texture2D = load(icon_path) as Texture2D if icon_path else null
-			npc.progress_display.start_collection(icon)
-			npc.progress_display.collection_time = craft_duration
+			npc.progress_display.start_collection(icon, craft_duration)
 
 	# If NPC moved after starting knap, cancel crafting (must stay in place; ready for future animation)
 	var moved: float = npc.global_position.distance_to(_knap_start_position)

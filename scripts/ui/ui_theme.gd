@@ -154,6 +154,15 @@ static func get_panel_style_highlighted() -> StyleBoxFlat:
 	return get_panel_style_with_border(COLOR_TEXT_SELECTED)
 
 
+## Drag-and-drop target feedback — matches InventorySlot highlight overlays.
+static func get_drag_drop_highlight_valid() -> Color:
+	return Color(1.0, 0.808, 0.106, 0.3)  # #FFCE1B @ 30%
+
+
+static func get_drag_drop_highlight_invalid() -> Color:
+	return Color(0.702, 0.106, 0.106, 0.3)  # #B31B1B @ 30%
+
+
 static func apply_panel_style(panel: Panel) -> void:
 	if not panel:
 		return

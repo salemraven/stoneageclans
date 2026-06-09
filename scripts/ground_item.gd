@@ -181,6 +181,10 @@ func _process(_delta: float) -> void:
 		# Only process if this is the active resource
 		if is_active:
 			if Input.is_action_just_pressed("gather"):
+				if Input.is_action_pressed("weapon_ready"):
+					if main.has_method("show_gather_feedback"):
+						main.show_gather_feedback("Release Shift before gathering.")
+					return
 				var current_time := Time.get_ticks_msec() / 1000.0
 				# Prevent double-presses with small cooldown
 				if current_time - last_gather_press_time >= GATHER_COOLDOWN:
@@ -189,6 +193,8 @@ func _process(_delta: float) -> void:
 			elif is_collecting and gathering_player:
 				var moved := gathering_player.global_position.distance_to(collection_start_position)
 				if moved > MOVE_CANCEL_THRESHOLD:
+					if main.has_method("show_gather_feedback"):
+						main.show_gather_feedback("Stand still to finish gathering.")
 					_stop_collection(true)
 	elif is_collecting:
 		# Player left hitbox, stop collection
@@ -198,6 +204,8 @@ func _collect_one_item() -> void:
 	# This should already be the active resource, but double-check
 	var main := get_tree().get_first_node_in_group("main")
 	if main and main.active_collection_resource != self:
+		if main.has_method("show_gather_feedback"):
+			main.show_gather_feedback("Gather from the nearest pile (one at a time).")
 		print("Not the active resource, cannot collect")
 		return  # Not the active resource, don't collect
 	
@@ -214,8 +222,7 @@ func _collect_one_item() -> void:
 			var icon_path: String = ResourceData.get_resource_icon_path(item_type)
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
-		collection_progress.start_collection(icon)
-		collection_progress.collection_time = collection_time
+		collection_progress.start_collection(icon, collection_time)
 	
 	# Wait for collection time, then give item
 	is_collecting = true
@@ -223,11 +230,15 @@ func _collect_one_item() -> void:
 	timer.timeout.connect(func(): _finish_collection())
 
 func _finish_collection() -> void:
+	if not is_collecting:
+		return
 	var main := get_tree().get_first_node_in_group("main")
 	# Moved before pickup completes — cancel
 	if gathering_player != null and is_instance_valid(gathering_player):
 		var moved := gathering_player.global_position.distance_to(collection_start_position)
 		if moved > MOVE_CANCEL_THRESHOLD:
+			if main and main.has_method("show_gather_feedback"):
+				main.show_gather_feedback("Stand still to finish gathering.")
 			is_collecting = false
 			if collection_progress:
 				collection_progress.stop_collection(true)
@@ -279,7 +290,8 @@ func harvest() -> int:
 	# NPCs harvest ground items, returns yield amount
 	# Note: The NPC gather_state handles the timer and progress display
 	# This method is called AFTER the timer completes, so we just remove the item
-	
+	if is_collecting and gathering_player != null:
+		return 0
 	# Make sprite disappear and remove from world
 	is_picked_up = true
 	sprite.visible = false

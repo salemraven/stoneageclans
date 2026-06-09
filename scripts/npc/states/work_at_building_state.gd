@@ -31,7 +31,7 @@ func exit() -> void:
 	if npc and npc.task_runner:
 		# If NPC has a job, cancel it (which clears reservations)
 		if npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
-			npc.task_runner.cancel_current_job()
+			npc.task_runner.cancel_current_job("work_at_building_exit")
 		else:
 			# If no job but might have reserved one, clear reservations manually (belt-and-suspenders)
 			var buildings = get_tree().get_nodes_in_group("buildings")
@@ -114,13 +114,18 @@ func can_enter() -> bool:
 	return false
 
 func get_priority() -> float:
-	# Task System - Step 17: Higher priority if there's an available job OR if actively working
-	# If NPC has an active job, prevent interruption by reproduction
+	var p_busy: float = 10.0
+	var p_job: float = 9.0
+	var p_idle: float = 7.0
+	if NPCConfig:
+		p_busy = NPCConfig.priority_work_at_building_busy
+		p_job = NPCConfig.priority_work_at_building_job
+		p_idle = NPCConfig.priority_work_at_building_idle
 	if _has_active_job():
-		return 10.0  # Highest priority - don't interrupt active work
+		return p_busy
 	if _has_available_job():
-		return 9.0  # Higher than reproduction (8.0) when job is available
-	return 7.0  # Below occupy (7.5), above gathering (3.0)
+		return p_job
+	return p_idle
 
 func _find_working_building() -> void:
 	if not npc:

@@ -13,6 +13,7 @@ const HOTBAR_COUNT := 10  # Equipment hotbar: 1=right hand, 2=left hand, 3=head,
 const HOTBAR_EQUIP_MAX_INDEX := 7
 const HOTBAR_FOOD_MIN_INDEX := 8
 const HOTBAR_FOOD_MAX_INDEX := 9
+const FOOD_MAX_STACK := 5  # Berries and other food stack up to 5 per slot
 const RIGHT_HAND_SLOT_INDEX := 0   # Slot 1 (right hand) = index 0 — primary weapon (axe/pick)
 const LEFT_HAND_SLOT_INDEX := 1    # Slot 2 (left hand) = index 1
 const SLOT_SIZE := 32
@@ -225,7 +226,10 @@ func _build_slots() -> void:
 	if not hotbar_container:
 		if hotbar_panel:
 			var margin = hotbar_panel.get_node_or_null("MarginContainer")
-			if margin and margin.has_node("SlotContainer"):
+			var hotbar_vbox = margin.get_node_or_null("HotbarVBox") if margin else null
+			if hotbar_vbox and hotbar_vbox.has_node("SlotContainer"):
+				hotbar_container = hotbar_vbox.get_node("SlotContainer") as HBoxContainer
+			elif margin and margin.has_node("SlotContainer"):
 				hotbar_container = margin.get_node("SlotContainer") as HBoxContainer
 			elif margin:
 				hotbar_container = HBoxContainer.new()
@@ -252,8 +256,7 @@ func _build_slots() -> void:
 		var slot: InventorySlot = InventorySlot.new()
 		slot.slot_index = i
 		slot.is_hotbar = false
-		slot.can_stack = false
-		# Make slots expand horizontally to fill available width
+		slot.can_stack = true  # Food stacks here; other items stay count 1
 		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if not slot.slot_clicked.is_connected(_on_slot_clicked):
 			slot.slot_clicked.connect(_on_slot_clicked)
@@ -271,8 +274,7 @@ func _build_slots() -> void:
 		var slot: InventorySlot = InventorySlot.new()
 		slot.slot_index = i
 		slot.is_hotbar = true
-		slot.can_stack = false
-		# Set slot number for display: 0-8 show "1"-"9", 9 shows "0"
+		slot.can_stack = i >= HOTBAR_FOOD_MIN_INDEX and i <= HOTBAR_FOOD_MAX_INDEX
 		var slot_number: String = str((i + 1) % 10)  # 1-9 for indices 0-8, 0 for index 9
 		slot.set_meta("slot_number", slot_number)
 		if not slot.slot_clicked.is_connected(_on_slot_clicked):
@@ -374,29 +376,76 @@ func _update_hotbar_slots() -> void:
 		main_node._update_equipment()
 
 func add_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
-	# Food never uses the main inventory strip — only hotbar 9 / 0 (indices 8–9).
 	if ResourceData.is_food(type):
 		return add_item_preferring_food_slots(type, amount)
 	return inventory_data.add_item(type, amount)
 
+func get_slot_stack_limit(slot: InventorySlot, item_type: ResourceData.ResourceType) -> int:
+	if ResourceData.is_food(item_type) and _player_slot_accepts_item(slot, item_type):
+		return FOOD_MAX_STACK
+	if slot.is_hotbar:
+		return 1
+	return inventory_data.max_stack if inventory_data else 1
+
+func slot_allows_stack_merge(slot: InventorySlot, item_type: ResourceData.ResourceType) -> bool:
+	return ResourceData.is_food(item_type) and _player_slot_accepts_item(slot, item_type)
+
+func _food_slot_indices(data: InventoryData) -> Array[int]:
+	if data == inventory_data:
+		var out: Array[int] = []
+		for i in range(SLOT_COUNT):
+			out.append(i)
+		return out
+	var out: Array[int] = [HOTBAR_FOOD_MIN_INDEX, HOTBAR_FOOD_MAX_INDEX]
+	return out
+
+func _add_food_to_existing_stacks(data: InventoryData, type: ResourceData.ResourceType, amount: int) -> int:
+	var remaining := amount
+	for idx in _food_slot_indices(data):
+		if remaining <= 0:
+			break
+		var slot_data: Dictionary = data.get_slot(idx)
+		if slot_data.is_empty() or slot_data.get("type", -1) != type:
+			continue
+		var count: int = int(slot_data.get("count", 1))
+		var space: int = FOOD_MAX_STACK - count
+		if space <= 0:
+			continue
+		var add_amt: int = mini(remaining, space)
+		slot_data["count"] = count + add_amt
+		data.set_slot(idx, slot_data)
+		remaining -= add_amt
+	return remaining
+
+func _add_food_to_empty_slots(data: InventoryData, type: ResourceData.ResourceType, amount: int) -> int:
+	var remaining := amount
+	for idx in _food_slot_indices(data):
+		if remaining <= 0:
+			break
+		if not data.get_slot(idx).is_empty():
+			continue
+		var add_amt: int = mini(remaining, FOOD_MAX_STACK)
+		data.set_slot(idx, {"type": type, "count": add_amt})
+		remaining -= add_amt
+	return remaining
+
 func add_item_preferring_food_slots(type: ResourceData.ResourceType, amount: int = 1) -> bool:
-	"""Food only: hotbar slots 9 and 0 (indices 8, 9). No equipment or main-inventory slots."""
+	"""Food: stack on hotbar 9/0 first, then main inventory (max 5 per slot)."""
 	if not ResourceData.is_food(type):
 		return add_item(type, amount)
 	var hotbar_data = get_meta("hotbar_data", null) as InventoryData
-	if not hotbar_data:
+	if not hotbar_data or not inventory_data:
 		return false
-	var slot_order: Array[int] = [HOTBAR_FOOD_MIN_INDEX, HOTBAR_FOOD_MAX_INDEX]
-	for _iter in range(amount):
-		var added := false
-		for idx in slot_order:
-			var slot_data: Dictionary = hotbar_data.get_slot(idx)
-			if slot_data.is_empty():
-				hotbar_data.set_slot(idx, {"type": type, "count": 1})
-				added = true
-				break
-		if not added:
-			return false
+	var remaining := amount
+	remaining = _add_food_to_existing_stacks(hotbar_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_existing_stacks(inventory_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_empty_slots(hotbar_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_empty_slots(inventory_data, type, remaining)
+	if remaining > 0:
+		return false
 	_update_all_slots()
 	_update_hotbar_slots()
 	return true
@@ -411,7 +460,29 @@ func _player_slot_accepts_item(slot: InventorySlot, t: ResourceData.ResourceType
 		if i >= HOTBAR_FOOD_MIN_INDEX and i <= HOTBAR_FOOD_MAX_INDEX:
 			return ResourceData.is_food(t)
 		return not ResourceData.is_food(t)
-	return not ResourceData.is_food(t)
+	# Main inventory panel accepts any item (food can be moved out of hotbar slots 9/0).
+	return true
+
+
+func _try_deposit_to_building_at(mouse_pos: Vector2) -> bool:
+	if not drag_manager or not drag_manager.is_dragging:
+		return false
+	var from_slot: InventorySlot = drag_manager.from_slot
+	if not from_slot or (from_slot not in slots and from_slot not in hotbar_slots):
+		return false
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if not main or not main.get("building_inventory_ui"):
+		return false
+	var building_ui = main.get("building_inventory_ui")
+	if not building_ui or not building_ui.visible:
+		return false
+	if not building_ui.has_method("_mouse_over_player_to_building_drop_zone"):
+		return false
+	if not building_ui._mouse_over_player_to_building_drop_zone(mouse_pos):
+		return false
+	if building_ui.has_method("_handle_deposit_drop"):
+		building_ui._handle_deposit_drop()
+	return true
 
 func get_hotbar_slot(index: int) -> Dictionary:
 	if index < 0 or index >= hotbar_slots.size():
@@ -443,17 +514,10 @@ func _on_slot_drag_ended(_slot: InventorySlot) -> void:
 			_handle_drop(check_slot)
 			return
 	
-	# Check if mouse is over building inventory slots (for cross-inventory drag)
+	# Player -> building: deposit bar / stock rows (building slots are hidden off-screen)
+	if _try_deposit_to_building_at(mouse_pos):
+		return
 	var main: Node = get_tree().get_first_node_in_group("main")
-	if main and main.has_method("get") and main.get("building_inventory_ui"):
-		var building_ui = main.get("building_inventory_ui")
-		if building_ui and building_ui.visible:
-			# Check building inventory slots
-			for check_slot in building_ui.slots:
-				var slot_rect: Rect2 = Rect2(check_slot.get_global_rect())
-				if slot_rect.has_point(mouse_pos):
-					# Dropping from player to building - handled by building inventory
-					return
 	
 	# Mouse not over any slot - check if it's a placeable building
 	var dragged_item = drag_manager.dragged_item if drag_manager else {}
@@ -520,18 +584,10 @@ func _input(event: InputEvent) -> void:
 						get_viewport().set_input_as_handled()
 						return
 				
-				# Check building inventory slots
-				var main: Node = get_tree().get_first_node_in_group("main")
-				if main and main.has_method("get") and main.get("building_inventory_ui"):
-					var building_ui = main.get("building_inventory_ui")
-					if building_ui and building_ui.visible:
-						for check_slot in building_ui.slots:
-							var slot_rect: Rect2 = Rect2(check_slot.get_global_rect())
-							if slot_rect.has_point(mouse_pos):
-								# Dropping from player to building - let building handle it
-								# Building inventory will handle the drop
-								get_viewport().set_input_as_handled()
-								return
+				# Player -> building: deposit bar / stock rows (building slots are hidden off-screen)
+				if _try_deposit_to_building_at(mouse_pos):
+					get_viewport().set_input_as_handled()
+					return
 				
 				# Not over any slot - end drag. Main._on_drag_ended handles building placement when drag_ended fires.
 				if drag_manager:
@@ -595,23 +651,25 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				drag_manager.end_drag(true)  # Restore item to source
 			return
 	
-	# Hotbar 1–8 = equipment only; keys 9/0 = food only; main panel = no food
+	# Hotbar 1–8 = equipment only; keys 9/0 = food only; main panel accepts any item
 	if not _player_slot_accepts_item(target_slot, dragged_type):
 		if drag_manager:
 			drag_manager.end_drag(true)
 		return
 	
 	# Handle the drop
+	var target_can_stack: bool = slot_allows_stack_merge(target_slot, dragged_type)
+	var target_max_stack: int = get_slot_stack_limit(target_slot, dragged_type)
 	
 	# First, try to stack with target slot if same type
 	if not target_item.is_empty():
 		var target_type: ResourceData.ResourceType = target_item.get("type", -1) as ResourceData.ResourceType
-		if target_type == dragged_type and to_data.can_stack:
+		if target_type == dragged_type and target_can_stack:
 			# Same type - try to stack
 			var target_count: int = target_item.get("count", 1) as int
 			var total: int = target_count + dragged_count
 			
-			if total <= to_data.max_stack:
+			if total <= target_max_stack:
 				# Full stack - all dragged items fit
 				target_item["count"] = total
 				target_slot.set_item(target_item)
@@ -633,8 +691,8 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				return
 			else:
 				# Partial stack - some items fit
-				var stack_amount: int = to_data.max_stack - target_count
-				target_item["count"] = to_data.max_stack
+				var stack_amount: int = target_max_stack - target_count
+				target_item["count"] = target_max_stack
 				target_slot.set_item(target_item)
 				to_data.set_slot(target_slot.slot_index, target_item)
 				
@@ -658,11 +716,13 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				return
 	
 	# If target is empty, check if there's already a slot with the same item type that can be stacked
-	if target_item.is_empty() and to_data.can_stack:
+	if target_item.is_empty():
 		for check_slot in (slots if not target_slot.is_hotbar else hotbar_slots):
 			if check_slot == target_slot:
 				continue
 			if not _player_slot_accepts_item(check_slot, dragged_type):
+				continue
+			if not slot_allows_stack_merge(check_slot, dragged_type):
 				continue
 			var check_item: Dictionary = check_slot.get_item()
 			if not check_item.is_empty():
@@ -670,9 +730,10 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				if check_type == dragged_type:
 					# Found matching item - try to stack
 					var check_count: int = check_item.get("count", 1) as int
+					var check_max_stack: int = get_slot_stack_limit(check_slot, dragged_type)
 					var total: int = check_count + dragged_count
 					
-					if total <= to_data.max_stack:
+					if total <= check_max_stack:
 						# Full stack - all dragged items fit
 						check_item["count"] = total
 						check_slot.set_item(check_item)
@@ -694,8 +755,8 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 						return
 					else:
 						# Partial stack - some items fit
-						var stack_amount: int = to_data.max_stack - check_count
-						check_item["count"] = to_data.max_stack
+						var stack_amount: int = check_max_stack - check_count
+						check_item["count"] = check_max_stack
 						check_slot.set_item(check_item)
 						to_data.set_slot(check_slot.slot_index, check_item)
 						

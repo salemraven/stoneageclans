@@ -8,7 +8,17 @@ const STANCE_CONFIG := {
 	"FOLLOW": {"aggro_threshold": 0.0, "chase_dist": 0.0, "speed_mult": 1.0},
 	"GUARD": {"aggro_threshold": 70.0, "chase_dist": 150.0, "speed_mult": 0.75},
 	"ATTACK": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
+	"ARC": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
 }
+
+const ENTITY_REGISTRY_PATH := "/root/EntityRegistry"
+
+
+static func _entity_registry() -> Node:
+	var st: SceneTree = Engine.get_main_loop() as SceneTree
+	if st == null or st.root == null:
+		return null
+	return st.root.get_node_or_null(ENTITY_REGISTRY_PATH)
 
 
 static func build_command_context(leader: Node, follower: Node) -> Dictionary:
@@ -18,9 +28,12 @@ static func build_command_context(leader: Node, follower: Node) -> Dictionary:
 	var cfg: Dictionary = STANCE_CONFIG.get(mode, STANCE_CONFIG["FOLLOW"])
 	var commander_id: int = -1
 	if leader and is_instance_valid(leader):
-		if EntityRegistry and EntityRegistry.get_network_id(leader) > 0:
-			commander_id = EntityRegistry.get_network_id(leader)
-		else:
+		var er: Node = _entity_registry()
+		if er and er.has_method("get_network_id"):
+			var nid: int = int(er.call("get_network_id", leader))
+			if nid > 0:
+				commander_id = nid
+		if commander_id <= 0:
 			commander_id = leader.get_instance_id()
 	var is_hostile: bool = false
 	if leader and leader.get("is_hostile") != null:

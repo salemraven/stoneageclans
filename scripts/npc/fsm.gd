@@ -588,10 +588,27 @@ func _evaluate_states() -> void:
 			return
 	
 	# Transport lock: when herder has followers, stay in herd_wildnpc until delivery or herded_count=0
+	# Exception: pending hut jobs for delivered women must not wait behind sheep/goat transport.
+	if npc and (npc_type_str == "caveman" or npc_type_str == "clansman") and npc.has_meta("build_hut_queue"):
+		var hut_q_early: Variant = npc.get_meta("build_hut_queue")
+		if hut_q_early is Array and not (hut_q_early as Array).is_empty():
+			var hut_st_early: Node = _get_state("build_hut_for_woman")
+			if hut_st_early and hut_st_early.has_method("can_enter") and hut_st_early.can_enter():
+				change_state("build_hut_for_woman")
+				return
+
+	# Transport lock: when herder has followers, stay in herd_wildnpc until delivery or herded_count=0
 	# Combat/defend already handled above. Block wander/gather from preempting transport.
 	if current_state_name == "herd_wildnpc" and npc and hc > 0:
 		return  # Transport locked - no evaluation, herder commits until delivery
 	
+	# Build hut: do not cancel for wander/gather/hunt while queue has pending jobs — only defend/combat may interrupt
+	var in_hut_build_and_busy: bool = (current_state_name == "build_hut_for_woman" and npc and npc.has_meta("build_hut_queue"))
+	if in_hut_build_and_busy:
+		var hut_q_busy: Variant = npc.get_meta("build_hut_queue")
+		if hut_q_busy is Array and not (hut_q_busy as Array).is_empty():
+			return
+
 	# Craft state: do not cancel for wander/gather/deposit etc — only defend or combat may interrupt
 	var in_craft_and_busy: bool = (current_state_name == "craft" and npc and (
 		npc.get("is_crafting") == true or (npc.task_runner and npc.task_runner.has_method("has_job") and npc.task_runner.has_job())
@@ -680,6 +697,8 @@ func _evaluate_states() -> void:
 				if not is_ordered_h:
 					continue
 			if state_name == "flee_prey" and npc_type_str != "deer":
+				continue
+			if state_name == "combat" and NPCConfig and NPCConfig.is_passive_hunt_prey(npc_type_str):
 				continue
 			if state_name == "herd_wildnpc" and npc_type_str != "caveman" and npc_type_str != "clansman":
 				continue
@@ -993,6 +1012,10 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 			hdn = str(nnh) if nnh != null else str(htr.name)
 		pi_tr.npc_fsm_transition(npc_name, nt_tr, clan_tr, old_state, new_state_name, hc_tr, fo_tr, hdn)
 
+	var phi_tr := get_node_or_null("/root/PartyHuntInstrument")
+	if phi_tr and phi_tr.has_method("on_fsm_transition"):
+		phi_tr.on_fsm_transition(npc, old_state, new_state_name)
+
 	# LOGGING: Track state entry time for duration calculation
 	if current_state:
 		current_state.set_meta("entry_time", Time.get_ticks_msec() / 1000.0)
@@ -1140,6 +1163,13 @@ func _compute_priority_cache_key() -> int:
 	var ctx = npc.get("command_context")
 	if ctx is Dictionary:
 		h = h * 31 + hash(str(ctx.get("mode", "")))
+	var stats = npc.get("stats_component")
+	if stats:
+		var hunger_max: float = float(stats.hunger_max) if stats.hunger_max > 0.0 else 100.0
+		var hunger_pct: float = (float(stats.get_stat("hunger")) / hunger_max) * 100.0
+		h = h * 31 + int(hunger_pct / 2)
+	if npc.get("inventory") and npc.inventory.has_method("get_used_slots"):
+		h = h * 31 + int(npc.inventory.get_used_slots())
 	return h
 
 
@@ -1151,13 +1181,14 @@ func _fsm_cache_node_ref(v: Variant) -> bool:
 	return v is Object and is_instance_valid(v as Object)
 
 func _get_cached_priority(state_name: String, state_node: Node) -> float:
-	"""Return cached get_priority() or compute and cache."""
-	if _cached_priority.has(state_name):
+	"""Return cached get_priority() or compute and cache. Eat is never cached (claim storage + hunger)."""
+	if state_name != "eat" and _cached_priority.has(state_name):
 		return _cached_priority[state_name] as float
 	var pri: float = state_priorities.get(state_name, 1.0) as float
 	if state_node and state_node.has_method("get_priority"):
 		pri = state_node.get_priority() as float
-	_cached_priority[state_name] = pri
+	if state_name != "eat":
+		_cached_priority[state_name] = pri
 	return pri
 
 func get_current_state_name() -> String:

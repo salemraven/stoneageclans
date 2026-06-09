@@ -31,6 +31,9 @@ func enter() -> void:
 			"npc": npc.npc_name,
 			"event": "job_cancelled_party"
 		})
+	var nt_party: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if (nt_party == "caveman" or nt_party == "clansman") and npc.has_method("equip_work_weapon_spear"):
+		npc.equip_work_weapon_spear()
 	last_target_update_time = Time.get_ticks_msec() / 1000.0
 	var herder_name: String = npc.herder.name if is_instance_valid(npc.herder) else "unknown"
 	UnifiedLogger.log_npc("NPC entered party mode, following %s" % herder_name, {

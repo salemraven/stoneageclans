@@ -42,6 +42,14 @@ func initialize(npc_ref: Node) -> void:
 	var config := get_node_or_null("/root/NPCConfig")
 	if config != null:
 		start_percent = float(config.hunger_start_percent)
+	# AI clan NPCs start full — food pressure is for players and mid-game economy.
+	if npc != null and not npc.is_in_group("player"):
+		var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		var wild_npc: bool = npc.has_method("is_wild") and npc.is_wild()
+		if not wild_npc and nt in ["caveman", "clansman", "woman", "baby"]:
+			var bc := get_node_or_null("/root/BalanceConfig")
+			if bc:
+				start_percent = float(bc.ai_hunger_start_percent)
 	hunger = hunger_max * (start_percent / 100.0)
 	stamina = stamina_max
 	
@@ -168,9 +176,12 @@ func update(delta: float) -> void:
 			"deplete_rate": "%.2f/min" % hunger_deplete_rate
 		}, UnifiedLogger.Level.DEBUG)
 	
-	# Health depletes from hunger
+	# Health depletes from hunger (game mode rate from BalanceConfig)
 	if hunger <= 0.0:
-		var health_deplete := 0.5 * delta / 60.0  # 0.5 per minute
+		var drain_per_min: float = 2.0
+		if BalanceConfig:
+			drain_per_min = maxf(0.0, float(BalanceConfig.hunger_health_drain_per_min))
+		var health_deplete := drain_per_min * delta / 60.0
 		health = max(0.0, health - health_deplete)
 	
 	# Stamina depletion/regen (handled by FSM based on activity)

@@ -3,8 +3,6 @@ extends Node2D
 # This node lives under WorldLayer so circles render over ground but behind WorldObjects (sprites).
 
 const CIRCLE_POINTS := 64
-const LINE_WIDTH := 4.0
-const LINE_COLOR := Color(1.0, 1.0, 1.0, 0.5)
 
 func _process(_delta: float) -> void:
 	queue_redraw()
@@ -21,13 +19,9 @@ func _draw() -> void:
 		_draw_circle_outline(pos, radius)
 
 func _draw_circle_outline(center: Vector2, radius: float) -> void:
-	# Draw several circles at offset radii so the line looks thicker
-	var half := int(LINE_WIDTH) / 2
-	for o in range(-half, half + 1):
-		var r := radius + float(o)
-		var points := PackedVector2Array()
-		for i in CIRCLE_POINTS:
-			var angle := (TAU * i) / CIRCLE_POINTS
-			points.append(center + Vector2(cos(angle), sin(angle)) * r)
-		points.append(points[0])
-		draw_polyline(points, LINE_COLOR)
+	var points := PackedVector2Array()
+	for i in CIRCLE_POINTS:
+		var angle := (TAU * i) / CIRCLE_POINTS
+		points.append(center + Vector2(cos(angle), sin(angle)) * radius)
+	points.append(points[0])
+	draw_polyline(points, YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR, YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX, true)

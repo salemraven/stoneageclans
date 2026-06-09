@@ -2,6 +2,23 @@
 # Campfire is Node2D + land_claims group but does not extend LandClaim — same logic must apply.
 extends RefCounted
 
+## Rate-limit SESSION lines when session instrumentation is on (avoids 40k+ WORK_GATHER_NO_RESOURCE lines per long run).
+const _SESSION_NO_RES_MIN_INTERVAL_SEC: float = 4.0
+static var _last_work_gather_no_resource_log: Dictionary = {} # worker_instance_id -> unix time
+
+static func _should_log_work_gather_no_resource(worker: Node) -> bool:
+	if not worker:
+		return true
+	var wid: int = worker.get_instance_id()
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var last: float = float(_last_work_gather_no_resource_log.get(wid, -999.0))
+	if now - last < _SESSION_NO_RES_MIN_INTERVAL_SEC:
+		return false
+	_last_work_gather_no_resource_log[wid] = now
+	if _last_work_gather_no_resource_log.size() > 800:
+		_last_work_gather_no_resource_log.clear()
+	return true
+
 static func generate_gather_job(claim: Node2D, worker: Node) -> Job:
 	if not claim or not worker:
 		return null
@@ -15,9 +32,30 @@ static func generate_gather_job(claim: Node2D, worker: Node) -> Job:
 		UnifiedLogger.log_npc("GATHER_JOB: %s no resource in claim range (clan=%s, claim_pos=%s)" % [
 			worker_name, claim_clan, str(claim.global_position)
 		], {"npc": worker_name, "clan": claim_clan, "claim_pos": str(claim.global_position)}, UnifiedLogger.Level.DEBUG)
+		if DebugConfig and DebugConfig.enable_session_instrumentation and _should_log_work_gather_no_resource(worker):
+			var wtype: String = str(worker.get("npc_type")) if worker.get("npc_type") != null else ""
+			UnifiedLogger.log_session("WORK_GATHER_NO_RESOURCE", {
+				"worker": worker_name,
+				"type": wtype,
+				"clan": claim_clan
+			}, UnifiedLogger.Level.INFO)
+			var tree = worker.get_tree() if worker else null
+			if tree:
+				var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+				if pi and pi.is_enabled() and pi.has_method("gather_no_resource"):
+					pi.gather_no_resource(worker_name, claim_clan, "no_resource")
 		return null
 	if resource.has_method("reserve"):
 		if not resource.reserve(worker):
+			if DebugConfig and DebugConfig.enable_session_instrumentation and _should_log_work_gather_no_resource(worker):
+				var wn: String = worker.get("npc_name") if "npc_name" in worker else "unknown"
+				var wt: String = str(worker.get("npc_type")) if worker.get("npc_type") != null else ""
+				UnifiedLogger.log_session("WORK_GATHER_RESERVE_FAIL", {
+					"worker": wn,
+					"type": wt,
+					"clan": claim_clan,
+					"resource_id": str(resource.get_instance_id())
+				}, UnifiedLogger.Level.INFO)
 			return null
 	var skip_deposit: bool = false
 	if worker.has_method("get") and "inventory" in worker:
@@ -46,6 +84,16 @@ static func generate_gather_job(claim: Node2D, worker: Node) -> Job:
 	if not job:
 		return null
 	job.building = claim
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		var wname: String = worker.get("npc_name") if "npc_name" in worker else "unknown"
+		var wttp: String = str(worker.get("npc_type")) if worker.get("npc_type") != null else ""
+		UnifiedLogger.log_session("WORK_GATHER_BUILT", {
+			"worker": wname,
+			"type": wttp,
+			"clan": claim_clan,
+			"skip_deposit": str(skip_deposit),
+			"resource_id": str(resource.get_instance_id())
+		}, UnifiedLogger.Level.INFO)
 	return job
 
 static func generate_craft_job(claim: Node2D, worker: Node) -> Job:
@@ -75,6 +123,13 @@ static func generate_craft_job(claim: Node2D, worker: Node) -> Job:
 	if not job:
 		return null
 	job.building = claim
+	if DebugConfig and DebugConfig.enable_session_instrumentation:
+		var wn_c: String = worker.get("npc_name") if "npc_name" in worker else "unknown"
+		UnifiedLogger.log_session("WORK_CRAFT_BUILT", {
+			"worker": wn_c,
+			"type": npc_type,
+			"clan": claim_clan
+		}, UnifiedLogger.Level.INFO)
 	return job
 
 static func find_nearest_available_resource(claim: Node2D, worker: Node) -> Node2D:

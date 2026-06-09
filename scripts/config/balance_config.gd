@@ -37,22 +37,63 @@ var sheep_goat_spawn_radius: float = 2200.0
 var sheep_goat_group_distance_min: float = 800.0
 
 # Starvation safety (seconds) - NPCs don't die from hunger in first N seconds after spawn
-var starvation_safety_seconds: float = 20.0
+var starvation_safety_seconds: float = 45.0
+
+# --- Hunger (game mode — BalanceConfig is source of truth; NPCConfig syncs in _ready) ---
+## Hunger points lost per real minute (100 max ≈ 10 min from full to empty at 10/min).
+var hunger_deplete_rate_per_min: float = 10.0
+var hunger_start_percent: float = 85.0
+var hunger_eat_threshold_percent: float = 80.0
+var hunger_gather_threshold_percent: float = 80.0
+## When hunger hits 0, health drains until death (~50s at 2/min from full HP).
+var hunger_health_drain_per_min: float = 2.0
+## AI clan members spawn with full hunger (player uses hunger_start_percent above).
+var ai_hunger_start_percent: float = 100.0
+
+# --- Simulation economy (ClanBrain food_days_buffer + deposit/eat/breed gates) ---
+## One instrumented playtest window (e.g. 10 min) ≈ one sim "day" for buffer labels.
+var sim_day_length_minutes: float = 10.0
+## Food items one clan member consumes per sim-day (aligns buffer math with hunger loop).
+var food_items_per_capita_per_sim_day: float = 5.0
+## Target / critical buffers (sim-days of food in claim storage).
+var clan_food_buffer_target_days: float = 1.0
+var clan_food_buffer_critical_days: float = 0.5
+## New pregnancies only when claim buffer ≥ this (reduces pop outpacing food).
+var reproduction_min_food_buffer_days: float = 0.28
+## Early clans with this many food items in claim may breed below min buffer (keeps pop growing).
+var reproduction_food_items_bypass_min: int = 3
+## If designated herder-father stays outside claim this long, woman may pick in-claim mate.
+var reproduction_father_absent_fallback_sec: float = 90.0
+## Personal food kept on auto-deposit when claim is well stocked.
+var deposit_food_keep_default: int = 1
+## Below this claim buffer, deposit ALL food (keep 0 for personal snacking).
+var deposit_zero_food_keep_buffer_days: float = 0.75
+## Allow 1-fighter hunt parties when food buffer is critical (early clans with one caveman).
+var hunt_allow_solo_when_food_critical: bool = true
+## Solo hunts also allowed when buffer drops below this (sim-days), before full critical.
+var hunt_solo_food_buffer_days: float = 0.15
+## AI land claims start with this many berries in storage (bootstrap breeding; player claims unchanged).
+var ai_claim_starting_food_berries: int = 5
+## Herders deposit all personal food until claim food count reaches this (matches repro bypass min).
+var claim_food_bootstrap_min_items: int = 3
+## Berries storage target in claim = max(min, population × this).
+var berries_storage_target_min: int = 8
+var berries_storage_target_per_capita: float = 0.45
+
+# Food hunger restore (percent of max hunger, 0-100)
+var berries_hunger_percent: float = 8.0
+var grain_hunger_percent: float = 10.0
+var meat_hunger_percent: float = 18.0
+var bread_hunger_percent: float = 22.0
+var milk_hunger_percent: float = 10.0
+var mushroom_hunger_percent: float = 8.0
+var bugs_hunger_percent: float = 6.0
+var nuts_hunger_percent: float = 9.0
 
 # Production times (seconds)
 var bread_craft_time: float = 90.0
 var wool_craft_time: float = 45.0
 var milk_craft_time: float = 45.0
-
-# Food hunger restore (percent, 0-100)
-var berries_hunger_percent: float = 5.0
-var grain_hunger_percent: float = 7.0
-var meat_hunger_percent: float = 10.0
-var bread_hunger_percent: float = 15.0
-var milk_hunger_percent: float = 6.0
-
-# Hunger depletion (per minute)
-var hunger_deplete_rate_per_min: float = 28.0
 
 # Oldowan slower than specialized tools (multiplier on collection time)
 var oldowan_gather_multiplier: float = 1.5
@@ -89,3 +130,76 @@ var campfire_upgrade_cordage: int = 0
 var campfire_upgrade_hide: int = 0
 var campfire_upgrade_wood: int = 1
 var campfire_upgrade_stone: int = 1
+
+
+func _ready() -> void:
+	apply_hunger_game_mode()
+	apply_economy_sim()
+
+
+## Push hunger/food tuning into NPCConfig so one file (here) drives gameplay.
+func apply_hunger_game_mode() -> void:
+	if not NPCConfig:
+		return
+	NPCConfig.hunger_deplete_rate = hunger_deplete_rate_per_min
+	NPCConfig.hunger_start_percent = hunger_start_percent
+	NPCConfig.hunger_eat_threshold = hunger_eat_threshold_percent
+	NPCConfig.hunger_gather_threshold = hunger_gather_threshold_percent
+	NPCConfig.hunger_restore_percent = berries_hunger_percent
+	NPCConfig.food_items_to_keep_in_inventory = deposit_food_keep_default
+
+
+## Expose economy helpers for ClanBrain + NPC deposit/eat paths.
+func get_food_per_capita_per_sim_day() -> float:
+	return maxf(food_items_per_capita_per_sim_day, 0.5)
+
+
+func get_deposit_food_keep_count(claim_food_days_buffer: float, claim_food_total: int = 9999) -> int:
+	var bootstrap_min: int = maxi(1, claim_food_bootstrap_min_items)
+	if claim_food_total < bootstrap_min:
+		return 0
+	if claim_food_days_buffer < deposit_zero_food_keep_buffer_days:
+		return 0
+	if claim_food_days_buffer < clan_food_buffer_critical_days:
+		return 0
+	return maxi(0, deposit_food_keep_default)
+
+
+## Put starting food in a non-player land claim inventory (AI bootstrap).
+func seed_ai_claim_starting_food(claim_inventory: InventoryData) -> void:
+	if not claim_inventory or ai_claim_starting_food_berries <= 0:
+		return
+	claim_inventory.add_item(ResourceData.ResourceType.BERRIES, ai_claim_starting_food_berries)
+
+
+func get_berries_storage_target(population: int) -> int:
+	var pop: int = maxi(1, population)
+	return maxi(berries_storage_target_min, int(ceil(float(pop) * berries_storage_target_per_capita)))
+
+
+func apply_economy_sim() -> void:
+	if not NPCConfig:
+		return
+	NPCConfig.food_items_to_keep_in_inventory = deposit_food_keep_default
+
+
+func get_food_hunger_restore_percent(resource_type: ResourceData.ResourceType) -> float:
+	match resource_type:
+		ResourceData.ResourceType.BERRIES:
+			return berries_hunger_percent
+		ResourceData.ResourceType.GRAIN:
+			return grain_hunger_percent
+		ResourceData.ResourceType.MEAT:
+			return meat_hunger_percent
+		ResourceData.ResourceType.BREAD:
+			return bread_hunger_percent
+		ResourceData.ResourceType.MILK:
+			return milk_hunger_percent
+		ResourceData.ResourceType.MUSHROOM:
+			return mushroom_hunger_percent
+		ResourceData.ResourceType.BUGS:
+			return bugs_hunger_percent
+		ResourceData.ResourceType.NUTS:
+			return nuts_hunger_percent
+		_:
+			return 0.0

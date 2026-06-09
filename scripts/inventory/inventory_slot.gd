@@ -518,11 +518,9 @@ func _update_drop_target_highlight() -> void:
 	var is_valid = _is_valid_drop_target()
 	
 	if is_valid:
-		# Valid drop target - gold highlight (#FFCE1B at ~30% opacity)
-		_show_highlight(Color(1.0, 0.808, 0.106, 0.3))  # #FFCE1B with 30% opacity
+		_show_highlight(UITheme.get_drag_drop_highlight_valid())
 	else:
-		# Invalid drop target - red highlight (#B31B1B at ~30% opacity)
-		_show_highlight(Color(0.702, 0.106, 0.106, 0.3))  # #B31B1B with 30% opacity
+		_show_highlight(UITheme.get_drag_drop_highlight_invalid())
 
 func _is_valid_drop_target() -> bool:
 	# Check if the dragged item can be dropped in this slot
@@ -561,11 +559,20 @@ func _is_valid_drop_target() -> bool:
 	var slot_item_type = item_data.get("type", -1)
 	var dragged_item_type = dragged_item.get("type", -1)
 	
+	var can_stack_here: bool = inventory_data.can_stack
+	var max_stack: int = inventory_data.max_stack
+	if drag_manager:
+		var pui: PlayerInventoryUI = drag_manager._get_player_inventory_ui()
+		if pui and (self in pui.slots or self in pui.hotbar_slots):
+			var dragged_type: ResourceData.ResourceType = dragged_item_type as ResourceData.ResourceType
+			if pui.slot_allows_stack_merge(self, dragged_type):
+				can_stack_here = true
+				max_stack = pui.get_slot_stack_limit(self, dragged_type)
+	
 	# Same type and can stack - valid
-	if slot_item_type == dragged_item_type and inventory_data.can_stack:
+	if slot_item_type == dragged_item_type and can_stack_here:
 		var slot_count = item_data.get("count", 1)
 		var dragged_count = dragged_item.get("count", 1)
-		var max_stack = inventory_data.max_stack
 		return (slot_count + dragged_count) <= max_stack
 	
 	# Different type or can't stack - invalid (would overwrite)

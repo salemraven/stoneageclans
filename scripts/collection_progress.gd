@@ -37,21 +37,22 @@ func _full_reset_hidden() -> void:
 		_collection_tween = null
 	queue_redraw()
 
-func start_collection(icon: Texture2D = null) -> void:
+## Pass [param duration] when the gather time differs from the exported default (e.g. Oldowan multiplier).
+func start_collection(icon: Texture2D = null, duration: float = -1.0) -> void:
 	# New action clears any cancel flash or prior tween
 	_cancel_flash_generation += 1
 	if _cancel_flash_active:
 		_cancel_flash_active = false
-	if _is_collecting:
-		return
+	if _collection_tween:
+		_collection_tween.kill()
+		_collection_tween = null
+	if duration >= 0.0:
+		collection_time = duration
 
 	_is_collecting = true
 	_progress = 0.0
 	_item_icon = icon
 	visible = true
-
-	if _collection_tween:
-		_collection_tween.kill()
 
 	_collection_tween = create_tween()
 	_collection_tween.tween_method(_update_progress, 0.0, 1.0, collection_time)

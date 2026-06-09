@@ -48,7 +48,7 @@ SKIP_SINGLE_INSTANCE=1 godot --path . --wild-npc-trace
 
 Writes **`user://wild_npc_trace_*.jsonl`**. Toggle in editor: **`DebugConfig.enable_wild_npc_trace`**; tick spacing: **`wild_npc_trace_interval_sec`**.
 
-**Related guide:** **`guides/wildlife_movement.md`** (Debugging section). **`--playtest-capture`** also records **`migration_complete`** and richer **`npc_world_probe`** rows (deer/mammoth + **`mig_*`** fields).
+**Related guide:** **`bible/wildlife_movement.md`** (Debugging section). **`--playtest-capture`** also records **`migration_complete`** and richer **`npc_world_probe`** rows (deer/mammoth + **`mig_*`** fields).
 
 ## Boot / load audit (autoload `RuntimeFaultSink`)
 
@@ -64,13 +64,13 @@ Hold A/D to see `[PlayerMoveTrace]` in the console.
 
 ## Ultimate NPC & ClanBrain test (recommended gate)
 
-Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_verify`** + short ClanBrain **`Main`** capture + **`analyze_playtest.py --strict-clanbrain`**, plus **NPC-only ~120 s `Main`** (`--npc-only-world`) + **`--strict-npc-sim`** (gather/hunt/growth JSONL thresholds). Details: **`guides/Ultimate_npc_clanbrain_test.md`**.
+Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_verify`** + short ClanBrain **`Main`** capture + **`analyze_playtest.py --strict-clanbrain`**, plus **NPC-only ~120 s `Main`** (`--npc-only-world`) + **`--strict-npc-sim`** (gather/hunt/growth JSONL thresholds). Details: **`bible/Ultimate_npc_clanbrain_test.md`**.
 
 ```bash
 bash tools/run_ultimate_npc_clanbrain_test.sh
 ```
 
-Optional: **`SKIP_NPC_ONLY_2MIN=1`** skips the bundled NPC-only capture. **`ULTIMATE_LONG_2MIN=1`** also runs **`run_playtest_2min_analyze.sh`** (~2 min **`Main`**) with herd **`--strict`** plus **`ANALYZER_EXTRA_ARGS`** including **`--strict-clanbrain`**. Tunables: **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`**, **`ULTIMATE_MIN_QUOTA_UPDATES`**, **`ULTIMATE_NPC_SIM_*`**, **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`**, **`PLAYTEST_WORLD_SEED`** (see **`guides/Ultimate_npc_clanbrain_test.md`**).
+Optional: **`SKIP_NPC_ONLY_2MIN=1`** skips the bundled NPC-only capture. **`ULTIMATE_LONG_2MIN=1`** also runs **`run_playtest_2min_analyze.sh`** (~2 min **`Main`**) with herd **`--strict`** plus **`ANALYZER_EXTRA_ARGS`** including **`--strict-clanbrain`**. Tunables: **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`**, **`ULTIMATE_MIN_QUOTA_UPDATES`**, **`ULTIMATE_NPC_SIM_*`**, **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`**, **`PLAYTEST_WORLD_SEED`** (see **`bible/Ultimate_npc_clanbrain_test.md`**).
 
 Windows: **`powershell -NoProfile -File tools/run_playtest_npc_only_2min_analyze.ps1`** (same env vars).
 

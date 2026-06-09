@@ -1,6 +1,8 @@
 extends Node2D
 class_name BuildingBase
 
+const BuildingHealthBar = preload("res://scripts/ui/building_health_bar.gd")
+
 # Task classes for generate_job() - preloaded at parse time
 const PickUpTaskScript = preload("res://scripts/ai/tasks/pick_up_task.gd")
 const MoveToTaskScript = preload("res://scripts/ai/tasks/move_to_task.gd")
@@ -128,32 +130,7 @@ func get_animal_type_for_building() -> String:
 	return ""
 
 func _setup_health_bar() -> void:
-	"""Create health bar UI for building"""
-	# Create health bar container (use min size to avoid anchor/size override warning)
-	health_bar = Control.new()
-	health_bar.name = "HealthBar"
-	health_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	health_bar.position = Vector2(-40, -60)  # Above building
-	health_bar.custom_minimum_size = Vector2(80, 8)
-	health_bar.size = Vector2(80, 8)
-	health_bar.visible = false  # Hidden until damaged/decaying
-	add_child(health_bar)
-	
-	# Background bar (red) - no explicit size to avoid anchor override warning
-	var bg_bar = ColorRect.new()
-	bg_bar.name = "Background"
-	bg_bar.color = Color(0.3, 0.0, 0.0, 0.8)
-	bg_bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	health_bar.add_child(bg_bar)
-	
-	# Health bar (green) - top-left anchored, size updated in _update_health_bar
-	var health_fill = ColorRect.new()
-	health_fill.name = "HealthFill"
-	health_fill.color = Color(0.0, 1.0, 0.0, 0.8)
-	health_fill.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	health_fill.position = Vector2(0, 0)
-	health_fill.size = Vector2(80, 8)
-	health_bar.add_child(health_fill)
+	health_bar = BuildingHealthBar.create(self)
 
 func _set_decay_rate() -> void:
 	"""Set decay rate based on building type (land claim is slowest)"""
@@ -172,31 +149,7 @@ func _set_decay_rate() -> void:
 			decay_rate = 2.0
 
 func _update_health_bar() -> void:
-	"""Update health bar visual"""
-	if not health_bar:
-		return
-	
-	var health_fill = health_bar.get_node_or_null("HealthFill")
-	if not health_fill:
-		return
-	
-	# Show health bar if damaged or decaying
-	if current_health < max_health or is_decaying:
-		health_bar.visible = true
-	else:
-		health_bar.visible = false
-	
-	# Update health bar width
-	var health_percent: float = current_health / max_health
-	health_fill.size.x = 80.0 * health_percent
-	
-	# Change color based on health
-	if health_percent > 0.6:
-		health_fill.color = Color(0.0, 1.0, 0.0, 0.8)  # Green
-	elif health_percent > 0.3:
-		health_fill.color = Color(1.0, 1.0, 0.0, 0.8)  # Yellow
-	else:
-		health_fill.color = Color(1.0, 0.0, 0.0, 0.8)  # Red
+	BuildingHealthBar.update_bar(health_bar, current_health, max_health)
 
 func start_decay() -> void:
 	"""Start building decay when clan dies"""

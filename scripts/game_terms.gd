@@ -1,7 +1,7 @@
 extends Object
 class_name GameTerms
 
-## See guides/game_dictionary.md — "fighter activity" = combat/defend/agro/raid state, NOT clansman roster count.
+## See bible/game_dictionary.md — "fighter activity" = combat/defend/agro/raid state, NOT clansman roster count.
 
 const FIGHTER_ACTIVITY_STATE_NAMES: Array[String] = ["combat", "defend", "agro", "raid"]
 

@@ -9,7 +9,7 @@ There is **no live sync** between Figma and Godot (same as most game engines). T
 | Variables (colors, radii, spacing, type scale) | `ui/design_tokens/design_tokens.json` |
 | Frames, components, layout | Reference for building/editing `.tscn` and scripted UI; move controls in Godot |
 | Icons, 9-slice panel PNGs, bitmap UI | `ui/textures/` (or `assets/` if shared with gameplay art) |
-| Written spec | `guides/UI.md` (behavior + patterns) |
+| Written spec | `bible/UI.md` (behavior + patterns) |
 
 ## Design language (keep it boring)
 

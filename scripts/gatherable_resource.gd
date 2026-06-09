@@ -461,10 +461,16 @@ func _process(delta: float) -> void:
 				_emit_gather_diagnostic("gather_space_wrong_active_target", nearby_player, main, {
 					"note": "Space while overlapping this hitbox but active_collection_resource is another node or null"
 				})
+				if main.has_method("show_gather_feedback"):
+					main.show_gather_feedback("Move closer to the resource you are gathering.")
 		
 		# Only process if this is the active resource
 		if is_active:
 			if Input.is_action_just_pressed("gather"):
+				if Input.is_action_pressed("weapon_ready"):
+					if main.has_method("show_gather_feedback"):
+						main.show_gather_feedback("Release Shift before gathering.")
+					return
 				var current_time := Time.get_ticks_msec() / 1000.0
 				# Prevent double-presses with small cooldown
 				if current_time - last_gather_press_time >= GATHER_COOLDOWN:
@@ -486,10 +492,14 @@ func _is_bumping(player: Node2D) -> bool:
 	return player_pos.distance_to(resource_pos) < 40.0
 
 func _collect_one_item() -> void:
+	if is_collecting or _wood_nut_search:
+		return
 	var main: Node = get_tree().get_first_node_in_group("main")
 	# Check if resource is exhausted (in cooldown)
 	if is_in_cooldown:
 		_emit_gather_diagnostic("gather_blocked_cooldown", nearby_player, main)
+		if main and main.has_method("show_gather_feedback"):
+			main.show_gather_feedback("Resource depleted — wait for it to recover.")
 		print("Resource is exhausted, cannot collect")
 		return
 	
@@ -514,6 +524,8 @@ func _collect_one_item() -> void:
 	# This should already be the active resource, but double-check
 	if main.active_collection_resource != self:
 		_emit_gather_diagnostic("gather_blocked_not_active_target", nearby_player, main)
+		if main.has_method("show_gather_feedback"):
+			main.show_gather_feedback("Gather from the nearest resource (one at a time).")
 		print("Not the active resource, cannot collect")
 		return  # Not the active resource, don't collect
 	
@@ -540,8 +552,7 @@ func _collect_one_item() -> void:
 			var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
-		collection_progress.start_collection(icon)
-		collection_progress.collection_time = effective_time
+		collection_progress.start_collection(icon, effective_time)
 	
 	# Wait for collection time, then give item
 	is_collecting = true
@@ -562,8 +573,7 @@ func _start_wood_nut_search(main: Node) -> void:
 	gathering_player.set("is_gathering", true)
 	var search_time: float = 0.9
 	if collection_progress:
-		collection_progress.collection_time = search_time
-		collection_progress.start_collection(null)
+		collection_progress.start_collection(null, search_time)
 	is_collecting = true
 	var timer := get_tree().create_timer(search_time)
 	timer.timeout.connect(func(): _finish_wood_nut_search())
@@ -592,6 +602,9 @@ func _finish_wood_nut_search() -> void:
 	_clear_gathering_player()
 
 func _finish_collection() -> void:
+	# Cancelled gathers clear is_collecting; SceneTreeTimer may still fire — do not grant items
+	if not is_collecting:
+		return
 	var main_finish: Node = get_tree().get_first_node_in_group("main")
 	# If player moved during collection, cancel (no item)
 	if gathering_player != null:
@@ -612,6 +625,8 @@ func _finish_collection() -> void:
 	# Check if resource is in cooldown (exhausted)
 	if is_in_cooldown:
 		_emit_gather_diagnostic("gather_blocked_cooldown_at_finish", gathering_player, main_finish)
+		if main_finish and main_finish.has_method("show_gather_feedback"):
+			main_finish.show_gather_feedback("Gather interrupted — resource ran out.")
 		is_collecting = false
 		if collection_progress:
 			collection_progress.stop_collection(false)
@@ -668,6 +683,8 @@ func _stop_collection(reason: String = "unspecified") -> void:
 	if was_collecting and gp != null and is_instance_valid(gp):
 		var main_stop: Node = get_tree().get_first_node_in_group("main")
 		_emit_gather_diagnostic("gather_stopped", gp, main_stop, {"reason": reason})
+		if reason == "moved_while_collecting" and main_stop and main_stop.has_method("show_gather_feedback"):
+			main_stop.show_gather_feedback("Stand still to finish gathering.")
 	_clear_gathering_player()
 
 # NPC interaction methods
@@ -722,6 +739,9 @@ func consume() -> void:
 
 func harvest() -> int:
 	# NPCs harvest resources, returns yield amount
+	# Player is channeling Space+timer on this node — do not steal last gathers / cooldown
+	if is_collecting and gathering_player != null:
+		return 0
 	# Check if resource is in cooldown
 	if is_in_cooldown:
 		return 0  # Can't harvest during cooldown
@@ -830,7 +850,7 @@ func _exit_tree() -> void:
 			if worker.has_method("get") and "task_runner" in worker:
 				var task_runner = worker.get("task_runner")
 				if task_runner and is_instance_valid(task_runner) and task_runner.has_method("cancel_current_job"):
-					task_runner.cancel_current_job()
+					task_runner.cancel_current_job("resource_freed")
 					var worker_name: String = "unknown"
 					if worker.has_method("get"):
 						var name_value = worker.get("npc_name")

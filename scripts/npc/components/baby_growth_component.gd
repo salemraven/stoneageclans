@@ -124,28 +124,30 @@ func _grow_to_clansman() -> void:
 	if pi and pi.has_method("is_enabled") and pi.is_enabled() and pi.has_method("baby_grew_to_clansman"):
 		pi.baby_grew_to_clansman(baby_name, clan_name)
 	
-	# Change sprite to caveman sprite
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_player_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-			UnifiedLogger.log_npc("✓ Sprite updated: %s sprite changed to caveman sprite" % baby_name, {
-				"npc": baby_name,
-				"sprite_path": "res://assets/sprites/PlayerB.png"
-			}, UnifiedLogger.Level.DEBUG)
-		else:
-			UnifiedLogger.log_npc("WARNING: Failed to load caveman sprite for %s" % baby_name, {
-				"npc": baby_name,
-				"sprite_path": "res://assets/sprites/PlayerB.png"
-			}, UnifiedLogger.Level.WARNING)
+	# Apply father's placeholder card (card_index stored at birth; skin tint stays random)
+	if PlaceholderCardService:
+		PlaceholderCardService.apply_to_npc(npc)
+		var inherited_idx: int = int(npc.get("card_index")) if npc.get("card_index") != null else 0
+		UnifiedLogger.log_npc("✓ Sprite updated: %s uses father's clansmen_card%d" % [baby_name, inherited_idx], {
+			"npc": baby_name,
+			"card_index": inherited_idx,
+		}, UnifiedLogger.Level.DEBUG)
 	else:
-		UnifiedLogger.log_npc("WARNING: No sprite node found for %s" % baby_name, {
-			"npc": baby_name
-		}, UnifiedLogger.Level.WARNING)
+		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+		if sprite:
+			var texture: Texture2D = AssetRegistry.get_player_sprite()
+			if texture:
+				sprite.texture = texture
+				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				if npc.has_method("apply_sprite_offset_for_texture"):
+					npc.apply_sprite_offset_for_texture()
+			UnifiedLogger.log_npc("WARNING: PlaceholderCardService missing — fallback PlayerB for %s" % baby_name, {
+				"npc": baby_name,
+			}, UnifiedLogger.Level.WARNING)
+		else:
+			UnifiedLogger.log_npc("WARNING: No sprite node found for %s" % baby_name, {
+				"npc": baby_name
+			}, UnifiedLogger.Level.WARNING)
 	
 	# Upgrade inventory to standard size (10 slots) when baby grows to clansman
 	if npc.inventory:

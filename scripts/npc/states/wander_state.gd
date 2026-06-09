@@ -8,11 +8,25 @@ const _RTS_FORM_CFG := preload("res://scripts/config/rts_formation_config.gd").R
 var wander_radius: float = 300.0  # Increased wander radius
 
 
+func _is_party_hunt_debug_graze() -> bool:
+	return npc != null and npc.has_meta("party_hunt_debug_graze") and bool(npc.get_meta("party_hunt_debug_graze"))
+
+
+func _party_hunt_graze_center_radius() -> Vector3:
+	var anchor_v: Variant = npc.get_meta("party_hunt_debug_graze_anchor") if npc.has_meta("party_hunt_debug_graze_anchor") else npc.get("spawn_position")
+	var center: Vector2 = anchor_v as Vector2 if anchor_v is Vector2 else npc.global_position
+	var r: float = float(npc.get_meta("party_hunt_debug_graze_radius", 100.0))
+	return Vector3(center.x, center.y, r)
+
+
 func _wild_wander_center_radius() -> Vector3:
 	var center: Vector2 = npc.global_position
 	var radius: float = wander_radius
 	if npc == null:
 		return Vector3(center.x, center.y, radius)
+
+	if _is_party_hunt_debug_graze():
+		return _party_hunt_graze_center_radius()
 
 	if npc.has_method("is_territorial_movement") and npc.is_territorial_movement():
 		var tr_v = npc.get("territorial_radius")
@@ -498,26 +512,27 @@ func update(delta: float) -> void:
 
 			# Clan avoidance for wild NPCs: push center away if too close to land claim
 			var npc_type_here: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
-			var avoid_radius: float = 800.0 if npc_type_here == "woman" else 600.0
-			if ChunkUtils:
-				avoid_radius = ChunkUtils.WOMAN_CLAN_AVOID_RADIUS if npc_type_here == "woman" else ChunkUtils.CLAN_AVOID_RADIUS
-			if npc_type_here == "mammoth" and NPCConfig:
-				var mp = NPCConfig.get("mammoth_land_claim_avoid_distance")
-				if mp != null:
-					avoid_radius = mp as float
-			var land_claims_wu := get_tree().get_nodes_in_group("land_claims")
-			for claim in land_claims_wu:
-				if not is_instance_valid(claim):
-					continue
-				var claim_pos_wu: Vector2 = claim.global_position
-				var claim_r: float = claim.get("radius") as float if claim.get("radius") != null else 400.0
-				var total_avoid: float = claim_r + avoid_radius
-				if wander_center.distance_to(claim_pos_wu) < total_avoid:
-					var dir_away: Vector2 = (wander_center - claim_pos_wu).normalized()
-					if dir_away.length_squared() < 0.01:
-						dir_away = Vector2(cos(_npc_rngf() * TAU), sin(_npc_rngf() * TAU))
-					wander_center = claim_pos_wu + dir_away * total_avoid
-					break
+			if not _is_party_hunt_debug_graze():
+				var avoid_radius: float = 800.0 if npc_type_here == "woman" else 600.0
+				if ChunkUtils:
+					avoid_radius = ChunkUtils.WOMAN_CLAN_AVOID_RADIUS if npc_type_here == "woman" else ChunkUtils.CLAN_AVOID_RADIUS
+				if npc_type_here == "mammoth" and NPCConfig:
+					var mp = NPCConfig.get("mammoth_land_claim_avoid_distance")
+					if mp != null:
+						avoid_radius = mp as float
+				var land_claims_wu := get_tree().get_nodes_in_group("land_claims")
+				for claim in land_claims_wu:
+					if not is_instance_valid(claim):
+						continue
+					var claim_pos_wu: Vector2 = claim.global_position
+					var claim_r: float = claim.get("radius") as float if claim.get("radius") != null else 400.0
+					var total_avoid: float = claim_r + avoid_radius
+					if wander_center.distance_to(claim_pos_wu) < total_avoid:
+						var dir_away: Vector2 = (wander_center - claim_pos_wu).normalized()
+						if dir_away.length_squared() < 0.01:
+							dir_away = Vector2(cos(_npc_rngf() * TAU), sin(_npc_rngf() * TAU))
+						wander_center = claim_pos_wu + dir_away * total_avoid
+						break
 		
 			# Set new wander target with natural variation
 			if npc.steering_agent:
@@ -529,7 +544,7 @@ func update(delta: float) -> void:
 		var closest_distance: float = INF
 		var total_avoidance_radius_val: float = 1000.0
 		var avoidance_radius: float = 600.0
-		if npc.is_wild():
+		if npc.is_wild() and not _is_party_hunt_debug_graze():
 			var land_claims := get_tree().get_nodes_in_group("land_claims")
 			var npc_type_avoid: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
 			if npc_type_avoid == "mammoth" and NPCConfig:

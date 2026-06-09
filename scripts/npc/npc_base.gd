@@ -6,6 +6,7 @@ const PerceptionArea = preload("res://scripts/npc/components/perception_area.gd"
 const HerdableComponentScript = preload("res://scripts/npc/components/herdable_component.gd")
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const MovementDebugInstrument = preload("res://scripts/debug/movement_debug_instrument.gd")
+const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 # Uses global WalkAnimation (class_name in walk_animation.gd)
@@ -35,6 +36,10 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 @export var age: int = 0  # Age in years (0 for animals, 13+ for humans)
 @export var quality_tier: String = "Flawed"  # Flawed, Good, Legendary (age-based, affects stats)
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light (visual only)
+var card_index: int = 0  # clansmen_card1-18 for caveman/clansman/player lineage
+var genetics_profile: Dictionary = {}  # conception profile; skin_modulate applied in PR3
+var _card_foot_y: float = -128.0
+var _card_bounce_time: float = 0.0
 
 # Traits array (editable in inspector)
 @export var traits: Array[String] = []
@@ -73,6 +78,22 @@ func _clan_tags_equal(a: String, b: String) -> bool:
 	if a.is_empty() or b.is_empty():
 		return false
 	return a.strip_edges().to_lower() == b.strip_edges().to_lower()
+
+func uses_placeholder_cards() -> bool:
+	if PlaceholderCardService:
+		return PlaceholderCardService.uses_placeholder_cards(self)
+	return false
+
+
+func _apply_placeholder_card_deferred() -> void:
+	if PlaceholderCardService:
+		PlaceholderCardService.apply_to_npc(self)
+
+
+func _store_sprite_base_position() -> void:
+	if sprite:
+		_sprite_base_position = sprite.position
+
 
 func _init_gameplay_rng() -> void:
 	var ws: int = 0
@@ -208,7 +229,7 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 				"action": "npc_joined_clan", "clan": claim_clan, "npc": npc_name, "npc_type": npc_type,
 				"herder": str(herder.name) if herder else "unknown", "land_claim_pos": "%.1f,%.1f" % [claim_pos.x, claim_pos.y]
 			})
-			# Herder builds a Living Hut per delivered woman (queued; one timer per hut)
+			# Herder builds a Living Hut per delivered woman (queued on the herder who brought her in).
 			if is_herded and herder and is_instance_valid(herder):
 				herder_ref_for_hut = herder
 				var hut_q: Array = []
@@ -228,14 +249,15 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 					var hname: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
 					pi.herd_delivery_cooldown(hname, cooldown)
 			_clear_herd()
-		# NPC herder: immediately start timed Living Hut build (icon + progress); no resource cost (main._place_herder_hut).
+		# Herder who delivered the woman starts timed Living Hut build (herder = builder = designated father).
 		if herder_ref_for_hut and is_instance_valid(herder_ref_for_hut) and not skip_herd_release and npc_type == "woman":
 			var hut_q_chk: Array = herder_ref_for_hut.get_meta("build_hut_queue", []) if herder_ref_for_hut.has_meta("build_hut_queue") else []
 			if hut_q_chk.size() > 0:
-				var hc_after: int = herder_ref_for_hut.herded_count if "herded_count" in herder_ref_for_hut else 0
 				var hfsm = herder_ref_for_hut.get("fsm")
-				if hc_after == 0 and hfsm and hfsm.has_method("change_state"):
+				if hfsm and hfsm.has_method("change_state"):
 					hfsm.change_state("build_hut_for_woman")
+				elif hfsm and hfsm.has_method("force_evaluation"):
+					hfsm.force_evaluation()
 		if fsm and not skip_herd_release and fsm.has_method("change_state"):
 			if "evaluation_timer" in fsm:
 				fsm.evaluation_timer = 0.0
@@ -401,12 +423,13 @@ func _start_herd(new_herder: Node2D) -> void:
 					if herder_fsm and herder_fsm.has_method("change_state"):
 						herder_fsm.change_state("herd_wildnpc")
 
-func _clear_herd() -> void:
+func _clear_herd(reason: String = "") -> void:
 	"""Stop being herded. HerdableComponent or manual for clansmen ordered follow."""
 	# Must bail before detach/print: herd_state (and others) may call every frame after break
 	# while FSM is still "herd"; HerdableComponent.detach() no-ops but we must not spam roam init + log.
 	if not is_herded:
 		return
+	var was_ordered: bool = follow_is_ordered
 	var hc = get_herdable()
 	if hc:
 		hc.detach()
@@ -429,6 +452,10 @@ func _clear_herd() -> void:
 		_init_chunk_roaming()
 	if is_migratory() and is_herdable_type:
 		resume_migration()
+	if was_ordered:
+		var phi := get_node_or_null("/root/PartyHuntInstrument")
+		if phi and phi.has_method("on_follow_cleared"):
+			phi.on_follow_cleared(self, reason if reason != "" else "clear_herd")
 	print("🏠 %s: Herd cleared (no longer following)" % npc_name)
 
 
@@ -553,6 +580,37 @@ func reset_agro_after_combat() -> void:
 	set("agro_meter", v)
 	agro_meter = v
 
+
+func equip_work_weapon_spear() -> void:
+	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	if hotbar:
+		hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
+	var weapon_comp: Node = get_node_or_null("WeaponComponent")
+	if weapon_comp and weapon_comp.has_method("equip_weapon"):
+		weapon_comp.equip_weapon(ResourceData.ResourceType.SPEAR)
+
+
+func equip_work_weapon_club() -> void:
+	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	if hotbar:
+		hotbar.set_slot(0, {"type": ResourceData.ResourceType.WOOD, "count": 1, "quality": 0})
+	var weapon_comp: Node = get_node_or_null("WeaponComponent")
+	if weapon_comp and weapon_comp.has_method("equip_weapon"):
+		weapon_comp.equip_weapon(ResourceData.ResourceType.WOOD)
+
+
+func assign_combat_target_node(target: Node2D) -> void:
+	if not target or not is_instance_valid(target):
+		_invalidate_combat_target()
+		return
+	var tid: int = EntityRegistry.get_id(target) if EntityRegistry else -1
+	set("combat_target_id", tid)
+	set("combat_target", target)
+	combat_target_id = tid
+	combat_target = target
+
 ## Skip proximity/AOA/intrusion pumps while already fighting or fleeing — decay handles exit.
 func _skip_agro_meter_pumps() -> bool:
 	if not fsm or not fsm.has_method("get_current_state_name"):
@@ -576,7 +634,9 @@ func _invalidate_combat_target() -> void:
 
 # Single source of truth for "work (tasks/jobs) should be aborted" - defending, combat, or ordered follow
 func should_abort_work() -> bool:
-	# Hunters use TaskRunner butcher jobs while still under ordered-follow; must not abort.
+	# Hunt corpse job site workers must finish butcher → deposit trip even if formerly ordered.
+	if has_meta(CorpseJobs.WORKER_META):
+		return false
 	if has_meta("hunt_butchering") and get_meta("hunt_butchering") == true:
 		return false
 	if defend_target != null and is_instance_valid(defend_target):
@@ -816,8 +876,11 @@ func _ready() -> void:
 	# Initialize inventory based on NPC type
 	_initialize_inventory()
 
+	if uses_placeholder_cards():
+		call_deferred("_apply_placeholder_card_deferred")
+
 	# Women use womanwalk.png (frame 0 = idle); set once ready
-	if npc_type == "woman" and sprite:
+	if npc_type == "woman" and sprite and not uses_placeholder_cards():
 		call_deferred("_apply_woman_idle_once")
 	# Goats use goatwalk.png (frame 0 = idle); set once ready
 	if npc_type == "goat" and sprite:
@@ -832,7 +895,7 @@ func _ready() -> void:
 			if has_method("apply_sprite_offset_for_texture"):
 				apply_sprite_offset_for_texture()
 	# Cavemen/clansmen use directional SpriteForge sheets; apply once ready
-	if (npc_type == "caveman" or npc_type == "clansman") and sprite:
+	if (npc_type == "caveman" or npc_type == "clansman") and sprite and not uses_placeholder_cards():
 		call_deferred("_apply_caveman_idle_once")
 
 func _exit_tree() -> void:
@@ -853,6 +916,9 @@ func _exit_tree() -> void:
 func _deer_update_fright_meter_try_flee(delta: float) -> void:
 	if npc_type != "deer" or delta <= 0.0:
 		return
+	if has_meta("party_hunt_debug_graze") and bool(get_meta("party_hunt_debug_graze")):
+		deer_fright_meter = 0.0
+		return
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		return
 	if not fsm:
@@ -868,6 +934,9 @@ func _deer_update_fright_meter_try_flee(delta: float) -> void:
 		decay = maxf(float(NPCConfig.deer_fright_decay_per_sec), 0.0)
 		flee_at = clampf(float(NPCConfig.deer_fright_flee_at), 0.5, max_m * 0.99)
 		r = maxf(float(NPCConfig.deer_perception_visual), 32.0)
+	if is_active_hunt_prey():
+		fill *= 0.25
+		flee_at = minf(max_m * 0.95, flee_at * 1.45)
 	var pa := get_node_or_null("DetectionArea") as PerceptionArea
 	if pa != null:
 		r = pa.detection_range
@@ -1208,7 +1277,7 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	
-	# Crafting (e.g. knapping), hut build timer in claim, or gathering: NPC must stay in place until finished
+	# Crafting (e.g. knapping), hut build timer in claim, or gathering: NPC must stay in place until finished (agro/combat may interrupt hut build)
 	var crafting: bool = get("is_crafting") == true
 	if not crafting and task_runner and task_runner.has_method("is_current_task_knap") and task_runner.is_current_task_knap():
 		crafting = true  # Knap task active (in case is_crafting not set yet this frame)
@@ -1403,7 +1472,10 @@ func _physics_process(delta: float) -> void:
 	SoundDetection.maybe_emit_footstep(self)
 	
 	if sprite:
-		YSortUtils.update_object_y_sort(sprite, self)
+		if uses_placeholder_cards() and YSortUtils:
+			YSortUtils.update_card_draw_order(sprite, self, _card_foot_y)
+		else:
+			YSortUtils.update_object_y_sort(sprite, self)
 	
 	# Flip sprite based on movement direction (only if not in idle state)
 	# Use hysteresis and target-based flipping in combat to prevent rapid flipping
@@ -1453,7 +1525,10 @@ func _physics_process(delta: float) -> void:
 	if moving:
 		_last_facing = velocity.normalized()
 	var should_walk := (is_caveman_clansman or is_woman or is_goat) and moving and combat_idle and not is_dead()
-	if should_walk:
+	if uses_placeholder_cards():
+		if PlaceholderCardService:
+			PlaceholderCardService.tick_card_bounce(self, delta, moving)
+	elif should_walk:
 		is_walking_animation = true
 		if is_woman:
 			var dir_sheet := WalkAnimation.get_directional_woman_sheet()
@@ -1561,9 +1636,13 @@ func _physics_process(delta: float) -> void:
 				elif weapon_comp and weapon_comp.has_method("force_apply_idle"):
 					weapon_comp.force_apply_idle()
 		_walk_timer = 0.0
+	if uses_placeholder_cards() and PlaceholderCardService:
+		PlaceholderCardService.sync_weapon_overlay_flip(self)
 
 func _apply_woman_idle_once() -> void:
 	"""Apply woman idle (womanwalk frame 0) once after _ready. Used for women."""
+	if uses_placeholder_cards():
+		return
 	if npc_type != "woman" or not sprite:
 		return
 	WalkAnimation.apply_woman_idle(sprite)
@@ -1578,6 +1657,8 @@ func _apply_goat_idle_once() -> void:
 
 func _apply_caveman_idle_once() -> void:
 	"""Apply directional idle once after _ready. Used for cavemen/clansmen."""
+	if uses_placeholder_cards():
+		return
 	if npc_type != "caveman" and npc_type != "clansman" or not sprite:
 		return
 	var show_club: bool = false
@@ -1602,6 +1683,10 @@ func _apply_caveman_idle_once() -> void:
 
 func apply_sprite_offset_for_texture() -> void:
 	if not sprite or not sprite.texture:
+		return
+	if uses_placeholder_cards():
+		if PlaceholderCardService:
+			PlaceholderCardService.apply_card_layout_only(self)
 		return
 	sprite.position = Vector2.ZERO
 	# If texture is from walk/club sheet (AtlasTexture), scale already set to 0.46 by apply_*_idle — don't overwrite.
@@ -1917,7 +2002,7 @@ func _create_progress_display() -> void:
 	# Create a progress display node for eating/harvesting
 	progress_display = Node2D.new()
 	progress_display.name = "ProgressDisplay"
-	progress_display.position = Vector2(0, -50)  # Above NPC head
+	progress_display.position = Vector2(0, -88)  # Synced to card height via PlaceholderCardService
 	progress_display.visible = false
 	progress_display.z_as_relative = false
 	progress_display.z_index = YSortUtils.Z_ABOVE_WORLD  # Above Y-sorted sprite
@@ -2110,6 +2195,32 @@ func is_wild() -> bool:
 
 func is_migratory() -> bool:
 	return wild_profile_applied and NPCConfig != null and wild_movement == NPCConfig.WildMovement.MIGRATORY
+
+
+## True when this prey is the active ClanBrain hunt target (reduced flee during coordinated hunts).
+func is_active_hunt_prey() -> bool:
+	if has_meta("active_hunt_prey"):
+		var tag: Variant = get_meta("active_hunt_prey")
+		if tag != null and str(tag) != "":
+			return true
+	var tree := get_tree()
+	if tree == null:
+		return false
+	for claim_node in tree.get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim_node):
+			continue
+		var hi: Variant = claim_node.get_meta("hunt_intent") if claim_node.has_meta("hunt_intent") else null
+		if hi is Dictionary:
+			var tgt = (hi as Dictionary).get("target")
+			if tgt == self:
+				return true
+	for node in tree.get_nodes_in_group("npcs"):
+		if not is_instance_valid(node) or node == self:
+			continue
+		var tgt_v: Variant = node.get("combat_target")
+		if tgt_v == self:
+			return true
+	return false
 
 
 func is_territorial_movement() -> bool:
@@ -3077,6 +3188,11 @@ func _check_and_deposit_items() -> void:
 	# Frequent checks when near-full (4+) or herding 2+ with any items (threshold 1)
 	if inv_used_slots >= inventory_full_threshold:
 		check_interval = 0.1
+	elif _inventory_has_depositable_food():
+		var claim_food_total: int = _claim_food_total()
+		var needs_bootstrap: bool = BalanceConfig != null and claim_food_total < maxi(1, int(BalanceConfig.claim_food_bootstrap_min_items))
+		if needs_bootstrap or _claim_food_days_buffer() < _claim_food_buffer_critical_days():
+			check_interval = 0.15
 	
 	if current_time - last_check < check_interval:
 		return
@@ -3099,20 +3215,14 @@ func _check_and_deposit_items() -> void:
 	if not claim_inventory:
 		return
 	
-	# CRITICAL: Check if land claim inventory has space before attempting deposit
-	# This prevents NPCs from getting stuck trying to deposit when claim is full
-	if not claim_inventory.has_space():
-		var used_slots = claim_inventory.get_used_slots()
-		var total_slots = claim_inventory.slot_count
-		# Only log once every 5 seconds to prevent spam
-		var last_full_warning: float = get_meta("last_full_claim_warning", 0.0)
-		if current_time - last_full_warning >= 5.0:
-			print("⚠️ AUTO-DEPOSIT: %s cannot deposit - land claim '%s' inventory is FULL (%d/%d slots used)" % [npc_name, my_clan, used_slots, total_slots])
-			set_meta("last_full_claim_warning", current_time)
-		return  # Land claim inventory is full, skip deposit attempt
-	
-	# SIMPLIFIED: Group ALL items by type (keep 1 food TOTAL for personal use, not per type)
-	const FOOD_TO_KEEP: int = 1
+	# Group ALL items by type (keep personal food only when claim buffer is healthy)
+	var claim_buffer: float = _claim_food_days_buffer()
+	var claim_food_total: int = _claim_food_total()
+	var food_to_keep: int = 1
+	if BalanceConfig and BalanceConfig.has_method("get_deposit_food_keep_count"):
+		food_to_keep = BalanceConfig.get_deposit_food_keep_count(claim_buffer, claim_food_total)
+	elif NPCConfig:
+		food_to_keep = NPCConfig.food_items_to_keep_in_inventory
 	var items_to_deposit: Dictionary = {}  # Type -> Amount
 	var total_items_before: int = 0
 	var _total_food_items: int = 0  # Track total food items across all slots (for future use)
@@ -3147,9 +3257,9 @@ func _check_and_deposit_items() -> void:
 		# For food: keep only 1 food item TOTAL across all food types
 		if is_food:
 			var food_to_deposit_from_slot: int = item_count
-			if food_kept < FOOD_TO_KEEP:
+			if food_kept < food_to_keep:
 				# Keep some food from this slot
-				var food_to_keep_from_slot: int = min(FOOD_TO_KEEP - food_kept, item_count)
+				var food_to_keep_from_slot: int = mini(food_to_keep - food_kept, item_count)
 				food_kept += food_to_keep_from_slot
 				food_to_deposit_from_slot = item_count - food_to_keep_from_slot
 			amount_to_deposit = food_to_deposit_from_slot
@@ -3158,9 +3268,35 @@ func _check_and_deposit_items() -> void:
 		if amount_to_deposit > 0:
 			items_to_deposit[item_type] = items_to_deposit.get(item_type, 0) + amount_to_deposit
 	
-	# Second pass: Deposit ALL grouped items (single transaction per type)
+	if items_to_deposit.is_empty():
+		return
+	
+	# CRITICAL: Check if land claim inventory has space before attempting deposit
+	claim_inventory.consolidate_stacks()
+	var blocked_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+	for item_type in items_to_deposit:
+		var amount: int = items_to_deposit[item_type]
+		if amount > 0 and not claim_inventory.can_add_item(item_type, amount):
+			blocked_type = item_type
+			break
+	if blocked_type != ResourceData.ResourceType.NONE:
+		var used_slots = claim_inventory.get_used_slots()
+		var total_slots = claim_inventory.slot_count
+		var last_full_warning: float = get_meta("last_full_claim_warning", 0.0)
+		if current_time - last_full_warning >= 5.0:
+			print("⚠️ AUTO-DEPOSIT: %s cannot deposit - land claim '%s' has no room for %s (%d/%d slots used)" % [
+				npc_name, my_clan, ResourceData.get_resource_name(blocked_type), used_slots, total_slots
+			])
+			set_meta("last_full_claim_warning", current_time)
+		var pi_full = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_full and pi_full.is_enabled() and pi_full.has_method("deposit_failed"):
+			pi_full.deposit_failed(npc_name, my_clan, "claim_full")
+		return
+	
+	# Deposit grouped items (single transaction per type)
 	var total_deposited: int = 0
 	var distance: float = global_position.distance_to(land_claim.global_position)
+	var deposited_by_name: Dictionary = {}
 	
 	for item_type in items_to_deposit:
 		var amount: int = items_to_deposit[item_type]
@@ -3169,22 +3305,28 @@ func _check_and_deposit_items() -> void:
 		
 		# Add to land claim first
 		if not claim_inventory.add_item(item_type, amount):
-			# Land claim inventory became full during deposit (another NPC may have filled it)
 			print("⚠️ AUTO-DEPOSIT: %s failed to add %d %s to land claim '%s' - inventory became full during deposit (used: %d/%d slots)" % [
 				npc_name, amount, ResourceData.get_resource_name(item_type) if item_type != null else "items",
 				my_clan, claim_inventory.get_used_slots(), claim_inventory.slot_count
 			])
-			# Break out of deposit loop - claim is now full, stop trying to deposit more items
+			var pi_add = get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_add and pi_add.is_enabled() and pi_add.has_method("deposit_failed"):
+				pi_add.deposit_failed(npc_name, my_clan, "claim_inventory_full", item_type as int, amount)
 			break
 		
 		# Then remove from NPC inventory (this handles multiple slots automatically)
 		if not inventory.remove_item(item_type, amount):
 			print("⚠️ AUTO-DEPOSIT: %s failed to remove %d %s from inventory" % [npc_name, amount, ResourceData.get_resource_name(item_type) if item_type != null else "items"])
+			var pi_rm = get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_rm and pi_rm.is_enabled() and pi_rm.has_method("deposit_failed"):
+				pi_rm.deposit_failed(npc_name, my_clan, "inventory_remove_failed", item_type as int, amount)
 			# Rollback: remove from land claim if remove failed
 			claim_inventory.remove_item(item_type, amount)
 			continue
 		
 		total_deposited += amount
+		var res_nm: String = ResourceData.get_resource_name(item_type) if item_type != null else str(item_type)
+		deposited_by_name[res_nm] = int(deposited_by_name.get(res_nm, 0)) + amount
 		
 		# Track deposit by resource type in competition tracker
 		var competition_tracker = get_node_or_null("/root/CompetitionTracker")
@@ -3194,10 +3336,12 @@ func _check_and_deposit_items() -> void:
 	# SIMPLIFIED: Log and set cooldown if deposit succeeded
 	if total_deposited > 0:
 		set_meta("last_deposit_time", current_time)
+		var pi_dep = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_dep and pi_dep.is_enabled() and pi_dep.has_method("deposit_completed"):
+			pi_dep.deposit_completed(npc_name, my_clan, deposited_by_name, total_deposited)
 		if herding_two_plus:
-			var pi = get_node_or_null("/root/PlaytestInstrumentor")
-			if pi and pi.has_method("deposit_while_herding"):
-				pi.deposit_while_herding(npc_name, herded_count, total_deposited)
+			if pi_dep and pi_dep.has_method("deposit_while_herding"):
+				pi_dep.deposit_while_herding(npc_name, herded_count, total_deposited)
 		var activity_tracker = get_node_or_null("/root/NPCActivityTracker")
 		if activity_tracker and activity_tracker.has_method("log_deposit"):
 			activity_tracker.log_deposit(str(get_instance_id()), total_deposited)
@@ -3205,11 +3349,11 @@ func _check_and_deposit_items() -> void:
 		if hunt_u > 0:
 			var pi_hunt = get_node_or_null("/root/PlaytestInstrumentor")
 			if pi_hunt and pi_hunt.is_enabled() and pi_hunt.has_method("hunt_deposit"):
-				var deposited_by_name: Dictionary = {}
+				var hunt_items_by_name: Dictionary = {}
 				for itype in items_to_deposit.keys():
 					var nm: String = ResourceData.get_resource_name(itype) if itype != null else str(itype)
-					deposited_by_name[nm] = int(items_to_deposit[itype])
-				pi_hunt.hunt_deposit(npc_name, deposited_by_name, hunt_u)
+					hunt_items_by_name[nm] = int(items_to_deposit[itype])
+				pi_hunt.hunt_deposit(npc_name, hunt_items_by_name, hunt_u)
 			if has_meta("hunt_butcher_units"):
 				remove_meta("hunt_butcher_units")
 			for lk in ["hunt_loot_meat", "hunt_loot_hide", "hunt_loot_bone"]:
@@ -3284,6 +3428,65 @@ func _check_and_deposit_items() -> void:
 		
 		# Otherwise, something might be wrong - log it
 		print("⚠️ AUTO-DEPOSIT: %s has %d items but deposited 0 (remaining: %d slots) - check if deposit failed" % [npc_name, total_items_before, remaining_items])
+		var pi_zero = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_zero and pi_zero.is_enabled() and pi_zero.has_method("deposit_failed"):
+			pi_zero.deposit_failed(npc_name, my_clan, "deposit_zero")
+
+func _claim_food_days_buffer() -> float:
+	var my_clan: String = get_clan_name()
+	if my_clan == "":
+		return 99.0
+	var claim: Node2D = _find_land_claim_for_deposit(my_clan)
+	if claim and claim.has_meta("food_days_buffer"):
+		return float(claim.get_meta("food_days_buffer"))
+	return 99.0
+
+
+func _claim_food_total() -> int:
+	var my_clan: String = get_clan_name()
+	if my_clan == "":
+		return 0
+	var claim: Node2D = _find_land_claim_for_deposit(my_clan)
+	if not claim:
+		# Fall back to any claim in clan (may be outside deposit range while herding).
+		for c in get_tree().get_nodes_in_group("land_claims"):
+			if not is_instance_valid(c):
+				continue
+			var cc: String = c.get("clan_name") as String if c.get("clan_name") != null else ""
+			if cc == my_clan:
+				claim = c
+				break
+	if not claim:
+		return 0
+	var inv = claim.get("inventory")
+	if not inv or not inv.has_method("get_count"):
+		return 0
+	return (
+		inv.get_count(ResourceData.ResourceType.BERRIES)
+		+ inv.get_count(ResourceData.ResourceType.GRAIN)
+		+ inv.get_count(ResourceData.ResourceType.BREAD)
+		+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
+		+ inv.get_count(ResourceData.ResourceType.BUGS)
+		+ inv.get_count(ResourceData.ResourceType.NUTS)
+		+ inv.get_count(ResourceData.ResourceType.MEAT)
+		+ inv.get_count(ResourceData.ResourceType.MILK)
+	)
+
+
+func _claim_food_buffer_critical_days() -> float:
+	if BalanceConfig:
+		return maxf(float(BalanceConfig.clan_food_buffer_critical_days), 0.1)
+	return 0.5
+
+
+func _inventory_has_depositable_food() -> bool:
+	if not inventory:
+		return false
+	for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+		if inventory.get_count(food_type) > 0:
+			return true
+	return false
+
 
 # Helper to find land claim for deposit (NPCs must be within deposit_range of center)
 @warning_ignore("shadowed_variable")

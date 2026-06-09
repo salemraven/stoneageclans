@@ -1,6 +1,7 @@
 extends Node2D
 
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
+const PlayerMovementDebugOverlayScript = preload("res://scripts/debug/player_movement_debug_overlay.gd")
 
 # Phase 3: Land claims cache signals
 signal land_claims_changed  # Emitted when land claims are added or removed
@@ -63,6 +64,8 @@ var character_menu_ui: CharacterMenuUI = null  # Character menu (NPC info panel)
 var dropdown_menu_ui: Node = null  # DropdownMenuUI; context menu (right-click); Step 1 integration_plan
 var drag_manager: Node = null  # Changed from DragManager to Node to avoid parse error
 var npc_debug_ui: NPCDebugUI = null
+var player_movement_debug_overlay: PlayerMovementDebugOverlayScript = null
+var godmode_clan_jumper: Control = null
 var npcs_container: Node2D = null  # Empty; NPCs add to world_objects for YSort
 var decorations_container: Node2D = null  # Empty; grass adds to world_objects for YSort
 var clicked_npc: Node = null  # NPC currently being clicked
@@ -142,6 +145,10 @@ var _playtest_2min_start_time: float = -1.0
 
 ## `--npc-only-world`: hub at origin — AI clans + wildlife; player hidden, collisions off (headless ClanBrain proof).
 var _npc_only_world: bool = false
+## NPC-only observer: WASD/arrows pan camera instead of locking to hidden player at origin.
+var _observer_cam_active: bool = false
+var _observer_cam_pos: Vector2 = Vector2.ZERO
+const OBSERVER_CAM_SPEED: float = 720.0
 
 # Session capture: --session-quit-after N (DebugConfig.session_quit_after_seconds)
 var _session_quit_start_time: float = -1.0
@@ -157,6 +164,7 @@ const NPC_SCENE = preload("res://scenes/NPC.tscn")
 const BUILDING_SCENE = preload("res://scenes/Building.tscn")
 const DROPDOWN_MENU_UI_SCRIPT = preload("res://scripts/ui/dropdown_menu_ui.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
+const GodmodeClanJumperUIScript = preload("res://scripts/ui/godmode_clan_jumper_ui.gd")
 ## F5 / --rts-playtest-spawn: isolated player claim + 5 clansmen (matches horn / stance / DEFEND tests)
 const RTS_PLAYTEST_CLAN_NAME := "RTS PLAYTEST"
 ## --repro-harness: headless player claim + woman + Living Hut; exits 0 after 2 births (validates Player father fix).
@@ -218,18 +226,6 @@ func _apply_playtest_world_seed_from_cli() -> void:
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
 	if wgc:
 		wgc.world_seed = seed_val
-
-
-## See `DebugConfig.npc_only_world_hunt_stress`: only for NPC-only + timed playtests.
-func _apply_npc_only_playtest_hunt_stress() -> void:
-	if not _npc_only_world:
-		return
-	var ua := OS.get_cmdline_user_args()
-	if "--playtest-2min" not in ua and "--playtest-4min" not in ua:
-		return
-	var dc: Node = get_node_or_null("/root/DebugConfig")
-	if dc:
-		dc.npc_only_world_hunt_stress = true
 
 
 func _new_land_claim_inventory() -> InventoryData:
@@ -339,6 +335,8 @@ func _spawn_replacement_caveman() -> void:
 	land_claim.player_owned = false
 	if not land_claim.inventory:
 		land_claim.inventory = _new_land_claim_inventory()
+	if BalanceConfig:
+		BalanceConfig.seed_ai_claim_starting_food(land_claim.inventory)
 	world_objects.add_child(land_claim)
 	_despawn_tallgrass_near(claim_pos, land_claim.radius)
 	_despawn_decorative_trees_near(claim_pos, land_claim.radius)
@@ -372,15 +370,7 @@ func _spawn_replacement_caveman() -> void:
 	
 	await get_tree().process_frame
 	
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_player_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
+	_apply_placeholder_card_to_npc(npc)
 	
 	var npc_inventory = npc.get("inventory")
 	if npc_inventory:
@@ -407,6 +397,8 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	land_claim.player_owned = false
 	if not land_claim.inventory:
 		land_claim.inventory = create_land_claim_inventory_for_spawn()
+	if BalanceConfig:
+		BalanceConfig.seed_ai_claim_starting_food(land_claim.inventory)
 	parent.add_child(land_claim)
 	_despawn_tallgrass_near(claim_pos, land_claim.radius)
 	_despawn_decorative_trees_near(claim_pos, land_claim.radius)
@@ -442,18 +434,15 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	npc.visible = true
 
 
+func _apply_placeholder_card_to_npc(npc: Node) -> void:
+	if PlaceholderCardService:
+		PlaceholderCardService.apply_to_npc(npc)
+
+
 func _deferred_finish_caveman_visual(npc: Node) -> void:
 	if not is_instance_valid(npc):
 		return
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_player_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
+	_apply_placeholder_card_to_npc(npc)
 
 
 func count_ai_clans_with_claims_near(world_pos: Vector2, radius_px: float) -> int:
@@ -651,7 +640,6 @@ func _ready() -> void:
 	# Log startup
 	_npc_only_world = _cmdline_npc_only_world()
 	_apply_playtest_world_seed_from_cli()
-	_apply_npc_only_playtest_hunt_stress()
 	UnifiedLogger.log_system("Main._ready() called")
 	
 	add_to_group("main")
@@ -697,6 +685,11 @@ func _ready() -> void:
 	_spawn_ground_items()
 	_give_starting_items()
 	_setup_debug_ui()
+	if _cmdline_has("--player-move-debug") and player_movement_debug_overlay and not player_movement_debug_overlay.is_debug_visible():
+		player_movement_debug_overlay.toggle()
+	if _cmdline_has("--movement-stress-test"):
+		call_deferred("_run_movement_stress_test")
+	_setup_godmode_ui()
 	_setup_baby_pool_manager()
 	_setup_combat_hud()  # Step 9: Hostile toggle, Break Follow (left of hotbar)
 	
@@ -1047,8 +1040,12 @@ func _process(delta: float) -> void:
 					fsm.change_state("wander")
 				if sa.max_speed <= 0.0:
 					sa.max_speed = ag_base
-	camera.global_position = player.global_position
-	world.ensure_chunks_for_position(player.global_position, delta)
+	if _observer_cam_active:
+		_process_observer_camera(delta)
+	else:
+		camera.global_position = player.global_position
+		world.ensure_chunks_for_position(player.global_position, delta)
+	_process_weapon_ready_input()
 	_check_nearby_buildings()
 	_check_nearby_corpses()
 	_check_nearby_travois_ground()
@@ -1056,7 +1053,7 @@ func _process(delta: float) -> void:
 	# Corpse butcher: gather meat with blade in left hand (takes priority over resource gather)
 	if butchering_corpse:
 		_process_butcher(delta)
-	elif Input.is_action_just_pressed("gather") and nearby_corpse and is_butcher_tool_equipped():
+	elif Input.is_action_just_pressed("gather") and nearby_corpse and is_butcher_tool_equipped() and not Input.is_action_pressed("weapon_ready"):
 		var meat_left: int = nearby_corpse.get_meta("meat_remaining", 0) as int
 		var hide_left: int = nearby_corpse.get_meta("hide_remaining", 0) as int
 		var bone_left: int = nearby_corpse.get_meta("bone_remaining", 0) as int
@@ -1068,7 +1065,8 @@ func _process(delta: float) -> void:
 			player.set("is_gathering", true)
 			active_collection_resource = null  # Prevent gatherable from also consuming gather
 	elif Input.is_action_just_pressed("gather"):
-		call_deferred("_deferred_try_ambient_grass_forage")
+		if not Input.is_action_pressed("weapon_ready"):
+			call_deferred("_deferred_try_ambient_grass_forage")
 	_spawn_ground_items_around_player()  # Continuously spawn ground items as player moves
 	# Step 10: NPC drag hold timer + preview follow
 	if npc_drag_source and not npc_dragging:
@@ -1155,6 +1153,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.keycode == KEY_F1 and event.pressed:
 		if npc_debug_ui:
 			npc_debug_ui.toggle()
+		get_viewport().set_input_as_handled()
+
+	# F8: player movement debug overlay (input vs velocity vs drift)
+	if event is InputEventKey and event.keycode == KEY_F8 and event.pressed:
+		if player_movement_debug_overlay:
+			player_movement_debug_overlay.toggle()
 		get_viewport().set_input_as_handled()
 
 	# F2: test context menu. Same resolution + options as right-click (Step 2/4).
@@ -1261,6 +1265,21 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				# Weapon strike: Shift held + LMB press commits attack
+				if not (drag_manager and drag_manager.is_dragging):
+					var mp_strike := get_viewport().get_mouse_position()
+					if not _is_mouse_over_ui(mp_strike) and player and _player_has_weapon_equipped():
+						var combat_strike: CombatComponent = player.get_node_or_null("CombatComponent") as CombatComponent
+						if combat_strike and combat_strike.state == CombatComponent.CombatState.READY:
+							var aim: Vector2 = Vector2(1, 0)
+							if player.has_method("_get_cursor_aim_direction"):
+								aim = player._get_cursor_aim_direction()
+							elif player.get("aim_dir") != null:
+								aim = player.aim_dir as Vector2
+							player.aim_dir = aim
+							combat_strike.commit_strike(aim)
+							get_viewport().set_input_as_handled()
+							return
 				# Step 10: left-click hold on clansman → NPC drag; else → selection box
 				# Phase 4: When occupation drag allowed, only start npc_drag_source (never selection box)
 				if not (drag_manager and drag_manager.is_dragging):
@@ -1303,29 +1322,6 @@ func _input(event: InputEvent) -> void:
 				if npc_drag_source:
 					npc_drag_source = null
 					npc_drag_hold_timer = 0.0
-				# Left-click release: attack NPC or enemy building if weapon in slot 1 (axe, pick, club)
-				if not (drag_manager and drag_manager.is_dragging):
-					var mp := get_viewport().get_mouse_position()
-					if not _is_mouse_over_ui(mp) and player_inventory_ui:
-						var first_slot = player_inventory_ui.hotbar_slots[player_inventory_ui.RIGHT_HAND_SLOT_INDEX] if player_inventory_ui.hotbar_slots.size() > player_inventory_ui.RIGHT_HAND_SLOT_INDEX else null
-						var has_weapon := false
-						if first_slot:
-							var slot_item = first_slot.get_item()
-							if not slot_item.is_empty():
-								var it = slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-								if it == ResourceData.ResourceType.AXE or it == ResourceData.ResourceType.PICK or it == ResourceData.ResourceType.WOOD or it == ResourceData.ResourceType.SPEAR:
-									has_weapon = true
-						if has_weapon:
-							var npc := _get_npc_under_cursor()
-							if npc and is_instance_valid(npc):
-								_player_attack_target(npc)
-								get_viewport().set_input_as_handled()
-								return
-							var building := _get_enemy_building_under_cursor()
-							if building and is_instance_valid(building):
-								_player_attack_target(building)
-								get_viewport().set_input_as_handled()
-								return
 				# Mouse button released - hide NPC and building inventories
 				# Unfreeze NPC first (if it was frozen)
 				if clicked_npc and is_instance_valid(clicked_npc):
@@ -1522,6 +1518,7 @@ func _configure_input() -> void:
 	# B key build menu removed - building icons now integrated into land claim inventory
 	_define_action("gather", [KEY_SPACE])
 	_define_action("war_horn", [KEY_H])
+	_define_action("weapon_ready", [KEY_SHIFT])
 
 func _define_action(action_name: StringName, keys: Array) -> void:
 	if not InputMap.has_action(action_name):
@@ -1750,7 +1747,12 @@ func _get_ambient_grass_forage_progress() -> Node2D:
 		return _ambient_grass_forage_progress
 	var n := Node2D.new()
 	n.set_script(CollectionProgressScript)
-	n.position = Vector2(0, -48)
+	var prog_y: float = -88.0
+	if player:
+		var spr: Sprite2D = player.get_node_or_null("Sprite") as Sprite2D
+		if PlaceholderCardService and spr and spr.texture:
+			prog_y = PlaceholderCardService.registry.get_progress_display_y(spr.texture)
+	n.position = Vector2(0, prog_y)
 	n.z_as_relative = false
 	if YSortUtils:
 		n.z_index = YSortUtils.Z_ABOVE_WORLD
@@ -2517,6 +2519,26 @@ func _update_player_formation_speed(follower_ids: Dictionary = {}) -> void:
 			follower_nodes_speed.append(nn)
 	player.set_meta("formation_speed_mult", FormationUtils.min_speed_mult_for_follower_nodes(follower_nodes_speed))
 
+func _process_weapon_ready_input() -> void:
+	if not player or not is_instance_valid(player):
+		return
+	if _is_any_inventory_open():
+		return
+	var combat_comp: CombatComponent = player.get_node_or_null("CombatComponent") as CombatComponent
+	if combat_comp == null:
+		return
+	var can_ready: bool = _player_has_weapon_equipped()
+	if Input.is_action_just_pressed("weapon_ready") and can_ready:
+		if combat_comp.state == CombatComponent.CombatState.IDLE:
+			var aim: Vector2 = player.aim_dir if player.has_method("_get_cursor_aim_direction") else Vector2(1, 0)
+			if player.has_method("_get_cursor_aim_direction"):
+				aim = player._get_cursor_aim_direction()
+			combat_comp.enter_ready(aim)
+	elif Input.is_action_just_released("weapon_ready"):
+		if combat_comp.state == CombatComponent.CombatState.READY:
+			combat_comp.cancel_ready()
+
+
 func _player_has_weapon_equipped() -> bool:
 	"""Step 4: Hostile = leader weapon equipped (right hand slot)."""
 	if not player_inventory_ui or player_inventory_ui.hotbar_slots.size() <= player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
@@ -2580,7 +2602,10 @@ func _npc_drag_show_preview() -> void:
 	if _is_building_occupation_drag_allowed():
 		var t: String = npc_drag_source.get("npc_type") as String if npc_drag_source.get("npc_type") != null else ""
 		if t == "woman":
-			tex = AssetRegistry.get_woman_sprite()
+			if PlaceholderCardService:
+				tex = PlaceholderCardService.registry.get_woman_card()
+			if not tex:
+				tex = AssetRegistry.get_woman_sprite()
 		elif t == "sheep":
 			tex = AssetRegistry.get_sheep_sprite()
 		elif t == "goat":
@@ -3114,6 +3139,9 @@ func _on_dropdown_option_selected(id: String) -> void:
 	if id == "hunt" and target != null and is_instance_valid(target):
 		_player_attack_target(target)
 		return
+	if id == "attack" and target != null and is_instance_valid(target):
+		_player_attack_target(target)
+		return
 	if id == "work" and target != null and is_instance_valid(target):
 		_clear_role_assignment(target)
 		return
@@ -3491,13 +3519,7 @@ func _debug_spawn_test_npcs() -> void:
 		caveman.set("agro_meter", 0.0)
 		caveman.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		caveman.set("spawn_position", p0)
-		var sp: Sprite2D = caveman.get_node_or_null("Sprite")
-		if sp:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sp.texture = tex
-				sp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sp.visible = true
+		_apply_placeholder_card_to_npc(caveman)
 		world_objects.add_child(caveman)
 		caveman.global_position = p0
 		var inv = caveman.get("inventory")
@@ -3522,15 +3544,7 @@ func _debug_spawn_test_npcs() -> void:
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
 		npc.set("age", randi_range(13, 50))
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_woman_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = pos
 		npc.set("spawn_position", pos)
@@ -3613,15 +3627,7 @@ func _reproduction_harness_run() -> void:
 	woman.set("npc_type", "woman")
 	woman.set("traits", ["herd"])
 	woman.set("age", 25)
-	var sp_w: Sprite2D = woman.get_node_or_null("Sprite")
-	if sp_w:
-		var tex_w: Texture2D = AssetRegistry.get_woman_sprite()
-		if tex_w:
-			sp_w.texture = tex_w
-			sp_w.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sp_w.visible = true
-			if woman.has_method("apply_sprite_offset_for_texture"):
-				woman.apply_sprite_offset_for_texture()
+	_apply_placeholder_card_to_npc(woman)
 	world_objects.add_child(woman)
 	woman.global_position = woman_pos
 	woman.set("spawn_position", woman_pos)
@@ -3704,15 +3710,7 @@ func _spawn_rts_playtest_pack() -> void:
 			npc.set_clan_name(RTS_PLAYTEST_CLAN_NAME, "main._spawn_rts_playtest_pack")
 		else:
 			npc.set("clan_name", RTS_PLAYTEST_CLAN_NAME)
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = spawn_pos
 		npc.set("spawn_position", spawn_pos)
@@ -4221,6 +4219,8 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 			npc_clan = str(cn) if cn != null else ""
 		if player_clan == "" or npc_clan != player_clan:
 			opts.append({ "id": "info", "label": "INFO" })
+			if _player_has_weapon_equipped() and NPCConfig and NPCConfig.is_ai_hunt_prey_type(t):
+				opts.append({ "id": "attack", "label": "ATTACK" })
 			return opts
 		# Same clan: women get Info only (no Follow); others get Follow + type-specific
 		if t != "woman":
@@ -4240,10 +4240,16 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 		opts = [
 			{ "id": "info", "label": "INFO" },
 		]
-		# Defend: call all clansmen back inside this land claim (for invaders)
 		var claim := target as LandClaim
 		if claim and claim.player_owned:
 			opts.append({ "id": "call_defend", "label": "DEFEND" })
+		elif _player_has_weapon_equipped() and target is Node and (target as Node).has_method("take_damage"):
+			var bcl: String = str(target.get("clan_name")) if target.get("clan_name") != null else ""
+			var pcl: String = _get_player_clan_name()
+			var enemy_owned: bool = target.get("player_owned") != true
+			var different_clan: bool = bcl == "" or pcl == "" or bcl != pcl
+			if enemy_owned and different_clan:
+				opts.append({ "id": "attack", "label": "ATTACK" })
 	elif target_type == "campfire":
 		opts = [{ "id": "info", "label": "INFO" }]
 		var cf_def := target as CampfireScript
@@ -4599,7 +4605,13 @@ func _apply_campfire_replaced_by_land_claim(campfire_ref: CampfireScript, new_la
 	new_land_claim.global_position = world_pos
 	new_land_claim.set_clan_name(clan_name)
 	new_land_claim.player_owned = true
-	new_land_claim.inventory = campfire_ref.inventory
+	var claim_inv: InventoryData = campfire_ref.inventory
+	if claim_inv and BalanceConfig:
+		claim_inv.upgrade_storage(
+			BalanceConfig.land_claim_inventory_slots,
+			BalanceConfig.land_claim_inventory_max_stack
+		)
+	new_land_claim.inventory = claim_inv
 	for npc in get_tree().get_nodes_in_group("npcs"):
 		if not is_instance_valid(npc):
 			continue
@@ -4820,11 +4832,11 @@ func _place_ai_building(land_claim: LandClaim, building_type: ResourceData.Resou
 		pi.milestone_building_placed(land_claim.clan_name, building_type, place_pos)
 	return true
 
-func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign_woman_to_hut: bool = true) -> void:
+func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign_woman_to_hut: bool = true) -> bool:
 	"""Place Living Hut for herder-delivered woman. No cost. Random valid spot inside claim.
 	If assign_woman_to_hut, OccupationSystem assigns woman to the hut (normal in-hut behavior; sprite hidden while occupied)."""
 	if not claim or not is_instance_valid(claim) or not world_objects:
-		return
+		return false
 	# Validate woman: alive and not already in hut
 	if woman and is_instance_valid(woman) and OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 		woman = null  # Already assigned
@@ -4845,10 +4857,10 @@ func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign
 			break
 	if place_pos == Vector2.ZERO:
 		print("⚠️ Herder could not find valid position for Living Hut")
-		return
+		return false
 	var building: BuildingBase = BUILDING_SCENE.instantiate() as BuildingBase
 	if not building:
-		return
+		return false
 	building.building_type = ResourceData.ResourceType.LIVING_HUT
 	building.clan_name = claim.get("clan_name") if claim.get("clan_name") != null else ""
 	building.player_owned = claim.get("player_owned") if claim.get("player_owned") != null else false
@@ -4865,6 +4877,12 @@ func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign
 		if rc and rc.has_method("set_designated_father_from_herder"):
 			rc.set_designated_father_from_herder(father_npc)
 	print("🏠 Herder placed Living Hut at %s for clan %s" % [place_pos, claim.get("clan_name") if claim.get("clan_name") != null else ""])
+	var pi_hut = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_hut and pi_hut.is_enabled() and pi_hut.has_method("building_placed"):
+		var builder_name: String = str(father_npc.get("npc_name")) if father_npc and is_instance_valid(father_npc) else ""
+		var hut_clan: String = str(claim.get("clan_name")) if claim.get("clan_name") != null else ""
+		pi_hut.building_placed(hut_clan, ResourceData.ResourceType.LIVING_HUT as int, "herder_hut", place_pos, builder_name)
+	return true
 
 func _handle_building_placement_failure(message: String, from_slot: InventorySlot, original_item: Dictionary) -> void:
 	_dbg("🔴 _handle_building_placement_failure: message=%s, from_slot=%s, original_item=%s" % [message, from_slot, original_item])
@@ -5578,15 +5596,7 @@ func _setup_session_quickstart_environment() -> void:
 		npc.set("traits", ["herd"])
 		npc.set("age", 25)
 		npc.set("clan_name", clan_canon)
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_woman_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = woman_pos
 		npc.set("spawn_position", woman_pos)
@@ -5722,15 +5732,7 @@ func _setup_task_system_test_environment() -> void:
 		npc.set("traits", ["herd"])
 		npc.set("age", randi_range(13, 50))
 		npc.set("clan_name", test_clan_name)
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_woman_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = woman_pos
 		npc.set("spawn_position", woman_pos)
@@ -5889,15 +5891,7 @@ func _setup_agro_combat_test_environment() -> void:
 		npc.set("spawn_position", pos)
 		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		await get_tree().process_frame
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
@@ -5954,15 +5948,7 @@ func _setup_agro_combat_test_environment() -> void:
 		npc.set("spawn_position", pos)
 		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		await get_tree().process_frame
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
@@ -6077,15 +6063,7 @@ func _setup_raid_test_environment() -> void:
 		npc.set("spawn_position", pos)
 		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		await get_tree().process_frame
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
@@ -6115,15 +6093,7 @@ func _setup_raid_test_environment() -> void:
 		npc.set("spawn_position", pos)
 		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		await get_tree().process_frame
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var tex: Texture2D = AssetRegistry.get_player_sprite()
-			if tex:
-				sprite.texture = tex
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
@@ -6236,15 +6206,7 @@ func _setup_gather_test_environment() -> void:
 		npc.set("clan_name", test_clan_name)
 		
 		# Set sprite
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_woman_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		
 		world_objects.add_child(npc)
 		npc.global_position = woman_pos
@@ -6295,15 +6257,7 @@ func _setup_gather_test_environment() -> void:
 		npc.set("clan_name", test_clan_name)
 		
 		# Set sprite
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_player_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		
 		world_objects.add_child(npc)
 		npc.global_position = clansman_pos
@@ -6410,13 +6364,6 @@ func _initialize_minigame() -> void:
 		await _setup_raid_test_environment()
 		return
 
-	var restore_boost := false
-	var saved_boost_val := false
-	if npc_only and BalanceConfig:
-		saved_boost_val = BalanceConfig.caveman_spawn_with_boost
-		BalanceConfig.caveman_spawn_with_boost = true
-		restore_boost = true
-
 	# Playtest: 4 cavemen spread far apart
 	var caveman_count := BalanceConfig.caveman_count if BalanceConfig else 4
 	var caveman_spawn_radius_min := BalanceConfig.caveman_spawn_radius_min if BalanceConfig else 900.0
@@ -6428,14 +6375,33 @@ func _initialize_minigame() -> void:
 	
 	for i in caveman_count:
 		var base_angle := i * caveman_angle_step
-		var angle_offset := randf_range(-PI / 6, PI / 6)
+		var ws: int = _playtest_world_seed_value()
+		var angle_offset: float
+		var distance: float
+		var clan_name: String
+		var npc_name: String
+		var npc_age: int
+		var npc_protective: bool
+		if ws != 0:
+			var spawn_rng := _caveman_init_spawn_rng(i)
+			angle_offset = spawn_rng.randf_range(-PI / 6.0, PI / 6.0)
+			distance = spawn_rng.randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
+			clan_name = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", hash(Vector3i(ws, i, 7770013))))
+			npc_name = str(_NAMING_UTILS_SCRIPT.call("generate_caveman_name_seeded", hash(Vector3i(ws, i, 7770014))))
+			npc_age = spawn_rng.randi_range(13, 50)
+			npc_protective = spawn_rng.randf() < 0.3
+		else:
+			angle_offset = randf_range(-PI / 6.0, PI / 6.0)
+			distance = randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
+			clan_name = _generate_random_clan_name()
+			npc_name = _generate_caveman_name()
+			npc_age = randi_range(13, 50)
+			npc_protective = randf() < 0.3
 		var angle := base_angle + angle_offset
-		var distance := randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		# Snap claim position to 64px grid (matches build_state placement)
 		var claim_pos := Vector2(round(pos.x / 64.0) * 64.0, round(pos.y / 64.0) * 64.0)
 		
-		var clan_name: String = _generate_random_clan_name()
 		# 1) Create land claim first
 		var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
 		if not land_claim:
@@ -6446,6 +6412,8 @@ func _initialize_minigame() -> void:
 		land_claim.player_owned = false
 		if not land_claim.inventory:
 			land_claim.inventory = _new_land_claim_inventory()
+		if BalanceConfig:
+			BalanceConfig.seed_ai_claim_starting_food(land_claim.inventory)
 		spawn_parent.add_child(land_claim)
 		_despawn_tallgrass_near(claim_pos, land_claim.radius)
 		_despawn_decorative_trees_near(claim_pos, land_claim.radius)
@@ -6457,12 +6425,11 @@ func _initialize_minigame() -> void:
 		if not npc:
 			print("ERROR: Failed to instantiate NPC scene")
 			continue
-		var npc_name: String = _generate_caveman_name()
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "caveman")
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", npc_age)
 		# Trait-driven defend: ~30% protective (fill defender slot when 2+), 70% solitary (prefer herd/gather)
-		npc.set("traits", ["protective"] if randf() < 0.3 else ["solitary"])
+		npc.set("traits", ["protective"] if npc_protective else ["solitary"])
 		npc.set("agro_meter", 0.0)
 		npc.set("clan_name", clan_name)
 		npc.set_meta("clan_name", clan_name)
@@ -6482,15 +6449,7 @@ func _initialize_minigame() -> void:
 		
 		await get_tree().process_frame
 		
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_player_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		
 		var npc_inventory = npc.get("inventory")
 		if npc_inventory:
@@ -6500,7 +6459,7 @@ func _initialize_minigame() -> void:
 		npc.visible = true
 		print("✓ Spawned Caveman: %s at %s with land claim '%s'" % [npc_name, pos, clan_name])
 		
-		# Boost: 1 woman + 1 baby inside this claim (optional - when false, caveman must find women)
+		# Optional legacy boost (1 woman + baby in claim) — off by default; fresh AI clans start solo.
 		if BalanceConfig and BalanceConfig.get("caveman_spawn_with_boost") == true:
 			var woman_pos := claim_pos + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
 			var woman_npc: Node = NPC_SCENE.instantiate()
@@ -6511,15 +6470,7 @@ func _initialize_minigame() -> void:
 				woman_npc.set("age", randi_range(13, 50))
 				woman_npc.set("clan_name", clan_name)
 				woman_npc.set_meta("clan_name", clan_name)
-				var ws: Sprite2D = woman_npc.get_node_or_null("Sprite")
-				if ws:
-					var wt: Texture2D = AssetRegistry.get_woman_sprite()
-					if wt:
-						ws.texture = wt
-						ws.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-						ws.visible = true
-						if woman_npc.has_method("apply_sprite_offset_for_texture"):
-							woman_npc.apply_sprite_offset_for_texture()
+				_apply_placeholder_card_to_npc(woman_npc)
 				spawn_parent.add_child(woman_npc)
 				woman_npc.global_position = woman_pos
 				woman_npc.set("spawn_position", woman_pos)
@@ -6562,15 +6513,7 @@ func _initialize_minigame() -> void:
 		npc.set("traits", ["herd"])  # Women have herd mentality
 		npc.set("age", randi_range(13, 50))
 		# Set sprite texture
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_woman_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		
 		spawn_parent.add_child(npc)
 		npc.global_position = pos
@@ -6594,7 +6537,7 @@ func _initialize_minigame() -> void:
 	
 	# Spawn mammoths (wild, non-herdable, agro at threats in AOP)
 	# _spawn_mammoths(center_pos)  # DISABLED - for testing
-	
+
 	var _wgc_wild_stream: Node = get_node_or_null("/root/WorldGenConfig")
 	var _use_wild_chunk_stream: bool = _wgc_wild_stream != null and bool(_wgc_wild_stream.get("use_chunk_content_streaming"))
 	if _use_wild_chunk_stream:
@@ -6608,11 +6551,87 @@ func _initialize_minigame() -> void:
 	_start_women_respawn_system()
 	_start_sheep_goats_respawn_system()
 
-	if restore_boost and BalanceConfig:
-		BalanceConfig.caveman_spawn_with_boost = saved_boost_val
+	if DebugConfig and DebugConfig.enable_party_hunt_debug:
+		await _seed_party_hunt_debug_deer_near_claims(spawn_parent)
 
 	if npc_only:
 		_finalize_npc_only_world_player()
+
+## Test-only: place stationary deer in each AI claim's AoH ring so `--party-hunt-debug` hunts have prey.
+const PARTY_HUNT_DEBUG_DEER_PER_CLAIM := 2
+
+func _seed_party_hunt_debug_deer_near_claims(spawn_parent: Node2D) -> void:
+	if not DebugConfig or not DebugConfig.enable_party_hunt_debug:
+		return
+	if spawn_parent == null or not is_instance_valid(spawn_parent):
+		spawn_parent = world_objects
+	if spawn_parent == null:
+		push_warning("PARTY_HUNT_DEBUG: no spawn parent — skipped deer seed")
+		return
+	var ws: int = 0
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc:
+		ws = int(wgc.get("world_seed"))
+	var claim_idx: int = 0
+	var seeded: int = 0
+	for claim_node in get_cached_land_claims():
+		if not is_instance_valid(claim_node) or not claim_node is LandClaim:
+			continue
+		var lc: LandClaim = claim_node as LandClaim
+		if lc.player_owned:
+			continue
+		var inner_r: float = lc.radius + 64.0
+		var outer_r: float = lc.get_effective_aoh_radius() - 64.0
+		if outer_r <= inner_r:
+			push_warning("PARTY_HUNT_DEBUG: claim '%s' AoH ring too thin — skipped" % lc.clan_name)
+			continue
+		var ring_dist: float = lerpf(inner_r, outer_r, 0.55)
+		for di in PARTY_HUNT_DEBUG_DEER_PER_CLAIM:
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash(Vector3i(ws, claim_idx, di)) ^ hash(lc.global_position.round())
+			var base_angle: float = TAU * float(di) / float(PARTY_HUNT_DEBUG_DEER_PER_CLAIM)
+			var angle: float = base_angle + rng.randf_range(-0.12, 0.12)
+			var dpos: Vector2 = lc.global_position + Vector2(cos(angle), sin(angle)) * ring_dist
+			var deer: Node = _spawn_party_hunt_debug_deer(spawn_parent, dpos, lc, claim_idx, di)
+			if deer:
+				seeded += 1
+			await get_tree().process_frame
+		claim_idx += 1
+	print("PARTY_HUNT_DEBUG: seeded %d deer in AoH rings (%d per AI claim)" % [seeded, PARTY_HUNT_DEBUG_DEER_PER_CLAIM])
+
+func _spawn_party_hunt_debug_deer(spawn_parent: Node2D, pos: Vector2, lc: LandClaim, claim_idx: int, deer_idx: int) -> Node:
+	var npc: Node = NPC_SCENE.instantiate()
+	if npc == null:
+		return null
+	var npc_name: String = "AoH Deer %d-%d" % [claim_idx, deer_idx]
+	npc.set("npc_name", npc_name)
+	npc.set("npc_type", "deer")
+	npc.set("traits", [])
+	npc.migration_entry_side = 0
+	npc.migration_exit_x = pos.x
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+	if sprite:
+		var texture: Texture2D = AssetRegistry.get_deer_sprite()
+		if texture:
+			sprite.texture = texture
+			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			var tint := _get_random_sheep_goat_tint()
+			sprite.modulate = tint
+			npc.set_meta("sheep_goat_tint", tint)
+			sprite.visible = true
+			if npc.has_method("apply_sprite_offset_for_texture"):
+				npc.apply_sprite_offset_for_texture()
+	spawn_parent.add_child(npc)
+	npc.global_position = pos
+	npc.set("spawn_position", pos)
+	npc.set_meta("party_hunt_debug_graze", true)
+	npc.set_meta("party_hunt_debug_graze_anchor", pos)
+	npc.set_meta("party_hunt_debug_graze_radius", 100.0)
+	if npc.has_method("_apply_wild_profile"):
+		npc._apply_wild_profile()
+	npc.visible = true
+	lc.register_huntable_in_aoh(npc as Node2D)
+	return npc
 
 func _finalize_npc_only_world_player() -> void:
 	if not player or not is_instance_valid(player):
@@ -6621,7 +6640,44 @@ func _finalize_npc_only_world_player() -> void:
 	player.velocity = Vector2.ZERO
 	player.collision_layer = 0
 	player.collision_mask = 0
-	print("NPC_ONLY_WORLD: player hidden, collisions off at %s" % str(player.global_position))
+	if player.has_method("set_can_move"):
+		player.set_can_move(false)
+	_observer_cam_active = true
+	_observer_cam_pos = _pick_observer_cam_start()
+	if camera and is_instance_valid(camera):
+		camera.global_position = _observer_cam_pos
+	if world:
+		world.ensure_chunks_for_position(_observer_cam_pos)
+	print("NPC_ONLY_WORLD: player hidden — observer cam at %s (WASD/arrows pan, scroll zoom)" % str(_observer_cam_pos))
+
+
+func _pick_observer_cam_start() -> Vector2:
+	for claim_node in get_cached_land_claims():
+		if not is_instance_valid(claim_node) or not claim_node is LandClaim:
+			continue
+		var lc: LandClaim = claim_node as LandClaim
+		if not lc.player_owned:
+			return lc.global_position
+	return Vector2.ZERO
+
+
+func _process_observer_camera(delta: float) -> void:
+	if not camera or not is_instance_valid(camera):
+		return
+	var dir := Vector2.ZERO
+	if Input.is_action_pressed("move_right"):
+		dir.x += 1.0
+	if Input.is_action_pressed("move_left"):
+		dir.x -= 1.0
+	if Input.is_action_pressed("move_down"):
+		dir.y += 1.0
+	if Input.is_action_pressed("move_up"):
+		dir.y -= 1.0
+	if dir != Vector2.ZERO:
+		_observer_cam_pos += dir.normalized() * OBSERVER_CAM_SPEED * delta
+	camera.global_position = _observer_cam_pos
+	if world:
+		world.ensure_chunks_for_position(_observer_cam_pos, delta)
 
 
 func _spawn_mammoths(center_pos: Vector2) -> void:
@@ -7040,15 +7096,7 @@ func _spawn_wild_woman(count: int) -> void:
 		npc.set("age", randi_range(13, 50))
 		npc.set("traits", ["herd"])
 		
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_woman_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
+		_apply_placeholder_card_to_npc(npc)
 		
 		world_objects.add_child(npc)
 		npc.global_position = pos
@@ -7190,6 +7238,17 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 	npc.set("mother_name", mother_name)
 	npc.set_meta("father_name", father_name)
 	npc.set_meta("mother_name", mother_name)
+
+	if PlaceholderCardService:
+		var father_for_card: Node = father if father and is_instance_valid(father) else null
+		if father_for_card == null:
+			father_for_card = get_tree().get_first_node_in_group("player")
+		var inherited_card: int = PlaceholderCardService.assign_inherited_card_index(npc, father_for_card)
+		UnifiedLogger.log_system("SPAWN_BABY: Inherited father card_index %d" % inherited_card, {
+			"clan": clan_name,
+			"baby_name": npc_name,
+			"card_index": inherited_card,
+		})
 	
 	# Verify lineage persisted (warn only if set failed)
 	var verify_father = npc.get("father_name")
@@ -7414,12 +7473,176 @@ func _setup_node_cache() -> void:
 	else:
 		UnifiedLogger.log_system("NodeCache already exists")
 
+func _run_movement_stress_test() -> void:
+	await get_tree().create_timer(4.0).timeout
+	if not player or not is_instance_valid(player):
+		push_error("TEST_PLAYER_MOVEMENT_STRESS_FAIL: no player")
+		get_tree().quit(1)
+		return
+	var failures: PackedStringArray = []
+	_release_all_move_actions()
+	await _stress_test_press_release("move_right", failures)
+	await _stress_test_press_release("move_up", failures)
+	await _stress_test_direction_change(failures)
+	await _stress_test_rally_guard_formation(failures)
+	_release_all_move_actions()
+	if failures.is_empty():
+		print("TEST_PLAYER_MOVEMENT_STRESS_OK")
+		get_tree().quit(0)
+	else:
+		for f in failures:
+			push_error("TEST_PLAYER_MOVEMENT_STRESS_FAIL: %s" % f)
+		get_tree().quit(1)
+
+
+func _release_all_move_actions() -> void:
+	for action in ["move_left", "move_right", "move_up", "move_down"]:
+		Input.action_release(action)
+
+
+func _stress_test_press_release(action: String, failures: PackedStringArray, prefix: String = "") -> void:
+	_release_all_move_actions()
+	for _i in 6:
+		await get_tree().physics_frame
+	Input.action_press(action)
+	for _i in 24:
+		await get_tree().physics_frame
+	Input.action_release(action)
+	var prev_pos: Vector2 = player.global_position
+	for _i in 72:
+		await get_tree().physics_frame
+		var iv := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		if iv.length_squared() > 0.0001:
+			failures.append("%sstuck_input after %s: (%.2f, %.2f)" % [prefix, action, iv.x, iv.y])
+			break
+		if player.velocity.length() > 10.0:
+			failures.append("%sdrift_velocity after %s: spd=%.1f" % [prefix, action, player.velocity.length()])
+			break
+		var delta_pos: float = player.global_position.distance_to(prev_pos)
+		if delta_pos > 3.5 and player.velocity.length() < 5.0:
+			failures.append("%sdrift_position after %s: %.1f px/frame" % [prefix, action, delta_pos])
+			break
+		prev_pos = player.global_position
+	for _i in 12:
+		await get_tree().physics_frame
+
+
+func _stress_test_direction_change(failures: PackedStringArray) -> void:
+	_release_all_move_actions()
+	for _i in 6:
+		await get_tree().physics_frame
+	Input.action_press("move_right")
+	for _i in 18:
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+	await get_tree().physics_frame
+	Input.action_press("move_up")
+	for _i in 18:
+		await get_tree().physics_frame
+		var iv := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		if iv.y >= -0.4:
+			failures.append("direction_change: up input weak/missing (%.2f, %.2f)" % [iv.x, iv.y])
+			break
+		if player.velocity.length() > 10.0 and player.velocity.y > -5.0:
+			failures.append("direction_change: velocity not up: (%.0f, %.0f)" % [player.velocity.x, player.velocity.y])
+			break
+	Input.action_release("move_up")
+	for _i in 24:
+		await get_tree().physics_frame
+
+
+func _stress_test_rally_guard_formation(failures: PackedStringArray) -> void:
+	var clan_name: String = _get_player_clan_name()
+	if clan_name == "":
+		print("TEST_PLAYER_MOVEMENT_STRESS: skip guard test (no clan yet)")
+		return
+	var rallied: int = 0
+	for n in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(n):
+			continue
+		var t = n.get("npc_type")
+		if t != "clansman" and t != "caveman":
+			continue
+		var c: String = n.get_clan_name() if n.has_method("get_clan_name") else str(n.get("clan_name"))
+		if c != clan_name:
+			continue
+		if n.has_method("set_follow_mode_from_string"):
+			n.set_follow_mode_from_string("GUARD")
+		_set_ordered_follow(n, "movement_stress_test")
+		rallied += 1
+	if rallied == 0:
+		print("TEST_PLAYER_MOVEMENT_STRESS: skip guard test (no same-clan clansmen)")
+		return
+	for _i in 30:
+		await get_tree().physics_frame
+	await _stress_test_press_release("move_right", failures, "guard_")
+	await _stress_test_press_release("move_down", failures, "guard_")
+	_break_and_dismiss_all()
+
+
 func _setup_debug_ui() -> void:
 	# Create debug UI manually
 	npc_debug_ui = NPCDebugUI.new()
 	npc_debug_ui.name = "NPCDebugUI"
 	ui_layer.add_child(npc_debug_ui)
 	_create_debug_ui_panel()
+	if DisplayServer.get_name() != "headless" and player:
+		player_movement_debug_overlay = PlayerMovementDebugOverlayScript.new()
+		player_movement_debug_overlay.name = "PlayerMovementDebugOverlay"
+		ui_layer.add_child(player_movement_debug_overlay)
+		player_movement_debug_overlay.setup(player)
+
+
+func _godmode_tools_enabled() -> bool:
+	# ClanBrain testing only — not general debug/editor play.
+	if _npc_only_world:
+		return true
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	return dc != null and bool(dc.get("enable_godmode"))
+
+
+func _setup_godmode_ui() -> void:
+	if not _godmode_tools_enabled() or not ui_layer:
+		return
+	if DisplayServer.get_name() == "headless":
+		return
+	godmode_clan_jumper = GodmodeClanJumperUIScript.new()
+	if not godmode_clan_jumper:
+		return
+	godmode_clan_jumper.name = "GodmodeClanJumperUI"
+	ui_layer.add_child(godmode_clan_jumper)
+	godmode_clan_jumper.setup(self)
+	print("✓ ClanBrain godmode: clan list top-right — click a name to jump observer camera")
+
+
+func godmode_teleport_to_clan(clan_name: String) -> void:
+	var target_name: String = str(clan_name).strip_edges()
+	if target_name.is_empty():
+		return
+	for claim_node in get_cached_land_claims():
+		if not is_instance_valid(claim_node) or not (claim_node is LandClaim):
+			continue
+		var claim: LandClaim = claim_node as LandClaim
+		if not _clan_tags_equal(str(claim.clan_name), target_name):
+			continue
+		var pos: Vector2 = claim.global_position
+		if _observer_cam_active:
+			_observer_cam_pos = pos
+		if camera and is_instance_valid(camera):
+			camera.global_position = pos
+		if player and is_instance_valid(player) and not _observer_cam_active:
+			player.global_position = pos
+		if world:
+			world.ensure_chunks_for_position(pos)
+		print("GODMODE: camera → clan '%s' at %s" % [target_name, str(pos)])
+		return
+	push_warning("GODMODE: no land claim found for clan '%s'" % target_name)
+
+
+func _clan_tags_equal(a: String, b: String) -> bool:
+	if a.is_empty() or b.is_empty():
+		return false
+	return a.strip_edges().to_lower() == b.strip_edges().to_lower()
 
 func _setup_baby_pool_manager() -> void:
 	# Create baby pool manager for reproduction system
@@ -7584,20 +7807,53 @@ func _player_attack_npc(target_npc: Node) -> void:
 	_player_attack_target(target_npc)
 
 func _player_attack_target(target: Node) -> void:
-	"""Player attacks NPC or building with equipped weapon. Enables aggro on NPC hit."""
+	"""Player attacks with overlay combat — must be in READY (Shift held) unless menu forces aim."""
 	if _is_any_inventory_open():
 		return
 	if not player or not target or not is_instance_valid(target):
 		return
-	# Skip if target is dead NPC
-	var target_health: HealthComponent = target.get_node_or_null("HealthComponent")
-	if target_health and target_health.is_dead:
+	if not _player_has_weapon_equipped():
 		return
-	var combat_comp: CombatComponent = player.get_node_or_null("CombatComponent")
-	if combat_comp:
-		combat_comp.request_attack(target as Node2D)
+	if target.is_in_group("buildings"):
+		if target.get("player_owned") == true:
+			show_gather_feedback("That is your clan's building.")
+			return
+		var building_clan: String = str(target.get("clan_name")) if target.get("clan_name") != null else ""
+		var player_clan: String = _get_player_clan_name()
+		if building_clan != "" and player_clan != "" and building_clan == player_clan:
+			show_gather_feedback("That is your clan's building.")
+			return
+		if not target.has_method("take_damage"):
+			return
 	else:
+		var target_health: HealthComponent = target.get_node_or_null("HealthComponent")
+		if target_health and target_health.is_dead:
+			return
+	_player_face_attack_target(target)
+	var combat_comp: CombatComponent = player.get_node_or_null("CombatComponent")
+	if combat_comp == null:
 		print("⚠️ Player CombatComponent missing!")
+		return
+	if combat_comp.state == CombatComponent.CombatState.READY:
+		var aim: Vector2 = target.global_position - player.global_position
+		if aim.length_squared() > 0.0001:
+			combat_comp.commit_strike(aim.normalized())
+	elif combat_comp.state == CombatComponent.CombatState.IDLE:
+		show_gather_feedback("Hold Shift to ready your weapon, then click to strike.")
+	else:
+		show_gather_feedback("Wait for your current attack to finish.")
+
+
+func _player_face_attack_target(target: Node) -> void:
+	if not player or not target or not is_instance_valid(target):
+		return
+	var dir: Vector2 = target.global_position - player.global_position
+	if dir.length_squared() < 0.01:
+		return
+	player.last_facing = dir.normalized()
+	var sprite: Sprite2D = player.get_node_or_null("Sprite") as Sprite2D
+	if sprite:
+		sprite.flip_h = dir.x < -0.05
 
 func _freeze_npc_for_inspection(npc: Node, freeze: bool) -> void:
 	"""Pause/unpause NPC movement when clicked for inventory/character menu inspection"""
@@ -7631,6 +7887,23 @@ func _try_select_npc_for_debug() -> void:
 			if npc_debug_ui:
 				npc_debug_ui.select_npc(npc)
 			break
+
+func _playtest_world_seed_value() -> int:
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and int(wgc.world_seed) != 0:
+		return int(wgc.world_seed)
+	return 0
+
+
+func _caveman_init_spawn_rng(slot: int) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	var ws: int = _playtest_world_seed_value()
+	if ws != 0:
+		rng.seed = hash(Vector3i(ws, slot, 90210))
+	else:
+		rng.randomize()
+	return rng
+
 
 func _generate_caveman_name() -> String:
 	# Generate a name in CvCv or CvvC format (consonant-vowel pattern)

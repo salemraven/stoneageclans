@@ -1,7 +1,7 @@
 # Stone Age Clans — Lore Keeper
 
 **Performance issues, optimization opportunities, and better ways of doing things.**  
-Companion to `bible.md`. Last updated: March 2026.
+Companion to `bible/bible.md`. Last updated: May 2026.
 
 ---
 
@@ -142,4 +142,4 @@ Each land claim calls `clan_brain.update(delta)` every frame. Brain does heavy w
 
 ---
 
-*See also: `bible.md` (lore + code architecture), `guides/SOSA.md` (state of the game)*
+*See also: `bible/bible.md` (lore + code architecture), `bible/SOSA.md` (state of the game)*

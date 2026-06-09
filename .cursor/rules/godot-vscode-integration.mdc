@@ -38,4 +38,4 @@ When Godot and Cursor both touch the same scripts, the editor can hold **stale b
 
 **Still happens?** You have **unsaved edits in Godot’s script tabs** while Cursor also saved — resolve the conflict (save or revert in one place). Prefer **editing `.gd` in Cursor** and **leaving scenes** to Godot when possible to reduce `.tscn` churn.
 
-**Human-readable checklist** (Output panel, scripts, missing files): **`guides/godot_save_scene_help.md`**.
+**Human-readable checklist** (Output panel, scripts, missing files): **`bible/godot_save_scene_help.md`**.

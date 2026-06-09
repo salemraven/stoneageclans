@@ -42,8 +42,7 @@ func enter() -> void:
 		var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
 		if icon_path != "":
 			icon = load(icon_path) as Texture2D
-		npc.progress_display.start_collection(icon)
-		npc.progress_display.collection_time = eat_duration
+		npc.progress_display.start_collection(icon, eat_duration)
 	
 	# Only move to food target if we need to collect from map
 	if npc and npc.steering_agent and food_target:
@@ -155,8 +154,7 @@ func update(delta: float) -> void:
 		var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
 		if icon_path != "":
 			icon = load(icon_path) as Texture2D
-		npc.progress_display.start_collection(icon)
-		npc.progress_display.collection_time = eat_duration
+		npc.progress_display.start_collection(icon, eat_duration)
 	
 	eat_timer += delta
 	
@@ -643,6 +641,25 @@ func can_enter() -> bool:
 	}, UnifiedLogger.Level.DEBUG)
 	return false
 
+func _claim_storage_has_food() -> bool:
+	if not npc or npc.get("clan_name") == null or str(npc.clan_name) == "":
+		return false
+	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		var claim_clan: String = ""
+		var clan_name_prop = claim.get("clan_name")
+		if clan_name_prop != null:
+			claim_clan = clan_name_prop as String
+		if claim_clan != npc.clan_name:
+			continue
+		if claim.get("inventory") != null:
+			return _claim_inventory_has_food(claim.inventory)
+		break
+	return false
+
+
 func get_priority() -> float:
 	# Higher priority if very hungry
 	if not npc or not npc.stats_component:
@@ -655,41 +672,111 @@ func get_priority() -> float:
 	var eat_threshold: float = 80.0  # Default
 	if NPCConfig:
 		eat_threshold = NPCConfig.hunger_eat_threshold
-	if hunger_percent < eat_threshold:
-		# Check if we have any food to eat (inventory or hotbar)
-		var has_food: bool = false
-		# Check inventory - all edible food types
-		if npc.inventory:
-			for food_type in ResourceData.EDIBLE_FOOD_TYPES:
-				if npc.inventory.get_count(food_type) > 0:
-					has_food = true
-					break
-		# Check hotbar (slots 9 and 0 are consumables - indices 8 and 9)
-		if not has_food and npc.hotbar:
-			for slot_index in [8, 9]:
-				var slot_data = npc.hotbar.get_slot(slot_index)
-				if not slot_data.is_empty():
-					var item_type = slot_data.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-					if ResourceData.is_food(item_type):
-						has_food = true
-						break
-		if has_food:
-				# Use config priorities
-				if NPCConfig:
-					if hunger_percent < 30.0:
-						return NPCConfig.priority_eat_very_hungry
-					elif hunger_percent < 50.0:
-						return NPCConfig.priority_eat_hungry
-					else:
-						return NPCConfig.priority_eat_low
-				else:
-					if hunger_percent < 30.0:
-						return 10.0
-					elif hunger_percent < 50.0:
-						return 7.0
-					return 5.0
-	
-	return 0.0
+	if hunger_percent >= eat_threshold or not _has_food_available():
+		return 0.0
+
+	var base_pri: float = 5.0
+	if NPCConfig:
+		if hunger_percent < 30.0:
+			base_pri = NPCConfig.priority_eat_very_hungry
+		elif hunger_percent < 50.0:
+			base_pri = NPCConfig.priority_eat_hungry
+		else:
+			base_pri = NPCConfig.priority_eat_low
+
+	# Claim storage food: eat beats gather/herd productivity (~5.8).
+	if _claim_storage_has_food():
+		var gather_beat: float = NPCConfig.priority_gather_productivity if NPCConfig else 5.8
+		base_pri = maxf(base_pri, gather_beat + 1.0)
+	# Personal food only: deposit surplus first unless very hungry or claim is empty.
+	elif _inventory_or_hotbar_has_food() and hunger_percent >= 40.0:
+		var gather_floor: float = NPCConfig.priority_gather_other if NPCConfig else 5.5
+		var claim_buf: float = _claim_food_days_buffer_from_npc()
+		var critical: float = 0.5
+		if BalanceConfig:
+			critical = maxf(float(BalanceConfig.clan_food_buffer_critical_days), 0.1)
+		if claim_buf < critical:
+			base_pri = minf(base_pri, gather_floor - 1.0)
+		elif not _claim_storage_has_food():
+			base_pri = minf(base_pri, gather_floor - 0.75)
+
+	return base_pri
+
+
+func _claim_food_days_buffer_from_npc() -> float:
+	if not npc or npc.get("clan_name") == null or str(npc.clan_name) == "":
+		return 99.0
+	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		var claim_clan: String = ""
+		var clan_name_prop = claim.get("clan_name")
+		if clan_name_prop != null:
+			claim_clan = clan_name_prop as String
+		if claim_clan != npc.clan_name:
+			continue
+		if claim.has_meta("food_days_buffer"):
+			return float(claim.get_meta("food_days_buffer"))
+		break
+	return 99.0
+
+
+func _edible_food_types_for_npc() -> Array:
+	var npc_type: String = npc.get("npc_type") if npc else ""
+	if npc_type == "sheep" or npc_type == "goat":
+		return [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
+	return ResourceData.EDIBLE_FOOD_TYPES
+
+
+func _inventory_or_hotbar_has_food() -> bool:
+	if not npc:
+		return false
+	if npc.inventory:
+		for food_type in _edible_food_types_for_npc():
+			if npc.inventory.get_count(food_type) > 0:
+				return true
+	if npc.hotbar:
+		for slot_index in [8, 9]:
+			var slot_data = npc.hotbar.get_slot(slot_index)
+			if slot_data.is_empty():
+				continue
+			var item_type = slot_data.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+			if ResourceData.is_food(item_type):
+				return true
+	return false
+
+
+func _claim_inventory_has_food(claim_inventory) -> bool:
+	if not claim_inventory:
+		return false
+	for food_type in _edible_food_types_for_npc():
+		if claim_inventory.get_count(food_type) > 0:
+			return true
+	return false
+
+
+func _has_food_available() -> bool:
+	if _inventory_or_hotbar_has_food():
+		return true
+	if not npc or npc.get("clan_name") == null or str(npc.clan_name) == "":
+		return false
+	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims:
+		if not is_instance_valid(claim):
+			continue
+		var claim_clan: String = ""
+		var clan_name_prop = claim.get("clan_name")
+		if clan_name_prop != null:
+			claim_clan = clan_name_prop as String
+		if claim_clan != npc.clan_name:
+			continue
+		if claim.get("inventory") != null:
+			var claim_inventory = claim.inventory
+			if _claim_inventory_has_food(claim_inventory):
+				return true
+		break
+	return false
 
 func _find_food() -> Node2D:
 	# Find nearest food resource (berries only for humans, berries and wheat for animals)

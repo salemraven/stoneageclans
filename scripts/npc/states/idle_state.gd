@@ -11,6 +11,8 @@ var bounce_offset: Vector2 = Vector2.ZERO
 var base_sprite_position: Vector2 = Vector2.ZERO
 
 func enter() -> void:
+	if npc and npc.has_method("uses_placeholder_cards") and npc.uses_placeholder_cards():
+		return
 	idle_timer = 0.0
 	# Random idle duration from config (default 1-3s for less downtime)
 	var min_dur: float = 1.0
@@ -52,6 +54,8 @@ func exit() -> void:
 
 func update(delta: float) -> void:
 	if not npc:
+		return
+	if npc.has_method("uses_placeholder_cards") and npc.uses_placeholder_cards():
 		return
 	
 	idle_timer += delta

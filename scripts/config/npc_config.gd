@@ -19,7 +19,7 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var hunger_gather_threshold: float = 80.0  # NPCs gather berries when hunger drops below this %
 @export var hunger_eat_threshold: float = 80.0  # NPCs eat when hunger drops below this %
 @export var hunger_restore_percent: float = 5.0  # Each berry restores this % of max hunger
-@export var hunger_deplete_rate: float = 28.0  # Hunger points drained per simulated minute (raising = need food more often)
+@export var hunger_deplete_rate: float = 12.0  # Synced from BalanceConfig on boot (game mode)
 @export var hunger_start_percent: float = 100.0  # Starting hunger percentage
 @export var food_items_to_keep_in_inventory: int = 1  # NPCs keep this many food items in inventory before stopping collection
 @export var prefer_higher_nutrient_food: bool = true  # NPCs prefer higher nutrient foods (meat > berries) when maintaining inventory
@@ -38,8 +38,8 @@ enum WildRole { PREY, PREDATOR, NONE }
 # MOVEMENT & STEERING
 # ============================================
 @export_group("Movement & Steering")
-@export var max_speed_base: float = 95.0  # Base max speed (smoother map movement; see guides/Phase4/config.md)
-@export var speed_agility_multiplier: float = 9.5  # Speed = agility * this (see guides/Phase4/config.md)
+@export var max_speed_base: float = 95.0  # Base max speed (smoother map movement; see bible/Phase4/config.md)
+@export var speed_agility_multiplier: float = 9.5  # Speed = agility * this (see bible/Phase4/config.md)
 @export var leader_speed_multiplier: float = 1.0  # Disabled (was 0.62)
 @export var herd_leader_speed_multiplier: float = 0.97  # Just slightly slower when leading herd (3% slower)
 @export var max_force: float = 40.0  # Maximum steering force (lower = more deliberate movement)
@@ -201,7 +201,7 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var priority_agro: float = 15.0  # Priority for agro state (highest - interrupts all other states)
 @export var priority_build: float = 9.5  # Priority for build state (place land claim - only when no land claim, 15.0 when has 8+ items)
 
-# Centralized priorities for states that previously used literals (tune here; see guides/phase2/STATE_PRIORITIES.md).
+# Centralized priorities for states that previously used literals (tune here; see bible/phase2/STATE_PRIORITIES.md).
 # Note: fsm._evaluate_states() early-exits to combat then defend before the sorted priority list — see guide.
 @export var priority_combat_state: float = 12.0  # Below priority_agro (15); combat also evaluated early in FSM
 @export var priority_flee_combat: float = 13.0
@@ -413,6 +413,14 @@ func get_wild_profile(npc_type_str: String) -> Dictionary:
 func is_ai_hunt_prey_type(npc_type_str: String) -> bool:
 	var p: Dictionary = get_wild_profile(npc_type_str)
 	return p.get("role", WildRole.NONE) == WildRole.PREY
+
+
+## Deer and other prey that flee when hit — never enter combat or fight back (mammoth is defensive).
+func is_passive_hunt_prey(npc_type_str: String) -> bool:
+	var p: Dictionary = get_wild_profile(npc_type_str)
+	if p.get("role", WildRole.NONE) != WildRole.PREY:
+		return false
+	return not bool(p.get("defensive", false))
 
 
 # ============================================

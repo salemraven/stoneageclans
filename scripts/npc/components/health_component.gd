@@ -25,27 +25,31 @@ func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.R
 	if is_dead:
 		return
 	
+	var npc_type_str: String = str(npc.get("npc_type")) if npc and npc.get("npc_type") != null else ""
+	var passive_prey: bool = NPCConfig != null and NPCConfig.is_passive_hunt_prey(npc_type_str)
+	
 	# Track last attacker and weapon
 	if attacker:
 		last_attacker = attacker
 		if weapon_type != ResourceData.ResourceType.NONE:
 			death_weapon = weapon_type
 		
-		# Push agro event to CombatTick when attacked (Step 2); skip when combat disabled (testing)
-		if npc:
-			if not (NPCConfig and NPCConfig.get("combat_disabled")):
-				if CombatTick:
-					CombatTick.push_agro_event(npc, 50.0, "hit", attacker)
-			# Set combat target to attacker only if not an ally (CombatAllyCheck)
-			var should_target_attacker: bool = not CombatAllyCheck.is_ally(npc, attacker)
-			if should_target_attacker:
-				var tid: int = EntityRegistry.get_id(attacker) if EntityRegistry else -1
-				npc.set("combat_target_id", tid)
-				npc.set("combat_target", attacker)
-				if "combat_target_id" in npc:
-					npc.combat_target_id = tid
-				if "combat_target" in npc:
-					npc.combat_target = attacker
+		if not passive_prey:
+			# Push agro event to CombatTick when attacked (Step 2); skip when combat disabled (testing)
+			if npc:
+				if not (NPCConfig and NPCConfig.get("combat_disabled")):
+					if CombatTick:
+						CombatTick.push_agro_event(npc, 50.0, "hit", attacker)
+				# Set combat target to attacker only if not an ally (CombatAllyCheck)
+				var should_target_attacker: bool = not CombatAllyCheck.is_ally(npc, attacker)
+				if should_target_attacker:
+					var tid: int = EntityRegistry.get_id(attacker) if EntityRegistry else -1
+					npc.set("combat_target_id", tid)
+					npc.set("combat_target", attacker)
+					if "combat_target_id" in npc:
+						npc.combat_target_id = tid
+					if "combat_target" in npc:
+						npc.combat_target = attacker
 	
 	current_hp = max(0, current_hp - amount)
 	health_changed.emit(current_hp, max_hp)
@@ -55,6 +59,16 @@ func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.R
 	
 	if current_hp <= 0:
 		die()
+		return
+	
+	# Passive prey (deer): flee harder — never counter-attack
+	if passive_prey and npc_type_str == "deer" and npc and npc.fsm:
+		var flee_at: float = 65.0
+		if NPCConfig:
+			flee_at = clampf(float(NPCConfig.deer_fright_flee_at), 0.5, float(NPCConfig.deer_fright_meter_max) * 0.99)
+		npc.deer_fright_meter = maxf(npc.deer_fright_meter, flee_at)
+		if npc.fsm.has_method("change_state"):
+			npc.fsm.change_state("flee_prey", true)
 
 func heal(amount: int) -> void:
 	if is_dead:
@@ -212,8 +226,8 @@ func _set_corpse_sprite() -> void:
 		return
 	
 	var npc_type: String = npc.get("npc_type") if npc else ""
-	if npc_type in ["woman", "sheep", "goat"]:
-		# Dark grey modulate of original sprite (keep texture)
+	if npc_type in ["woman", "sheep", "goat", "deer"]:
+		# Dark grey modulate of original sprite (keep texture) — corpse stays in place for butchering
 		sprite.modulate = Color(0.35, 0.35, 0.35)
 		var name_str: String = npc.get("npc_name") if npc else "NPC"
 		print("💀 CORPSE: Dark grey modulate for %s (%s)" % [name_str, npc_type])

@@ -29,6 +29,19 @@ var _move_cancel_threshold: float = 32.0  # From config; fallback 32px (was 20) 
 var _move_task: Task = null  # MoveToTask for moving to resource
 const ALTERNATIVE_SEARCH_RANGE: float = 800.0  # Max distance to search for replacement resource
 
+func _playtest_clan(npc: NPCBase) -> String:
+	return npc.get_clan_name() if npc.has_method("get_clan_name") else ""
+
+func _playtest_gather_completed(npc: NPCBase, resource_type: int, amount: int) -> void:
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("gather_completed"):
+		pi.gather_completed(npc.npc_name, _playtest_clan(npc), resource_type, amount)
+
+func _playtest_gather_failed(npc: NPCBase, reason: String, resource_type: int = -1) -> void:
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("gather_failed"):
+		pi.gather_failed(npc.npc_name, _playtest_clan(npc), reason, resource_type)
+
 func _init(resource: Node2D, duration: float = 1.0, dist: float = 56.0) -> void:
 	resource_node = resource
 	gather_duration = duration
@@ -49,6 +62,7 @@ func _start_impl(actor: Node) -> void:
 	var npc: NPCBase = actor as NPCBase
 	if not npc.inventory:
 		UnifiedLogger.log_npc("GatherTask FAILED: %s has no inventory" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
+		_playtest_gather_failed(npc, "no_inventory", _expected_resource_type as int)
 		status = TaskStatus.FAILED
 		return
 
@@ -59,6 +73,7 @@ func _start_impl(actor: Node) -> void:
 			resource_node = alt
 		else:
 			UnifiedLogger.log_npc("GatherTask FAILED: %s resource invalid at start, no alternative" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
+			_playtest_gather_failed(npc, "resource_invalid", _expected_resource_type as int)
 			status = TaskStatus.FAILED
 			return
 
@@ -76,12 +91,14 @@ func _start_impl(actor: Node) -> void:
 			is_harvestable_check = alt.is_harvestable_ignore_lock() if alt.has_method("is_harvestable_ignore_lock") else alt.is_harvestable()
 		if not is_harvestable_check:
 			UnifiedLogger.log_npc("GatherTask FAILED: %s resource not harvestable at start, no alternative" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
+			_playtest_gather_failed(npc, "not_harvestable", _expected_resource_type as int)
 			status = TaskStatus.FAILED
 			return
 
 	# Check if NPC has inventory space
 	if not npc.inventory.has_space():
 		UnifiedLogger.log_npc("GatherTask FAILED: %s inventory full" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
+		_playtest_gather_failed(npc, "inventory_full", _expected_resource_type as int)
 		status = TaskStatus.FAILED
 		return
 
@@ -100,10 +117,12 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 
 	if npc.should_abort_work():
 		UnifiedLogger.log_npc("GatherTask FAILED: %s should_abort_work" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.WARNING)
+		_playtest_gather_failed(npc, "abort_work", _expected_resource_type as int)
 		return TaskStatus.FAILED
 
 	if not npc.inventory:
 		UnifiedLogger.log_npc("GatherTask FAILED: %s inventory null (tick)" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.WARNING)
+		_playtest_gather_failed(npc, "no_inventory", _expected_resource_type as int)
 		return TaskStatus.FAILED
 
 	if not resource_node or not is_instance_valid(resource_node):
@@ -114,6 +133,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			UnifiedLogger.log_npc("GatherTask: %s switched to alternative resource (original invalid)" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
 			return TaskStatus.RUNNING
 		UnifiedLogger.log_npc("GatherTask FAILED: %s resource invalid, no alternative found" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.WARNING)
+		_playtest_gather_failed(npc, "resource_invalid", _expected_resource_type as int)
 		return TaskStatus.FAILED
 
 	# Step 1: Move to resource if not in range (only tick MoveToTask here; skip harvestable until in range)
@@ -135,6 +155,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			return TaskStatus.RUNNING
 		elif move_status == TaskStatus.FAILED:
 			UnifiedLogger.log_npc("GatherTask FAILED: %s move_to_resource failed" % npc.npc_name, {"npc": npc.npc_name, "distance": distance_to_resource}, UnifiedLogger.Level.WARNING)
+			_playtest_gather_failed(npc, "move_failed", _expected_resource_type as int)
 			return TaskStatus.FAILED
 		# SUCCESS: fall through and run harvestable check once before gathering
 
@@ -153,10 +174,12 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			var res_type: int = resource_node.get("resource_type") as int if resource_node.get("resource_type") != null else -1
 			var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 			if pi and pi.has_method("gather_empty_switch"):
-				pi.gather_empty_switch(npc.npc_name, res_type, "not_harvestable")
+				pi.gather_empty_switch(npc.npc_name, res_type, "not_harvestable", _playtest_clan(npc))
 			UnifiedLogger.log_npc("GatherTask: %s switched to alternative resource (not harvestable)" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.DEBUG)
 			return TaskStatus.RUNNING
 		UnifiedLogger.log_npc("GatherTask FAILED: %s resource not harvestable, no alternative" % npc.npc_name, {"npc": npc.npc_name}, UnifiedLogger.Level.WARNING)
+		var res_type_fail: int = resource_node.get("resource_type") as int if resource_node.get("resource_type") != null else _expected_resource_type as int
+		_playtest_gather_failed(npc, "not_harvestable", res_type_fail)
 		return TaskStatus.FAILED
 
 	# Step 2: Start gathering animation/display — must stay in place until done
@@ -175,14 +198,15 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 				var icon_path: String = ResourceData.get_resource_icon_path(res_type)
 				if icon_path != "":
 					icon = load(icon_path) as Texture2D
-			npc.progress_display.start_collection(icon)
-			npc.progress_display.collection_time = gather_duration
+			npc.progress_display.start_collection(icon, gather_duration)
 
 	# If NPC moved after starting gather, cancel
 	var moved: float = npc.global_position.distance_to(_gather_start_position)
 	if moved > _move_cancel_threshold:
 		_clear_gathering(npc, true)
 		UnifiedLogger.log_npc("GatherTask FAILED: %s moved %.1fpx during gather" % [npc.npc_name, moved], {"npc": npc.npc_name, "moved": moved}, UnifiedLogger.Level.WARNING)
+		var res_type_move: int = resource_node.get("resource_type") as int if resource_node and resource_node.get("resource_type") != null else _expected_resource_type as int
+		_playtest_gather_failed(npc, "moved_during_gather", res_type_move)
 		return TaskStatus.FAILED
 
 	# Stay still every tick (clear steering so no drift; ready for future gather animation)
@@ -203,12 +227,14 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	_clear_gathering(npc, false)
 	var resource_type = resource_node.get("resource_type")
 	if resource_type == null:
+		_playtest_gather_failed(npc, "resource_type_null", _expected_resource_type as int)
 		return TaskStatus.FAILED
 
 	var yield_amount: int = 0
 	if resource_node.has_method("harvest"):
 		yield_amount = resource_node.harvest()
 	else:
+		_playtest_gather_failed(npc, "harvest_failed", _expected_resource_type as int)
 		return TaskStatus.FAILED
 
 	if yield_amount == 0:
@@ -216,7 +242,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		var res_type_val: int = resource_type as int if resource_type != null else -1
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.has_method("gather_empty_switch"):
-			pi.gather_empty_switch(npc.npc_name, res_type_val, "yield_zero")
+			pi.gather_empty_switch(npc.npc_name, res_type_val, "yield_zero", _playtest_clan(npc))
 		if resource_node.has_method("release"):
 			resource_node.release(npc)
 		return TaskStatus.SUCCESS
@@ -227,15 +253,18 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 
 	# Add to inventory
 	if not npc.inventory.add_item(resource_type, yield_amount):
+		_playtest_gather_failed(npc, "inventory_full", resource_type as int)
 		if resource_node.has_method("release"):
 			resource_node.release(npc)
 		return TaskStatus.SUCCESS  # Inventory full, stop gathering
 
 	# Hidden nut find while chopping wood (matches player forage-on-tree)
 	if resource_type == ResourceData.ResourceType.WOOD and randf() < 0.25:
-		npc.inventory.add_item(ResourceData.ResourceType.NUTS, 1)
+		if npc.inventory.add_item(ResourceData.ResourceType.NUTS, 1):
+			_playtest_gather_completed(npc, ResourceData.ResourceType.NUTS as int, 1)
 
 	var resource_name: String = ResourceData.get_resource_name(resource_type)
+	_playtest_gather_completed(npc, resource_type as int, yield_amount)
 	UnifiedLogger.log_npc("GATHER_TASK: %s gathered %d %s" % [npc.npc_name, yield_amount, resource_name], {
 		"npc": npc.npc_name,
 		"task": "gather",
@@ -277,8 +306,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			var icon_path: String = ResourceData.get_resource_icon_path(res_type)
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
-		npc.progress_display.start_collection(icon)
-		npc.progress_display.collection_time = gather_duration
+		npc.progress_display.start_collection(icon, gather_duration)
 	return TaskStatus.RUNNING
 
 func _find_alternative_resource(npc: Node) -> Node2D:

@@ -13,6 +13,8 @@ extends Node
 enum Category {
 	SYSTEM,      # General system messages
 	NPC,         # NPC states, FSM, behavior
+	MOVEMENT,    # NPC locomotion samples (rate-limited; enable via DebugConfig)
+	SESSION,     # Structured playtest/session analysis (tasks, FSM, combat whiffs, defend)
 	INVENTORY,   # Inventory operations, drag-drop
 	DRAG_DROP,   # Drag and drop specific (subset of inventory)
 	HERDING,     # Herding mechanics
@@ -54,6 +56,11 @@ var min_log_level: Level = Level.WARNING  # Only log WARNING and ERROR by defaul
 # Category filters (can disable specific categories)
 var enabled_categories: Dictionary = {}  # Category -> bool, empty = all enabled
 
+## When true (session capture): buffer file lines and flush on interval or size — much faster than flush-per-line.
+var file_batch_flush: bool = false
+var file_batch_interval_sec: float = 0.35
+var file_batch_max_lines: int = 48
+
 func _ready() -> void:
 	# Get settings from DebugConfig if available
 	if has_node("/root/DebugConfig"):
@@ -71,6 +78,8 @@ func _ready() -> void:
 		
 		# Disable NPC category by default (too verbose)
 		enabled_categories[Category.NPC] = false
+		enabled_categories[Category.MOVEMENT] = false
+		enabled_categories[Category.SESSION] = false
 		enabled_categories[Category.DRAG_DROP] = false  # Also disable drag/drop (too verbose)
 		enabled_categories[Category.INVENTORY] = false  # Also disable inventory (too verbose)
 		
@@ -100,7 +109,6 @@ func _open_log_file() -> void:
 	if log_file and log_file.is_open():
 		log_file.close()
 	
-	# Check file size and rotate if needed
 	var file_path := ProjectSettings.globalize_path(LOG_FILE)
 	if FileAccess.file_exists(file_path):
 		var file_size := FileAccess.get_file_as_bytes(file_path).size()
@@ -110,17 +118,16 @@ func _open_log_file() -> void:
 				DirAccess.remove_absolute(old_path)
 			DirAccess.rename_absolute(file_path, old_path)
 	
-	# Open file for append
-	log_file = FileAccess.open(LOG_FILE, FileAccess.WRITE)
-	if not log_file:
-		var dir := LOG_FILE.get_base_dir()
-		DirAccess.open("user://").make_dir_recursive(dir)
-		log_file = FileAccess.open(LOG_FILE, FileAccess.WRITE)
-	
-	if log_file:
-		log_file.seek_end()
-		log_file.store_string("\n")
+	# True append: plain WRITE truncates; existing file → READ_WRITE + seek_end.
+	DirAccess.open("user://").make_dir_recursive(LOG_FILE.get_base_dir())
+	var gpath := ProjectSettings.globalize_path(LOG_FILE)
+	if FileAccess.file_exists(gpath):
+		log_file = FileAccess.open(LOG_FILE, FileAccess.READ_WRITE)
+		if log_file:
+			log_file.seek_end()
 	else:
+		log_file = FileAccess.open(LOG_FILE, FileAccess.WRITE)
+	if not log_file:
 		push_error("Failed to open log file: %s" % LOG_FILE)
 
 func _flush_buffer() -> void:
@@ -142,6 +149,8 @@ func _flush_buffer() -> void:
 	set_process(false)
 
 func _should_throttle(category: Category, level: Level) -> bool:
+	if category == Category.MOVEMENT or category == Category.SESSION:
+		return false  # Per-caller rate limits / bounded volume
 	if level >= Level.WARNING:
 		return false  # Never throttle warnings/errors
 	if not _throttle.has(category):
@@ -155,9 +164,15 @@ func _should_throttle(category: Category, level: Level) -> bool:
 	return data.count > THROTTLE_MAX_PER_SECOND
 
 func _process(_delta: float) -> void:
-	# Periodic flush check
-	if file_logging_enabled and log_buffer.size() > 0:
-		var current_time = Time.get_ticks_msec() / 1000.0
+	if not file_logging_enabled or log_buffer.is_empty():
+		set_process(false)
+		return
+	var current_time: float = Time.get_ticks_msec() / 1000.0
+	if file_batch_flush:
+		if current_time - last_flush_time >= file_batch_interval_sec or log_buffer.size() >= file_batch_max_lines:
+			_flush_buffer()
+			last_flush_time = current_time
+	else:
 		if current_time - last_flush_time >= FLUSH_INTERVAL:
 			_flush_buffer()
 			last_flush_time = current_time
@@ -168,6 +183,10 @@ func _get_category_name(category: Category) -> String:
 			return "SYSTEM"
 		Category.NPC:
 			return "NPC"
+		Category.MOVEMENT:
+			return "MOVEMENT"
+		Category.SESSION:
+			return "SESSION"
 		Category.INVENTORY:
 			return "INVENTORY"
 		Category.DRAG_DROP:
@@ -214,9 +233,10 @@ func write_log_entry(message: String, category: Category = Category.SYSTEM, leve
 	if enabled_categories.has(category) and not enabled_categories[category]:
 		return
 	
-	# Filter by log level
+	# Filter by log level (MOVEMENT/SESSION INFO bypass global min when category on)
 	if level < min_log_level:
-		return
+		if not ((category == Category.MOVEMENT or category == Category.SESSION) and level == Level.INFO):
+			return
 	
 	# Rate limit to prevent lag (never throttle WARNING/ERROR)
 	if _should_throttle(category, level):
@@ -243,14 +263,17 @@ func write_log_entry(message: String, category: Category = Category.SYSTEM, leve
 		# Always print errors even if console logging is off
 		print(log_line)
 	
-	# File output
+	# File output: immediate flush (short runs) or batch (session instrumentation / long runs)
 	if file_logging_enabled:
 		log_buffer.append(log_line + "\n")
-		set_process(true)  # Ensure flush runs
-		var current_time = Time.get_ticks_msec() / 1000.0
-		if current_time - last_flush_time >= FLUSH_INTERVAL:
+		if not file_batch_flush:
 			_flush_buffer()
-			last_flush_time = current_time
+			last_flush_time = Time.get_ticks_msec() / 1000.0
+		else:
+			set_process(true)
+			if log_buffer.size() >= file_batch_max_lines:
+				_flush_buffer()
+				last_flush_time = Time.get_ticks_msec() / 1000.0
 
 # Main public logging function (alias for write_log_entry)
 func log(message: String, category: Category = Category.SYSTEM, level: Level = Level.INFO, details: Dictionary = {}) -> void:
@@ -272,6 +295,12 @@ func log_debug(message: String, category: Category = Category.SYSTEM, details: D
 # Category-specific convenience methods
 func log_npc(message: String, details: Dictionary = {}, level: Level = Level.INFO) -> void:
 	write_log_entry(message, Category.NPC, level, details)
+
+func log_movement(message: String, details: Dictionary = {}, level: Level = Level.INFO) -> void:
+	write_log_entry(message, Category.MOVEMENT, level, details)
+
+func log_session(message: String, details: Dictionary = {}, level: Level = Level.INFO) -> void:
+	write_log_entry(message, Category.SESSION, level, details)
 
 func log_inventory(message: String, details: Dictionary = {}, level: Level = Level.INFO) -> void:
 	write_log_entry(message, Category.INVENTORY, level, details)
@@ -328,6 +357,12 @@ func set_verbose_npc_logging_enabled(enabled: bool) -> void:
 	# Only enable NPC category when explicitly requested (avoids DEBUG flood from FSM/steering when only --log-console is on)
 	enabled_categories[Category.NPC] = enabled
 
+func set_movement_logging_enabled(enabled: bool) -> void:
+	enabled_categories[Category.MOVEMENT] = enabled
+
+func set_session_logging_enabled(enabled: bool) -> void:
+	enabled_categories[Category.SESSION] = enabled
+
 func set_state_transition_logging_enabled(enabled: bool) -> void:
 	# State transitions are NPC category
 	enabled_categories[Category.NPC] = enabled or file_logging_enabled or console_logging_enabled
@@ -337,6 +372,11 @@ func set_herd_logging_enabled(enabled: bool) -> void:
 
 func set_drag_drop_logging_enabled(enabled: bool) -> void:
 	enabled_categories[Category.DRAG_DROP] = enabled
+
+func set_file_batch_flush(enabled: bool, interval_sec: float = 0.35, max_lines: int = 48) -> void:
+	file_batch_flush = enabled
+	file_batch_interval_sec = maxf(0.05, interval_sec)
+	file_batch_max_lines = maxi(8, max_lines)
 
 func _exit_tree() -> void:
 	if file_logging_enabled:

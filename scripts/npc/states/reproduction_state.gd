@@ -33,7 +33,9 @@ func can_enter() -> bool:
 	return true
 
 func get_priority() -> float:
-	return 8.0  # Below herding (10.6), above gathering (3.0)
+	if NPCConfig:
+		return NPCConfig.priority_reproduction
+	return 8.0
 
 func enter() -> void:
 	# State entered - reproduction logic handled by component

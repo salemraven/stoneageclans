@@ -24,6 +24,8 @@ func _apply_burst_flee_speed() -> void:
 	var mult: float = 1.35
 	if NPCConfig:
 		mult = maxf(float(NPCConfig.deer_flee_burst_speed_mult), 1.0)
+	if npc.has_method("is_active_hunt_prey") and npc.is_active_hunt_prey():
+		mult = minf(mult, 1.08)
 	sa.set_speed_multiplier(mult)
 
 

@@ -3,11 +3,15 @@ class_name CombatComponent
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
+const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 
 # Combat Component - handles attack logic, damage calculation, combat state
 # Now with event-driven windup/recovery system
 
-enum CombatState { IDLE, WINDUP, RECOVERY }
+enum CombatState { IDLE, READY, WINDUP, RECOVERY }
+
+var aim_dir: Vector2 = Vector2(1, 0)
+var locked_strike_dir: Vector2 = Vector2(1, 0)
 
 var npc: Node2D = null  # Can be NPCBase or Player (CharacterBody2D)
 var attack_range: float = 100.0
@@ -141,6 +145,241 @@ func can_attack() -> bool:
 	
 	return true
 
+func _uses_overlay_combat() -> bool:
+	if not npc or not is_instance_valid(npc):
+		return false
+	if not PlaceholderCardService:
+		return false
+	return PlaceholderCardService.uses_placeholder_cards(npc)
+
+
+func enter_ready(new_aim: Vector2) -> void:
+	if state != CombatState.IDLE:
+		return
+	if _get_equipped_weapon_type() == ResourceData.ResourceType.NONE:
+		return
+	if new_aim.length_squared() > 0.0001:
+		aim_dir = new_aim.normalized()
+	else:
+		aim_dir = _get_default_facing_dir()
+	state = CombatState.READY
+	if PlaceholderCardService and _uses_overlay_combat():
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
+			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+		_sync_overlay_facing_from_aim()
+		PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.READY)
+		PlaceholderCardService.sync_weapon_overlay(npc, _get_equipped_weapon_type(), true)
+		PlaceholderCardService.update_weapon_overlay_combat(npc, _get_equipped_weapon_type(), aim_dir)
+	_combat_d("COMBAT: enter READY aim=%s" % aim_dir)
+
+
+func update_ready_aim(new_aim: Vector2) -> void:
+	if state != CombatState.READY:
+		return
+	if new_aim.length_squared() > 0.0001:
+		aim_dir = new_aim.normalized()
+	if PlaceholderCardService and _uses_overlay_combat():
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
+			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+		_sync_overlay_facing_from_aim()
+		PlaceholderCardService.update_weapon_overlay_combat(npc, _get_equipped_weapon_type(), aim_dir)
+
+
+func _sync_overlay_facing_from_aim() -> void:
+	if not npc or aim_dir.length_squared() < 0.0001:
+		return
+	if PlaceholderCardService and _uses_overlay_combat():
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
+			return
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+	if sprite:
+		sprite.flip_h = aim_dir.x < 0.0
+
+
+func _should_hold_weapon_ready() -> bool:
+	if not npc or not is_instance_valid(npc):
+		return false
+	return WeaponOverlayCombat.should_hold_weapon_ready(npc)
+
+
+func _resolve_post_recovery_aim() -> Vector2:
+	if not npc:
+		return aim_dir
+	var fallback: Vector2 = locked_strike_dir if locked_strike_dir.length_squared() > 0.0001 else aim_dir
+	return WeaponOverlayCombat.resolve_recovery_aim(npc, fallback)
+
+
+func _apply_overlay_ready_after_recovery(recovery_aim: Vector2) -> void:
+	if recovery_aim.length_squared() > 0.0001:
+		aim_dir = recovery_aim.normalized()
+	var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+	if PlaceholderCardService and _uses_overlay_combat():
+		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
+			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+	_sync_overlay_facing_from_aim()
+	PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.READY)
+	if wt != ResourceData.ResourceType.NONE:
+		PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
+		PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
+
+
+func cancel_ready() -> void:
+	if state != CombatState.READY:
+		return
+	state = CombatState.IDLE
+	if PlaceholderCardService and _uses_overlay_combat():
+		PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.IDLE)
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		if wt != ResourceData.ResourceType.NONE:
+			PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
+	_combat_d("COMBAT: cancel READY")
+
+
+func commit_strike(strike_aim: Vector2) -> void:
+	if state != CombatState.READY:
+		_combat_d("COMBAT: commit_strike rejected — not READY (state=%s)" % CombatState.keys()[state])
+		return
+	if not npc or not is_instance_valid(npc):
+		return
+	_update_attack_profile_from_weapon()
+	if strike_aim.length_squared() > 0.0001:
+		strike_aim = strike_aim.normalized()
+	elif aim_dir.length_squared() > 0.0001:
+		strike_aim = aim_dir.normalized()
+	else:
+		strike_aim = _get_default_facing_dir()
+	if npc.is_in_group("player") and npc.has_method("_get_cursor_aim_direction"):
+		var fresh: Vector2 = npc._get_cursor_aim_direction()
+		if fresh.length_squared() > 0.0001:
+			strike_aim = fresh.normalized()
+			npc.set("aim_dir", strike_aim)
+	locked_strike_dir = strike_aim
+	aim_dir = locked_strike_dir
+	current_target = _find_strike_target(locked_strike_dir)
+	state = CombatState.WINDUP
+	windup_start_time = Time.get_ticks_msec()
+	_sync_overlay_facing_from_aim()
+	if npc:
+		SoundDetection.emit_attack_swing(npc)
+	if _uses_overlay_combat() and PlaceholderCardService:
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		PlaceholderCardService.play_weapon_overlay_strike(
+			npc,
+			wt,
+			locked_strike_dir,
+			_on_hit_frame,
+			_on_overlay_strike_recovery_done
+		)
+	else:
+		_update_combat_sprite(CombatState.WINDUP)
+		var now := Time.get_ticks_msec()
+		var hit_time := now + int(windup_time * 1000.0)
+		var hit_callable := _on_hit_frame.bind()
+		if hit_callable.is_valid():
+			CombatScheduler.schedule(hit_time, hit_callable, npc.get_instance_id())
+		var mid_windup_time := now + int(windup_time * 0.5 * 1000.0)
+		var mid_callable := _on_windup_mid.bind()
+		if mid_callable.is_valid():
+			CombatScheduler.schedule(mid_windup_time, mid_callable, npc.get_instance_id())
+	_combat_d("COMBAT: commit_strike dir=%s target=%s" % [locked_strike_dir, current_target])
+
+
+func _on_overlay_strike_recovery_done() -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	state = CombatState.RECOVERY
+	recovery_start_time = Time.get_ticks_msec()
+	windup_start_time = 0
+	_on_recovery_end()
+
+
+func _find_strike_target(strike_aim: Vector2) -> Node2D:
+	if not npc or not is_instance_valid(npc):
+		return null
+	var best: Node2D = null
+	var best_score: float = INF
+	var origin: Vector2 = npc.global_position
+	var range_allow: float = attack_range * STRIKE_RANGE_SLACK_MULT
+	if npc.is_in_group("player"):
+		range_allow = attack_range * STRIKE_RANGE_SLACK_MULT
+	var candidates: Array = []
+	candidates.append_array(get_tree().get_nodes_in_group("npcs"))
+	candidates.append_array(get_tree().get_nodes_in_group("buildings"))
+	for node in candidates:
+		if not is_instance_valid(node) or node == npc:
+			continue
+		if not _is_valid_strike_candidate(node):
+			continue
+		var to_target: Vector2 = (node as Node2D).global_position - origin
+		var dist: float = to_target.length()
+		if dist > range_allow or dist < 0.001:
+			continue
+		var dir := to_target / dist
+		var ang: float = abs(dir.angle_to(strike_aim))
+		var half_allow: float = maxf(attack_arc * 0.5, STRIKE_ARC_MIN_HALF_RAD)
+		if ang > half_allow:
+			continue
+		var score: float = dist + ang * 40.0
+		if score < best_score:
+			best_score = score
+			best = node as Node2D
+	return best
+
+
+func _is_valid_strike_candidate(node: Node) -> bool:
+	if CombatAllyCheck.is_ally(npc, node):
+		return false
+	if node.is_in_group("buildings"):
+		return _is_damageable_enemy_building(node)
+	var hc: HealthComponent = node.get_node_or_null("HealthComponent")
+	if hc and hc.is_dead:
+		return false
+	return node is NPCBase or node.is_in_group("player")
+
+
+func _attacker_clan_name() -> String:
+	if not npc or not is_instance_valid(npc):
+		return ""
+	if npc.has_method("get_clan_name"):
+		var cn: String = npc.get_clan_name()
+		if cn != "":
+			return cn
+	if npc.is_in_group("player"):
+		var pn = npc.get("player_name")
+		if pn != null and str(pn) != "":
+			return str(pn)
+		if npc.has_meta("player_clan_name"):
+			return str(npc.get_meta("player_clan_name", ""))
+	return ""
+
+
+func _is_damageable_enemy_building(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if not node.has_method("take_damage"):
+		return false
+	if node.get("player_owned") == true and npc != null and npc.is_in_group("player"):
+		return false
+	var building_clan: String = str(node.get("clan_name")) if node.get("clan_name") != null else ""
+	var attacker_clan: String = _attacker_clan_name()
+	if building_clan != "" and attacker_clan != "" and building_clan == attacker_clan:
+		return false
+	return true
+
+
+func _get_default_facing_dir() -> Vector2:
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite") if npc else null
+	if sprite:
+		return Vector2(-1.0 if sprite.flip_h else 1.0, 0.0)
+	return Vector2(1, 0)
+
+
 # Event-driven attack system
 func request_attack(target: Node2D) -> void:
 	_combat_d("🔵 COMBAT: request_attack() called - state=%s, npc=%s, target=%s" % [
@@ -149,27 +388,37 @@ func request_attack(target: Node2D) -> void:
 		"valid" if target and is_instance_valid(target) else "null/invalid"
 	])
 	
-	# CRITICAL: Only allow attack requests when IDLE
-	# If in WINDUP or RECOVERY, reject the request (don't cancel - let current attack finish)
+	# CRITICAL: Only allow attack requests when IDLE (legacy NPC sheet path)
 	if state != CombatState.IDLE:
 		_combat_d("⚠️ COMBAT: Rejecting attack - not in IDLE state (state=%s). Current attack must finish first." % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 		return  # Reject - already attacking, wait for current attack to complete
+	
+	if _uses_overlay_combat():
+		current_target = target
+		var to_t: Vector2 = target.global_position - npc.global_position
+		if to_t.length_squared() > 0.0001:
+			aim_dir = to_t.normalized()
+		enter_ready(aim_dir)
+		commit_strike(aim_dir)
+		return
 	
 	if not npc or not is_instance_valid(target):
 		_combat_e("COMBAT: Invalid npc or target")
 		return
 	
-	# Check range
+	_update_attack_profile_from_weapon()
+	_load_attack_sprite_sheet()
+	
+	# Check range (player gets slack — click-to-attack from normal hunting distance)
 	var distance = npc.global_position.distance_to(target.global_position)
-	if distance > attack_range:
-		_combat_d("⚠️ COMBAT: Target out of range (distance=%.1f, range=%.1f)" % [distance, attack_range])
+	var range_allow: float = attack_range
+	if npc.is_in_group("player"):
+		range_allow = attack_range * STRIKE_RANGE_SLACK_MULT
+	if distance > range_allow:
+		_combat_d("⚠️ COMBAT: Target out of range (distance=%.1f, range=%.1f)" % [distance, range_allow])
 		return
 	
 	_combat_d("✅ COMBAT: Starting attack - distance=%.1f, windup=%.2fs" % [distance, windup_time])
-	
-	# Update attack profile from weapon (in case weapon changed)
-	_update_attack_profile_from_weapon()
-	_load_attack_sprite_sheet()
 	
 	# Start windup
 	state = CombatState.WINDUP
@@ -225,6 +474,23 @@ func request_attack(target: Node2D) -> void:
 	# 	target_name = target.get("npc_name")
 	# print("⚔️ %s starts windup attack on %s (hit in %.2fs)" % [attacker_name, target_name, windup_time])
 
+func _transition_windup_to_whiff_recovery() -> void:
+	if state != CombatState.WINDUP:
+		return
+	if _uses_overlay_combat():
+		return
+	state = CombatState.RECOVERY
+	recovery_start_time = Time.get_ticks_msec()
+	windup_start_time = 0
+	_update_combat_sprite(CombatState.RECOVERY)
+	var now := Time.get_ticks_msec()
+	var whiff_recovery_time := recovery_time * 0.5
+	var recovery_end_time := now + int(whiff_recovery_time * 1000.0)
+	var recovery_callable := _on_recovery_end.bind()
+	if recovery_callable.is_valid():
+		CombatScheduler.schedule(recovery_end_time, recovery_callable, npc.get_instance_id())
+
+
 func _on_windup_mid() -> void:
 	# Switch to frame 2 (mid-windup) so windup animates instead of freezing on frame 1
 	_combat_d("🎨 ANIMATION: _on_windup_mid() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
@@ -250,14 +516,14 @@ func _on_hit_frame() -> void:
 		return
 	
 	if not is_instance_valid(current_target):
-		_combat_e("COMBAT: Hit frame - target invalid, cancelling")
+		_combat_e("COMBAT: Hit frame - target invalid")
 		if DebugConfig and DebugConfig.enable_session_instrumentation:
 			var nn0: String = npc.get("npc_name") if npc and npc.get("npc_name") != null else "?"
 			UnifiedLogger.log_session("COMBAT_HIT_ABORT", {
 				"npc": nn0,
 				"reason": "target_invalid_at_hit_frame"
 			}, UnifiedLogger.Level.INFO)
-		_cancel_attack()
+		_transition_windup_to_whiff_recovery()
 		return
 	
 	if not npc or not is_instance_valid(npc):
@@ -284,10 +550,10 @@ func _on_hit_frame() -> void:
 		return
 	
 	if not hit_valid:
-		var whiff_reason: String = _hit_validation_failure_reason(current_target)
+		var whiff_reason: String = _hit_validation_failure_reason(current_target) if current_target else "no_target"
 		if whiff_reason == "":
 			whiff_reason = "unknown"
-		if DebugConfig and DebugConfig.enable_session_instrumentation:
+		if current_target and DebugConfig and DebugConfig.enable_session_instrumentation:
 			var nnw: String = npc.get("npc_name") if npc and npc.get("npc_name") != null else "?"
 			var tnw: String = "?"
 			if current_target and is_instance_valid(current_target):
@@ -312,33 +578,11 @@ func _on_hit_frame() -> void:
 				tn = "Player"
 			pi.combat_whiff(nn, tn, whiff_reason)
 		_combat_d("COMBAT: Hit validation failed (whiff)")
-		# CRITICAL: Instead of cancelling, transition to RECOVERY to complete the attack cycle
-		# This prevents oscillation - caveman will complete recovery before next attack
-		if state == CombatState.WINDUP:
-			_combat_d("⚠️ COMBAT: Hit validation failed in WINDUP - transitioning to RECOVERY (whiff)")
-			# Transition to RECOVERY instead of cancelling
-			state = CombatState.RECOVERY
-			recovery_start_time = Time.get_ticks_msec()
-			windup_start_time = 0
-			
-			# Update sprite to recovery frame
-			_update_combat_sprite(CombatState.RECOVERY)
-			
-			# Schedule recovery end (shorter recovery for whiff)
-			var now = Time.get_ticks_msec()
-			var whiff_recovery_time = recovery_time * 0.5  # Shorter recovery for whiff
-			var recovery_end_time = now + int(whiff_recovery_time * 1000)
-			var recovery_callable = _on_recovery_end.bind()
-			if recovery_callable.is_valid():
-				CombatScheduler.schedule(recovery_end_time, recovery_callable, npc.get_instance_id())
-				_combat_d("⏰ COMBAT: Scheduled whiff recovery end at %d (recovery=%.2fs)" % [recovery_end_time, whiff_recovery_time])
-		else:
-			_combat_d("⚠️ COMBAT: Hit validation failed but not in WINDUP (state=%s), allowing recovery to complete" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+		_transition_windup_to_whiff_recovery()
 		return
 	
 	_combat_d("✅ COMBAT: Hit validated, applying damage")
 	
-	# Apply damage
 	# Check if target is a building (can be damaged)
 	if current_target.is_in_group("buildings"):
 		# Building damage
@@ -352,6 +596,8 @@ func _on_hit_frame() -> void:
 				pi.combat_hit(nn, current_target.name if current_target else "building", ac_b, "", false)
 			_combat_d("⚔️ Building %s took %.1f damage" % [current_target.name if current_target else "unknown", building_damage])
 		# Transition to recovery (building attacks don't need full recovery)
+		if _uses_overlay_combat():
+			return
 		state = CombatState.RECOVERY
 		recovery_start_time = Time.get_ticks_msec()
 		windup_start_time = 0
@@ -438,6 +684,10 @@ func _on_hit_frame() -> void:
 		_apply_stagger_to_target(current_target)
 	
 	# CRITICAL: Exit WINDUP state immediately - transition to RECOVERY
+	if _uses_overlay_combat():
+		# Overlay tween + _on_overlay_strike_recovery_done schedules recovery end.
+		return
+	
 	state = CombatState.RECOVERY
 	recovery_start_time = Time.get_ticks_msec()  # Track recovery start for timeout detection
 	windup_start_time = 0  # Reset windup start time
@@ -475,50 +725,65 @@ func _on_hit_frame() -> void:
 func _on_recovery_end() -> void:
 	_combat_d("🔄 COMBAT: _on_recovery_end() called - state=%s" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
-	# Safety check: Only transition from RECOVERY to IDLE
-	if state != CombatState.RECOVERY:
-		push_warning("COMBAT: recovery_end not in RECOVERY state (state=%s), forcing to IDLE" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
+	if state != CombatState.RECOVERY and state != CombatState.WINDUP:
+		push_warning("COMBAT: recovery_end not in RECOVERY/WINDUP state (state=%s), forcing cleanup" % CombatState.keys()[state] if state < CombatState.size() else "INVALID")
 	
-	state = CombatState.IDLE
-	current_target = null
-	windup_start_time = 0  # Reset windup start time
-	recovery_start_time = 0  # Reset recovery start time
-	
-	# Reset recovery time to base (in case it was extended by stagger)
+	windup_start_time = 0
+	recovery_start_time = 0
 	recovery_time = base_recovery_time
 	
-	# Reset sprite to default/idle
-	_combat_d("🎨 ANIMATION: Resetting sprite to IDLE/default")
-	_update_combat_sprite(CombatState.IDLE)
+	if _uses_overlay_combat() and _should_hold_weapon_ready():
+		var recovery_aim: Vector2 = _resolve_post_recovery_aim()
+		state = CombatState.READY
+		_apply_overlay_ready_after_recovery(recovery_aim)
+	else:
+		state = CombatState.IDLE
+		current_target = null
+		_combat_d("🎨 ANIMATION: Resetting sprite to IDLE/default")
+		if PlaceholderCardService and _uses_overlay_combat():
+			PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.IDLE)
+			var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+			if wt != ResourceData.ResourceType.NONE:
+				PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
+		else:
+			_update_combat_sprite(CombatState.IDLE)
 	
-	# Release combat lock - only for NPCs
 	if npc and npc.has_method("get") and npc.get("combat_locked") != null:
 		npc.combat_locked = false
 		_combat_d("🔓 COMBAT: Combat lock released")
 	
-	# Set cooldown timestamp to prevent immediate re-attack (prevents oscillation)
 	if npc:
 		var now = Time.get_ticks_msec()
 		npc.set_meta("last_attack_request_time", now)
 		_combat_d("⏱️ COMBAT: Attack cooldown set (prevents immediate re-attack)")
 	
-	_combat_d("✅ COMBAT: Recovery complete, back to IDLE")
-	
-	# Debug logging (can be disabled for performance)
-	# var attacker_name = "Player"
-	# if npc and npc.has_method("get") and npc.get("npc_name"):
-	# 	attacker_name = npc.get("npc_name")
-	# print("⚔️ %s recovery complete" % attacker_name)
+	if state == CombatState.READY:
+		_combat_d("✅ COMBAT: Recovery complete, back to READY (weapon ready held)")
+	else:
+		_combat_d("✅ COMBAT: Recovery complete, back to IDLE")
 
 func _cancel_attack() -> void:
 	var cancel_entity_id = npc.get_instance_id() if npc else 0
 	_combat_d("🚫 COMBAT: _cancel_attack() called - current_state=%s, entity_id=%d" % [CombatState.keys()[state] if state < CombatState.size() else "INVALID", cancel_entity_id])
 	
+	var was_ready_only: bool = state == CombatState.READY
 	# CRITICAL: Always return to IDLE, regardless of current state
 	state = CombatState.IDLE
 	current_target = null
 	windup_start_time = 0  # Reset windup start time
 	recovery_start_time = 0  # Reset recovery start time
+	if PlaceholderCardService and _uses_overlay_combat():
+		PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.IDLE)
+		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+		if wt != ResourceData.ResourceType.NONE:
+			PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
+	
+	if was_ready_only:
+		if npc and npc.has_method("get") and npc.get("combat_locked") != null:
+			npc.combat_locked = false
+		if npc:
+			CombatScheduler.cancel_all_for_entity(cancel_entity_id)
+		return
 	
 	# Reset sprite to default/idle
 	_combat_d("🎨 ANIMATION: Resetting sprite to IDLE (cancelled)")
@@ -559,6 +824,18 @@ func _hit_validation_failure_reason(target: Node) -> String:
 		return "no_npc"
 	if CombatAllyCheck.is_ally(npc, target):
 		return "ally"
+	if target.is_in_group("buildings"):
+		if not target.has_method("take_damage"):
+			return "not_damageable"
+		if not _is_damageable_enemy_building(target):
+			return "ally"
+		var bdist: float = npc.global_position.distance_to(target.global_position)
+		var bstrike_range: float = attack_range * STRIKE_RANGE_SLACK_MULT
+		if bdist > bstrike_range:
+			return "out_of_range"
+		if not _is_target_in_strike_arc(target):
+			return "out_of_arc"
+		return ""
 	var target_health: HealthComponent = target.get_node_or_null("HealthComponent")
 	if not target_health or target_health.is_dead:
 		return "dead"
@@ -574,6 +851,15 @@ func _validate_hit(target: Node) -> bool:
 	return _hit_validation_failure_reason(target) == ""
 
 func _get_melee_facing_direction() -> Vector2:
+	if locked_strike_dir.length_squared() > 0.0001 and state != CombatState.IDLE:
+		return locked_strike_dir.normalized()
+	if aim_dir.length_squared() > 0.0001 and (state == CombatState.READY or state == CombatState.WINDUP):
+		return aim_dir.normalized()
+	# Player click-attack: face the target so thrust/swing arc matches intent (deer above/below, not only L/R flip).
+	if npc and npc.is_in_group("player") and current_target and is_instance_valid(current_target):
+		var to_target: Vector2 = current_target.global_position - npc.global_position
+		if to_target.length_squared() > 4.0:
+			return to_target.normalized()
 	var facing_direction: Vector2
 	if npc and npc.has_method("get") and npc.get("velocity") != null:
 		var velocity: Vector2 = npc.get("velocity") as Vector2
@@ -656,8 +942,8 @@ func _apply_stagger_to_target(target: Node) -> void:
 	if target_combat == self:
 		return
 	
-	# If target is in windup, cancel their attack (stagger interrupt)
-	if target_combat.state == CombatState.WINDUP:
+	# If target is in windup or ready, cancel their attack (stagger interrupt)
+	if target_combat.state == CombatState.WINDUP or target_combat.state == CombatState.READY:
 		var attacker_id = npc.get_instance_id() if npc else 0
 		var target_id = target.get_instance_id() if target else 0
 		_combat_d("💥 COMBAT: Staggering target (attacker_id=%d, target_id=%d, target_combat=%s, self=%s)" % [attacker_id, target_id, target_combat, self])
@@ -721,11 +1007,11 @@ func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> D
 			}
 		ResourceData.ResourceType.SPEAR:
 			return {
-				"windup": 0.42,
-				"recovery": 0.72,
+				"windup": 0.18,
+				"recovery": 0.14,
 				"arc": PI / 5.0,  # Thrust cone (forward reach)
 				"stagger": 0.16,
-				"attack_range": 136.0  # Longer than club (100) — melee thrust only
+				"attack_range": 160.0  # Thrust — clearly longer than club/swing (100)
 			}
 		_:
 			return {
@@ -752,17 +1038,31 @@ func _get_equipped_weapon_type() -> ResourceData.ResourceType:
 				if not s0.is_empty():
 					wt = s0.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
 		return wt
-	# Player — right hand from main UI
-	if not is_inside_tree():
+	# Player — equipped item on player node, then main hotbar
+	if npc.is_in_group("player"):
+		if npc.has_method("get_equipped_weapon_type"):
+			var wt_player: ResourceData.ResourceType = npc.get_equipped_weapon_type()
+			if wt_player != ResourceData.ResourceType.NONE:
+				return wt_player
+		if is_inside_tree():
+			var main: Node = get_tree().get_first_node_in_group("main")
+			if main:
+				var player_inventory_ui: Variant = main.get("player_inventory_ui")
+				if player_inventory_ui != null:
+					var slots: Variant = player_inventory_ui.get("hotbar_slots")
+					var rh_idx: int = int(player_inventory_ui.get("RIGHT_HAND_SLOT_INDEX")) if player_inventory_ui.get("RIGHT_HAND_SLOT_INDEX") != null else 0
+					if slots is Array and (slots as Array).size() > rh_idx:
+						var first_slot: Variant = (slots as Array)[rh_idx]
+						var slot_item: Variant = null
+						if first_slot is Dictionary:
+							slot_item = (first_slot as Dictionary).get("item_data")
+						elif first_slot is Object:
+							slot_item = first_slot.get("item_data")
+						if slot_item is Dictionary:
+							var wt_hotbar: ResourceData.ResourceType = (slot_item as Dictionary).get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+							if wt_hotbar != ResourceData.ResourceType.NONE:
+								return wt_hotbar
 		return ResourceData.ResourceType.NONE
-	var main: Node = get_tree().get_first_node_in_group("main")
-	if main and "player_inventory_ui" in main:
-		var player_inventory_ui = main.player_inventory_ui
-		if player_inventory_ui and player_inventory_ui.hotbar_slots.size() > player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
-			var first_slot = player_inventory_ui.hotbar_slots[player_inventory_ui.RIGHT_HAND_SLOT_INDEX]
-			var slot_item = first_slot.get("item_data")
-			if slot_item:
-				return slot_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
 	return ResourceData.ResourceType.NONE
 
 func refresh_attack_sprite_sheet() -> void:
@@ -783,6 +1083,10 @@ func _update_attack_profile_from_weapon() -> void:
 
 func _load_attack_sprite_sheet() -> void:
 	if not npc:
+		return
+	if _uses_overlay_combat():
+		use_sprite_sheet_animation = false
+		attack_sprite_sheet = null
 		return
 	var nt: String = npc.get("npc_type") as String if npc.get("npc_type") != null else ""
 	if nt in ["sheep", "goat"]:

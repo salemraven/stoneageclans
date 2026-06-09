@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="StoneAgeClans"
 run/main_scene="res://scenes/Main.tscn"
-config/features=PackedStringArray("4.6")
+config/features=PackedStringArray("4.5")
 
 [autoload]
 
@@ -30,8 +30,10 @@ PlaytestInstrumentor="*res://scripts/logging/playtest_instrumentor.gd"
 OccupationDiagLogger="*res://scripts/logging/occupation_diag_logger.gd"
 NPCConfig="*res://scripts/config/npc_config.gd"
 DebugConfig="*res://scripts/config/debug_config.gd"
+PartyHuntInstrument="*res://scripts/logging/party_hunt_instrument.gd"
 WildNpcTrace="*res://scripts/debug/wild_npc_trace.gd"
 AssetRegistry="*res://scripts/config/asset_registry.gd"
+PlaceholderCardService="*res://scripts/systems/placeholder_card_service.gd"
 CompetitionTracker="*res://scripts/competition_tracker.gd"
 NPCActivityTracker="*res://scripts/npc/npc_activity_tracker.gd"
 NPCProductivityInstrument="*res://scripts/logging/npc_productivity_instrument.gd"
@@ -58,6 +60,10 @@ window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/filter=false
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/external_edit_sync/plugin.cfg")
 
 [input]
 
@@ -100,7 +106,3 @@ gather={
 
 environment/defaults/default_clear_color=Color(0.062745, 0.0823529, 0.0901961, 1)
 textures/default_filters/texture_filter=0
-
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/external_edit_sync/plugin.cfg")

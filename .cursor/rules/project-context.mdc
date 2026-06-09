@@ -12,7 +12,7 @@ Godot 4.x game: **Stoneshard + RimWorld** mix — tactical survival, colony mana
 **System-driven simulation.** Emergent gameplay from interacting systems — hunting trips gone wrong, clan rivalries, starvation forcing risky decisions, predators, leadership struggles. Systems must interact, not exist in isolation.
 
 ## Source of Truth
-- **bible.md** — Lore, design, mechanics, systems. Check it before changing behavior or adding features.
+- **bible/bible.md** — Lore, design, mechanics, systems. Index: **bible/README.md**. Check before changing behavior or adding features.
 
 ## Key Systems to Expand
 - NPC behavior (goal-based, memory, danger reaction, social alliances)

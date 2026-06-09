@@ -1,10 +1,10 @@
 extends "res://scripts/npc/states/base_state.gd"
 
-const _ButcherTaskScript := preload("res://scripts/ai/tasks/butcher_task.gd")
-const _JobScript := preload("res://scripts/ai/jobs/job.gd")
+const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 
 # Hunt State — AI clan hunting party (Area of Hunt → chase wild prey: deer, mammoth). Sheep/goat are herd-only.
 # Pull-based: ClanBrain sets hunt intent; mirrors raid_state flow (assemble → move → engage → return).
+# LOOTING is owned by ClanBrain + CorpseJobs; hunters exit to gather and pull butcher jobs.
 
 enum HuntPhase { FORMING, CHASING, KILLING, LOOTING, RETURNING }
 
@@ -19,9 +19,16 @@ var _loot_butcher_started_logged: bool = false
 var _hunt_abort_grace_timer: float = 0.0
 const HUNT_ABORT_GRACE_SEC: float = 0.4
 const LOOT_PHASE_TIMEOUT_SEC: float = 15.0
+const HUNT_ENCIRCLE_LEADER_DIST: float = 160.0
+const HUNT_ENCIRCLE_FORCE_ATTACK_SEC: float = 3.0
+const HUNT_CLOSE_TIMER_DECAY_MULT: float = 0.35
+const HUNT_SKIP_RALLY_DIST: float = 450.0
 
 var _hunt_abort_logged: bool = false
 var _hunt_prey_killed_logged: bool = false
+var _hunt_arc_mode_set: bool = false
+var _hunt_close_timer: float = 0.0
+var _hunt_attack_triggered: bool = false
 
 func enter() -> void:
 	if not npc:
@@ -39,8 +46,33 @@ func enter() -> void:
 		return
 	if clan_brain.has_method("npc_join_hunt"):
 		clan_brain.npc_join_hunt(npc)
+	if npc.has_method("equip_work_weapon_spear"):
+		npc.equip_work_weapon_spear()
 	npc.set("is_hostile", true)
-	hunt_phase = HuntPhase.FORMING
+	var hint_resume: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
+	var prey_resume: Node = _resolve_prey_from_hint(hint_resume)
+	if prey_resume:
+		var prey_dead_resume: bool = false
+		if prey_resume.has_method("is_dead"):
+			prey_dead_resume = bool(prey_resume.is_dead())
+		else:
+			prey_dead_resume = not is_attack_target_alive(prey_resume)
+		if prey_dead_resume:
+			hunt_phase = HuntPhase.LOOTING
+			_prepare_looting_entry()
+		elif int(hint_resume.get("state", 0)) == 3:
+			hunt_phase = HuntPhase.LOOTING
+			_prepare_looting_entry()
+		elif int(hint_resume.get("state", 0)) == 4:
+			hunt_phase = HuntPhase.RETURNING
+		elif npc.global_position.distance_to(prey_resume.global_position) < HUNT_SKIP_RALLY_DIST:
+			hunt_phase = HuntPhase.CHASING
+		elif npc.global_position.distance_to(prey_resume.global_position) < HUNT_ENCIRCLE_LEADER_DIST:
+			hunt_phase = HuntPhase.CHASING
+		else:
+			hunt_phase = HuntPhase.FORMING
+	else:
+		hunt_phase = HuntPhase.FORMING
 	assembly_timer = 0.0
 	_loot_timer = 0.0
 	_loot_butcher_started_logged = false
@@ -52,6 +84,9 @@ func enter() -> void:
 	_hunt_abort_grace_timer = 0.0
 	_hunt_abort_logged = false
 	_hunt_prey_killed_logged = false
+	_hunt_arc_mode_set = false
+	_hunt_close_timer = 0.0
+	_hunt_attack_triggered = false
 	if npc:
 		npc.set_meta("chunk_sticky", true)
 
@@ -61,15 +96,17 @@ func exit() -> void:
 		if npc.has_meta("chunk_sticky"):
 			npc.remove_meta("chunk_sticky")
 	if npc:
-		npc.remove_meta("hunt_after_combat")
 		if npc.has_meta("is_stalking"):
 			npc.remove_meta("is_stalking")
 		if npc.has_meta("hunt_butchering"):
 			npc.remove_meta("hunt_butchering")
 	if clan_brain and clan_brain.has_method("npc_leave_hunt"):
-		clan_brain.npc_leave_hunt(npc)
+		var resume_after_combat: bool = npc.get_meta("hunt_after_combat", false) if npc else false
+		if not resume_after_combat:
+			clan_brain.npc_leave_hunt(npc)
 	if npc:
-		npc.set("is_hostile", false)
+		if not npc.get_meta("hunt_after_combat", false):
+			npc.set("is_hostile", false)
 	print("🎯 HUNT_STATE: %s left hunt" % (npc.get("npc_name") if npc else "NPC"))
 
 func update(delta: float) -> void:
@@ -96,11 +133,16 @@ func update(delta: float) -> void:
 	_hunt_abort_grace_timer = 0.0
 	var hint: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
 	var hs: int = int(hint.get("state", 0))
-	# ClanBrain.HuntIntentState: RETREATING — abort loot cleanup then sync phase
+	# ClanBrain.HuntIntentState: LOOTING=3, RETREATING=4
 	if hs == 3:
+		if hunt_phase != HuntPhase.LOOTING:
+			hunt_phase = HuntPhase.LOOTING
+			_prepare_looting_entry()
+	elif hs == 4:
 		if hunt_phase == HuntPhase.LOOTING:
 			_finish_looting("brain_retreat")
-		hunt_phase = HuntPhase.RETURNING
+		elif hunt_phase != HuntPhase.RETURNING:
+			hunt_phase = HuntPhase.RETURNING
 	match hunt_phase:
 		HuntPhase.FORMING:
 			_update_forming(delta)
@@ -120,16 +162,21 @@ func _update_forming(delta: float) -> void:
 		if fsm:
 			fsm.change_state("wander")
 		return
+	var hint_form: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
+	var prey_form: Node = _resolve_prey_from_hint(hint_form)
+	if prey_form and npc.global_position.distance_to(prey_form.global_position) < HUNT_SKIP_RALLY_DIST:
+		hunt_phase = HuntPhase.CHASING
+		return
 	var rally: Vector2 = clan_brain.get_hunt_rally_point() if clan_brain.has_method("get_hunt_rally_point") else Vector2.ZERO
 	if rally != Vector2.ZERO and npc.steering_agent:
 		npc.steering_agent.set_target_position(rally)
 	if rally != Vector2.ZERO and npc.global_position.distance_to(rally) < 55.0:
 		hunt_phase = HuntPhase.CHASING
 
-func _update_chasing(_delta: float) -> void:
+func _update_chasing(delta: float) -> void:
 	var hint0: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
-	var prey: Node = hint0.get("target") as Node
-	if not prey or not is_instance_valid(prey):
+	var prey: Node = _resolve_prey_from_hint(hint0)
+	if not prey:
 		_emit_hunt_abort_if_needed("prey_invalid")
 		hunt_phase = HuntPhase.RETURNING
 		return
@@ -153,13 +200,19 @@ func _update_chasing(_delta: float) -> void:
 			npc.remove_meta("is_stalking")
 	if npc.steering_agent:
 		npc.steering_agent.set_target_position(prey_pos)
-	if dist < 120.0:
-		hunt_phase = HuntPhase.KILLING
+	if dist < HUNT_ENCIRCLE_LEADER_DIST:
+		_hunt_close_timer += delta
+		_ensure_hunt_arc_stance()
+		var encircled: bool = clan_brain.has_method("is_hunt_party_encircled") and clan_brain.is_hunt_party_encircled(prey)
+		if encircled or _hunt_close_timer >= HUNT_ENCIRCLE_FORCE_ATTACK_SEC:
+			hunt_phase = HuntPhase.KILLING
+	else:
+		_hunt_close_timer = maxf(0.0, _hunt_close_timer - delta * HUNT_CLOSE_TIMER_DECAY_MULT)
 
 func _update_killing() -> void:
 	var hint1: Dictionary = clan_brain.get_hunt_intent() if clan_brain and clan_brain.has_method("get_hunt_intent") else {}
-	var prey: Node = hint1.get("target") as Node
-	if not prey or not is_instance_valid(prey):
+	var prey: Node = _resolve_prey_from_hint(hint1)
+	if not prey:
 		_emit_hunt_abort_if_needed("prey_invalid_killing")
 		hunt_phase = HuntPhase.RETURNING
 		return
@@ -173,38 +226,17 @@ func _update_killing() -> void:
 		hunt_phase = HuntPhase.LOOTING
 		_prepare_looting_entry()
 		return
-	npc.set("combat_target", prey)
-	npc.set("agro_meter", 100.0)
-	if npc:
-		npc.set_meta("hunt_after_combat", true)
-	# Combat (priority 12) takes over next FSM tick
+	if _hunt_attack_triggered:
+		return
+	_hunt_attack_triggered = true
+	if clan_brain and clan_brain.has_method("trigger_hunt_party_attack"):
+		clan_brain.trigger_hunt_party_attack(prey)
 
-func _update_looting(delta: float) -> void:
-	_loot_timer += delta
-	if _loot_timer > LOOT_PHASE_TIMEOUT_SEC:
-		_finish_looting("timeout")
-		return
-	var corpse: Node = _loot_corpse()
-	if not corpse or not is_instance_valid(corpse):
-		_finish_looting("corpse_invalid")
-		return
-	if _corpse_yield_total(corpse) <= 0:
-		_finish_looting("corpse_empty")
-		return
-	if npc.inventory and not npc.inventory.has_space():
-		_finish_looting("inventory_full")
-		return
-	if not _loot_butcher_started_logged:
-		_emit_hunt_butcher_started_evt(corpse)
-		_loot_butcher_started_logged = true
-	if not npc.task_runner:
-		return
-	if npc.task_runner.has_job():
-		return
-	var job := _JobScript.new()
-	job.add_task(_ButcherTaskScript.new(corpse))
-	npc.task_runner.assign_job(job)
-	npc.set_meta("hunt_butchering", true)
+func _update_looting(_delta: float) -> void:
+	# Corpse butchering runs via gather + ButcherCorpseJob; leave hunt FSM once site is open.
+	if fsm:
+		fsm.evaluation_timer = 0.0
+		fsm.change_state("gather", true)
 
 func _update_returning(_delta: float) -> void:
 	if not land_claim or not is_instance_valid(land_claim):
@@ -232,9 +264,16 @@ func _prepare_looting_entry() -> void:
 	npc.set_meta("hunt_loot_bone", 0)
 	npc.set_meta("hunt_butcher_units", 0)
 
+func _resolve_prey_from_hint(hint: Dictionary) -> Node:
+	var raw_prey = hint.get("target")
+	if raw_prey == null or not is_instance_valid(raw_prey):
+		return null
+	return raw_prey as Node
+
+
 func _loot_corpse() -> Node:
 	var hint_ch: Dictionary = clan_brain.get_hunt_intent() if clan_brain and clan_brain.has_method("get_hunt_intent") else {}
-	return hint_ch.get("target") as Node
+	return _resolve_prey_from_hint(hint_ch)
 
 func _corpse_yield_total(corpse_node: Node) -> int:
 	if not corpse_node or not is_instance_valid(corpse_node):
@@ -257,6 +296,10 @@ func _emit_hunt_abort_if_needed(reason: String) -> void:
 	if _hunt_abort_logged or not npc:
 		return
 	_hunt_abort_logged = true
+	_find_clan_brain()
+	if clan_brain and clan_brain.has_method("abort_hunt"):
+		clan_brain.abort_hunt(reason)
+		return
 	var cn: String = _hunter_clan_name()
 	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("hunt_aborted"):
@@ -312,16 +355,17 @@ func _finish_looting(reason: String) -> void:
 	if hunt_phase != HuntPhase.LOOTING:
 		return
 	if npc:
-		if npc.task_runner and npc.task_runner.has_job():
-			npc.task_runner.cancel_current_job("hunt_looting_%s" % reason)
-		if npc.has_meta("hunt_butchering"):
-			npc.remove_meta("hunt_butchering")
-	var gained: int = 0
-	if npc:
-		gained = int(npc.get_meta("hunt_loot_meat", 0)) + int(npc.get_meta("hunt_loot_hide", 0)) + int(npc.get_meta("hunt_loot_bone", 0))
-	if _loot_butcher_started_logged or gained > 0:
-		_emit_hunt_butcher_complete_evt(reason)
+		CorpseJobs.clear_worker_meta(npc)
 	hunt_phase = HuntPhase.RETURNING
+
+func _ensure_hunt_arc_stance() -> void:
+	if _hunt_arc_mode_set or not clan_brain:
+		return
+	if not clan_brain.has_method("set_hunt_party_arc_stance"):
+		return
+	clan_brain.set_hunt_party_arc_stance()
+	_hunt_arc_mode_set = true
+
 
 func _find_clan_brain() -> void:
 	# Do not clear cache first: get_my_land_claim() can be null for a frame at territory edges.

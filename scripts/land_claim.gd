@@ -1,6 +1,7 @@
 extends Node2D
 class_name LandClaim
 
+const BuildingHealthBar = preload("res://scripts/ui/building_health_bar.gd")
 const _TerritoryJobService = preload("res://scripts/systems/territory_job_service.gd")
 
 signal claim_destroyed(clan_name: String)
@@ -84,6 +85,11 @@ func _ready() -> void:
 	else:
 		if DebugConfig.enable_debug_mode:
 			print("🔵 LAND_CLAIM._READY: Using EXISTING inventory for %s (inventory=%s, slot_count=%d)" % [clan_name, inventory, inventory.slot_count if inventory else 0])
+		if inventory and BalanceConfig:
+			var target_slots: int = BalanceConfig.land_claim_inventory_slots
+			var target_stack: int = BalanceConfig.land_claim_inventory_max_stack
+			if inventory.slot_count < target_slots or inventory.max_stack < target_stack:
+				inventory.upgrade_storage(target_slots, target_stack)
 
 	# Playtest: buildings spawn empty (no starting GRAIN/WOOD)
 	
@@ -150,7 +156,7 @@ func get_huntables_in_aoh() -> Array:
 func _prune_huntables_in_aoh() -> void:
 	var valid: Array = []
 	for b in _huntables_in_aoh:
-		if is_instance_valid(b):
+		if is_instance_valid(b) and _is_huntable_wild_in_aoh(b):
 			valid.append(b)
 	_huntables_in_aoh = valid
 
@@ -201,6 +207,11 @@ func _is_huntable_wild_in_aoh(body: Node) -> bool:
 		bclan = str(body.get("clan_name")) if body.get("clan_name") != null else ""
 	if clan_name != "" and bclan != "" and bclan.to_lower() == clan_name.to_lower():
 		return false
+	# Wild prey inside the claim footprint breaks defend/flee/hunt (must stay in AoH ring only).
+	if body is Node2D:
+		var dist: float = (body as Node2D).global_position.distance_to(global_position)
+		if dist <= radius:
+			return false
 	return true
 
 func _on_aoh_body_entered(body: Node2D) -> void:
@@ -217,6 +228,16 @@ func _on_aoh_body_exited(body: Node2D) -> void:
 	var idx: int = _huntables_in_aoh.find(body)
 	if idx >= 0:
 		_huntables_in_aoh.remove_at(idx)
+
+
+## Register wild prey already inside AoH (e.g. party-hunt-debug seed spawn). Normal path is body_entered.
+func register_huntable_in_aoh(body: Node2D) -> void:
+	if not _aoh_authority_ok():
+		return
+	if not _is_huntable_wild_in_aoh(body):
+		return
+	if _huntables_in_aoh.find(body) < 0:
+		_huntables_in_aoh.append(body)
 
 func _setup_enemies_in_claim() -> void:
 	_enemies_zone = Area2D.new()
@@ -749,75 +770,11 @@ func _start_fast_decay_on_clan_buildings() -> void:
 			bld.start_fast_decay()
 
 func _setup_health_bar() -> void:
-	"""Create health bar UI for land claim (same as BuildingBase)"""
-	# Use explicit symmetric anchors + offsets only (no preset+size mix) to avoid
-	# Godot Control warnings: non-equal opposite anchors overriding size.
-	var health_bar = Control.new()
-	health_bar.name = "HealthBar"
-	health_bar.anchor_left = 0.5
-	health_bar.anchor_right = 0.5
-	health_bar.anchor_top = 0.0
-	health_bar.anchor_bottom = 0.0
-	health_bar.offset_left = -40.0
-	health_bar.offset_right = 40.0
-	health_bar.offset_top = -60.0
-	health_bar.offset_bottom = -52.0
-	health_bar.visible = false
-	add_child(health_bar)
-
-	var bg_bar = ColorRect.new()
-	bg_bar.name = "Background"
-	bg_bar.color = Color(0.3, 0.0, 0.0, 0.8)
-	bg_bar.anchor_left = 0.0
-	bg_bar.anchor_top = 0.0
-	bg_bar.anchor_right = 1.0
-	bg_bar.anchor_bottom = 1.0
-	bg_bar.offset_left = 0.0
-	bg_bar.offset_top = 0.0
-	bg_bar.offset_right = 0.0
-	bg_bar.offset_bottom = 0.0
-	health_bar.add_child(bg_bar)
-
-	var health_fill = ColorRect.new()
-	health_fill.name = "HealthFill"
-	health_fill.color = Color(0.0, 1.0, 0.0, 0.8)
-	health_fill.anchor_left = 0.0
-	health_fill.anchor_top = 0.0
-	health_fill.anchor_right = 0.0
-	health_fill.anchor_bottom = 0.0
-	health_fill.offset_left = 0.0
-	health_fill.offset_top = 0.0
-	health_fill.offset_right = 80.0
-	health_fill.offset_bottom = 8.0
-	health_bar.add_child(health_fill)
+	BuildingHealthBar.create(self)
 
 func _update_health_bar() -> void:
-	"""Update health bar visual"""
-	var health_bar = get_node_or_null("HealthBar")
-	if not health_bar:
-		return
-	
-	var health_fill = health_bar.get_node_or_null("HealthFill")
-	if not health_fill:
-		return
-	
-	# Show health bar if damaged or decaying
-	if decay_health < DECAY_MAX_HEALTH or is_decaying:
-		health_bar.visible = true
-	else:
-		health_bar.visible = false
-	
-	# Update health bar width (offset_right; anchors fixed — see _setup_health_bar)
-	var health_percent: float = decay_health / DECAY_MAX_HEALTH
-	health_fill.offset_right = 80.0 * health_percent
-	
-	# Change color based on health
-	if health_percent > 0.6:
-		health_fill.color = Color(0.0, 1.0, 0.0, 0.8)  # Green
-	elif health_percent > 0.3:
-		health_fill.color = Color(1.0, 1.0, 0.0, 0.8)  # Yellow
-	else:
-		health_fill.color = Color(1.0, 0.0, 0.0, 0.8)  # Red
+	var bar: Control = get_node_or_null("HealthBar") as Control
+	BuildingHealthBar.update_bar(bar, decay_health, DECAY_MAX_HEALTH)
 
 func _drop_inventory_items(drop_position: Vector2) -> void:
 	"""Drop all inventory items as ground items when building is destroyed"""

@@ -10,7 +10,8 @@ var target_position: Vector2
 # Arrival distance threshold (pixels) - NPC is considered "arrived" when within this distance
 var arrival_distance: float = 50.0
 
-# Movement speed (pixels per second) - normal NPC speed (reduced for smoother movement)
+# Movement speed (pixels per second). Capped to NPC steering max in _start_impl so job legs
+# match wander speed (~agility * NPCConfig.speed_agility_multiplier); avoids ~2x “sprint spurts”.
 var move_speed: float = 180.0
 
 # Whether to use steering behavior (for smoother movement)
@@ -46,6 +47,14 @@ func _start_impl(actor: Node) -> void:
 	
 	_started = true
 	_start_delay_timer = 0.0
+	# Align task speed with FSM steering cap (gather jobs used 120–180; felt like fast spurts vs wander)
+	if actor is NPCBase and NPCConfig:
+		var nb: NPCBase = actor as NPCBase
+		var ag: float = 10.0
+		if nb.stats_component:
+			ag = nb.stats_component.get_stat("agility")
+		var cap: float = ag * NPCConfig.speed_agility_multiplier
+		move_speed = minf(move_speed, cap)
 	# Initialize current velocity from NPC's existing velocity for smooth transition
 	if actor is CharacterBody2D:
 		_current_velocity = (actor as CharacterBody2D).velocity

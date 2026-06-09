@@ -22,6 +22,8 @@ func _init(count: int = 10, stacking: bool = false, max_stack_size: int = 1) -> 
 func add_item(type: ResourceData.ResourceType, amount: int = 1, quality: int = 0) -> bool:
 	if amount <= 0:
 		return true  # Nothing to add
+	if not can_add_item(type, amount):
+		return false
 	
 	var remaining: int = amount
 	
@@ -133,6 +135,85 @@ func has_space() -> bool:
 		if slot == null:
 			return true
 	return false
+
+
+## True when at least `amount` of `type` can fit (existing stacks or empty slots).
+func can_add_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
+	if amount <= 0:
+		return true
+	if can_stack:
+		var remaining: int = amount
+		for i in slot_count:
+			var slot = slots[i]
+			if slot != null and slot.get("type", -1) == type:
+				var space_left: int = max_stack - int(slot.get("count", 1))
+				if space_left > 0:
+					remaining -= mini(remaining, space_left)
+					if remaining <= 0:
+						return true
+		for slot in slots:
+			if slot == null:
+				remaining -= mini(remaining, max_stack)
+				if remaining <= 0:
+					return true
+		return false
+	var empty_slots: int = 0
+	for slot in slots:
+		if slot == null:
+			empty_slots += 1
+	return empty_slots >= amount
+
+
+## Merge duplicate stacks so each item type uses as few slots as possible.
+func consolidate_stacks() -> void:
+	if not can_stack:
+		return
+	var totals: Dictionary = {}
+	for i in slot_count:
+		var slot = slots[i]
+		if slot == null:
+			continue
+		var t: ResourceData.ResourceType = slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+		if t == ResourceData.ResourceType.NONE:
+			continue
+		if not totals.has(t):
+			totals[t] = {"count": 0, "quality": int(slot.get("quality", 0))}
+		totals[t]["count"] = int(totals[t]["count"]) + int(slot.get("count", 1))
+		slots[i] = null
+	for t: ResourceData.ResourceType in totals:
+		var remaining: int = int(totals[t]["count"])
+		var q: int = int(totals[t]["quality"])
+		while remaining > 0:
+			var placed := false
+			for i in slot_count:
+				if slots[i] != null:
+					continue
+				var chunk: int = mini(remaining, max_stack)
+				slots[i] = {"type": t, "count": chunk, "quality": q}
+				remaining -= chunk
+				placed = true
+				break
+			if not placed:
+				push_error("InventoryData.consolidate_stacks: lost %d x %s (no empty slots)" % [
+					remaining, ResourceData.get_resource_name(t)
+				])
+				break
+
+
+## Grow slot count / max stack (e.g. campfire inventory -> land claim). Keeps all items.
+func upgrade_storage(new_slot_count: int, new_max_stack: int) -> void:
+	max_stack = maxi(max_stack, new_max_stack)
+	if new_slot_count <= slot_count:
+		consolidate_stacks()
+		return
+	var old_slots: Array = slots.duplicate()
+	slot_count = new_slot_count
+	slots.resize(slot_count)
+	for i in old_slots.size():
+		slots[i] = old_slots[i]
+	for i in range(old_slots.size(), slot_count):
+		slots[i] = null
+	consolidate_stacks()
 
 func has_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
 	# Check if inventory has at least 'amount' of this item type

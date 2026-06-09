@@ -51,6 +51,8 @@ var deposit_bar: Panel = null
 var stock_scroll: ScrollContainer = null
 var stock_list_vbox: VBoxContainer = null
 var stock_rows: Array = []  # StockRowType instances
+var _deposit_highlight: ColorRect = null
+var _stock_scroll_highlight: ColorRect = null
 
 func _ready() -> void:
 	super._ready()
@@ -78,6 +80,12 @@ func _ready() -> void:
 	
 	# Initially hidden
 	visible = false
+	
+	if drag_manager:
+		if not drag_manager.drag_started.is_connected(_on_building_drag_started):
+			drag_manager.drag_started.connect(_on_building_drag_started)
+		if not drag_manager.drag_ended.is_connected(_on_building_drag_highlights_cleared):
+			drag_manager.drag_ended.connect(_on_building_drag_highlights_cleared)
 
 func _setup_panel() -> void:
 	if not has_node("InventoryPanel"):
@@ -402,6 +410,28 @@ func _ensure_stock_ui_structure() -> void:
 		deposit_bar.add_child(dl)
 		inventory_container.add_child(deposit_bar)
 
+	_ensure_drag_highlight_overlays()
+
+
+func _ensure_drag_highlight_overlays() -> void:
+	if stock_scroll and _stock_scroll_highlight == null:
+		_stock_scroll_highlight = ColorRect.new()
+		_stock_scroll_highlight.name = "DragHighlightOverlay"
+		_stock_scroll_highlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_stock_scroll_highlight.visible = false
+		_stock_scroll_highlight.color = Color.TRANSPARENT
+		_stock_scroll_highlight.set_anchors_preset(Control.PRESET_FULL_RECT)
+		stock_scroll.add_child(_stock_scroll_highlight)
+		stock_scroll.move_child(_stock_scroll_highlight, 0)
+	if deposit_bar and _deposit_highlight == null:
+		_deposit_highlight = ColorRect.new()
+		_deposit_highlight.name = "DragHighlightOverlay"
+		_deposit_highlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_deposit_highlight.visible = false
+		_deposit_highlight.color = Color.TRANSPARENT
+		_deposit_highlight.set_anchors_preset(Control.PRESET_FULL_RECT)
+		deposit_bar.add_child(_deposit_highlight)
+
 
 func _ensure_hidden_slot_pool(count: int) -> void:
 	while slots.size() < count:
@@ -502,10 +532,113 @@ func _is_drag_from_player(from_s: InventorySlot) -> bool:
 func _mouse_over_player_to_building_drop_zone(mouse_pos: Vector2) -> bool:
 	if deposit_bar and is_instance_valid(deposit_bar) and Rect2(deposit_bar.get_global_rect()).has_point(mouse_pos):
 		return true
-	for row in stock_rows:
-		if is_instance_valid(row) and Rect2(row.get_global_rect()).has_point(mouse_pos):
-			return true
+	# Whole scroll area counts — not just existing stock rows (empty space rejected berries before).
+	if stock_scroll and is_instance_valid(stock_scroll) and Rect2(stock_scroll.get_global_rect()).has_point(mouse_pos):
+		return true
 	return false
+
+
+func _on_building_drag_started(_item_data: Dictionary, _from_slot: InventorySlot) -> void:
+	if visible:
+		_update_building_drag_highlights()
+
+
+func _on_building_drag_highlights_cleared() -> void:
+	_clear_building_drag_highlights()
+
+
+func _clear_building_drag_highlights() -> void:
+	if _deposit_highlight:
+		_deposit_highlight.visible = false
+	if _stock_scroll_highlight:
+		_stock_scroll_highlight.visible = false
+	for row in stock_rows:
+		if is_instance_valid(row) and row.has_method("reset_drag_visuals"):
+			row.reset_drag_visuals()
+
+
+func _show_panel_highlight(overlay: ColorRect, is_valid: bool) -> void:
+	if not overlay:
+		return
+	overlay.color = (
+		UITheme.get_drag_drop_highlight_valid()
+		if is_valid
+		else UITheme.get_drag_drop_highlight_invalid()
+	)
+	overlay.visible = true
+
+
+func _is_drag_from_player_inventory(from_slot: InventorySlot) -> bool:
+	return _is_drag_from_player(from_slot)
+
+
+func _is_building_stock_valid_drop(target_slot: InventorySlot, dragged_item: Dictionary) -> bool:
+	if not inventory_data or not target_slot or dragged_item.is_empty():
+		return false
+	var dragged_type: ResourceData.ResourceType = dragged_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	var target_item: Dictionary = target_slot.get_item()
+	if target_item.is_empty():
+		return inventory_data.can_add_item(dragged_type, int(dragged_item.get("count", 1)))
+	var target_type: ResourceData.ResourceType = target_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	if target_type != dragged_type or not inventory_data.can_stack:
+		return false
+	var total: int = int(target_item.get("count", 1)) + int(dragged_item.get("count", 1))
+	return total <= inventory_data.max_stack
+
+
+func _update_building_drag_highlights() -> void:
+	if not drag_manager or not drag_manager.is_dragging or not visible:
+		_clear_building_drag_highlights()
+		return
+	_clear_building_drag_highlights()
+	var mouse_pos: Vector2 = get_viewport().get_mouse_position()
+	var from_slot: InventorySlot = drag_manager.from_slot
+	var dragged_item: Dictionary = drag_manager.dragged_item
+	if dragged_item.is_empty() or from_slot == null:
+		return
+	var dragged_type: ResourceData.ResourceType = dragged_item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	if _is_drag_from_player_inventory(from_slot):
+		if not _mouse_over_player_to_building_drop_zone(mouse_pos):
+			return
+		var can_deposit: bool = inventory_data != null and inventory_data.can_add_item(dragged_type, 1)
+		var over_deposit_bar: bool = (
+			deposit_bar
+			and is_instance_valid(deposit_bar)
+			and Rect2(deposit_bar.get_global_rect()).has_point(mouse_pos)
+		)
+		var over_stock_scroll: bool = (
+			stock_scroll
+			and is_instance_valid(stock_scroll)
+			and Rect2(stock_scroll.get_global_rect()).has_point(mouse_pos)
+		)
+		if over_deposit_bar:
+			_show_panel_highlight(_deposit_highlight, can_deposit)
+		if over_stock_scroll:
+			_show_panel_highlight(_stock_scroll_highlight, can_deposit)
+			for row in stock_rows:
+				if is_instance_valid(row) and Rect2(row.get_global_rect()).has_point(mouse_pos):
+					row.show_drop_highlight(can_deposit)
+					break
+		return
+	if from_slot in slots:
+		for row in stock_rows:
+			if not is_instance_valid(row):
+				continue
+			if row.drag_proxy_slot == from_slot:
+				row.set_drag_source_dimmed(true)
+		for row in stock_rows:
+			if not is_instance_valid(row):
+				continue
+			if not Rect2(row.get_global_rect()).has_point(mouse_pos):
+				continue
+			var tgt_idx: int = row.slot_index
+			if tgt_idx < 0 or tgt_idx >= slots.size():
+				continue
+			var tgt_slot: InventorySlot = slots[tgt_idx]
+			if tgt_slot == from_slot:
+				continue
+			row.show_drop_highlight(_is_building_stock_valid_drop(tgt_slot, dragged_item))
+			break
 
 
 func _handle_deposit_drop() -> void:
@@ -517,6 +650,7 @@ func _handle_deposit_drop() -> void:
 	var item: Dictionary = drag_manager.dragged_item
 	var t: ResourceData.ResourceType = item.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
 	var q: int = int(item.get("quality", 0))
+	inventory_data.consolidate_stacks()
 	var ok: bool = inventory_data.add_item(t, 1, q)
 	var main: Node = get_tree().get_first_node_in_group("main")
 	var pui: PlayerInventoryUI = main.player_inventory_ui as PlayerInventoryUI if main and main.get("player_inventory_ui") else null
@@ -532,7 +666,15 @@ func _handle_deposit_drop() -> void:
 				pui._update_hotbar_slots()
 	else:
 		if main and main.has_method("_show_placement_warning"):
-			main._show_placement_warning("Building full")
+			var used: int = inventory_data.get_used_slots()
+			var total: int = inventory_data.slot_count
+			var item_name: String = ResourceData.get_resource_name(t)
+			if inventory_data.get_count(t) > 0:
+				main._show_placement_warning("%s stack full (%d max)" % [item_name, inventory_data.max_stack])
+			elif used >= total:
+				main._show_placement_warning("Building full (%d/%d slots — take something out first)" % [used, total])
+			else:
+				main._show_placement_warning("Cannot deposit %s" % item_name)
 		drag_manager.end_drag(true)
 
 
@@ -600,6 +742,7 @@ func setup_land_claim(land_claim_ref: LandClaim) -> void:
 	
 	if land_claim and land_claim.inventory:
 		inventory_data = land_claim.inventory
+		_ensure_land_claim_inventory_capacity(inventory_data)
 		_build_slots()
 		# Show building icons for land claims
 		_show_building_icons()
@@ -608,6 +751,15 @@ func setup_land_claim(land_claim_ref: LandClaim) -> void:
 		_update_clan_control_display()
 	else:
 		print("ERROR setup_land_claim: land_claim or inventory is null!")
+
+
+func _ensure_land_claim_inventory_capacity(inv: InventoryData) -> void:
+	if not inv or not BalanceConfig:
+		return
+	var target_slots: int = BalanceConfig.land_claim_inventory_slots
+	var target_stack: int = BalanceConfig.land_claim_inventory_max_stack
+	if inv.slot_count < target_slots or inv.max_stack < target_stack:
+		inv.upgrade_storage(target_slots, target_stack)
 
 func setup_inventory(inventory: InventoryData, corpse_npc_ref: Node = null, building_ref: BuildingBase = null) -> void:
 	# Backward compatibility method for non-land-claim buildings
@@ -926,6 +1078,7 @@ func show_inventory() -> void:
 
 func hide_inventory() -> void:
 	visible = false
+	_clear_building_drag_highlights()
 	
 	UnifiedLogger.log_inventory("BuildingInventoryUI closed")
 
@@ -1666,6 +1819,8 @@ func _update_building_icon_states() -> void:
 var _last_progress: float = -1.0  # Track last progress value to detect resets
 
 func _process(_delta: float) -> void:
+	if drag_manager and drag_manager.is_dragging and visible:
+		_update_building_drag_highlights()
 	# Update clan control display (defend slider) when land claim panel is visible
 	if land_claim and land_claim.player_owned and visible and clan_control_container:
 		_update_clan_control_display()

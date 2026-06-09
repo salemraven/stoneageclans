@@ -19,6 +19,8 @@ var _raid_test: bool = false  # When true, capture is for ClanBrain raid test
 var _playtest_2min: bool = false  # When true, 2-min productivity test; shorter snapshot, state counts
 var _playtest_4min: bool = false  # When true, 4-min productivity test
 var _playtest_5min: bool = false  # When true, 5-min economy stress test
+var _playtest_10min: bool = false  # When true, 10-min observer / long sim
+var _playtest_30min: bool = false  # When true, 30-min stress sim
 var _playtest_duration_sec: float = 120.0  # Auto-quit after this many seconds
 var _combat_started_count: int = 0  # For invariant check
 var _friendly_fire_instrumented_hits: int = 0  # combat_hit where target is ally (should stay 0 if pipeline is correct)
@@ -27,7 +29,7 @@ var _party_test: bool = false  # --party-test: same capture profile as agro, tag
 func _ready() -> void:
 	if OS.get_name() == "Web":
 		return
-	var args = OS.get_cmdline_user_args()
+	var args: PackedStringArray = _all_cli_args()
 	if "--playtest-capture" in args or "--herd-capture" in args:
 		_enabled = true
 	if "--playtest-2min" in args:
@@ -44,6 +46,16 @@ func _ready() -> void:
 		_enabled = true
 		_playtest_5min = true
 		_playtest_duration_sec = 300.0
+		_snapshot_interval = 2.0
+	if "--playtest-10min" in args:
+		_enabled = true
+		_playtest_10min = true
+		_playtest_duration_sec = 600.0
+		_snapshot_interval = 2.0
+	if "--playtest-30min" in args:
+		_enabled = true
+		_playtest_30min = true
+		_playtest_duration_sec = 1800.0
 		_snapshot_interval = 2.0
 	# DebugConfig.playtest_capture_always: enable capture for normal play without cmdline
 	var dc = get_node_or_null("/root/DebugConfig")
@@ -79,6 +91,10 @@ func _ready() -> void:
 			print("✓ 4-min productivity test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 		if _playtest_5min:
 			print("✓ 5-min economy stress test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
+		if _playtest_10min:
+			print("✓ 10-min observer test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
+		if _playtest_30min:
+			print("✓ 30-min stress test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 
 const MARKER_FILE := "user://last_playtest_path.txt"
 
@@ -89,12 +105,7 @@ func _start() -> void:
 		_enabled = false
 		return
 	# CLI wins over env (PowerShell env sometimes not visible to Godot on Windows)
-	var log_dir_cli: String = ""
-	var ua := OS.get_cmdline_user_args()
-	for i in range(ua.size()):
-		if ua[i] == "--playtest-log-dir" and i + 1 < ua.size():
-			log_dir_cli = str(ua[i + 1]).strip_edges().trim_suffix("/")
-			break
+	var log_dir_cli: String = _cli_arg_value("--playtest-log-dir")
 	var env_dir := OS.get_environment("GODOT_TEST_LOG_DIR").strip_edges().trim_suffix("/")
 	if log_dir_cli != "":
 		_file_path = log_dir_cli + "/playtest_session.jsonl"
@@ -117,6 +128,7 @@ func _start() -> void:
 				path_for_marker = ProjectSettings.globalize_path(_file_path)
 			marker.store_string(path_for_marker)
 			marker.close()
+		var ua: PackedStringArray = _all_cli_args()
 		var session: Dictionary = {"t": 0.0, "evt": "session_start", "path": _file_path}
 		if "--npc-only-world" in ua:
 			session["npc_only_world"] = true
@@ -134,17 +146,39 @@ func _start() -> void:
 			session["agro_combat_test"] = true
 		if _raid_test:
 			session["raid_test"] = true
-		if _playtest_2min or _playtest_4min or _playtest_5min:
+		if _playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_30min:
 			session["playtest_2min"] = true
 		if _playtest_4min:
 			session["playtest_4min"] = true
 		if _playtest_5min:
 			session["playtest_5min"] = true
+		if _playtest_10min:
+			session["playtest_10min"] = true
+		if _playtest_30min:
+			session["playtest_30min"] = true
 		session["playtest_duration_sec"] = _playtest_duration_sec
 		_write(session)
 
 func _get_file_path() -> String:
 	return ProjectSettings.globalize_path(_file_path) if _file_path != "" else ""
+
+
+func _all_cli_args() -> PackedStringArray:
+	var args: PackedStringArray = OS.get_cmdline_args()
+	var ua: PackedStringArray = OS.get_cmdline_user_args()
+	for a in ua:
+		if a not in args:
+			args.append(a)
+	return args
+
+
+func _cli_arg_value(flag: String) -> String:
+	var args: PackedStringArray = _all_cli_args()
+	for i in range(args.size()):
+		if args[i] == flag and i + 1 < args.size():
+			return str(args[i + 1]).strip_edges().trim_suffix("/")
+	return ""
+
 
 func _write(obj: Dictionary) -> void:
 	if not _enabled or not _file or not _file.is_open():
@@ -171,14 +205,14 @@ func is_playtest_2min() -> bool:
 	return _playtest_2min
 
 func is_playtest_timed() -> bool:
-	return _playtest_2min or _playtest_4min or _playtest_5min
+	return _playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_30min
 
 func get_playtest_duration_sec() -> float:
 	return _playtest_duration_sec
 
 func end_playtest_2min() -> void:
 	"""Call before quit: write test_run_ended, flush."""
-	if not _enabled or not (_playtest_2min or _playtest_4min or _playtest_5min):
+	if not _enabled or not (_playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_30min):
 		return
 	_write({"evt": "test_run_ended_2min"})
 	if _file and _file.is_open():
@@ -248,12 +282,23 @@ func npc_fsm_transition(
 	})
 
 
-func party_formed(leader_name: String, follower_count: int, source: String) -> void:
-	_write({"evt": "party_formed", "leader": leader_name, "follower_count": follower_count, "source": source})
+func party_formed(leader_name: String, follower_count: int, source: String, extra: Dictionary = {}) -> void:
+	var row: Dictionary = {
+		"evt": "party_formed",
+		"leader": leader_name,
+		"follower_count": follower_count,
+		"source": source,
+	}
+	for k in extra.keys():
+		row[k] = extra[k]
+	_write(row)
 
 
-func party_disbanded(leader_name: String, reason: String) -> void:
-	_write({"evt": "party_disbanded", "leader": leader_name, "reason": reason})
+func party_disbanded(leader_name: String, reason: String, extra: Dictionary = {}) -> void:
+	var row: Dictionary = {"evt": "party_disbanded", "leader": leader_name, "reason": reason}
+	for k in extra.keys():
+		row[k] = extra[k]
+	_write(row)
 
 
 func party_stance_changed(leader_name: String, old_mode: String, new_mode: String) -> void:
@@ -262,6 +307,20 @@ func party_stance_changed(leader_name: String, old_mode: String, new_mode: Strin
 
 func party_formation_tick(leader_name: String, followers_data: Array) -> void:
 	_write({"evt": "party_formation_tick", "leader": leader_name, "followers": followers_data})
+
+
+func party_group_scan(groups: Array) -> void:
+	_write({"evt": "party_group_scan", "groups": groups})
+
+
+func party_follow_cleared(npc_name: String, clan_name: String, fsm_state: String, reason: String) -> void:
+	_write({
+		"evt": "party_follow_cleared",
+		"npc": npc_name,
+		"clan": clan_name,
+		"fsm_state": fsm_state,
+		"reason": reason,
+	})
 
 
 func herd_follow_tick(animal_name: String, herder_name: String, dist_to_herder: float, speed_mult: float, break_dist: float) -> void:
@@ -338,7 +397,82 @@ func competition_complete(data: Dictionary) -> void:
 func npc_joined_clan(npc_name: String, clan_name: String, npc_type: String, reason: String = "herded") -> void:
 	_write({"evt": "npc_joined_clan", "npc": npc_name, "clan": clan_name, "type": npc_type, "reason": reason})
 
+func gather_completed(npc_name: String, clan_name: String, resource_type: int, amount: int) -> void:
+	var res_name: String = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	_write({
+		"evt": "gather_completed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"resource_type": resource_type,
+		"resource": res_name,
+		"amount": amount,
+	})
+
+func gather_failed(npc_name: String, clan_name: String, reason: String, resource_type: int = -1) -> void:
+	var obj: Dictionary = {
+		"evt": "gather_failed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"reason": reason,
+	}
+	if resource_type >= 0:
+		obj["resource_type"] = resource_type
+		obj["resource"] = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	_write(obj)
+
+func deposit_completed(npc_name: String, clan_name: String, items: Dictionary, total: int) -> void:
+	_write({
+		"evt": "deposit_completed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"items": items,
+		"total": total,
+	})
+
+func deposit_failed(npc_name: String, clan_name: String, reason: String, resource_type: int = -1, amount: int = 0) -> void:
+	var obj: Dictionary = {
+		"evt": "deposit_failed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"reason": reason,
+	}
+	if resource_type >= 0:
+		obj["resource_type"] = resource_type
+		obj["resource"] = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	if amount > 0:
+		obj["amount"] = amount
+	_write(obj)
+
+func task_completed(npc_name: String, clan_name: String, task_type: String) -> void:
+	_write({"evt": "task_completed", "npc": npc_name, "clan": clan_name, "task_type": task_type})
+
+func task_failed(npc_name: String, clan_name: String, task_type: String, reason: String = "task_failed") -> void:
+	_write({"evt": "task_failed", "npc": npc_name, "clan": clan_name, "task_type": task_type, "reason": reason})
+
+func gather_no_resource(npc_name: String, clan_name: String, reason: String = "no_resource") -> void:
+	_write({"evt": "gather_no_resource", "npc": npc_name, "clan": clan_name, "reason": reason})
+
+func building_placed(
+		clan_name: String,
+		building_type: int,
+		source: String,
+		place_pos: Vector2 = Vector2.ZERO,
+		builder_npc: String = "") -> void:
+	var obj: Dictionary = {
+		"evt": "building_placed",
+		"clan": clan_name,
+		"building_type": building_type,
+		"building": ResourceData.get_resource_name(building_type as ResourceData.ResourceType),
+		"source": source,
+		"x": place_pos.x,
+		"y": place_pos.y,
+	}
+	if builder_npc != "":
+		obj["builder"] = builder_npc
+	_write(obj)
+
 func milestone_building_placed(clan_name: String, building_type: int, place_pos: Vector2 = Vector2.ZERO) -> void:
+	building_placed(clan_name, building_type, "milestone", place_pos)
 	_write({"evt": "milestone_building_placed", "clan": clan_name, "building_type": building_type, "x": place_pos.x, "y": place_pos.y})
 
 func land_claim_placed(clan_name: String, x: float, y: float, nearest_dist: float, source: String) -> void:
@@ -607,8 +741,13 @@ func rts_playtest_pack_spawned(clan_name: String, claim_x: float, claim_y: float
 	}
 	_write(obj)
 
-func gather_empty_switch(npc_name: String, resource_type: int, reason: String) -> void:
-	_write({"evt": "gather_empty_switch", "npc": npc_name, "resource_type": resource_type, "reason": reason})
+func gather_empty_switch(npc_name: String, resource_type: int, reason: String, clan_name: String = "") -> void:
+	var obj: Dictionary = {"evt": "gather_empty_switch", "npc": npc_name, "resource_type": resource_type, "reason": reason}
+	if clan_name != "":
+		obj["clan"] = clan_name
+	if resource_type >= 0:
+		obj["resource"] = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	_write(obj)
 
 # --- Campfire events ---
 
@@ -631,6 +770,7 @@ func campfire_fire_toggled(clan_name: String, fire_on: bool) -> void:
 	_write({"evt": "campfire_fire_toggled", "clan": clan_name, "fire_on": fire_on})
 
 func campfire_building_built(clan_name: String, building_type: int) -> void:
+	building_placed(clan_name, building_type, "campfire", Vector2.ZERO)
 	_write({"evt": "campfire_building_built", "clan": clan_name, "building_type": building_type})
 
 func end_raid_test() -> void:
@@ -849,6 +989,11 @@ func _capture_snapshot() -> void:
 				entry["brain"] = _BRAIN_STRATEGIC_NAMES[si]
 			else:
 				entry["brain"] = str(ss)
+		if cb and cb.has_method("get_hunt_intent"):
+			var hi: Dictionary = cb.get_hunt_intent()
+			entry["hunt_state"] = int(hi.get("state", 0))
+		if cb and cb.has_method("get_raid_state"):
+			entry["raid_state"] = int(cb.get_raid_state())
 		ai_clans.append(entry)
 	snap["ai_clans"] = ai_clans
 	_write(snap)

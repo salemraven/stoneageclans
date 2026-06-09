@@ -108,6 +108,8 @@ func exit() -> void:
 	if npc:
 		var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
 		if combat_comp:
+			if combat_comp.state == CombatComponent.CombatState.READY:
+				combat_comp.cancel_ready()
 			combat_comp.clear_target()
 		# CRITICAL: Clear combat_target when exiting combat state
 		# This prevents NPCs from retaining invalid targets (like dead enemies or same-clan players)
@@ -143,7 +145,7 @@ func exit() -> void:
 		if npc.get_meta("hunt_after_combat", false) == true:
 			npc.set_meta("hunt_after_combat", false)
 			if fsm:
-				fsm.change_state("hunt")
+				fsm.change_state("hunt", true)
 			return
 
 func update(_delta: float) -> void:
@@ -157,6 +159,20 @@ func update(_delta: float) -> void:
 	
 	# Step 3: Resolve combat_target from combat_target_id; invalid target → agro 69, clear intent
 	combat_target = npc.resolve_combat_target() as Node2D
+	if combat_target and not is_attack_target_alive(combat_target):
+		var corpse_node: Node2D = combat_target
+		var resume_hunt: bool = npc.get_meta("hunt_after_combat", false)
+		clear_npc_combat_target()
+		combat_target = null
+		var combat_comp_dead: CombatComponent = npc.get_node_or_null("CombatComponent")
+		if combat_comp_dead:
+			combat_comp_dead.clear_target()
+		if resume_hunt and fsm:
+			_notify_hunt_prey_dead_loot(corpse_node)
+			fsm.change_state("hunt", true)
+		elif fsm and fsm.has_method("force_evaluation"):
+			fsm.force_evaluation()
+		return
 	if not combat_target:
 		return
 
@@ -370,33 +386,36 @@ func update(_delta: float) -> void:
 			# This allows NPC to maintain position naturally without forced movement
 		
 		# In range and head-on aligned - request attack (event-driven system)
-		# CRITICAL: Only request attack if combat component is IDLE (not already attacking)
 		if combat_comp:
-			# Only request attack if not already in windup/recovery
-			if combat_comp.state == CombatComponent.CombatState.IDLE:
-				# Additional validation: Check if target is actually attackable (range + arc + head-on)
+			if combat_comp.state == CombatComponent.CombatState.READY:
 				if distance <= combat_comp.attack_range:
-					# Verify we're head-on aligned (not attacking from top/bottom)
-					# More lenient check to prevent blocking valid attacks
+					now = Time.get_ticks_msec()
+					if not npc.has_meta("last_attack_request_time"):
+						npc.set_meta("last_attack_request_time", 0)
+					var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
+					var attack_cooldown_ms: int = 220
+					if now - last_attack_time >= attack_cooldown_ms:
+						var strike_aim: Vector2 = direction_to_target.normalized()
+						combat_comp.commit_strike(strike_aim)
+						npc.set_meta("last_attack_request_time", now)
+			elif combat_comp.state == CombatComponent.CombatState.IDLE:
+				if combat_comp._uses_overlay_combat():
+					pass  # WeaponComponent keeps overlay NPCs in READY while hostile
+				elif distance <= combat_comp.attack_range:
+					# Verify we're head-on aligned (legacy sprite-sheet combat)
 					var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 					var facing_dir: Vector2 = Vector2(1, 0)
 					if sprite:
 						facing_dir = Vector2(-1 if sprite.flip_h else 1, 0)
 					var angle_to_target = direction_to_target.angle_to(facing_dir)
-					var is_head_on = abs(angle_to_target) < PI / 1.8  # ~100° tolerance (defenders need easier triggers)
-					
-					# Only attack if head-on and vertical offset is reasonable (55px for defenders)
+					var is_head_on = abs(angle_to_target) < PI / 1.8
 					if is_head_on and abs(vertical_distance) <= 55.0:
-						# Add a small cooldown after recovery to prevent unnatural rapid-fire attacks
-						now = Time.get_ticks_msec()  # Reuse 'now' variable declared at function start
+						now = Time.get_ticks_msec()
 						if not npc.has_meta("last_attack_request_time"):
 							npc.set_meta("last_attack_request_time", 0)
-						var last_attack_time = npc.get_meta("last_attack_request_time", 0)
-						# Longer gap reduces visual “twitch” when hit frames whiff (was 50ms).
-						var attack_cooldown = 220
-						
-						if now - last_attack_time >= attack_cooldown:
-							# Head-on aligned and in range - request attack
+						var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
+						var attack_cooldown_ms: int = 220
+						if now - last_attack_time >= attack_cooldown_ms:
 							combat_comp.request_attack(combat_target)
 							npc.set_meta("last_attack_request_time", now)
 			# If in WINDUP or RECOVERY, wait for current attack to complete
@@ -459,6 +478,16 @@ func _update_targeting() -> void:
 	# Target invalid or missing - find new one
 	_find_nearest_enemy()
 
+func _notify_hunt_prey_dead_loot(corpse: Node) -> void:
+	if not npc or not corpse or not is_instance_valid(corpse):
+		return
+	var claim = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+	if not claim or not is_instance_valid(claim):
+		return
+	var brain = claim.get_clan_brain() if claim.has_method("get_clan_brain") else null
+	if brain and brain.has_method("open_corpse_job_site"):
+		brain.open_corpse_job_site(corpse)
+
 func _target_display_name(t: Node2D) -> String:
 	if not t or not is_instance_valid(t):
 		return "unknown"
@@ -510,6 +539,9 @@ func _stance_combat_agro_threshold() -> float:
 
 func can_enter() -> bool:
 	if not npc:
+		return false
+	var nt_combat: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if NPCConfig and NPCConfig.is_passive_hunt_prey(nt_combat):
 		return false
 	
 	# Check if dead

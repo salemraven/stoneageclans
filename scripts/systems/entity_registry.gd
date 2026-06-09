@@ -2,7 +2,7 @@ extends Node
 
 # EntityRegistry - id + generation, resolve at edge. Step 3.
 # Logic uses entity_id; Nodes only at render edge. Prevents dangling refs and shadow fighting.
-# network_entity_id: stable server-assigned id for multiplayer RPCs (guides/multiplayer.md Phase 3).
+# network_entity_id: stable server-assigned id for multiplayer RPCs (bible/multiplayer.md Phase 3).
 
 const META_NETWORK_ENTITY_ID: StringName = &"network_entity_id"
 

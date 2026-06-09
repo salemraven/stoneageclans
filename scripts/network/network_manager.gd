@@ -1,5 +1,5 @@
 extends Node
-## WebSocket multiplayer peer + handshake (guides/multiplayer.md Phase 2).
+## WebSocket multiplayer peer + handshake (bible/multiplayer.md Phase 2).
 ## Call start_server / connect_client from lobby UI when you wire menus.
 
 signal peer_connected_to_game(peer_id: int)

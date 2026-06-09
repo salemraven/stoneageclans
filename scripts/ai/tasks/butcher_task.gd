@@ -112,8 +112,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			var icon_path: String = ResourceData.get_resource_icon_path(ResourceData.ResourceType.MEAT)
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
-			npc.progress_display.start_collection(icon)
-			npc.progress_display.collection_time = butcher_duration
+			npc.progress_display.start_collection(icon, butcher_duration)
 
 	var moved_slice: float = npc.global_position.distance_to(_slice_start_position)
 	if moved_slice > _move_cancel_threshold:

@@ -1,6 +1,8 @@
 extends Node
 class_name TaskRunner
 
+const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+
 # Task System - Step 13
 # NPC component that holds current_job and current_task, runs tick loop,
 # advances job on SUCCESS, clears on FAILED or cancel.
@@ -96,6 +98,11 @@ func _physics_process(delta: float) -> void:
 					"task_type": task_type,
 					"progress_before_advance": prog_s
 				}, UnifiedLogger.Level.INFO)
+				if npc is NPCBase:
+					var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
+					if pi and pi.is_enabled() and pi.has_method("task_completed"):
+						var clan_s: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
+						pi.task_completed(npc_ns, clan_s, task_type)
 			current_task = null
 			if current_job:
 				current_job.advance()
@@ -115,6 +122,11 @@ func _physics_process(delta: float) -> void:
 					"task_type": task_type,
 					"progress": current_job.get_progress_string() if current_job else ""
 				}, UnifiedLogger.Level.INFO)
+				if npc is NPCBase:
+					var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
+					if pi and pi.is_enabled() and pi.has_method("task_failed"):
+						var clan_f: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
+						pi.task_failed(npc_name, clan_f, task_type, "task_failed")
 			if current_task:
 				current_task.cancel(npc)
 			cancel_current_job("task_failed")
@@ -199,6 +211,9 @@ func cancel_current_job(reason: String = "unspecified") -> void:
 	current_job = null
 	is_active = false
 	
+	if npc is NPCBase:
+		CorpseJobs.clear_worker_meta(npc as NPCBase)
+	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Job cancelled", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
 	if DebugConfig and DebugConfig.enable_session_instrumentation:
@@ -241,6 +256,9 @@ func _clear_job() -> void:
 	current_job = null
 	current_task = null
 	is_active = false
+	
+	if npc is NPCBase:
+		CorpseJobs.clear_worker_meta(npc as NPCBase)
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_npc("TaskRunner: Job completed and cleared", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)

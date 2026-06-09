@@ -1,5 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
+const _StateEconomyRules = preload("res://scripts/npc/state_economy_rules.gd")
+
 # Craft state - clansmen knap stones into blades via Task system
 # CraftJob: MoveTo(claim) → PickUp(2 stone) → Knap → DropOff(blade) → DropOff(stone)
 # Land claim generates jobs when blades < 4 and claim has 2+ stones in storage
@@ -118,7 +120,7 @@ func can_enter() -> bool:
 		return false
 
 	# Crafting unlocked only when clan has 2+ clansmen (cavemen focus on gather/herd until then)
-	if _count_clansmen_in_clan() < MIN_CLANSMEN_FOR_CRAFT:
+	if _StateEconomyRules.count_fighters_in_clan(npc) < MIN_CLANSMEN_FOR_CRAFT:
 		return false
 
 	var claim_inv = claim.get("inventory")
@@ -139,48 +141,38 @@ func can_enter() -> bool:
 	return true
 
 func get_priority() -> float:
-	# Craft only competitive when unlocked (2+ clansmen, safe food stock) and claim needs blades
-	if _count_clansmen_in_clan() < MIN_CLANSMEN_FOR_CRAFT:
-		return 2.0  # Below gather (4-6) and herd_wildnpc (10.9) - focus on gather/herd first
+	var pb: float = 2.0
+	var pfood: float = 2.0
+	var pbelow: float = 4.0
+	var phigh: float = 12.0
+	var pfallback: float = 2.5
+	if NPCConfig:
+		pb = NPCConfig.priority_craft_blocked
+		pfood = NPCConfig.priority_craft_blocked
+		pbelow = NPCConfig.priority_craft_below_gather
+		phigh = NPCConfig.priority_craft_high
+		pfallback = NPCConfig.priority_craft_fallback
+	if _StateEconomyRules.count_fighters_in_clan(npc) < MIN_CLANSMEN_FOR_CRAFT:
+		return pb
 	var claim: Node2D = _get_land_claim()
 	if not claim:
-		return 2.0
+		return pfood
 	var claim_inv = claim.get("inventory")
 	if not claim_inv or not claim_inv.has_method("get_count"):
-		return 2.0
+		return pfood
 	var food_count: int = claim_inv.get_count(ResourceData.ResourceType.BERRIES) + claim_inv.get_count(ResourceData.ResourceType.GRAIN)
 	if food_count < MIN_FOOD_IN_CLAIM_FOR_CRAFT:
-		return 2.0  # Below gather - get food stock first
+		return pfood
 	if claim_inv.get_count(ResourceData.ResourceType.BLADE) < BLADE_RESERVE_TARGET and claim_inv.get_count(ResourceData.ResourceType.STONE) >= 2:
-		return 12.0  # Above deposit (11) so they craft when unlocked and blades needed
-	return 2.5
+		if _StateEconomyRules.should_deprioritize_craft_vs_gather(npc):
+			return pbelow
+		return phigh
+	return pfallback
 
 func get_data() -> Dictionary:
 	return {
 		"land_claim": land_claim.get("clan_name") if land_claim else "",
 	}
-
-func _count_clansmen_in_clan() -> int:
-	"""Male NPCs in this clan (`npc_type` caveman or clansman); see guides/game_dictionary.md."""
-	if not npc:
-		return 0
-	var clan: String = npc.get_clan_name() if npc else ""
-	if clan == "":
-		return 0
-	var tree = npc.get_tree() if npc else null
-	if not tree:
-		return 0
-	var count: int = 0
-	for n in tree.get_nodes_in_group("npcs"):
-		if not is_instance_valid(n):
-			continue
-		var nclan: String = n.get_clan_name() if n.has_method("get_clan_name") else (n.get("clan_name") as String if n.get("clan_name") != null else "")
-		if nclan != clan:
-			continue
-		var nt: String = n.get("npc_type") if "npc_type" in n else ""
-		if nt == "caveman" or nt == "clansman":
-			count += 1
-	return count
 
 func _get_land_claim() -> Node2D:
 	if not npc:

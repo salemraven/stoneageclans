@@ -21,12 +21,16 @@ var _hold_elapsed: bool = false
 var _drag_begun: bool = false
 var _press_global: Vector2 = Vector2.ZERO
 var _base_bg: Color = Color(0x3c / 255.0, 0x27 / 255.0, 0x23 / 255.0, 0.95)
+var _base_modulate: Color = Color.WHITE
+var _highlight_overlay: ColorRect = null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(0, 34)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_base_modulate = modulate
 	_apply_style(false)
 	_build_children()
+	_ensure_highlight_overlay()
 	if not gui_input.is_connected(_on_gui_input):
 		gui_input.connect(_on_gui_input)
 	if not mouse_entered.is_connected(_on_mouse_entered):
@@ -152,3 +156,40 @@ func _on_gui_input(event: InputEvent) -> void:
 
 func _on_hold_timeout() -> void:
 	_hold_elapsed = true
+
+
+func _ensure_highlight_overlay() -> void:
+	if _highlight_overlay:
+		return
+	_highlight_overlay = ColorRect.new()
+	_highlight_overlay.name = "HighlightOverlay"
+	_highlight_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_highlight_overlay.visible = false
+	_highlight_overlay.color = Color.TRANSPARENT
+	_highlight_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_highlight_overlay)
+
+
+func show_drop_highlight(is_valid: bool) -> void:
+	_ensure_highlight_overlay()
+	_highlight_overlay.color = (
+		UITheme.get_drag_drop_highlight_valid()
+		if is_valid
+		else UITheme.get_drag_drop_highlight_invalid()
+	)
+	_highlight_overlay.visible = true
+
+
+func clear_drop_highlight() -> void:
+	if _highlight_overlay:
+		_highlight_overlay.visible = false
+		_highlight_overlay.color = Color.TRANSPARENT
+
+
+func set_drag_source_dimmed(dim: bool) -> void:
+	modulate = Color(1, 1, 1, 0.5) if dim else _base_modulate
+
+
+func reset_drag_visuals() -> void:
+	clear_drop_highlight()
+	set_drag_source_dimmed(false)

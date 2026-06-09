@@ -200,16 +200,21 @@ func can_enter() -> bool:
 	return false
 
 func get_priority() -> float:
+	var p_trait: float = 11.0
+	var p_default: float = 3.0
+	if NPCConfig:
+		p_trait = NPCConfig.priority_defend_trait
+		p_default = NPCConfig.priority_defend_default
 	# Trait-driven: "protective" or "guardian" = high priority (will fill defender slot when quota allows)
 	var is_protective: bool = npc.has_trait("protective") if npc.has_method("has_trait") else false
 	if not is_protective and npc.has_method("has_trait"):
 		is_protective = npc.has_trait("guardian")
 	if is_protective:
 		# Prefer guard over gather (~4–6); herd_wildnpc (11.5) can still win when herding is valid
-		return 11.0
+		return p_trait
 	# Cavemen + clansmen: same low priority — gather, search, building work, and herd all beat standing guard
 	# until quota needs filling and nothing else can_enter.
-	return 3.0
+	return p_default
 
 func get_data() -> Dictionary:
 	var dt = npc.get("defend_target") if npc else null

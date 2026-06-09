@@ -21,7 +21,7 @@ var enable_raid_test: bool = false
 # Playtest capture for normal play: when true, instrumentor records to user://playtest_*.jsonl (no --playtest-capture needed)
 var playtest_capture_always: bool = false
 
-## NPC-only timed playtest: raise hunt need pressure so ClanBrain starts AoH hunts (`hunt_started` JSONL). Normal play: always false.
+## Deprecated flag (no longer set by CLI). Hunts always use normal food need pressure.
 var npc_only_world_hunt_stress: bool = false
 
 
@@ -38,7 +38,8 @@ var test_overrides: Dictionary = {
 	"agro_test_follower_avg_max": 130.0, # End HOLD early when avg follower distance to leader <= this (px)
 	"agro_test_hold_timeout_sec": 12.0,  # Max time in HOLD before ENGAGE anyway
 	"agro_test_hold_max_speed": 35.0,    # Cap leader speed while holding rally point
-	"agro_test_enemy_seek_radius": 550.0 # Phase ENGAGE: same-clan skip; seek nearest foe within this range
+	"agro_test_enemy_seek_radius": 550.0, # Phase ENGAGE: same-clan skip; seek nearest foe within this range
+	# Party/hunt debug (`--party-hunt-debug`): FSM traces + party group scan only (no gameplay cheats).
 }
 
 # Step 7: Debug viz for agro/combat (agro value, formation bubble, target lines - wire in UI when needed)
@@ -49,6 +50,8 @@ var enable_file_logging: bool = false  # Disabled by default - too much data
 var enable_console_logging: bool = false  # Disabled by default - too much data
 var enable_performance_monitoring: bool = false
 var enable_debug_ui: bool = false
+## ClanBrain test tools (clan camera jumper). CLI: `--godmode` or `--npc-only-world` observer runs.
+var enable_godmode: bool = false
 var enable_verbose_npc_logging: bool = false
 var enable_state_transition_logging: bool = false
 var enable_herd_logging: bool = false
@@ -57,6 +60,9 @@ var enable_occupation_diag: bool = false  # Full occupation flow diagnostic logg
 
 ## Hunt butcher pipeline: console lines for butcher tasks + hunt LOOTING. CLI: `--hunt-butcher-debug`
 var enable_hunt_butcher_debug: bool = false
+
+## AI party / hunt / raid stuck-debug: console FSM traces + periodic group scan. CLI: `--party-hunt-debug`
+var enable_party_hunt_debug: bool = false
 
 ## Migratory wild NPC trace: spawn + throttled ticks → user://wild_npc_trace_*.jsonl. CLI: `--wild-npc-trace`
 var enable_wild_npc_trace: bool = false
@@ -170,9 +176,15 @@ func _parse_command_line_args() -> void:
 		print("✓ Playtest capture enabled (user://playtest_*.jsonl)")
 
 	# Timed playtests: disable herd resistance for deterministic transport validation
-	if "--playtest-2min" in args or "--playtest-4min" in args:
+	if "--playtest-2min" in args or "--playtest-4min" in args or "--playtest-5min" in args or "--playtest-10min" in args or "--playtest-30min" in args:
 		test_overrides["herd_resist_disabled"] = true
 		print("✓ Herd resistance disabled for playtest (deterministic transport)")
+
+	for i in range(args.size()):
+		if args[i] == "--session-quit-after" and i + 1 < args.size():
+			session_quit_after_seconds = float(args[i + 1])
+			print("✓ Session auto-quit after %.0fs" % session_quit_after_seconds)
+			break
 
 	if "--wild-npc-trace" in args:
 		enable_wild_npc_trace = true
@@ -181,6 +193,20 @@ func _parse_command_line_args() -> void:
 	if "--hunt-butcher-debug" in args:
 		enable_hunt_butcher_debug = true
 		print("✓ Hunt butcher debug: extra console logs for butcher / LOOTING")
+
+	if "--party-hunt-debug" in args:
+		enable_party_hunt_debug = true
+		print("✓ Party/hunt debug enabled (FSM traces + test deer seeded in AoH rings)")
+
+	if "--godmode" in args:
+		enable_godmode = true
+		print("✓ ClanBrain godmode: clan camera jumper (top-right)")
+
+	if "--player-move-debug" in args:
+		print("✓ Player movement debug overlay will auto-enable (F8 to toggle)")
+
+	if "--movement-stress-test" in args:
+		print("✓ Movement stress test will run after boot (auto quit)")
 
 func _apply_debug_settings() -> void:
 	# Apply settings to UnifiedLogger if it exists

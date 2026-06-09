@@ -10,7 +10,7 @@ _Last updated: 2026-04-26 (§5: I3 stats/traits + character sheet UI; §5.1 deta
 
 **Test–fix loop priority (this phase):** **NPC behavior and simulation** — FSM, `ClanBrain`, tasks/jobs, herd/gather/combat as **driven by AI**, territory evaluation, and structured JSONL/headless evidence. **Player input, UI, and drag/RTS feel** are **out of scope for the core loop** unless they block observing or reproducing NPC bugs (smoke still boots Main; we are **not** optimizing for manual play skill or input latency). Track player-facing issues separately or under **I2** / **I3** (inventory vs stats sheet) when needed.
 
-This file **does not** duplicate `bible.md`. It tracks **delivery state**: what exists, what’s half-built, what’s broken, and what “done” means.
+This file **does not** duplicate `bible/bible.md`. It tracks **delivery state**: what exists, what’s half-built, what’s broken, and what “done” means.
 
 **How to use**
 
@@ -20,12 +20,12 @@ This file **does not** duplicate `bible.md`. It tracks **delivery state**: what 
 
 **Related**
 
-- Canonical design: **`bible.md`**
+- Canonical design: **`bible/bible.md`**
 - Mechanics deltas / checklist: **`AGREED_MECHANICS_TODO.md`**
-- Player-facing early loop (feel, milestones): **`stoneageclans/guides/earlygame.md`**
-- Movement + formation plumbing (locomotion, herd vs party debuff, links to RTS): **`stoneageclans/guides/movement.md`**
-- RTS commands / stances / formations: **`stoneageclans/guides/rts.md`**
-- Stats / hominid traits (design reference): **`stoneageclans/guides/traits.md`** (`Stats` in `scripts/npc/stats.gd`; NPC `traits` on `NPCBase`)
+- Player-facing early loop (feel, milestones): **`stoneageclans/bible/earlygame.md`**
+- Movement + formation plumbing (locomotion, herd vs party debuff, links to RTS): **`stoneageclans/bible/movement.md`**
+- RTS commands / stances / formations: **`stoneageclans/bible/rts.md`**
+- Stats / hominid traits (design reference): **`stoneageclans/bible/traits.md`** (`Stats` in `scripts/npc/stats.gd`; NPC `traits` on `NPCBase`)
 - Character menu (NPC inspect / traits table today): **`stoneageclans/scripts/ui/character_menu_ui.gd`**
 - Game repo: **`stoneageclans`** (Godot project root)
 - Test–fix bug log (gates, IDs, fixed/open): **`earlygame_test_fix_plan.md`**
@@ -42,7 +42,7 @@ Later phases assume **stable contracts**: inventory authority, spatial queries, 
 
 | ID | Area | Current condition (snapshot) | Work to flesh out / finish | Edge cases / risks | Status | Agreed |
 |----|------|-------------------------------|----------------------------|--------------------|--------|--------|
-| W1 | Chunk grid & docs | `ChunkUtils` autoload: `scripts/world/chunk_utils.gd`. **Verified snapshot (paste into docs when editing):** `TILE_SIZE` 64, `CHUNK_TILES` 32, `CHUNK_SIZE` 2048, `ROAM_RADIUS` 1638.4 (= chunk × 0.8), `HOME_UPDATE_TIME` 30, `CLAN_AVOID_RADIUS` 600, `WOMAN_CLAN_AVOID_RADIUS` 800. | Keep code + `AGREED_MECHANICS_TODO` + `bible.md` in sync; verify `ResourceIndex` / interest assumptions match | Off-by-chunk desync, wrong culling, “global scan” perf traps | `in progress` | [ ] |
+| W1 | Chunk grid & docs | `ChunkUtils` autoload: `scripts/world/chunk_utils.gd`. **Verified snapshot (paste into docs when editing):** `TILE_SIZE` 64, `CHUNK_TILES` 32, `CHUNK_SIZE` 2048, `ROAM_RADIUS` 1638.4 (= chunk × 0.8), `HOME_UPDATE_TIME` 30, `CLAN_AVOID_RADIUS` 600, `WOMAN_CLAN_AVOID_RADIUS` 800. | Keep code + `AGREED_MECHANICS_TODO` + `bible/bible.md` in sync; verify `ResourceIndex` / interest assumptions match | Off-by-chunk desync, wrong culling, “global scan” perf traps | `in progress` | [ ] |
 | W2 | Spatial queries | Many `get_nodes_in_group` call sites (`npc_base.gd`, `clan_brain.gd`, `fsm.gd`, land claim) | Identify **hot paths** per tick; replace with chunk/spatial queries where engineering plan requires; measure before/after | Large NPC counts, stutter, wrong neighbors | `not started` | [ ] |
 
 ---
@@ -73,7 +73,7 @@ Later phases assume **stable contracts**: inventory authority, spatial queries, 
 | ID | Area | Current condition (snapshot) | Work to flesh out / finish | Edge cases / risks | Status | Agreed |
 |----|------|-------------------------------|----------------------------|--------------------|--------|--------|
 | C1 | Combat pipeline | `CombatComponent` + `CombatScheduler` / `CombatTick` per project rules | Confirm **all** attack paths respect locks, windup, friendly-fire rules; trim **dev `print` flood** → logger + levels | Double hits, cancel races, unreadable logs hiding real errors | `needs debug` | [ ] |
-| C2 | **Early-game weapons (spear + ranged pipeline)** | Today: melee + `ResourceType` tools (axe, pick, wood club) via `WeaponComponent` / player hotbar. **Implementation target:** `SPEAR`, thrust + throw, then bow/sling + craftable arrows — **full agreed behavior in §4.1** (two-hand slots, inventory spear **count** throw gate, NPC preference). **Also:** bow/sling data-driven; pooled projectiles; **server-authoritative** hits. Refs: `stoneageclans/guides/earlygame.md`, `ResourceData`, `combat_component.gd`, `player_inventory_ui.gd` (hands). | Double-remove spear, throw when count ≤ 1, two-slot desync, client-only hit detection | `not started` | [ ] |
+| C2 | **Early-game weapons (spear + ranged pipeline)** | Today: melee + `ResourceType` tools (axe, pick, wood club) via `WeaponComponent` / player hotbar. **Implementation target:** `SPEAR`, thrust + throw, then bow/sling + craftable arrows — **full agreed behavior in §4.1** (two-hand slots, inventory spear **count** throw gate, NPC preference). **Also:** bow/sling data-driven; pooled projectiles; **server-authoritative** hits. Refs: `stoneageclans/bible/earlygame.md`, `ResourceData`, `combat_component.gd`, `player_inventory_ui.gd` (hands). | Double-remove spear, throw when count ≤ 1, two-slot desync, client-only hit detection | `not started` | [ ] |
 
 ### §4.1 — C2 agreed rules (spear, hands, throw, NPCs)
 
@@ -112,13 +112,13 @@ These are **design locks** for implementation (player + eventual MP authority).
 |----|------|-------------------------------|----------------------------|--------------------|--------|--------|
 | I1 | Server validation | `inventory_action_bridge.gd`: `TODO` validate op (clan, distance, slot rules) before emit on server | **Implement validation** for MP; single-player path stays deterministic | Dupes, cross-clan theft, distance cheats | `not started` | [ ] |
 | I2 | Player inventory UI | `main.gd` warns if `add_to_inventory` when UI missing | Ensure drag/inventory init order can’t drop items on floor silently in real flows | Startup race, missing `PlayerInventoryUI` | `needs debug` | [ ] |
-| I3 | **Stats, traits & character sheet UI** | **NPCs:** `Stats` (`scripts/npc/stats.gd`), `NPCBase.traits` (`Array[String]`), bravery, hominid/species hooks; **`character_menu_ui.gd`** lists stats via `_get_traits_list()` (aligned with **`guides/traits.md`**). **Player:** stats/traits not yet first-class the same way — combat/inventory paths partially assume implicit player. | **Parity:** decide single **character profile contract** (numeric stats + trait ids + buff/debuff display rules) for **player + NPC**. **Gameplay:** wire agreed stats into combat/craft/carry when numbers matter (avoid decorative-only bars). **UI — figure out:** dedicated **Character / Stats screen** vs tab inside inventory; **inspect self** (hotkey) vs **inspect selected follower / RTS unit** (click portrait or context); mobile-safe layout; what is **read-only** vs editable later. **MP:** server-owned stats; UI reads replicated or polled subset; no client-trusted edits. **Deliverable:** short **UI mock decision** (wireframe or bullet flow) + minimal **player** stats surface (even placeholder) reusing `character_menu_ui` patterns where possible. | Two stat systems (player vs NPC), trait drift vs `traits.md`, RTS selection vs modal stack, replication bandwidth | `not started` | [ ] |
+| I3 | **Stats, traits & character sheet UI** | **NPCs:** `Stats` (`scripts/npc/stats.gd`), `NPCBase.traits` (`Array[String]`), bravery, hominid/species hooks; **`character_menu_ui.gd`** lists stats via `_get_traits_list()` (aligned with **`bible/traits.md`**). **Player:** stats/traits not yet first-class the same way — combat/inventory paths partially assume implicit player. | **Parity:** decide single **character profile contract** (numeric stats + trait ids + buff/debuff display rules) for **player + NPC**. **Gameplay:** wire agreed stats into combat/craft/carry when numbers matter (avoid decorative-only bars). **UI — figure out:** dedicated **Character / Stats screen** vs tab inside inventory; **inspect self** (hotkey) vs **inspect selected follower / RTS unit** (click portrait or context); mobile-safe layout; what is **read-only** vs editable later. **MP:** server-owned stats; UI reads replicated or polled subset; no client-trusted edits. **Deliverable:** short **UI mock decision** (wireframe or bullet flow) + minimal **player** stats surface (even placeholder) reusing `character_menu_ui` patterns where possible. | Two stat systems (player vs NPC), trait drift vs `traits.md`, RTS selection vs modal stack, replication bandwidth | `not started` | [ ] |
 
 ### §5.1 — I3 notes (stats / traits / character UI)
 
 **Already in repo (reuse)**
 
-- Numeric **`Stats`** node and **`stat_changed`** on **`NPCBase`**; trait strings on **`NPCBase`**; canonical write-up **`stoneageclans/guides/traits.md`**.
+- Numeric **`Stats`** node and **`stat_changed`** on **`NPCBase`**; trait strings on **`NPCBase`**; canonical write-up **`stoneageclans/bible/traits.md`**.
 - **`character_menu_ui.gd`** maps display rows → stat properties (and bravery); extend cautiously so new stats stay one list.
 
 **Early-game scope**
@@ -392,9 +392,9 @@ Shared constants: **`WORLD_OVERLAY_LINE_WIDTH_PX`**, **`WORLD_OVERLAY_LINE_HERD_
 
 ### Documentation touched
 
-- **`stoneageclans/guides/movement.md`** — player modifiers, formation summary, Break return pointer.
-- **`stoneageclans/guides/rts.md`** §6 **Break** (meta shape + caveman/clansman return).
-- **`stoneageclans/guides/game_dictionary.md`** — **Break** row.
+- **`stoneageclans/bible/movement.md`** — player modifiers, formation summary, Break return pointer.
+- **`stoneageclans/bible/rts.md`** §6 **Break** (meta shape + caveman/clansman return).
+- **`stoneageclans/bible/game_dictionary.md`** — **Break** row.
 
 **Follow-up (optional):** §**W2** / formation collection still relevant for **NPC-led** parties scanning `npcs` group; §**B2** if visual polyline vs `Line2D` mismatch bothers playtests.
 
@@ -407,7 +407,7 @@ Shared constants: **`WORLD_OVERLAY_LINE_WIDTH_PX`**, **`WORLD_OVERLAY_LINE_HERD_
 | 2026-04-12 | Initial roadmap: areas W/N/E/C/I/B/T, snapshot from repo + `AGREED_MECHANICS_TODO`, done-bar draft. |
 | 2026-04-12 | Added §8–§11: industry-standard QA, performance, hardening, multiplayer practices as required trackable rows; extended done-bar. |
 | 2026-04-12 | Purpose: stabilization focus (mechanics exist, reliability first). Added §12 stabilization procedures (S1–S12); done-bar ties to §12. |
-| 2026-04-14 | W1: embedded verified `ChunkUtils` constants. Related: `guides/earlygame.md`. New rows N4 (hunt), E3 (territory jobs); done-bar includes E3, N4. |
+| 2026-04-14 | W1: embedded verified `ChunkUtils` constants. Related: `bible/earlygame.md`. New rows N4 (hunt), E3 (territory jobs); done-bar includes E3, N4. |
 | 2026-04-15 | §13 Bug registry; T1 exhaustive harness (`run_exhaustive_earlygame_verify.sh`, `analyze_playtest.py --strict`); BUG-20260415-01 (B1 health bar layout), BUG-20260415-02 (E3 `get_tree` on orphan claim). |
 | 2026-04-16 | **`earlygame_test_fix_plan.md`** (bug log BUG-20260416-01–05, open items, verify commands). **NPC-centric test–fix loop** + **§14**: NPC gate checklist, `--strict`/empty-herd, artifacts, CI, coverage gates (`--min-herd-wildnpc-enters` / `--min-session-sec`), exhaustive **`--playtest-2min`** (Godot 4 **`--quit-after`** = iterations, not seconds); link `stoneageclans/tools/README.md`; **S10** → §14. |
 | 2026-04-22 | **§15** — RTS/formations (ATTACK ahead, FOLLOW rear arc), player herd debuff vs animals-only, **Break** return-home (caveman+clansman, claim cache, timeout metas), **`YSortUtils` world line** standard (herd white / party red / claim white, single claim ring polyline). **B2** row (claim visual vs gameplay). Related links: **`movement.md`**, **`rts.md`**. Session repro: **`run_session_instrument.sh`** quickstart. |

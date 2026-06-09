@@ -7,7 +7,7 @@ class_name SteeringAgent
 var npc: Node = null
 var target_position: Vector2 = Vector2.ZERO
 var target_node: Node2D = null
-var max_speed: float = 115.0  # Default (smoother; see guides/Phase4/config.md)
+var max_speed: float = 115.0  # Default (smoother; see bible/Phase4/config.md)
 var original_max_speed: float = 115.0  # Store original speed to restore later
 var max_force: float = 45.0  # Further reduced for smoother, more natural movement
 var arrive_radius: float = 60.0  # Larger radius for smoother stopping

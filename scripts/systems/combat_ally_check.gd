@@ -9,7 +9,18 @@ static func _clan_str(n: Node) -> String:
 	if not n or not is_instance_valid(n):
 		return ""
 	if n.has_method("get_clan_name"):
-		return n.get_clan_name()
+		var cn: String = n.get_clan_name()
+		if cn != "":
+			return cn
+	if n.is_in_group("player"):
+		# Fallback: player_name is set with clan at name dialog (before/without claim resolution)
+		var pn = n.get("player_name") if "player_name" in n else null
+		if pn != null and str(pn) != "":
+			return str(pn)
+		if n.has_meta("player_clan_name"):
+			var mc = n.get_meta("player_clan_name", "")
+			if str(mc) != "":
+				return str(mc)
 	if "clan_name" in n and n.get("clan_name") != null:
 		return str(n.get("clan_name"))
 	return ""

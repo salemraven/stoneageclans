@@ -21,6 +21,8 @@
 class_name ClanBrain
 extends RefCounted
 
+const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
 # These are documented for future UI integration
@@ -84,14 +86,15 @@ var clan_metrics: Dictionary = {
 	"population": 0,           # Total clan members (cavemen + clansmen + women + animals)
 	"breeding_females": 0,     # Women in clan
 	"food_total": 0,           # Food items in claim (berries, grain, bread, meat, milk, etc.)
-	"food_days_buffer": 0.0,   # Proxy: food_total / max(1, population * FOOD_PER_DAY_PROXY)
+	"food_days_buffer": 0.0,   # Proxy: food_total / max(1, population * food_per_capita_per_sim_day)
 	"meat_count": 0,           # MEAT in claim inventory (hunt pressure)
 	"hide_count": 0,           # HIDE in claim inventory (hunt pressure)
 	"herd_value": 0,           # Women + sheep + goats in clan
 	"building_count": 0,       # Buildings (non-claim) with same clan_name
 	"recent_losses": 0         # From territory meta "recent_herd_losses" (future: increment on herd steal)
 }
-const FOOD_PER_DAY_PROXY: float = 2.0  # Used for food_days_buffer calculation
+## Fallback when BalanceConfig absent — keep in sync with balance_config.gd default.
+const FOOD_PER_DAY_PROXY_FALLBACK: float = 5.0
 ## Rolling productivity samples (food/herd value delta per second between eval cycles).
 var _prev_food_total_sample: int = 0
 var _prev_herd_value_sample: int = 0
@@ -491,10 +494,36 @@ func _refresh_clan_members() -> void:
 				cavemen.append(npc)
 
 
+func _food_per_capita_per_sim_day() -> float:
+	if BalanceConfig and BalanceConfig.has_method("get_food_per_capita_per_sim_day"):
+		return BalanceConfig.get_food_per_capita_per_sim_day()
+	return FOOD_PER_DAY_PROXY_FALLBACK
+
+
+func _food_buffer_target_days() -> float:
+	if BalanceConfig:
+		return maxf(float(BalanceConfig.clan_food_buffer_target_days), 0.25)
+	return 1.0
+
+
+func _food_buffer_critical_days() -> float:
+	if BalanceConfig:
+		return maxf(float(BalanceConfig.clan_food_buffer_critical_days), 0.1)
+	return 0.5
+
+
 func _refresh_resource_status() -> void:
 	"""Refresh resource counts from land claim inventory."""
 	if not territory or not territory.inventory:
 		return
+	
+	# Scale berry storage target with population (simulation-aligned).
+	var pop_for_targets: int = maxi(1, clan_members.size())
+	if BalanceConfig and BalanceConfig.has_method("get_berries_storage_target"):
+		resource_status["berries"]["target"] = BalanceConfig.get_berries_storage_target(pop_for_targets)
+	else:
+		resource_status["berries"]["target"] = maxi(8, int(pop_for_targets * 0.45))
+	resource_status["berries"]["critical"] = maxi(3, resource_status["berries"]["target"] / 4)
 	
 	# Reset current counts
 	for key in resource_status:
@@ -564,7 +593,11 @@ func _evaluate_metrics() -> void:
 		clan_metrics["hide_count"] = 0
 	
 	var pop: int = maxi(1, clan_metrics["population"])
-	clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * FOOD_PER_DAY_PROXY)
+	var per_day: float = _food_per_capita_per_sim_day()
+	clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * per_day)
+	if territory:
+		territory.set_meta("food_days_buffer", clan_metrics["food_days_buffer"])
+		territory.set_meta("food_buffer_critical", clan_metrics["food_days_buffer"] < _food_buffer_critical_days())
 	
 	clan_metrics["building_count"] = 0
 	if territory and territory.get_tree():
@@ -577,11 +610,23 @@ func _evaluate_metrics() -> void:
 	
 	clan_metrics["recent_losses"] = territory.get_meta("recent_herd_losses", 0) if territory else 0
 
+func _count_clansmen() -> int:
+	var n: int = 0
+	for m in clan_members:
+		if not is_instance_valid(m):
+			continue
+		if str(m.get("npc_type")) == "clansman":
+			n += 1
+	return n
+
 func _update_economic_weights() -> void:
 	"""Adjust economic_priority_weights - population maxing: herd first, food when critical."""
 	var bf: int = clan_metrics["breeding_females"]
 	var fdb: float = clan_metrics["food_days_buffer"]
 	var pop: int = clan_metrics["population"]
+	var clansmen_count: int = _count_clansmen()
+	var target_days: float = _food_buffer_target_days()
+	var critical_days: float = _food_buffer_critical_days()
 	
 	# Base: herd dominates, gather supports
 	economic_priority_weights["food_weight"] = 1.0
@@ -589,20 +634,30 @@ func _update_economic_weights() -> void:
 	economic_priority_weights["resource_weight"] = 0.6
 	economic_priority_weights["build_weight"] = 0.5
 	
-	# Herd-first tiers by breeding females
-	if bf < 3:
-		economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.5)
-	if bf < 2:
-		economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.2)
-	if bf == 0 and pop >= 1:
-		economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.4)
-	# Food when buffer low (plan: < 3 days boosts gather priority)
-	if fdb < 3.0:
-		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.4)
-	if fdb < 2.0:
-		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.3)
-	if fdb < 1.0:
-		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.5)
+	# Early clan: breed + gather before long-range mega-herd loops (avoids 26-min dead starts).
+	if clansmen_count == 0:
+		economic_priority_weights["herd_weight"] = minf(economic_priority_weights["herd_weight"], 0.75)
+		economic_priority_weights["build_weight"] = maxf(economic_priority_weights["build_weight"], 0.85)
+		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.15)
+	if pop <= 2 and bf >= 1 and clansmen_count > 0:
+		economic_priority_weights["herd_weight"] = minf(economic_priority_weights["herd_weight"], 0.85)
+	
+	# Herd-first tiers by breeding females (skip while no clansmen — early cap above must stick).
+	if clansmen_count > 0:
+		if bf < 3:
+			economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.5)
+		if bf < 2:
+			economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.2)
+		if bf == 0 and pop >= 1:
+			economic_priority_weights["herd_weight"] = maxf(economic_priority_weights["herd_weight"], 1.4)
+	# Food when buffer low (simulation-tuned thresholds from BalanceConfig)
+	if fdb < target_days:
+		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.35)
+	if fdb < critical_days * 2.0:
+		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.45)
+	if fdb < critical_days:
+		economic_priority_weights["food_weight"] = maxf(economic_priority_weights["food_weight"], 1.6)
+		economic_priority_weights["herd_weight"] = minf(economic_priority_weights["herd_weight"], 1.0)
 	
 	if brain_mode == "nomadic":
 		economic_priority_weights["herd_weight"] *= 1.35
@@ -775,10 +830,15 @@ func _update_pressures() -> void:
 		search_pressure += 0.2
 	# Metric-driven: gather only when food critical
 	var fdb: float = clan_metrics["food_days_buffer"]
-	if fdb < 2.0:
-		gather_pressure += 0.25
-	if fdb < 1.0:
+	var target_days: float = _food_buffer_target_days()
+	var critical_days: float = _food_buffer_critical_days()
+	if fdb < target_days:
+		gather_pressure += 0.2
+	if fdb < critical_days * 2.0:
 		gather_pressure += 0.15
+	if fdb < critical_days:
+		gather_pressure += 0.2
+		search_pressure = minf(search_pressure, 0.55)
 	
 	# Normalize pressures
 	var total: float = defend_pressure + search_pressure + gather_pressure
@@ -826,8 +886,10 @@ func _calculate_food_ratio() -> float:
 	Uses clan_metrics['food_total'] which includes berries, grain, bread, mushrooms, bugs, nuts, meat, milk."""
 	var food_total: int = clan_metrics.get("food_total", 0)
 	var population: int = maxi(1, clan_metrics.get("population", 1))
-	# Target: 3 food per population member (same scale as food_days_buffer with FOOD_PER_DAY_PROXY=2)
-	var target: int = population * 3
+	# Target: food_days at target_days when claim holds target_days × per_capita × population
+	var per_day: float = _food_per_capita_per_sim_day()
+	var target_days: float = _food_buffer_target_days()
+	var target: int = int(ceil(float(population) * per_day * target_days))
 	if target <= 0:
 		return 1.0
 	var ratio: float = clampf(float(food_total) / float(target), 0.0, 1.0)
@@ -879,10 +941,25 @@ func _make_strategic_decisions() -> void:
 			StrategicState.keys()[strategic_state]
 		])
 	
-	# Phase 3: Evaluate hunt / raid when stable enough to project force (skipped in survival mode)
-	if not _is_survival_mode and (strategic_state == StrategicState.AGGRESSIVE or strategic_state == StrategicState.PEACEFUL):
+	# Phase 3: Evaluate hunt / raid when stable enough to project force (skipped in survival mode).
+	var can_project: bool = strategic_state == StrategicState.AGGRESSIVE or strategic_state == StrategicState.PEACEFUL
+	if can_project and (not _is_survival_mode or _allow_starving_hunt_in_survival()):
 		_evaluate_hunt_opportunity()
+	if can_project and not _is_survival_mode:
 		_evaluate_raid_opportunity()
+
+func _allow_starving_hunt_in_survival() -> bool:
+	"""One caveman clans in survival mode may still solo-hunt when claim food is critically low."""
+	if not _is_survival_mode:
+		return false
+	if not BalanceConfig or not BalanceConfig.hunt_allow_solo_when_food_critical:
+		return false
+	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
+	var ft: int = clan_metrics.get("food_total", 0)
+	var solo_thresh: float = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
+	var bootstrap_min: int = maxi(1, int(BalanceConfig.claim_food_bootstrap_min_items))
+	return fdb < solo_thresh or ft < bootstrap_min
+
 
 func _update_land_claim_ratios() -> void:
 	"""Push updated ratios to the land claim."""
@@ -1064,7 +1141,7 @@ func _claim_has_building_type(claim: Node, building_type: ResourceData.ResourceT
 	return false
 
 func _evaluate_milestone_buildings() -> void:
-	"""When AI hits milestones, spawn buildings: 10 stone→Oven, 3 sheep→Farm, 3 goats→Dairy, 2 babies→Living Hut."""
+	"""When AI hits milestones, spawn buildings: 10 stone→Oven, 3 sheep→Farm, 3 goats→Dairy, 2 babies→Living Hut (empty)."""
 	if not (territory is LandClaim):
 		return
 	if not territory or not is_instance_valid(territory) or not territory.inventory:
@@ -1088,7 +1165,7 @@ func _evaluate_milestone_buildings() -> void:
 			goat_count += 1
 		elif nt == "baby":
 			baby_count += 1
-	# Milestones: 10 stone → Oven; 3 sheep → Farm; 3 goats → Dairy; 2 babies → Living Hut
+	# Milestones: 10 stone → Oven; 3 sheep → Farm; 3 goats → Dairy; 2 babies → Living Hut (no woman assign — herder path in play)
 	if stone >= 10 and not _claim_has_building_type(territory, ResourceData.ResourceType.OVEN):
 		main_node._place_ai_building(territory, ResourceData.ResourceType.OVEN)
 	if sheep_count >= 3 and not _claim_has_building_type(territory, ResourceData.ResourceType.FARM):
@@ -1165,7 +1242,7 @@ func _update_defender_assignments() -> void:
 			territory.set_meta("defender_quota_freeze_reason", "raid_recruiting_active")
 		return
 	var hunt_state_val: int = hunt_intent.get("state", HuntIntentState.NONE)
-	if (hunt_state_val == HuntIntentState.RECRUITING or hunt_state_val == HuntIntentState.ACTIVE) and alert_level < AlertLevel.SKIRMISH:
+	if (hunt_state_val == HuntIntentState.RECRUITING or hunt_state_val == HuntIntentState.ACTIVE or hunt_state_val == HuntIntentState.LOOTING) and alert_level < AlertLevel.SKIRMISH:
 		if territory:
 			territory.set_meta("defender_quota_freeze_reason", "hunt_recruiting_active")
 		return
@@ -1337,7 +1414,9 @@ const RAID_MIN_FOOD_DAYS_FOR_RAID: float = 3.0
 
 # Hunting party (Area of Hunt)
 const HUNT_COOLDOWN_SEC: float = 45.0
-enum HuntIntentState { NONE, RECRUITING, ACTIVE, RETREATING }
+const HUNT_CHASE_SPEED_MULT: float = 1.85
+const HUNT_CHASE_MIN_SPEED: float = 170.0
+enum HuntIntentState { NONE, RECRUITING, ACTIVE, LOOTING, RETREATING }
 var hunt_intent: Dictionary = {
 	"state": HuntIntentState.NONE,
 	"target": null,
@@ -1600,6 +1679,8 @@ func _update_raid() -> void:
 
 func _log_raid_phase_change(old_phase: String, new_phase: String) -> void:
 	"""Log raid phase transitions for debugging."""
+	if DebugConfig and DebugConfig.enable_party_hunt_debug:
+		print("🟥 PARTY/HUNT RAID PHASE: %s %s → %s" % [clan_name, old_phase, new_phase])
 	var tree = territory.get_tree() if territory else null
 	if not tree:
 		return
@@ -1766,9 +1847,7 @@ func _form_raid_party(max_raiders: int) -> void:
 		npc_join_raid(f)
 	var tree = territory.get_tree() if territory else null
 	if tree:
-		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("party_formed"):
-			pi.party_formed(lname, followers.size(), "raid_start")
+		_notify_party_instrument(true, leader, followers, "raid_start")
 
 
 func _disband_raid_party(reason: String) -> void:
@@ -1798,11 +1877,8 @@ func _disband_raid_party(reason: String) -> void:
 		var fsm = f.get_node_or_null("FSM")
 		if fsm:
 			fsm.evaluation_timer = 0.0
-	var tree = territory.get_tree() if territory else null
-	if tree:
-		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("party_disbanded") and lname != "":
-			pi.party_disbanded(lname, reason)
+	_notify_party_instrument(false, leader, followers, reason)
+
 
 # --- Hunting party (Area of Hunt) ---
 
@@ -1833,8 +1909,16 @@ func _compute_hunt_need_pressure() -> float:
 		pressure += 0.5
 	if clan_metrics.get("hide_count", 9999) < hide_thresh:
 		pressure += 0.3
-	if clan_metrics.get("food_days_buffer", 99.0) < 2.0:
+	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
+	var solo_thresh: float = 0.15
+	if BalanceConfig:
+		solo_thresh = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
+	if fdb < solo_thresh:
+		pressure += 0.25
+	if fdb < _food_buffer_critical_days() * 2.0:
 		pressure += 0.2
+	if fdb < _food_buffer_critical_days():
+		pressure += 0.15
 	return pressure
 
 
@@ -1848,9 +1932,6 @@ func _evaluate_hunt_opportunity() -> void:
 	if alert_level >= AlertLevel.SKIRMISH:
 		return
 	var need_pressure: float = _compute_hunt_need_pressure()
-	var hunt_stress := DebugConfig != null and bool(DebugConfig.npc_only_world_hunt_stress)
-	if hunt_stress:
-		need_pressure = maxf(need_pressure, 0.6)
 	if need_pressure <= 0.0:
 		return  # Clan is stocked — do not send hunting parties opportunistically
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
@@ -1859,7 +1940,20 @@ func _evaluate_hunt_opportunity() -> void:
 		cooldown_sec = NPCConfig.hunt_cooldown_hungry_sec
 	if now_sec - _last_hunt_time < cooldown_sec:
 		return
-	if cavemen.size() < 2:
+	var clansmen_count: int = _count_clansmen()
+	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
+	var allow_solo: bool = false
+	if BalanceConfig and BalanceConfig.hunt_allow_solo_when_food_critical:
+		var solo_thresh: float = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
+		allow_solo = (
+			fdb < solo_thresh
+			or fdb < _food_buffer_critical_days()
+			or need_pressure >= 1.0
+			or (clansmen_count == 0 and cavemen.size() == 1)
+		)
+	if cavemen.size() < 1:
+		return
+	if cavemen.size() < 2 and not allow_solo:
 		return
 	var huntables: Array = territory.get_huntables_in_aoh() if territory.has_method("get_huntables_in_aoh") else []
 	if huntables.is_empty():
@@ -1871,6 +1965,9 @@ func _evaluate_hunt_opportunity() -> void:
 	if NPCConfig:
 		min_h = NPCConfig.hunt_party_min_size
 		max_h = NPCConfig.hunt_party_max_size
+	if allow_solo and cavemen.size() == 1:
+		min_h = 1
+		max_h = 1
 	if available < min_h:
 		return
 	var target: Node = _pick_nearest_huntable(huntables)
@@ -1892,6 +1989,8 @@ func _start_hunt(target: Node, hunter_quota: int, need_pressure: float = 0.0) ->
 	hunt_intent["use_stalk_approach"] = stalk
 	hunt_intent["need_pressure"] = need_pressure
 	hunt_intent["target_type"] = tname
+	if target is Node:
+		target.set_meta("active_hunt_prey", clan_name)
 	print("🎯 ClanBrain %s: Starting hunt vs %s (need_pressure=%.2f)" % [clan_name, tname, need_pressure])
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
 	_last_hunt_time = now_sec
@@ -1919,10 +2018,19 @@ func _start_hunt(target: Node, hunter_quota: int, need_pressure: float = 0.0) ->
 			)
 	_form_hunt_party(hunter_quota)
 
+func _resolve_hunt_target() -> Node:
+	var raw_target = hunt_intent.get("target")
+	if raw_target == null:
+		return null
+	if not is_instance_valid(raw_target):
+		hunt_intent["target"] = null
+		return null
+	return raw_target as Node
+
 func _update_hunt() -> void:
 	if hunt_intent["state"] == HuntIntentState.NONE:
 		return
-	var target: Node = hunt_intent.get("target") as Node
+	var target: Node = _resolve_hunt_target()
 	match hunt_intent["state"]:
 		HuntIntentState.RECRUITING:
 			var hc: int = _count_active_hunters()
@@ -1933,6 +2041,8 @@ func _update_hunt() -> void:
 				hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
 				if territory:
 					territory.set_meta("hunt_intent", hunt_intent.duplicate())
+				set_hunt_party_arc_stance()
+				_apply_hunt_party_chase_boost(true)
 			else:
 				var elapsed: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["start_time"])
 				if elapsed > 30.0:
@@ -1953,23 +2063,53 @@ func _update_hunt() -> void:
 				if territory:
 					territory.set_meta("hunt_intent", hunt_intent.duplicate())
 			elif target.has_method("is_dead") and target.is_dead():
-				_log_hunt_phase_change("ACTIVE", "RETREATING")
-				hunt_intent["state"] = HuntIntentState.RETREATING
+				_log_hunt_phase_change("ACTIVE", "LOOTING")
+				hunt_intent["state"] = HuntIntentState.LOOTING
 				hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
 				if territory:
 					territory.set_meta("hunt_intent", hunt_intent.duplicate())
+				var tree_kill = territory.get_tree() if territory else null
+				if tree_kill:
+					var pi_kill = tree_kill.root.get_node_or_null("PlaytestInstrumentor")
+					if pi_kill and pi_kill.is_enabled() and pi_kill.has_method("hunt_prey_killed"):
+						var prey_type_kill: String = str(target.get("npc_type")) if target.get("npc_type") != null else "prey"
+						pi_kill.hunt_prey_killed(clan_name, prey_type_kill, "hunt_party")
+				open_corpse_job_site(target)
+			else:
+				var active_elapsed: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["phase_start_time"])
+				if active_elapsed > 120.0:
+					_cancel_hunt("active_timeout")
+		HuntIntentState.LOOTING:
+			if territory and not CorpseJobs.is_site_active(territory):
+				_complete_hunt("loot_complete")
+			elif target and _hunt_corpse_yield_total(target) <= 0:
+				_complete_hunt("loot_complete")
+			elif not target:
+				if territory and CorpseJobs.is_site_active(territory):
+					pass
+				else:
+					_complete_hunt("loot_complete")
+			elif territory and not CorpseJobs.is_site_active(territory):
+				open_corpse_job_site(target)
 		HuntIntentState.RETREATING:
 			var ret_elapsed: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["phase_start_time"])
 			if ret_elapsed > 35.0:
 				_complete_hunt("retreat_complete")
 
 func _log_hunt_phase_change(old_phase: String, new_phase: String) -> void:
+	if DebugConfig and DebugConfig.enable_party_hunt_debug:
+		print("🟥 PARTY/HUNT HUNT PHASE: %s %s → %s" % [clan_name, old_phase, new_phase])
 	var tree = territory.get_tree() if territory else null
 	if not tree:
 		return
 	var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("hunt_phase_changed"):
 		pi.hunt_phase_changed(clan_name, old_phase, new_phase)
+
+func _hunt_corpse_yield_total(corpse: Node) -> int:
+	if not corpse or not is_instance_valid(corpse):
+		return 0
+	return int(corpse.get_meta("meat_remaining", 0)) + int(corpse.get_meta("hide_remaining", 0)) + int(corpse.get_meta("bone_remaining", 0))
 
 func _count_active_hunters() -> int:
 	var count: int = 0
@@ -1991,6 +2131,8 @@ func _complete_hunt(reason: String) -> void:
 	_reset_hunt_state(reason, true)
 
 func _cancel_hunt(reason: String) -> void:
+	if hunt_intent["state"] == HuntIntentState.NONE:
+		return
 	print("🎯 ClanBrain %s: Hunt cancelled (%s)" % [clan_name, reason])
 	var tree = territory.get_tree() if territory else null
 	if tree:
@@ -1999,7 +2141,16 @@ func _cancel_hunt(reason: String) -> void:
 			pi.hunt_aborted(clan_name, reason)
 	_reset_hunt_state(reason, false)
 
+
+## Called from hunt_state when a hunter locally aborts (assembly timeout, brain lost, etc.).
+func abort_hunt(reason: String) -> void:
+	_cancel_hunt(reason)
+
 func _reset_hunt_state(reason: String, _from_complete: bool) -> void:
+	var prey: Node = _resolve_hunt_target()
+	if prey and is_instance_valid(prey) and prey.has_meta("active_hunt_prey"):
+		prey.remove_meta("active_hunt_prey")
+	_apply_hunt_party_chase_boost(false)
 	_disband_hunt_party(reason)
 	for n in cavemen:
 		if is_instance_valid(n) and n.has_meta("hunt_joined") and n.get_meta("hunt_joined") == true:
@@ -2014,8 +2165,10 @@ func _reset_hunt_state(reason: String, _from_complete: bool) -> void:
 	hunt_intent["need_pressure"] = 0.0
 	hunt_intent["target_type"] = ""
 	_hunt_prey_lost_logged = false
-	if territory and territory.has_meta("hunt_intent"):
-		territory.remove_meta("hunt_intent")
+	if territory:
+		CorpseJobs.clear_site(territory)
+		if territory.has_meta("hunt_intent"):
+			territory.remove_meta("hunt_intent")
 
 func is_hunting() -> bool:
 	return hunt_intent["state"] != HuntIntentState.NONE
@@ -2039,8 +2192,8 @@ func should_npc_hunt(npc: Node) -> bool:
 		return true
 	if _count_active_hunters() >= int(hunt_intent.get("hunter_quota", 0)):
 		return false
-	var prey: Node = hunt_intent.get("target") as Node
-	if not prey or not is_instance_valid(prey):
+	var prey: Node = _resolve_hunt_target()
+	if not prey:
 		return false
 	return true
 
@@ -2059,6 +2212,7 @@ func npc_leave_hunt(npc: Node) -> void:
 func _form_hunt_party(max_hunters: int) -> void:
 	if not territory:
 		return
+	var prey: Node = _resolve_hunt_target()
 	var candidates: Array = []
 	for n in cavemen:
 		if not is_instance_valid(n):
@@ -2069,6 +2223,11 @@ func _form_hunt_party(max_hunters: int) -> void:
 		if nt != "caveman" and nt != "clansman":
 			continue
 		candidates.append(n)
+	if prey and is_instance_valid(prey):
+		var prey_pos: Vector2 = prey.global_position
+		candidates.sort_custom(func(a, b):
+			return a.global_position.distance_to(prey_pos) < b.global_position.distance_to(prey_pos)
+		)
 	var total: int = mini(max_hunters, candidates.size())
 	if total < 2:
 		return
@@ -2079,11 +2238,15 @@ func _form_hunt_party(max_hunters: int) -> void:
 	territory.set_meta("hunt_party_leader", leader)
 	territory.set_meta("hunt_party_followers", followers.duplicate())
 	leader.set("is_hostile", true)
+	if leader.has_method("equip_work_weapon_spear"):
+		leader.equip_work_weapon_spear()
 	var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
 	npc_join_hunt(leader)
 	for f in followers:
 		if not is_instance_valid(f):
 			continue
+		if f.has_method("equip_work_weapon_spear"):
+			f.equip_work_weapon_spear()
 		f.set("is_herded", true)
 		f.set("herder", leader)
 		f.set("follow_is_ordered", true)
@@ -2104,42 +2267,317 @@ func _form_hunt_party(max_hunters: int) -> void:
 		fsm_l.change_state("hunt")
 	var tree = territory.get_tree() if territory else null
 	if tree:
-		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("party_formed"):
-			pi.party_formed(lname, followers.size(), "hunt_start")
+		_notify_party_instrument(true, leader, followers, "hunt_start")
+	_apply_hunt_party_chase_boost(true)
 
-func _disband_hunt_party(reason: String) -> void:
+
+func _collect_hunt_party_members() -> Array:
+	var members: Array = []
+	var seen: Dictionary = {}
+	if not territory:
+		for n in cavemen:
+			if is_instance_valid(n) and n.has_meta("hunt_joined") and n.get_meta("hunt_joined") == true:
+				var nid: int = n.get_instance_id()
+				if not seen.has(nid):
+					members.append(n)
+					seen[nid] = true
+		return members
+	var leader: Node = territory.get_meta("hunt_party_leader") as Node if territory.has_meta("hunt_party_leader") else null
+	var followers: Array = territory.get_meta("hunt_party_followers", []) as Array
+	for f in followers:
+		if is_instance_valid(f):
+			var fid: int = f.get_instance_id()
+			if not seen.has(fid):
+				members.append(f)
+				seen[fid] = true
+	if leader and is_instance_valid(leader):
+		var lid: int = leader.get_instance_id()
+		if not seen.has(lid):
+			members.append(leader)
+			seen[lid] = true
+	for n in cavemen:
+		if not is_instance_valid(n):
+			continue
+		if n.has_meta("hunt_joined") and n.get_meta("hunt_joined") == true:
+			var nid2: int = n.get_instance_id()
+			if not seen.has(nid2):
+				members.append(n)
+				seen[nid2] = true
+	return members
+
+
+func _apply_hunt_party_chase_boost(enabled: bool) -> void:
+	for m in _collect_hunt_party_members():
+		if not is_instance_valid(m):
+			continue
+		var sa = m.get("steering_agent")
+		if not sa:
+			continue
+		if enabled:
+			if not m.has_meta("hunt_pre_boost_speed"):
+				m.set_meta("hunt_pre_boost_speed", sa.max_speed)
+			var base_speed: float = float(m.get_meta("hunt_pre_boost_speed", sa.original_max_speed))
+			sa.max_speed = maxf(base_speed * HUNT_CHASE_SPEED_MULT, HUNT_CHASE_MIN_SPEED)
+		elif m.has_meta("hunt_pre_boost_speed"):
+			sa.max_speed = float(m.get_meta("hunt_pre_boost_speed"))
+			m.remove_meta("hunt_pre_boost_speed")
+
+func set_hunt_party_arc_stance() -> void:
 	if not territory or not territory.has_meta("hunt_party_leader"):
 		return
 	var leader: Node = territory.get_meta("hunt_party_leader") as Node
+	if not leader or not is_instance_valid(leader):
+		return
 	var followers: Array = territory.get_meta("hunt_party_followers", []) as Array
-	territory.remove_meta("hunt_party_leader")
-	territory.remove_meta("hunt_party_followers")
-	var lname: String = ""
-	if leader and is_instance_valid(leader):
-		lname = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
-		if leader.has_meta("formation_slots"):
-			leader.remove_meta("formation_slots")
-		if leader.has_meta("formation_velocity"):
-			leader.remove_meta("formation_velocity")
-		leader.set_meta("formation_speed_mult", 1.0)
 	for f in followers:
 		if not is_instance_valid(f):
 			continue
-		if HerdManager and leader and is_instance_valid(leader):
-			HerdManager.unregister_follower(leader, f)
-		f.set("follow_is_ordered", false)
-		f.set("is_herded", false)
-		f.set("herder", null)
-		f.set("herd_mentality_active", false)
-		var fsm = f.get_node_or_null("FSM")
-		if fsm:
-			fsm.evaluation_timer = 0.0
+		PartyCommandUtils.set_follower_mode_string(f, "ARC")
+		PartyCommandUtils.apply_context_to_follower(leader, f)
+
+func is_hunt_party_encircled(prey: Node) -> bool:
+	if not prey or not is_instance_valid(prey) or not territory:
+		return false
+	var leader: Node = territory.get_meta("hunt_party_leader") as Node
+	if not leader or not is_instance_valid(leader):
+		return false
+	var prey_pos: Vector2 = prey.global_position
+	if leader.global_position.distance_to(prey_pos) > 160.0:
+		return false
+	var followers: Array = territory.get_meta("hunt_party_followers", []) as Array
+	if followers.is_empty():
+		return true
+	var ring_count: int = 0
+	const MIN_RING: float = 70.0
+	const MAX_RING: float = 240.0
+	for f in followers:
+		if not is_instance_valid(f):
+			continue
+		var d: float = f.global_position.distance_to(prey_pos)
+		if d >= MIN_RING and d <= MAX_RING:
+			ring_count += 1
+	var need: int = maxi(1, int(ceil(float(followers.size()) * 0.5)))
+	return ring_count >= need
+
+func trigger_hunt_party_attack(prey: Node) -> void:
+	if not prey or not is_instance_valid(prey) or not territory:
+		return
+	var members: Array = []
+	var leader: Node = territory.get_meta("hunt_party_leader") as Node
+	if leader and is_instance_valid(leader):
+		members.append(leader)
+	for f in territory.get_meta("hunt_party_followers", []) as Array:
+		if is_instance_valid(f):
+			members.append(f)
+	for m in members:
+		if m.has_method("equip_work_weapon_spear"):
+			m.equip_work_weapon_spear()
+		m.set("is_hostile", true)
+		if m.has_method("assign_combat_target_node") and prey is Node2D:
+			m.assign_combat_target_node(prey as Node2D)
+		else:
+			m.set("combat_target", prey)
+		m.set("agro_meter", 100.0)
+		if m == leader:
+			m.set_meta("hunt_after_combat", true)
+		var fsm_m = m.get_node_or_null("FSM")
+		if fsm_m and fsm_m.has_method("change_state"):
+			fsm_m.evaluation_timer = 0.0
+			fsm_m.change_state("combat", true)
+	if DebugConfig and DebugConfig.enable_party_hunt_debug:
+		var prey_type: String = str(prey.get("npc_type")) if prey.get("npc_type") != null else "prey"
+		print("🟥 PARTY/HUNT ATTACK: %s party engages %s with spears (%d fighters)" % [clan_name, prey_type, members.size()])
+
+func open_corpse_job_site(corpse: Node) -> void:
+	if not corpse or not is_instance_valid(corpse) or not territory:
+		return
+	var existing: Node = CorpseJobs.get_site_corpse(territory)
+	if existing == corpse:
+		return
+	CorpseJobs.register_site(territory, corpse)
+	_soft_disband_hunt_party_for_loot()
 	var tree = territory.get_tree() if territory else null
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("party_disbanded") and lname != "":
-			pi.party_disbanded(lname, reason)
+		if pi and pi.is_enabled() and pi.has_method("hunt_butcher_started"):
+			var ctype: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey"
+			pi.hunt_butcher_started(
+				clan_name,
+				ctype,
+				int(corpse.get_meta("meat_remaining", 0)),
+				int(corpse.get_meta("hide_remaining", 0)),
+				int(corpse.get_meta("bone_remaining", 0))
+			)
+	if DebugConfig and DebugConfig.enable_party_hunt_debug:
+		print("🟥 PARTY/HUNT CORPSE SITE: %s opened butcher job at %s (yield %d)" % [
+			clan_name,
+			str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey",
+			_hunt_corpse_yield_total(corpse)
+		])
+
+
+func _soft_disband_hunt_party_for_loot() -> void:
+	if not territory:
+		return
+	var leader: Node = territory.get_meta("hunt_party_leader") as Node if territory.has_meta("hunt_party_leader") else null
+	var followers: Array = territory.get_meta("hunt_party_followers", []) as Array
+	if territory.has_meta("hunt_party_leader"):
+		_notify_party_instrument(false, leader, followers, "loot_phase")
+	clear_hunt_party_loot_metas()
+	var all_members: Array = followers.duplicate()
+	if leader and is_instance_valid(leader):
+		all_members.append(leader)
+	for m in all_members:
+		if not is_instance_valid(m):
+			continue
+		if m.has_method("_invalidate_combat_target"):
+			m._invalidate_combat_target()
+		m.set("is_hostile", false)
+		if m.has_meta("hunt_after_combat"):
+			m.remove_meta("hunt_after_combat")
+		if m.has_method("equip_work_weapon_club"):
+			m.equip_work_weapon_club()
+		npc_leave_hunt(m)
+		if not m.has_meta("hunt_loot_meat"):
+			m.set_meta("hunt_loot_meat", 0)
+		if not m.has_meta("hunt_loot_hide"):
+			m.set_meta("hunt_loot_hide", 0)
+		if not m.has_meta("hunt_loot_bone"):
+			m.set_meta("hunt_loot_bone", 0)
+		if not m.has_meta("hunt_butcher_units"):
+			m.set_meta("hunt_butcher_units", 0)
+	if territory.has_meta("hunt_party_leader"):
+		if leader and is_instance_valid(leader):
+			if leader.has_meta("formation_slots"):
+				leader.remove_meta("formation_slots")
+			if leader.has_meta("formation_velocity"):
+				leader.remove_meta("formation_velocity")
+			leader.set_meta("formation_speed_mult", 1.0)
+		for f in followers:
+			if not is_instance_valid(f):
+				continue
+			if HerdManager and leader and is_instance_valid(leader):
+				HerdManager.unregister_follower(leader, f)
+			f.set("follow_is_ordered", false)
+			f.set("is_herded", false)
+			f.set("herder", null)
+			f.set("herd_mentality_active", false)
+		territory.remove_meta("hunt_party_leader")
+		territory.remove_meta("hunt_party_followers")
+	for m in all_members:
+		var fsm = m.get_node_or_null("FSM")
+		if fsm and fsm.has_method("change_state"):
+			fsm.evaluation_timer = 0.0
+			fsm.change_state("gather", true)
+
+
+## Legacy alias — combat/hunt hooks may still call this name.
+func begin_hunt_party_looting(corpse: Node) -> void:
+	open_corpse_job_site(corpse)
+
+func clear_hunt_party_loot_metas() -> void:
+	if not territory:
+		return
+	if territory.has_meta("hunt_loot_corpse_id"):
+		territory.remove_meta("hunt_loot_corpse_id")
+	var followers: Array = territory.get_meta("hunt_party_followers", []) as Array
+	var leader: Node = territory.get_meta("hunt_party_leader") as Node if territory.has_meta("hunt_party_leader") else null
+	var all_members: Array = followers.duplicate()
+	if leader and is_instance_valid(leader):
+		all_members.append(leader)
+	for m in all_members:
+		if not is_instance_valid(m):
+			continue
+		for key in ["hunt_loot_corpse_id", "hunt_butchering", CorpseJobs.WORKER_META]:
+			if m.has_meta(key):
+				m.remove_meta(key)
+
+func _disband_hunt_party(reason: String) -> void:
+	if not territory:
+		return
+	var leader: Node = null
+	var followers: Array = []
+	var had_party: bool = territory.has_meta("hunt_party_leader")
+	if had_party:
+		leader = territory.get_meta("hunt_party_leader") as Node
+		followers = territory.get_meta("hunt_party_followers", []) as Array
+		territory.remove_meta("hunt_party_leader")
+		territory.remove_meta("hunt_party_followers")
+	clear_hunt_party_loot_metas()
+	var all_members: Array = []
+	var seen: Dictionary = {}
+	for f in followers:
+		if is_instance_valid(f):
+			var fid: int = f.get_instance_id()
+			if not seen.has(fid):
+				all_members.append(f)
+				seen[fid] = true
+	if leader and is_instance_valid(leader):
+		var lid: int = leader.get_instance_id()
+		if not seen.has(lid):
+			all_members.append(leader)
+			seen[lid] = true
+	for n in cavemen:
+		if not is_instance_valid(n):
+			continue
+		if n.has_meta("hunt_joined") and n.get_meta("hunt_joined") == true:
+			var nid: int = n.get_instance_id()
+			if not seen.has(nid):
+				all_members.append(n)
+				seen[nid] = true
+	for m in all_members:
+		_release_hunt_fighter(m, leader)
+	_apply_hunt_party_chase_boost(false)
+	if had_party:
+		if leader and is_instance_valid(leader):
+			if leader.has_meta("formation_slots"):
+				leader.remove_meta("formation_slots")
+			if leader.has_meta("formation_velocity"):
+				leader.remove_meta("formation_velocity")
+			leader.set_meta("formation_speed_mult", 1.0)
+		_notify_party_instrument(false, leader, followers, reason)
+
+
+func _release_hunt_fighter(member: Node, party_leader: Node) -> void:
+	if not is_instance_valid(member):
+		return
+	if member.has_method("_invalidate_combat_target"):
+		member._invalidate_combat_target()
+	member.set("is_hostile", false)
+	if member.has_meta("hunt_after_combat"):
+		member.remove_meta("hunt_after_combat")
+	if member.has_meta("is_stalking"):
+		member.remove_meta("is_stalking")
+	if member.has_meta("chunk_sticky"):
+		member.remove_meta("chunk_sticky")
+	CorpseJobs.clear_worker_meta(member)
+	if member.has_meta("hunt_pre_boost_speed"):
+		var sa = member.get("steering_agent")
+		if sa:
+			sa.max_speed = float(member.get_meta("hunt_pre_boost_speed"))
+		member.remove_meta("hunt_pre_boost_speed")
+	if member.has_method("equip_work_weapon_club"):
+		member.equip_work_weapon_club()
+	npc_leave_hunt(member)
+	var herder = member.get("herder")
+	if party_leader and is_instance_valid(party_leader) and herder == party_leader:
+		if HerdManager:
+			HerdManager.unregister_follower(party_leader, member)
+		member.set("follow_is_ordered", false)
+		member.set("is_herded", false)
+		member.set("herder", null)
+		member.set("herd_mentality_active", false)
+	elif member.get("follow_is_ordered") == true:
+		member.set("follow_is_ordered", false)
+		member.set("is_herded", false)
+		member.set("herder", null)
+		member.set("herd_mentality_active", false)
+	var fsm = member.get_node_or_null("FSM")
+	if fsm and fsm.has_method("change_state"):
+		fsm.evaluation_timer = 0.0
+		var state_name: String = fsm.get_current_state_name() if fsm.has_method("get_current_state_name") else ""
+		if state_name in ["hunt", "party", "combat"]:
+			fsm.change_state("wander", true)
 
 # === Phase 4: Strategic AI Enhancements ===
 
@@ -2372,3 +2810,27 @@ func get_debug_info() -> Dictionary:
 		"resource_status": resource_status.duplicate(),
 		"nearby_enemies": nearby_enemy_claims.size()
 	}
+
+
+func _brain_hunt_state_label() -> String:
+	return HuntIntentState.keys()[int(hunt_intent.get("state", HuntIntentState.NONE))]
+
+
+func _brain_raid_state_label() -> String:
+	return RaidState.keys()[int(raid_intent.get("state", RaidState.NONE))]
+
+
+func _notify_party_instrument(formed: bool, leader: Node, followers: Array, source_or_reason: String) -> void:
+	var phi: Node = null
+	if territory and territory.get_tree():
+		phi = territory.get_tree().root.get_node_or_null("PartyHuntInstrument")
+	if phi == null:
+		return
+	var hunt_l: String = _brain_hunt_state_label()
+	var raid_l: String = _brain_raid_state_label()
+	if formed:
+		if phi.has_method("on_party_formed"):
+			phi.on_party_formed(clan_name, leader, followers, source_or_reason, hunt_l, raid_l)
+	else:
+		if phi.has_method("on_party_disbanded"):
+			phi.on_party_disbanded(clan_name, leader, followers, source_or_reason, hunt_l, raid_l)

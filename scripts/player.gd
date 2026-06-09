@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 const WalkAnimation = preload("res://scripts/systems/walk_animation.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
+const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
@@ -22,11 +23,14 @@ var _leader_lines_container: Node2D = null
 var _leader_line_pool: Array[Line2D] = []
 var herded_count: int = 0  # Deprecated: use HerdManager.get_herd_size(self); kept for save/tools compatibility
 var last_facing: Vector2 = Vector2(0, 1)  # For formation when stationary (followers stay behind)
+var aim_dir: Vector2 = Vector2(1, 0)  # Cursor aim while weapon ready
+
+const WEAPON_READY_SPEED_MULT := 0.6
 
 # Player hunger (does NOT die from starvation - only penalties)
 var hunger: float = 100.0
 var hunger_max: float = 100.0
-var hunger_deplete_rate: float = 28.0  # Per minute (BalanceConfig or default)
+var hunger_deplete_rate: float = 12.0  # Per minute — synced from BalanceConfig in _ready()
 
 # Eat progress display (world-space pie timer, same pattern as NPCs)
 var eat_progress_display: Node2D = null
@@ -34,8 +38,16 @@ var eat_progress_display: Node2D = null
 # Player name - defaults to clan name (will be set when clan is created)
 var player_name: String = ""
 var _player_name_meta_key: String = "player_name"
+var card_index: int = 0
+var genetics_profile: Dictionary = {}
+var _card_foot_y: float = -128.0
+var _card_bounce_time: float = 0.0
 
 func _ready() -> void:
+	add_to_group("player")
+	if BalanceConfig:
+		hunger_deplete_rate = BalanceConfig.hunger_deplete_rate_per_min
+		hunger = hunger_max * (BalanceConfig.hunger_start_percent / 100.0)
 	if not sprite:
 		print("ERROR: Player sprite is null in _ready()!")
 		return
@@ -43,7 +55,6 @@ func _ready() -> void:
 	_sprite_base_position = sprite.position
 	sprite.visible = true
 	_setup_texture()
-	add_to_group("player")
 	if EntityRegistry:
 		EntityRegistry.register(self)
 	
@@ -79,7 +90,7 @@ func _ready() -> void:
 	# Create eat progress display (world-space pie, same pattern as NPCs)
 	eat_progress_display = Node2D.new()
 	eat_progress_display.name = "EatProgress"
-	eat_progress_display.position = Vector2(0, -50)
+	eat_progress_display.position = Vector2(0, -88)
 	eat_progress_display.visible = false
 	eat_progress_display.z_as_relative = false
 	if YSortUtils:
@@ -138,7 +149,7 @@ func _physics_process(_delta: float) -> void:
 		set_meta("formation_velocity", velocity)
 		move_and_slide()
 		if sprite:
-			YSortUtils.update_draw_order(sprite, self)
+			_update_entity_draw_order()
 			_apply_player_equipment_sprite_scale()
 		return
 	# Hunger depletion (player does NOT die from starvation)
@@ -172,6 +183,20 @@ func _physics_process(_delta: float) -> void:
 	# Formation debuff: match clansmen speed in GUARD (0.75x) or ATTACK (0.85x) so the group moves as a unit
 	var formation_mult: float = get_meta("formation_speed_mult", 1.0)
 	speed_mult *= formation_mult
+	var in_weapon_ready: bool = combat_component != null and combat_component.state == CombatComponent.CombatState.READY
+	var shift_ready: bool = false
+	if InputMap.has_action("weapon_ready"):
+		shift_ready = Input.is_action_pressed("weapon_ready")
+	if shift_ready and combat_component != null:
+		aim_dir = _get_cursor_aim_direction()
+		if sprite and PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
+			if _weapon_overlay_uses_aim_facing_flip():
+				last_facing = aim_dir
+				sprite.flip_h = aim_dir.x < 0.0
+			elif combat_component.state == CombatComponent.CombatState.READY or shift_ready:
+				WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+	if in_weapon_ready:
+		speed_mult *= WEAPON_READY_SPEED_MULT
 	velocity = input_vector * (move_speed * speed_mult)
 	# Broadcast actual pixel velocity so ordered followers can match movement (RTS formation)
 	set_meta("formation_velocity", velocity)
@@ -184,87 +209,111 @@ func _physics_process(_delta: float) -> void:
 	
 	# Manual z_index by sprite foot (draw_order.md)
 	if sprite:
-		YSortUtils.update_draw_order(sprite, self)
+		_update_entity_draw_order()
 	
 	# Player herding: animals attach via HerdInfluenceArea (animal-authoritative)
 	# Draw lines to all followers
 	_draw_leader_lines()
 
 	if input_vector != Vector2.ZERO:
-		_update_bounce(true, _delta)
-		var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
-		if not in_combat:
-			var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-			var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
-			var dir_sheet: DirectionalSpriteSheet = null
-			if show_club:
-				dir_sheet = WalkAnimation.get_directional_club_sheet()
-			elif show_spear:
-				dir_sheet = WalkAnimation.get_directional_spear_sheet()
+		if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
+			if in_weapon_ready and _weapon_overlay_uses_aim_facing_flip():
+				sprite.flip_h = aim_dir.x < 0.0
 			else:
-				dir_sheet = WalkAnimation.get_directional_walk_sheet()
-			var used_directional := false
-			if dir_sheet:
-				_walk_timer += _delta
-				var walk_index := int(_walk_timer * WalkAnimation.WALK_FPS) % dir_sheet.columns
-				if WalkAnimation.apply_directional_walk_frame(sprite, dir_sheet, velocity, walk_index):
-					used_directional = true
-					sprite.flip_h = false
-					_sprite_base_position = Vector2.ZERO
-			if not used_directional:
-				sprite.flip_h = velocity.x < 0
+				sprite.flip_h = velocity.x < 0.0
+				if in_weapon_ready or shift_ready:
+					WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+			PlaceholderCardService.tick_card_bounce(self, _delta, true)
+		else:
+			_update_bounce(true, _delta)
+			var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
+			if not in_combat:
+				var show_club := _equipped_item == ResourceData.ResourceType.WOOD
+				var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
+				var dir_sheet: DirectionalSpriteSheet = null
 				if show_club:
-					var club_sheet := WalkAnimation.get_club_walk_sheet()
-					if club_sheet:
-						_walk_timer += _delta
-						var walk_index := int(_walk_timer * WalkAnimation.CLUB_WALK_FPS) % WalkAnimation.CLUB_WALK_FRAMES
-						WalkAnimation.apply_club_walk_frame_by_index(sprite, walk_index)
-						_sprite_base_position = Vector2.ZERO
+					dir_sheet = WalkAnimation.get_directional_club_sheet()
 				elif show_spear:
-					var spear_sheet := WalkAnimation.get_spear_walk_sheet()
-					if spear_sheet:
-						_walk_timer += _delta
-						var sp_index := int(_walk_timer * WalkAnimation.SPEAR_WALK_FPS) % WalkAnimation.SPEAR_WALK_FRAMES
-						WalkAnimation.apply_spear_walk_frame_by_index(sprite, sp_index)
-						_sprite_base_position = Vector2.ZERO
+					dir_sheet = WalkAnimation.get_directional_spear_sheet()
 				else:
-					var sheet := WalkAnimation.get_walk_sheet()
-					if sheet:
-						_walk_timer += _delta
-						var frame_index := int(_walk_timer * WalkAnimation.WALK_FPS) % WalkAnimation.WALK_CYCLE_FRAMES
-						WalkAnimation.apply_walk_frame_by_index(sprite, sheet, frame_index)
+					dir_sheet = WalkAnimation.get_directional_walk_sheet()
+				var used_directional := false
+				if dir_sheet:
+					_walk_timer += _delta
+					var walk_index := int(_walk_timer * WalkAnimation.WALK_FPS) % dir_sheet.columns
+					if WalkAnimation.apply_directional_walk_frame(sprite, dir_sheet, velocity, walk_index):
+						used_directional = true
+						sprite.flip_h = false
 						_sprite_base_position = Vector2.ZERO
+				if not used_directional:
+					sprite.flip_h = velocity.x < 0
+					if show_club:
+						var club_sheet := WalkAnimation.get_club_walk_sheet()
+						if club_sheet:
+							_walk_timer += _delta
+							var walk_index := int(_walk_timer * WalkAnimation.CLUB_WALK_FPS) % WalkAnimation.CLUB_WALK_FRAMES
+							WalkAnimation.apply_club_walk_frame_by_index(sprite, walk_index)
+							_sprite_base_position = Vector2.ZERO
+					elif show_spear:
+						var spear_sheet := WalkAnimation.get_spear_walk_sheet()
+						if spear_sheet:
+							_walk_timer += _delta
+							var sp_index := int(_walk_timer * WalkAnimation.SPEAR_WALK_FPS) % WalkAnimation.SPEAR_WALK_FRAMES
+							WalkAnimation.apply_spear_walk_frame_by_index(sprite, sp_index)
+							_sprite_base_position = Vector2.ZERO
+					else:
+						var sheet := WalkAnimation.get_walk_sheet()
+						if sheet:
+							_walk_timer += _delta
+							var frame_index := int(_walk_timer * WalkAnimation.WALK_FPS) % WalkAnimation.WALK_CYCLE_FRAMES
+							WalkAnimation.apply_walk_frame_by_index(sprite, sheet, frame_index)
+							_sprite_base_position = Vector2.ZERO
 	else:
-		_update_bounce(false, _delta)
-		_walk_timer = 0.0
-		var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
-		if not in_combat:
-			var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-			var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
-			var dir_sheet: DirectionalSpriteSheet = null
-			if show_club:
-				dir_sheet = WalkAnimation.get_directional_club_sheet()
-			elif show_spear:
-				dir_sheet = WalkAnimation.get_directional_spear_sheet()
-			else:
-				dir_sheet = WalkAnimation.get_directional_idle_sheet()
-			if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, last_facing):
-				sprite.position = Vector2.ZERO
-				_sprite_base_position = sprite.position
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-			else:
-				_update_sprite_texture()
+		if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
+			if in_weapon_ready:
+				aim_dir = _get_cursor_aim_direction()
+				if _weapon_overlay_uses_aim_facing_flip():
+					last_facing = aim_dir
+					sprite.flip_h = aim_dir.x < 0.0
+				else:
+					WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+			PlaceholderCardService.tick_card_bounce(self, _delta, false)
+		else:
+			_update_bounce(false, _delta)
+			_walk_timer = 0.0
+			var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
+			if not in_combat:
+				var show_club := _equipped_item == ResourceData.ResourceType.WOOD
+				var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
+				var dir_sheet: DirectionalSpriteSheet = null
+				if show_club:
+					dir_sheet = WalkAnimation.get_directional_club_sheet()
+				elif show_spear:
+					dir_sheet = WalkAnimation.get_directional_spear_sheet()
+				else:
+					dir_sheet = WalkAnimation.get_directional_idle_sheet()
+				if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, last_facing):
+					sprite.position = Vector2.ZERO
+					_sprite_base_position = sprite.position
+					sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+					sprite.visible = true
+				else:
+					_update_sprite_texture()
 
 	if sprite:
-		_apply_player_equipment_sprite_scale()
-		# Snap sprite position to prevent sub-pixel blurring
-		sprite.position.x = _sprite_base_position.x
-		var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
-		sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
+		if not (PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self)):
+			_apply_player_equipment_sprite_scale()
+			sprite.position.x = _sprite_base_position.x
+			var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
+			sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
+		else:
+			_sync_card_weapon_overlay()
+			PlaceholderCardService.sync_weapon_overlay_flip(self)
 
 func _apply_player_equipment_sprite_scale() -> void:
 	if not sprite:
+		return
+	if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
 		return
 	match _equipped_item:
 		ResourceData.ResourceType.AXE, ResourceData.ResourceType.PICK, ResourceData.ResourceType.TRAVOIS:
@@ -275,10 +324,78 @@ func _apply_player_equipment_sprite_scale() -> void:
 
 
 func _setup_texture() -> void:
+	if PlaceholderCardService:
+		PlaceholderCardService.apply_to_player(self)
+		_card_foot_y = float(_card_foot_y) if _card_foot_y != 0.0 else _sprite_base_position.y
+		_sprite_base_position = sprite.position
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_sync_card_weapon_overlay()
+		return
 	_update_sprite_texture()
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
+
+var _card_overlay_sync_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+var _card_overlay_sync_visible: bool = false
+
+
+func _update_entity_draw_order() -> void:
+	if not sprite or not YSortUtils:
+		return
+	if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
+		YSortUtils.update_card_draw_order(sprite, self, _card_foot_y)
+	else:
+		YSortUtils.update_draw_order(sprite, self)
+
+
+func _sync_card_weapon_overlay() -> void:
+	if not PlaceholderCardService or not PlaceholderCardService.uses_placeholder_cards(self):
+		return
+	var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+	if ResourceData.is_equipment(_equipped_item) and _equipped_item != ResourceData.ResourceType.TRAVOIS:
+		weapon_type = _equipped_item
+	var should_show: bool = weapon_type != ResourceData.ResourceType.NONE
+	if weapon_type != _card_overlay_sync_weapon or should_show != _card_overlay_sync_visible:
+		PlaceholderCardService.sync_weapon_overlay(self, weapon_type, should_show)
+		_card_overlay_sync_weapon = weapon_type
+		_card_overlay_sync_visible = should_show
+	if not should_show:
+		return
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(self)
+	if ostate == WeaponOverlayCombat.OverlayState.STRIKING:
+		return
+	var hold_ready: bool = false
+	if InputMap.has_action("weapon_ready"):
+		hold_ready = Input.is_action_pressed("weapon_ready")
+	if hold_ready and ostate == WeaponOverlayCombat.OverlayState.READY:
+		aim_dir = _get_cursor_aim_direction()
+		PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+		if combat_component and combat_component.state == CombatComponent.CombatState.READY:
+			combat_component.update_ready_aim(aim_dir)
+	elif combat_component and combat_component.state == CombatComponent.CombatState.READY:
+		combat_component.update_ready_aim(aim_dir)
+		PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+
+
+func _get_cursor_aim_direction() -> Vector2:
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if main and main.has_method("_get_world_mouse_position"):
+		var cursor: Vector2 = main._get_world_mouse_position()
+		var delta: Vector2 = cursor - global_position
+		if delta.length_squared() > 4.0:
+			return delta.normalized()
+	if last_facing.length_squared() > 0.0001:
+		return last_facing.normalized()
+	return Vector2(1, 0)
+
+
+func is_weapon_ready() -> bool:
+	return combat_component != null and combat_component.state == CombatComponent.CombatState.READY
+
 func _update_sprite_texture() -> void:
+	if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
+		PlaceholderCardService.apply_to_player(self)
+		return
 	if not sprite:
 		print("ERROR: Sprite is null in _update_sprite_texture")
 		return
@@ -347,7 +464,24 @@ func set_equipment(item_type: ResourceData.ResourceType) -> void:
 	if effective == _equipped_item:
 		return
 	_equipped_item = effective
+	_card_overlay_sync_weapon = ResourceData.ResourceType.NONE
+	_card_overlay_sync_visible = not ResourceData.is_equipment(effective)
 	_update_sprite_texture()
+	_sync_card_weapon_overlay()
+	if combat_component:
+		combat_component.refresh_attack_sprite_sheet()
+
+
+func get_equipped_weapon_type() -> ResourceData.ResourceType:
+	if ResourceData.is_equipment(_equipped_item) and _equipped_item != ResourceData.ResourceType.TRAVOIS:
+		return _equipped_item
+	return ResourceData.ResourceType.NONE
+
+
+func _weapon_overlay_uses_aim_facing_flip() -> bool:
+	if not PlaceholderCardService or not PlaceholderCardService.uses_placeholder_cards(self):
+		return false
+	return WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, get_equipped_weapon_type())
 
 func _ensure_sprite_scale() -> void:
 	if sprite:

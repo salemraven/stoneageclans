@@ -13,6 +13,7 @@ var last_birth_time: float = 0.0
 var current_mate: Node = null  # Can be player (Node) or NPCBase
 # Herder who delivered this woman + built hut: father for all babies until he dies; then _try_find_mate picks a new one.
 var designated_father: Node = null
+var _designated_father_absent_since: float = -1.0
 
 func initialize(npc_ref: NPCBase) -> void:
 	var npc_name = npc_ref.get("npc_name") if npc_ref and npc_ref.has_method("get") else "unknown"
@@ -91,6 +92,7 @@ func update(delta: float) -> void:
 		return  # Wild women cannot reproduce
 	
 	_refresh_designated_father_if_invalid()
+	_update_designated_father_absence_timer()
 	
 	# Must be inside land claim (reproduction only happens inside land claim)
 	if not _is_in_land_claim():
@@ -116,6 +118,27 @@ func set_designated_father_from_herder(herder: Node) -> void:
 		return
 	designated_father = herder
 
+## Session quickstart only: pregnancy bar starts full (no mate-search wait). Requires hut + claim; call after hut assign.
+func session_quickstart_start_pregnancy_now(father: Node) -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	if not config:
+		config = ReproductionConfig.new()
+	if BalanceConfig:
+		config.birth_timer_base = BalanceConfig.pregnancy_seconds
+		config.birth_cooldown = BalanceConfig.birth_cooldown_seconds
+	if father and is_instance_valid(father):
+		designated_father = father
+		current_mate = father
+	is_pregnant = true
+	birth_timer = config.birth_timer_base
+	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
+	UnifiedLogger.log_system("REPRODUCTION_PREGNANCY: %s session quickstart — pregnancy started immediately (timer: %.1fs)" % [npc_name, birth_timer], {
+		"npc": npc_name,
+		"timer": birth_timer,
+		"session_quickstart": true
+	})
+
 func has_living_hut_assigned() -> bool:
 	"""Public: Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
 	return _has_living_hut_assigned()
@@ -139,8 +162,26 @@ func _refresh_designated_father_if_invalid() -> void:
 	elif designated_father.get("clan_name") != null:
 		fclan = str(designated_father.get("clan_name"))
 	var wclan: String = npc.clan_name if npc else ""
-	if fclan != wclan or fclan == "":
+	if fclan == "" or wclan == "" or fclan.strip_edges().to_lower() != wclan.strip_edges().to_lower():
 		designated_father = null
+
+func _update_designated_father_absence_timer() -> void:
+	if not designated_father or not is_instance_valid(designated_father):
+		_designated_father_absent_since = -1.0
+		return
+	if _father_eligible_for_current_pregnancy(designated_father):
+		_designated_father_absent_since = -1.0
+	elif _designated_father_absent_since < 0.0:
+		_designated_father_absent_since = Time.get_ticks_msec() / 1000.0
+
+func _designated_father_absent_fallback_ready() -> bool:
+	if _designated_father_absent_since < 0.0:
+		return false
+	var limit_sec: float = 90.0
+	if BalanceConfig:
+		limit_sec = maxf(float(BalanceConfig.reproduction_father_absent_fallback_sec), 10.0)
+	var now_sec: float = Time.get_ticks_msec() / 1000.0
+	return (now_sec - _designated_father_absent_since) >= limit_sec
 
 func _father_eligible_for_current_pregnancy(father: Node) -> bool:
 	if not father or not is_instance_valid(father):
@@ -216,7 +257,7 @@ func _get_land_claim(clan_name: String) -> Node2D:
 		if not claim.has_method("get"):
 			continue
 		var claim_clan = claim.get("clan_name")
-		if claim_clan == clan_name:
+		if claim_clan != null and str(claim_clan).strip_edges().to_lower() == str(clan_name).strip_edges().to_lower():
 			return claim
 	return null
 
@@ -227,8 +268,51 @@ func _can_reproduce() -> bool:
 		if not config:
 			return false
 	
+	var min_buffer: float = 0.28
+	if BalanceConfig:
+		min_buffer = maxf(float(BalanceConfig.reproduction_min_food_buffer_days), 0.0)
+	var buf: float = _clan_food_days_buffer()
+	if buf < min_buffer:
+		var bypass_min: int = 3
+		if BalanceConfig:
+			bypass_min = maxi(1, int(BalanceConfig.reproduction_food_items_bypass_min))
+		if _clan_food_total() < bypass_min:
+			return false
+	
 	var time_since_last_birth = (Time.get_ticks_msec() / 1000.0) - last_birth_time
 	return time_since_last_birth >= config.birth_cooldown
+
+
+func _clan_food_days_buffer() -> float:
+	var clan: String = npc.clan_name if npc else ""
+	if clan.is_empty():
+		return 99.0
+	var claim = _get_land_claim(clan)
+	if claim and is_instance_valid(claim) and claim.has_meta("food_days_buffer"):
+		return float(claim.get_meta("food_days_buffer"))
+	return 99.0
+
+
+func _clan_food_total() -> int:
+	var clan: String = npc.clan_name if npc else ""
+	if clan.is_empty():
+		return 0
+	var claim = _get_land_claim(clan)
+	if not claim or not is_instance_valid(claim):
+		return 0
+	var inv = claim.get("inventory")
+	if not inv or not inv.has_method("get_count"):
+		return 0
+	return (
+		inv.get_count(ResourceData.ResourceType.BERRIES)
+		+ inv.get_count(ResourceData.ResourceType.GRAIN)
+		+ inv.get_count(ResourceData.ResourceType.BREAD)
+		+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
+		+ inv.get_count(ResourceData.ResourceType.BUGS)
+		+ inv.get_count(ResourceData.ResourceType.NUTS)
+		+ inv.get_count(ResourceData.ResourceType.MEAT)
+		+ inv.get_count(ResourceData.ResourceType.MILK)
+	)
 
 func _try_find_mate() -> void:
 	var npc_name = npc.get("npc_name") if npc and npc.has_method("get") else "unknown"
@@ -237,13 +321,14 @@ func _try_find_mate() -> void:
 		"clan": npc.clan_name if npc else "none"
 	})
 	
-	# Prefer designated father (herder who delivered her) until he dies; if alive but not in claim yet, wait.
+	# Prefer designated father (herder who delivered her) until he dies; if alive but not in claim yet, wait (with timeout fallback).
 	if designated_father and is_instance_valid(designated_father):
 		if _father_eligible_for_current_pregnancy(designated_father):
 			current_mate = designated_father
 			_start_pregnancy()
 			return
-		return
+		if not _designated_father_absent_fallback_ready():
+			return
 	
 	# Find nearby male cavemen (player or NPC) in same clan
 	var tree = get_tree()
@@ -274,7 +359,7 @@ func _try_find_mate() -> void:
 			elif npc.has_method("get") and npc.get("clan_name"):
 				npc_clan = npc.get("clan_name")
 		
-		if player_clan != "" and player_clan == npc_clan:
+		if player_clan != "" and npc_clan != "" and player_clan.strip_edges().to_lower() == npc_clan.strip_edges().to_lower():
 			# Player is in same clan - check if player is inside land claim
 			if _is_player_in_land_claim():
 				candidates.append(player)
@@ -377,6 +462,11 @@ func _get_player_clan_name() -> String:
 				return clan
 	return ""
 
+func _clan_strings_match(a: String, b: String) -> bool:
+	if a.is_empty() or b.is_empty():
+		return false
+	return a.strip_edges().to_lower() == b.strip_edges().to_lower()
+
 func _is_npc_in_land_claim(npc_ref: Node2D) -> bool:
 	# Check if NPC is inside land claim
 	if not npc_ref or not is_instance_valid(npc_ref):
@@ -410,7 +500,7 @@ func _get_clan_leader() -> Node:
 		return null
 	# Player clan: leader is player if in claim
 	var player = get_tree().get_first_node_in_group("player")
-	if player and is_instance_valid(player) and _get_player_clan_name() == clan and _is_player_in_land_claim():
+	if player and is_instance_valid(player) and _clan_strings_match(_get_player_clan_name(), clan) and _is_player_in_land_claim():
 		return player
 	# AI clan: owner_npc is leader
 	var owner_npc = claim.get("owner_npc") if claim.get("owner_npc") != null else null

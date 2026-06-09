@@ -42,6 +42,8 @@ func can_enter() -> bool:
 	return can_enter_result
 
 func get_priority() -> float:
+	if NPCConfig:
+		return NPCConfig.priority_seek
 	return 2.0
 
 func get_data() -> Dictionary:

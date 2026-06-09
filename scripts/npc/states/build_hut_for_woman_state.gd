@@ -20,6 +20,8 @@ var build_timer: float = 0.0
 var _exit_progress_cancelled: bool = false
 var _phase: int = _PHASE_BUILDING
 var _approach_anchor: Vector2 = Vector2.ZERO
+var _build_start_position: Vector2 = Vector2.ZERO
+var _move_cancel_threshold: float = 32.0
 
 func _sync_job_from_queue_head() -> bool:
 	woman = null
@@ -71,6 +73,37 @@ func _anchor_toward_interior(claim: Node, pos: Vector2) -> Vector2:
 	return c + radial * clampf(target_dist, b.x, b.y)
 
 
+func _load_move_cancel_threshold() -> void:
+	if NPCConfig and "gather_move_cancel_threshold" in NPCConfig:
+		_move_cancel_threshold = float(NPCConfig.gather_move_cancel_threshold)
+
+
+func _stop_build_progress(cancelled: bool) -> void:
+	if npc and npc.progress_display:
+		npc.progress_display.stop_collection(cancelled)
+
+
+func _begin_building_phase() -> void:
+	if not npc:
+		return
+	_phase = _PHASE_BUILDING
+	build_timer = 0.0
+	_build_start_position = npc.global_position
+	_freeze_npc()
+	if npc.progress_display and woman and is_instance_valid(woman):
+		_start_progress_manual()
+
+
+func _restart_approach_after_move_interrupt() -> void:
+	build_timer = 0.0
+	_stop_build_progress(true)
+	_phase = _PHASE_APPROACH
+	npc.set("is_building_hut", false)
+	_approach_anchor = _anchor_toward_interior(claim, npc.global_position)
+	if npc.steering_agent:
+		npc.steering_agent.set_target_position_immediate(_approach_anchor)
+
+
 func _try_begin_approach_or_build() -> void:
 	if not npc or not claim or not is_instance_valid(claim):
 		return
@@ -79,13 +112,12 @@ func _try_begin_approach_or_build() -> void:
 	if OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 		return
 	if _in_interior_build_zone(claim, npc.global_position):
-		_phase = _PHASE_BUILDING
-		_freeze_npc()
-		if npc.progress_display:
-			_start_progress_manual()
+		_begin_building_phase()
 		return
 	_phase = _PHASE_APPROACH
 	npc.set("is_building_hut", false)
+	build_timer = 0.0
+	_stop_build_progress(true)
 	_approach_anchor = _anchor_toward_interior(claim, npc.global_position)
 	if npc.steering_agent:
 		npc.steering_agent.set_target_position_immediate(_approach_anchor)
@@ -95,6 +127,7 @@ func enter() -> void:
 	_exit_progress_cancelled = false
 	build_timer = 0.0
 	_phase = _PHASE_BUILDING
+	_load_move_cancel_threshold()
 	_sync_job_from_queue_head()
 	if woman and OccupationSystem and OccupationSystem.get_workplace(woman) != null:
 		woman = null
@@ -109,8 +142,7 @@ func _freeze_npc() -> void:
 	npc.set("is_building_hut", true)
 	npc.velocity = Vector2.ZERO
 	if npc.steering_agent:
-		npc.steering_agent.target_position = npc.global_position
-		npc.steering_agent.target_node = null
+		npc.steering_agent.set_target_position_immediate(npc.global_position)
 
 func _start_progress_manual() -> void:
 	if not npc or not npc.progress_display:
@@ -149,7 +181,8 @@ func update(delta: float) -> void:
 		if fsm:
 			fsm.change_state("combat")
 		return
-	if _is_following():
+	# Ordered party follow (hunt/raid) — hut build beats party once we are actively building.
+	if _is_following() and _phase != _PHASE_BUILDING and build_timer <= 0.0:
 		_exit_progress_cancelled = true
 		if fsm:
 			var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
@@ -178,19 +211,11 @@ func update(delta: float) -> void:
 		npc.set("is_building_hut", false)
 		if claim and is_instance_valid(claim):
 			if _in_interior_build_zone(claim, npc.global_position):
-				_phase = _PHASE_BUILDING
-				build_timer = 0.0
-				_freeze_npc()
-				if npc.progress_display and woman and is_instance_valid(woman):
-					_start_progress_manual()
+				_begin_building_phase()
 				return
 			var to_anchor: float = npc.global_position.distance_to(_approach_anchor)
 			if to_anchor <= APPROACH_ARRIVE_PX:
-				_phase = _PHASE_BUILDING
-				build_timer = 0.0
-				_freeze_npc()
-				if npc.progress_display and woman and is_instance_valid(woman):
-					_start_progress_manual()
+				_begin_building_phase()
 				return
 			if npc.steering_agent:
 				var now_s: float = Time.get_ticks_msec() / 1000.0
@@ -200,8 +225,12 @@ func update(delta: float) -> void:
 					npc.steering_agent.set_arrive_target(_approach_anchor)
 		return
 
-	# Building phase: stay frozen every tick
+	# Building phase: stay frozen every tick; timer only fills while anchored (agro/combat may interrupt above)
 	_freeze_npc()
+	var moved: float = npc.global_position.distance_to(_build_start_position)
+	if moved > _move_cancel_threshold:
+		_restart_approach_after_move_interrupt()
+		return
 
 	build_timer += delta
 	if npc.progress_display:
@@ -266,7 +295,13 @@ func _clear_queue_meta() -> void:
 
 func _fail_and_exit() -> void:
 	_exit_progress_cancelled = true
-	_clear_queue_meta()
+	if npc and npc.has_meta(META_QUEUE):
+		var q: Array = npc.get_meta(META_QUEUE) as Array
+		if not q.is_empty():
+			q.pop_front()
+			npc.set_meta(META_QUEUE, q)
+		if q.is_empty():
+			_clear_queue_meta()
 	if fsm:
 		fsm.change_state("wander")
 
@@ -283,12 +318,24 @@ func _finish_build() -> void:
 		_fail_and_exit()
 		return
 
+	var placed: bool = false
 	if woman and is_instance_valid(woman) and claim and is_instance_valid(claim):
 		if not OccupationSystem or OccupationSystem.get_workplace(woman) == null:
-			main._place_herder_hut(claim, woman, npc)
+			placed = main._place_herder_hut(claim, woman, npc)
 
-	q.pop_front()
-	npc.set_meta(META_QUEUE, q)
+	if placed or (woman and is_instance_valid(woman) and OccupationSystem and OccupationSystem.get_workplace(woman) != null):
+		q.pop_front()
+		npc.set_meta(META_QUEUE, q)
+	elif woman and is_instance_valid(woman):
+		print("⚠️ build_hut_for_woman: placement failed for %s — keeping job in queue for retry" % str(woman.get("npc_name")))
+		build_timer = 0.0
+		if npc.progress_display:
+			npc.progress_display.stop_collection(false)
+		_try_begin_approach_or_build()
+		return
+	else:
+		q.pop_front()
+		npc.set_meta(META_QUEUE, q)
 
 	if q.is_empty():
 		_clear_queue_meta()

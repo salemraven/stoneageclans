@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ultimate NPC & ClanBrain gate (guides/Ultimate_npc_clanbrain_test.md):
+# Ultimate NPC & ClanBrain gate (bible/Ultimate_npc_clanbrain_test.md):
 # Smoke + territory/brain integration + ClanBrain capture + analyze_playtest --strict-clanbrain
 # + NPC-only ~120s Main (--npc-only-world) + analyze (--strict-clanbrain --strict-npc-sim).
 #

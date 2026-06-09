@@ -16,6 +16,8 @@ var _tex_axe: Texture2D = null
 var _last_show_axe: bool = false  # Avoid redundant texture swaps
 var _last_show_club: bool = false
 var _last_show_spear: bool = false
+var _last_card_overlay_visible: bool = false
+var _last_card_overlay_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 
 
 func _club_or_spear_visible_conditions() -> bool:
@@ -29,6 +31,7 @@ func _club_or_spear_visible_conditions() -> bool:
 	var in_combat: bool = combat_comp and combat_comp.state != CombatComponent.CombatState.IDLE if combat_comp else false
 	var follow_ordered: bool = npc.get("follow_is_ordered") if npc.get("follow_is_ordered") != null else false
 	return is_agro or hostile or defending or in_combat or follow_ordered
+
 
 func initialize(npc_ref: NPCBase) -> void:
 	npc = npc_ref
@@ -89,6 +92,10 @@ func _update_weapon_visibility() -> void:
 	
 	# Don't overwrite crafting sprite (knapp.png)
 	if npc.get("is_crafting") == true:
+		return
+
+	if npc.has_method("uses_placeholder_cards") and npc.uses_placeholder_cards():
+		_update_card_weapon_overlay()
 		return
 	
 	# Don't overwrite combat animation (WINDUP/RECOVERY use AtlasTexture)
@@ -166,6 +173,12 @@ func force_apply_idle() -> void:
 	var health_comp = npc.get_node_or_null("HealthComponent")
 	if health_comp and health_comp.get("is_dead") and health_comp.is_dead:
 		return
+	if npc.has_method("uses_placeholder_cards") and npc.uses_placeholder_cards():
+		if PlaceholderCardService:
+			PlaceholderCardService.apply_to_npc(npc)
+		_last_card_overlay_visible = not _last_card_overlay_visible  # force refresh
+		_update_card_weapon_overlay()
+		return
 	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 	if not sprite:
 		return
@@ -226,6 +239,65 @@ func force_apply_idle() -> void:
 	_last_show_spear = false
 	if npc.has_method("apply_sprite_offset_for_texture"):
 		npc.apply_sprite_offset_for_texture()
+
+func _card_overlay_should_show() -> bool:
+	if equipped_weapon == ResourceData.ResourceType.NONE:
+		return false
+	match equipped_weapon:
+		ResourceData.ResourceType.WOOD, ResourceData.ResourceType.SPEAR, ResourceData.ResourceType.PICK, ResourceData.ResourceType.OLDOWAN:
+			return _club_or_spear_visible_conditions()
+		ResourceData.ResourceType.AXE:
+			var hostile: bool = npc.get("is_hostile") if npc.get("is_hostile") != null else false
+			var dt = npc.get("defend_target")
+			var defending: bool = dt != null and is_instance_valid(dt) if dt is Object else false
+			return hostile or defending
+		_:
+			return false
+
+
+func _update_card_weapon_overlay() -> void:
+	if not PlaceholderCardService:
+		return
+	var should_show: bool = _card_overlay_should_show()
+	var overlay_type: ResourceData.ResourceType = equipped_weapon if should_show else ResourceData.ResourceType.NONE
+	if should_show != _last_card_overlay_visible or overlay_type != _last_card_overlay_type:
+		_last_card_overlay_visible = should_show
+		_last_card_overlay_type = overlay_type
+		PlaceholderCardService.sync_weapon_overlay(npc, overlay_type, should_show)
+	_sync_npc_weapon_ready(should_show)
+
+
+func _sync_npc_weapon_ready(should_show_weapon: bool) -> void:
+	if not npc or npc.is_in_group("player"):
+		return
+	var combat: CombatComponent = npc.get_node_or_null("CombatComponent") as CombatComponent
+	if combat == null:
+		return
+	if should_show_weapon:
+		var aim: Vector2 = _get_npc_combat_aim(combat)
+		if combat.state == CombatComponent.CombatState.IDLE:
+			combat.enter_ready(aim)
+		elif combat.state == CombatComponent.CombatState.READY:
+			combat.update_ready_aim(aim)
+	elif combat.state == CombatComponent.CombatState.READY:
+		combat.cancel_ready()
+
+
+func _get_npc_combat_aim(combat: CombatComponent) -> Vector2:
+	var target: Node2D = combat.current_target
+	if target == null or not is_instance_valid(target):
+		var ct = npc.get("combat_target")
+		if ct is Node2D and is_instance_valid(ct):
+			target = ct as Node2D
+	if target and is_instance_valid(target):
+		var delta: Vector2 = target.global_position - npc.global_position
+		if delta.length_squared() > 0.0001:
+			return delta.normalized()
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+	if sprite:
+		return Vector2(-1.0 if sprite.flip_h else 1.0, 0.0)
+	return Vector2(1, 0)
+
 
 func get_damage_bonus() -> int:
 	return weapon_damage_bonus

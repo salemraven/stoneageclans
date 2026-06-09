@@ -4,11 +4,11 @@ extends Node
 # Sort by the sprite's visual foot: global_position.y + sprite.position.y
 #
 # Usage: YSortUtils.update_draw_order(sprite, self)
-# See guides/draw_order.md (plan archived at guides/archives/draw_order_y_sorting_plan.md)
+# See bible/draw_order.md (plan archived at bible/archives/draw_order_y_sorting_plan.md)
 
 # --- EDITABLE: Tweak in Inspector (Project > Project Settings > Autoload > YSortUtils) or here ---
 @export var building_sort_offset_y: float = -220.0  # Buildings: more negative = player stays in front longer as they move north
-@export var tree_foot_offset_y: float = -24.0  # Trees: more negative = less visible foot/stump (64px: -24 = 8px below node)
+@export var tree_foot_offset_y: float = 0.0  # Added to sprite Y after bottom-align; negative = shift art up (ground line above node)
 @export var tree_sort_offset_y: float = 240.0  # Trees: positive = tree draws in front for larger zone = player hides behind trunk when closer
 
 # z_index only sorts SIBLINGS in Godot. z_as_relative=false lets sprites sort across branches.
@@ -19,6 +19,11 @@ const Z_BASE: int = 2048  # Center of Y-sort range
 const Y_SORT_SCALE: int = 1  # foot_y maps to z; scale 1 keeps typical Y (-2000..2000) in range
 const Z_BEHIND_ENTITIES: int = 0  # Follow/leader lines - draw behind player and NPCs
 const Z_ABOVE_WORLD: int = 4095  # Progress bars, lines, indicators - max, draws on top
+
+## World overlay polylines (herd follow, party leader lines, land claim radius): shared width + opacity.
+const WORLD_OVERLAY_LINE_WIDTH_PX := 2.0
+const WORLD_OVERLAY_LINE_HERD_COLOR := Color(1.0, 1.0, 1.0, 0.35)
+const WORLD_OVERLAY_LINE_PARTY_COLOR := Color(0.92, 0.22, 0.2, 0.35)
 
 # 128x128 sprites: move draw lower so feet align with 64x64
 const SPRITE_BASE_OFFSET_Y_64: float = -6.0
@@ -50,10 +55,11 @@ func get_tree_sprite_position_for_texture(texture: Texture2D, scale_y: float = 1
 	var h: float = texture.get_height() if texture else 64.0
 	return get_tree_sprite_position_for_cell_height(h, scale_y)
 
-## Returns tree sprite position for a cell height. With centered=true, y = half_visual_height so trunk base is at node.
+## Returns tree sprite position for a cell height. With centered=true, y = -half_visual + tree_foot_offset_y
+## so the bottom of the scaled cell sits at local y = tree_foot_offset_y (0 = gather node / trunk base).
 func get_tree_sprite_position_for_cell_height(cell_height: float, scale_y: float = 1.0) -> Vector2:
 	var half_visual: float = (cell_height * scale_y) / 2.0
-	return Vector2(0, half_visual)
+	return Vector2(0, -half_visual + tree_foot_offset_y)
 
 ## Returns grass/decor sprite position (0, y): foot at node so draw order is correct.
 ## 64px: -32 (bottom at node); 128px: -64.
@@ -72,9 +78,21 @@ func update_draw_order(sprite: Sprite2D, parent_node: Node2D) -> void:
 	var foot_y: float = parent_node.global_position.y + sprite.position.y
 	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
 
-## Tree-specific: sort by visual trunk base (bottom of sprite) so player can hide behind trunks.
-## tree_sort_offset_y (positive) adds to trunk base = tree draws in front for larger zone = maximize hiding.
-## With centered sprite: trunk_base = center - half_height. Higher Y = draws in front.
+
+## Tall placeholder cards: sprite.position.y anchors the PNG (negative); feet sit on the entity origin.
+## card_anchor_foot_y = resting sprite.position.y from get_card_foot_y (typically -half_display_height).
+func update_card_draw_order(sprite: Sprite2D, parent_node: Node2D, card_anchor_foot_y: float) -> void:
+	if not sprite or not parent_node:
+		return
+	sprite.z_as_relative = false
+	var bounce_y: float = sprite.position.y - card_anchor_foot_y
+	var foot_y: float = parent_node.global_position.y + bounce_y
+	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+
+## Tree-specific: sort by bottom of tree sprite (trunk/ground line) so player can hide behind trunks.
+## Sprite position must be from get_tree_sprite_position_for_cell_height (bottom of centered region at foot).
+## trunk_base_y = world Y of bottom edge of scaled tree quad + tree_sort_offset_y.
+## tree_sort_offset_y (positive) = tree draws in front for a larger band when approaching from below.
 func update_tree_draw_order(sprite: Sprite2D, parent_node: Node2D, texture: Texture2D) -> void:
 	if not sprite or not parent_node:
 		return
@@ -86,7 +104,7 @@ func update_tree_draw_order(sprite: Sprite2D, parent_node: Node2D, texture: Text
 		tex_h = texture.get_height() if texture else 64.0
 	var scale_y: float = sprite.scale.y if sprite.scale.y > 0 else 1.0
 	var half_visual_height: float = (tex_h * scale_y) / 2.0
-	var trunk_base_y: float = parent_node.global_position.y + sprite.position.y - half_visual_height + tree_sort_offset_y
+	var trunk_base_y: float = parent_node.global_position.y + sprite.position.y + half_visual_height + tree_sort_offset_y
 	sprite.z_index = clampi(Z_BASE + int(trunk_base_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
 
 ## Buildings: offset adjusts when player goes behind. Uses building_sort_offset_y (editable).

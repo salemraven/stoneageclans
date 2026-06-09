@@ -84,7 +84,9 @@ func can_enter() -> bool:
 	return _has_available_building()
 
 func get_priority() -> float:
-	return 7.5  # Below reproduction (8.0), above gathering (3.0)
+	if NPCConfig:
+		return NPCConfig.priority_occupy_building
+	return 7.5
 
 func _find_available_building() -> void:
 	if not npc or not OccupationSystem:

@@ -1,5 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
+const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+
 # SIMPLIFIED GATHER STATE - Clean flow: Gather → Check → Exit if needed → Repeat
 # Flow: Find target → Move to target → Gather → Check inventory → Exit if 80%+ full → Repeat
 # Deposit handled by wander state (movement) + auto-deposit (actual deposit)
@@ -30,6 +32,11 @@ func _get_inventory_threshold() -> int:
 func enter() -> void:
 	gather_target = null
 	_last_target_search_time = Time.get_ticks_msec() / 1000.0  # Allow immediate job pull
+	if npc:
+		var nt_g: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		var in_hunt: bool = npc.has_meta("hunt_joined") and npc.get_meta("hunt_joined") == true
+		if (nt_g == "caveman" or nt_g == "clansman") and not in_hunt and npc.has_method("equip_work_weapon_club"):
+			npc.equip_work_weapon_club()
 	if _try_pull_gather_job():
 		return
 	_no_job_retry_time = Time.get_ticks_msec() / 1000.0 + NO_JOB_RETRY_SEC
@@ -267,6 +274,16 @@ func _try_pull_gather_job() -> bool:
 	var land_claim: Node = npc.get_my_land_claim()
 	if not land_claim:
 		return false  # No land claim found
+
+	# Hunt corpse job site — any idle clansman can butcher → deposit → return until yield is gone.
+	if CorpseJobs.is_site_active(land_claim):
+		if CorpseJobs.try_assign_job(land_claim, npc):
+			UnifiedLogger.log_npc("CORPSE_JOB: %s pulled butcher job from hunt corpse site" % npc.npc_name, {
+				"npc": npc.npc_name,
+				"event": "corpse_job_pulled"
+			}, UnifiedLogger.Level.INFO)
+			_no_gather_job_backoff_until = -999.0
+			return true
 	
 	# Try to generate gather job
 	if not land_claim.has_method("generate_gather_job"):
