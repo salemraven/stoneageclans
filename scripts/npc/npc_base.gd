@@ -1701,8 +1701,8 @@ func apply_sprite_offset_for_texture() -> void:
 func _initialize_wants() -> void:
 	var max_meter: float = 100.0
 	var meter_val: float = max_meter
-	if stats_component and stats_component.hunger_max > 0.0:
-		meter_val = clampf((stats_component.hunger / stats_component.hunger_max) * max_meter, 0.0, max_meter)
+	if stats_component:
+		meter_val = clampf(stats_component.get_hunger_percent(), 0.0, max_meter)
 	var deplete: float = 1.0
 	var thresh: float = 80.0
 	if NPCConfig:
@@ -2061,8 +2061,8 @@ func _update_wants(delta: float) -> void:
 	for want in wants:
 		var wname: String = str(want.get("name", ""))
 		var max_meter: float = float(want.get("max", 100.0))
-		if wname == "hunger" and stats_component and stats_component.hunger_max > 0.0:
-			want["meter"] = clampf((stats_component.hunger / stats_component.hunger_max) * max_meter, 0.0, max_meter)
+		if wname == "hunger" and stats_component:
+			want["meter"] = clampf(stats_component.get_hunger_percent(), 0.0, max_meter)
 			continue
 		var deplete_rate: float = want.get("deplete_rate", 0.0) as float
 		var meter: float = want.get("meter", 0.0) as float

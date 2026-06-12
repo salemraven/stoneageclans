@@ -28,6 +28,11 @@ var is_active: bool = false  # Whether building is turned on/active (default off
 var job_reserved_by: Node = null  # NPC that has reserved a production job (prevents multiple NPCs pulling same job)
 var transport_reserved_by: Node = null  # NPC that has reserved a transport job (prevents multiple NPCs transporting same bread)
 
+# Farm/Dairy shared animal calorie pool (animals in slots consume from this)
+var animal_calories: float = 0.0
+var animal_calories_max: float = 5000.0
+var _animal_sim_connected: bool = false
+
 # Last reason generate_job returned null (for diagnostics)
 var _last_generate_job_reason: String = ""
 
@@ -79,6 +84,11 @@ func _ready() -> void:
 		_setup_dairy()
 	elif building_type == ResourceData.ResourceType.LIVING_HUT:
 		_setup_living_hut()
+	
+	if building_type in [ResourceData.ResourceType.FARM, ResourceData.ResourceType.DAIRY_FARM]:
+		if BalanceConfig:
+			animal_calories_max = float(BalanceConfig.animal_building_calories_max)
+		_connect_animal_simulation_tick()
 	
 	# Farm/Dairy: use correct empty sprite (farm.png/dairy.png), not icon (farm1.png)
 	if building_type in [ResourceData.ResourceType.FARM, ResourceData.ResourceType.DAIRY_FARM]:
@@ -1023,3 +1033,85 @@ func _find_land_claim() -> LandClaim:
 	if DebugConfig and DebugConfig.enable_debug_mode:
 		UnifiedLogger.log_system("_find_land_claim: No matching land claim found", {"building": ResourceData.get_resource_name(building_type)}, UnifiedLogger.Level.DEBUG)
 	return null
+
+
+func _connect_animal_simulation_tick() -> void:
+	if _animal_sim_connected:
+		return
+	var sm := get_node_or_null("/root/SimulationManager")
+	if sm and sm.has_signal("simulation_tick") and not sm.simulation_tick.is_connected(_on_animal_simulation_tick):
+		sm.simulation_tick.connect(_on_animal_simulation_tick)
+		_animal_sim_connected = true
+
+
+func _on_animal_simulation_tick(_delta_game_time: float) -> void:
+	if building_type == ResourceData.ResourceType.FARM:
+		_process_animal_calories(BalanceConfig.farm_daily_calories_per_sheep if BalanceConfig else 600)
+	elif building_type == ResourceData.ResourceType.DAIRY_FARM:
+		_process_animal_calories(BalanceConfig.dairy_daily_calories_per_goat if BalanceConfig else 650)
+
+
+func _count_occupied_animals() -> int:
+	var count: int = 0
+	for animal in animal_slots:
+		if animal and is_instance_valid(animal):
+			count += 1
+	return count
+
+
+func _process_animal_calories(calories_per_animal: int) -> void:
+	var animal_count: int = _count_occupied_animals()
+	if animal_count <= 0:
+		return
+	var ticks_per_day: int = 5
+	if SimulationManager:
+		ticks_per_day = maxi(1, SimulationManager.ticks_per_sim_day)
+	var daily_drain: float = float(animal_count * calories_per_animal)
+	var drain_per_tick: float = daily_drain / float(ticks_per_day)
+	animal_calories = maxf(0.0, animal_calories - drain_per_tick)
+	_consume_animal_food_from_inventory()
+	if animal_calories <= 0.0:
+		_starve_one_animal()
+
+
+func _consume_animal_food_from_inventory() -> void:
+	if not inventory or animal_calories >= animal_calories_max:
+		return
+	var feed_types: Array = BalanceConfig.herbivore_feed_types if BalanceConfig else [
+		ResourceData.ResourceType.FIBER,
+		ResourceData.ResourceType.GRAIN,
+	]
+	for food_type_val in feed_types:
+		var food_type: ResourceData.ResourceType = food_type_val as ResourceData.ResourceType
+		while animal_calories < animal_calories_max and inventory.has_item(food_type, 1):
+			inventory.remove_item(food_type, 1)
+			animal_calories = minf(
+				animal_calories + float(ResourceData.get_food_calories(food_type)),
+				animal_calories_max
+			)
+
+
+func _starve_one_animal() -> void:
+	for i in range(animal_slots.size() - 1, -1, -1):
+		var animal = animal_slots[i]
+		if animal and is_instance_valid(animal):
+			animal_slots[i] = null
+			if animal.has_method("die"):
+				animal.die()
+			elif is_instance_valid(animal):
+				animal.queue_free()
+			break
+
+
+func get_animal_calorie_days_buffer() -> float:
+	var animal_count: int = _count_occupied_animals()
+	if animal_count <= 0:
+		return 99.0
+	var per_animal: int = BalanceConfig.farm_daily_calories_per_sheep if building_type == ResourceData.ResourceType.FARM else BalanceConfig.dairy_daily_calories_per_goat
+	if not BalanceConfig:
+		per_animal = 600
+	var daily: float = float(animal_count * per_animal)
+	if daily <= 0.0:
+		return 99.0
+	return animal_calories / daily
+

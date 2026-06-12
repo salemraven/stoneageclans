@@ -24,6 +24,7 @@ var hominid_class_label: Label = null
 var status_bars_container: VBoxContainer = null
 var bravery_bar: Control = null
 var agro_bar: Control = null
+var calories_label: Label = null
 var traits_table: Control = null
 
 # Timer display (top right corner)
@@ -185,6 +186,13 @@ func _build_ui_elements() -> void:
 	# Agro bar
 	agro_bar = _create_status_bar("Agro:")
 	status_bars_container.add_child(agro_bar)
+	
+	calories_label = Label.new()
+	calories_label.name = "CaloriesLabel"
+	calories_label.add_theme_font_size_override("font_size", 14)
+	calories_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	calories_label.text = ""
+	status_bars_container.add_child(calories_label)
 	
 	# Spacer
 	var spacer3 := Control.new()
@@ -371,6 +379,7 @@ func _update_display() -> void:
 	print("CharacterMenuUI: Updating status bars...")
 	# Update status bars (bravery and agro)
 	_update_status_bars()
+	_update_calorie_display()
 	
 	print("CharacterMenuUI: Updating traits table...")
 	# Update traits table
@@ -422,6 +431,32 @@ func _get_traits_list() -> Array[Dictionary]:
 		{"name": "Carry Capacity", "stat": "carry_capacity"},
 		{"name": "Bravery", "stat": "bravery"}  # Dynamic value: 0.0-1.0, displayed as 0-100%
 	]
+
+func _update_calorie_display() -> void:
+	if not calories_label:
+		return
+	if not target_npc or not is_instance_valid(target_npc):
+		calories_label.text = ""
+		return
+	var stats: Stats = target_npc.stats_component if target_npc.get("stats_component") else null
+	if not stats:
+		calories_label.text = ""
+		return
+	var cal_str: String = str(int(stats.calories))
+	var max_str: String = str(int(stats.calories_max))
+	if BalanceConfig:
+		cal_str = BalanceConfig.format_calories_short(int(stats.calories))
+		max_str = BalanceConfig.format_calories_short(int(stats.calories_max))
+	var daily_str: String = cal_str
+	if BalanceConfig:
+		daily_str = BalanceConfig.format_calories_short(int(stats.get_daily_calorie_need()))
+	calories_label.text = "Calories: %s / %s kcal\nDaily need: %s kcal\nDiet: %s" % [
+		cal_str,
+		max_str,
+		daily_str,
+		ResourceData.get_diet_label(stats.diet_type)
+	]
+
 
 func _update_traits_table() -> void:
 	if not target_npc or not is_instance_valid(target_npc):
@@ -1003,6 +1038,7 @@ func _process(delta: float) -> void:
 		
 		# Update status bars (bravery and agro change dynamically)
 		_update_status_bars()
+		_update_calorie_display()
 		
 		# Update timers (pregnancy timer counts down, age may update)
 		_update_timers()

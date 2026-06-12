@@ -301,16 +301,10 @@ func update(delta: float) -> void:
 			})
 			# Restore hunger (from eating) - use food-specific restore amount
 			if npc.stats_component:
-				var restore_percent: float = ResourceData.get_food_hunger_restore_percent(resource_type)
-				if restore_percent <= 0.0:
-					restore_percent = 5.0  # Fallback to 5% if food type not found
-				var restore_amount: float = (npc.stats_component.hunger_max * restore_percent) / 100.0
-				npc.stats_component.modify_stat("hunger", restore_amount)
-				
-				# Check if hunger is still below 80% - if so, stay in eat state to eat another berry
-				var new_hunger: float = npc.stats_component.get_stat("hunger")
-				var new_hunger_percent: float = (new_hunger / npc.stats_component.hunger_max) * 100.0
-				print("NPC %s ate 1 berry, hunger now: %.1f%%" % [npc.npc_name, new_hunger_percent])
+				var new_hunger_percent: float = npc.stats_component.get_hunger_percent()
+				if npc.stats_component.eat_food(resource_type):
+					new_hunger_percent = npc.stats_component.get_hunger_percent()
+					print("NPC %s ate 1 %s, hunger now: %.1f%%" % [npc.npc_name, resource_name, new_hunger_percent])
 				
 				# Log successful eat completion
 				UnifiedLogger.log_npc("Action completed: eat (success)", {
@@ -325,7 +319,9 @@ func update(delta: float) -> void:
 				var pi_eat = npc.get_node_or_null("/root/PlaytestInstrumentor")
 				if pi_eat and pi_eat.has_method("npc_ate"):
 					var clan_str: String = str(npc.clan_name) if npc.clan_name else ""
-					var before_pct: float = (npc.stats_component.get_stat("hunger") - restore_amount) / npc.stats_component.hunger_max * 100.0
+					var before_pct: float = npc.stats_component.get_hunger_percent() - (
+						(float(ResourceData.get_food_calories(resource_type)) / maxf(npc.stats_component.calories_max, 1.0)) * 100.0
+					)
 					pi_eat.npc_ate(npc.npc_name, clan_str, resource_name, before_pct, new_hunger_percent)
 				
 				# If still below 80% and we have more food, stay in eat state

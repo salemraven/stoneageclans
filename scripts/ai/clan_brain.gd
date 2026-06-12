@@ -87,6 +87,9 @@ var clan_metrics: Dictionary = {
 	"breeding_females": 0,     # Women in clan
 	"food_total": 0,           # Food items in claim (berries, grain, bread, meat, milk, etc.)
 	"food_days_buffer": 0.0,   # Proxy: food_total / max(1, population * food_per_capita_per_sim_day)
+	"calories_in_storage": 0,
+	"calories_daily_need": 0,
+	"calories_days_buffer": 0.0,
 	"meat_count": 0,           # MEAT in claim inventory (hunt pressure)
 	"hide_count": 0,           # HIDE in claim inventory (hunt pressure)
 	"herd_value": 0,           # Women + sheep + goats in clan
@@ -594,9 +597,18 @@ func _evaluate_metrics() -> void:
 	
 	var pop: int = maxi(1, clan_metrics["population"])
 	var per_day: float = _food_per_capita_per_sim_day()
-	clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * per_day)
+	clan_metrics["calories_daily_need"] = _calculate_clan_daily_calories()
+	clan_metrics["calories_in_storage"] = _calculate_clan_food_calories()
+	clan_metrics["calories_days_buffer"] = _calculate_calorie_buffer()
+	clan_metrics["food_days_buffer"] = clan_metrics["calories_days_buffer"]
+	if clan_metrics["calories_daily_need"] <= 0:
+		clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * per_day)
+		clan_metrics["calories_days_buffer"] = clan_metrics["food_days_buffer"]
 	if territory:
 		territory.set_meta("food_days_buffer", clan_metrics["food_days_buffer"])
+		territory.set_meta("calories_days_buffer", clan_metrics["calories_days_buffer"])
+		territory.set_meta("calories_in_storage", clan_metrics["calories_in_storage"])
+		territory.set_meta("calories_daily_need", clan_metrics["calories_daily_need"])
 		territory.set_meta("food_buffer_critical", clan_metrics["food_days_buffer"] < _food_buffer_critical_days())
 	
 	clan_metrics["building_count"] = 0
@@ -609,6 +621,55 @@ func _evaluate_metrics() -> void:
 				clan_metrics["building_count"] += 1
 	
 	clan_metrics["recent_losses"] = territory.get_meta("recent_herd_losses", 0) if territory else 0
+
+
+func _calculate_clan_daily_calories() -> int:
+	var total: int = 0
+	for member in clan_members:
+		if not is_instance_valid(member):
+			continue
+		if member.get("stats_component") != null:
+			var stats: Stats = member.stats_component
+			if stats and stats.has_method("get_daily_calorie_need"):
+				total += int(stats.get_daily_calorie_need())
+				continue
+		var nt: String = str(member.get("npc_type")) if member.get("npc_type") != null else ""
+		if BalanceConfig:
+			total += BalanceConfig.get_base_daily_calories(nt)
+	# Include player when this is the player's clan territory
+	if territory and territory.get("player_owned") == true:
+		var player := _get_player_node()
+		if player and player.has_method("get_daily_calorie_need"):
+			total += int(player.get_daily_calorie_need())
+		elif BalanceConfig:
+			total += BalanceConfig.get_base_daily_calories("player")
+	return total
+
+
+func _calculate_clan_food_calories() -> int:
+	var total: int = 0
+	if not territory or not territory.inventory:
+		return 0
+	var inv = territory.inventory
+	if not inv.has_method("get_count"):
+		return 0
+	for food_type in ResourceData.EDIBLE_FOOD_TYPES:
+		var count: int = inv.get_count(food_type)
+		if count > 0:
+			total += ResourceData.get_food_calories(food_type) * count
+	return total
+
+
+func _calculate_calorie_buffer() -> float:
+	var daily: int = maxi(1, clan_metrics.get("calories_daily_need", 0))
+	var stored: int = clan_metrics.get("calories_in_storage", 0)
+	return float(stored) / float(daily)
+
+
+func _get_player_node() -> Node:
+	if not territory or not territory.is_inside_tree():
+		return null
+	return territory.get_tree().get_first_node_in_group("player")
 
 func _count_clansmen() -> int:
 	var n: int = 0

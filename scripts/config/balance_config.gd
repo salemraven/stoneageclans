@@ -90,6 +90,40 @@ var mushroom_hunger_percent: float = 8.0
 var bugs_hunger_percent: float = 6.0
 var nuts_hunger_percent: float = 9.0
 
+# --- Calorie system (kcal) — source of truth for food economy ---
+var berries_calories: int = 40
+var grain_calories: int = 60
+var fiber_calories: int = 20
+var meat_calories: int = 250
+var bread_calories: int = 300
+var milk_calories: int = 100
+var mushroom_calories: int = 30
+var bugs_calories: int = 25
+var nuts_calories: int = 80
+
+var base_daily_calories_caveman: int = 2200
+var base_daily_calories_clansman: int = 2200
+var base_daily_calories_woman: int = 1800
+var base_daily_calories_baby: int = 720
+var base_daily_calories_player: int = 2000
+
+var pregnancy_calorie_multiplier: float = 1.35
+var strength_calorie_modifier: float = 0.10
+var intelligence_calorie_modifier: float = 0.05
+
+var farm_daily_calories_per_sheep: int = 600
+var dairy_daily_calories_per_goat: int = 650
+var animal_building_calories_max: float = 5000.0
+
+## Herbivore feed types (dev-tunable): grain and/or fiber from building stockpile.
+var herbivore_feed_types: Array[int] = [
+	ResourceData.ResourceType.FIBER,
+	ResourceData.ResourceType.GRAIN,
+]
+
+var simulation_tick_interval_seconds: float = 120.0
+var simulation_ticks_per_sim_day: int = 5
+
 # Production times (seconds)
 var bread_craft_time: float = 90.0
 var wool_craft_time: float = 45.0
@@ -135,6 +169,66 @@ var campfire_upgrade_stone: int = 1
 func _ready() -> void:
 	apply_hunger_game_mode()
 	apply_economy_sim()
+
+
+func get_sim_ticks_per_day() -> int:
+	return maxi(1, simulation_ticks_per_sim_day)
+
+
+func get_food_calories(resource_type: ResourceData.ResourceType) -> int:
+	match resource_type:
+		ResourceData.ResourceType.BERRIES:
+			return berries_calories
+		ResourceData.ResourceType.GRAIN:
+			return grain_calories
+		ResourceData.ResourceType.FIBER:
+			return fiber_calories
+		ResourceData.ResourceType.MEAT:
+			return meat_calories
+		ResourceData.ResourceType.BREAD:
+			return bread_calories
+		ResourceData.ResourceType.MILK:
+			return milk_calories
+		ResourceData.ResourceType.MUSHROOM:
+			return mushroom_calories
+		ResourceData.ResourceType.BUGS:
+			return bugs_calories
+		ResourceData.ResourceType.NUTS:
+			return nuts_calories
+		_:
+			return 0
+
+
+func get_base_daily_calories(npc_type: String) -> int:
+	match npc_type:
+		"caveman":
+			return base_daily_calories_caveman
+		"clansman":
+			return base_daily_calories_clansman
+		"woman":
+			return base_daily_calories_woman
+		"baby":
+			return base_daily_calories_baby
+		"player":
+			return base_daily_calories_player
+		_:
+			return 2000
+
+
+func format_calories_short(cal: int) -> String:
+	if cal >= 1000:
+		return "%.1fk" % (float(cal) / 1000.0)
+	return str(cal)
+
+
+func get_hunger_percent_from_calories(calories: float, calories_max: float) -> float:
+	if calories_max <= 0.0:
+		return 0.0
+	return clampf((calories / calories_max) * 100.0, 0.0, 100.0)
+
+
+func get_calories_from_hunger_percent(hunger_percent: float, calories_max: float) -> float:
+	return clampf(hunger_percent / 100.0, 0.0, 1.0) * calories_max
 
 
 ## Push hunger/food tuning into NPCConfig so one file (here) drives gameplay.
@@ -184,22 +278,12 @@ func apply_economy_sim() -> void:
 
 
 func get_food_hunger_restore_percent(resource_type: ResourceData.ResourceType) -> float:
-	match resource_type:
-		ResourceData.ResourceType.BERRIES:
-			return berries_hunger_percent
-		ResourceData.ResourceType.GRAIN:
-			return grain_hunger_percent
-		ResourceData.ResourceType.MEAT:
-			return meat_hunger_percent
-		ResourceData.ResourceType.BREAD:
-			return bread_hunger_percent
-		ResourceData.ResourceType.MILK:
-			return milk_hunger_percent
-		ResourceData.ResourceType.MUSHROOM:
-			return mushroom_hunger_percent
-		ResourceData.ResourceType.BUGS:
-			return bugs_hunger_percent
-		ResourceData.ResourceType.NUTS:
-			return nuts_hunger_percent
-		_:
-			return 0.0
+	# Derived from calorie values when possible (backward compat for legacy hunger UI).
+	var cal: int = get_food_calories(resource_type)
+	if cal <= 0:
+		return 0.0
+	var ref_daily: float = float(base_daily_calories_caveman)
+	if ref_daily <= 0.0:
+		ref_daily = 2200.0
+	return clampf((float(cal) / ref_daily) * 100.0, 0.0, 100.0)
+

@@ -845,9 +845,9 @@ func _update_title() -> void:
 			title_label.text = "Land Claim"
 		title_label.visible = true
 		
-		# Hide character info for land claims
 		if character_info_label:
-			character_info_label.visible = false
+			_update_land_claim_calorie_display()
+			character_info_label.visible = true
 		
 		# CRITICAL: Hide fire button for land claims (only ovens should have it)
 		if fire_button:
@@ -975,6 +975,44 @@ func _update_character_info() -> void:
 	character_info_label.text = "\n".join(info_lines)
 	character_info_label.visible = true
 
+
+func _format_calories(cal: int) -> String:
+	if BalanceConfig and BalanceConfig.has_method("format_calories_short"):
+		return BalanceConfig.format_calories_short(cal)
+	if cal >= 1000:
+		return "%.1fk" % (float(cal) / 1000.0)
+	return str(cal)
+
+
+func _get_clan_brain_for_land_claim() -> RefCounted:
+	if not land_claim or not land_claim.has_method("get_clan_brain"):
+		return null
+	return land_claim.get_clan_brain()
+
+
+func _update_land_claim_calorie_display() -> void:
+	if not character_info_label or not land_claim:
+		return
+	var stored: int = 0
+	var daily: int = 0
+	var buffer: float = 0.0
+	var cb := _get_clan_brain_for_land_claim()
+	if cb and cb.get("clan_metrics") != null:
+		var metrics: Dictionary = cb.clan_metrics
+		stored = int(metrics.get("calories_in_storage", 0))
+		daily = int(metrics.get("calories_daily_need", 0))
+		buffer = float(metrics.get("calories_days_buffer", 0.0))
+	elif land_claim.has_meta("calories_in_storage"):
+		stored = int(land_claim.get_meta("calories_in_storage"))
+		daily = int(land_claim.get_meta("calories_daily_need"))
+		buffer = float(land_claim.get_meta("calories_days_buffer"))
+	character_info_label.text = "-- Clan Food --\nStored: %s kcal\nDaily need: %s kcal\nBuffer: %.1f days" % [
+		_format_calories(stored),
+		_format_calories(daily),
+		buffer
+	]
+
+
 func _update_living_hut_info() -> void:
 	"""Update Living Hut info: woman, mate, children. Empty: 'No woman assigned'."""
 	if not character_info_label or not building:
@@ -1015,6 +1053,43 @@ func _update_living_hut_info() -> void:
 		info_lines.append("Children:")
 		for line in children_lines:
 			info_lines.append("  %s" % line)
+	
+	if building.building_type == ResourceData.ResourceType.LIVING_HUT:
+		var rc = woman.get_node_or_null("ReproductionComponent")
+		if rc and rc.has_method("get_ui_reproduction_summary"):
+			var summary: Dictionary = rc.get_ui_reproduction_summary()
+			info_lines.append("")
+			info_lines.append("-- Pregnancy --")
+			if summary.get("is_pregnant", false):
+				var pct: int = int(summary.get("pregnancy_progress_percent", 0.0))
+				var secs: int = int(summary.get("time_remaining_sec", 0.0))
+				info_lines.append("Status: Pregnant (%d%% - %ds left)" % [pct, secs])
+				info_lines.append("Father: %s" % str(summary.get("father_name", "—")))
+			elif summary.get("can_reproduce", false):
+				info_lines.append("Status: Ready to conceive")
+			else:
+				info_lines.append("Status: %s" % str(summary.get("block_reason", "Blocked")))
+			var buf: float = float(summary.get("calorie_buffer_days", 0.0))
+			info_lines.append("Clan food buffer: %.1f days" % buf)
+	elif building.building_type in [ResourceData.ResourceType.FARM, ResourceData.ResourceType.DAIRY_FARM]:
+		var animal_count: int = 0
+		if building.has_method("_count_occupied_animals"):
+			animal_count = building._count_occupied_animals()
+		else:
+			for a in building.animal_slots:
+				if a and is_instance_valid(a):
+					animal_count += 1
+		var label: String = "sheep" if building.building_type == ResourceData.ResourceType.FARM else "goats"
+		info_lines.append("")
+		info_lines.append("-- Animal Feed --")
+		info_lines.append("Animals: %d %s" % [animal_count, label])
+		info_lines.append("Food: %s / %s kcal" % [
+			_format_calories(int(building.animal_calories)),
+			_format_calories(int(building.animal_calories_max))
+		])
+		if building.has_method("get_animal_calorie_days_buffer"):
+			info_lines.append("Buffer: %.1f days" % building.get_animal_calorie_days_buffer())
+	
 	character_info_label.text = "\n".join(info_lines)
 
 func show_inventory() -> void:
@@ -1817,10 +1892,20 @@ func _update_building_icon_states() -> void:
 		icon.add_theme_stylebox_override("panel", style)
 
 var _last_progress: float = -1.0  # Track last progress value to detect resets
+var _living_hut_refresh_timer: float = 0.0
+const LIVING_HUT_REFRESH_INTERVAL: float = 0.5
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if drag_manager and drag_manager.is_dragging and visible:
 		_update_building_drag_highlights()
+	if visible:
+		_living_hut_refresh_timer += delta
+		if _living_hut_refresh_timer >= LIVING_HUT_REFRESH_INTERVAL:
+			_living_hut_refresh_timer = 0.0
+			if land_claim and character_info_label:
+				_update_land_claim_calorie_display()
+			elif building and character_info_label and character_info_label.visible:
+				_update_living_hut_info()
 	# Update clan control display (defend slider) when land claim panel is visible
 	if land_claim and land_claim.player_owned and visible and clan_control_container:
 		_update_clan_control_display()

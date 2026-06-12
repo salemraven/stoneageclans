@@ -600,7 +600,11 @@ func _on_eat_complete() -> void:
 			new_count
 		])
 	
-	if player and player.get("hunger_max") != null:
+	if player and player.has_method("add_calories"):
+		var cal: int = ResourceData.get_food_calories(item_type)
+		player.add_calories(float(cal))
+		print("🍽️ Restored %d kcal (now %.1f%% food meter)" % [cal, player.get_hunger_percent()])
+	elif player and player.get("hunger_max") != null:
 		var restore_pct: float = ResourceData.get_food_hunger_restore_percent(item_type)
 		var max_h: float = player.hunger_max
 		var restore: float = restore_pct * 0.01 * max_h

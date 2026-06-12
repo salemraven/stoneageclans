@@ -35,6 +35,54 @@ enum ResourceType {
 	SPEAR
 }
 
+enum DietType { HERBIVORE, CARNIVORE, OMNIVORE }
+
+static func get_diet_foods(diet: DietType) -> Array[ResourceType]:
+	match diet:
+		DietType.HERBIVORE:
+			return [
+				ResourceType.BERRIES,
+				ResourceType.GRAIN,
+				ResourceType.FIBER,
+				ResourceType.MUSHROOM,
+				ResourceType.NUTS,
+			]
+		DietType.CARNIVORE:
+			return [ResourceType.MEAT]
+		DietType.OMNIVORE:
+			return [
+				ResourceType.BERRIES,
+				ResourceType.GRAIN,
+				ResourceType.MEAT,
+				ResourceType.BREAD,
+				ResourceType.MILK,
+				ResourceType.MUSHROOM,
+				ResourceType.BUGS,
+				ResourceType.NUTS,
+			]
+	return []
+
+
+static func can_eat(diet: DietType, food_type: ResourceType) -> bool:
+	return food_type in get_diet_foods(diet)
+
+
+static func get_food_calories(type: ResourceType) -> int:
+	if BalanceConfig and BalanceConfig.has_method("get_food_calories"):
+		return BalanceConfig.get_food_calories(type)
+	return 0
+
+
+static func get_diet_label(diet: DietType) -> String:
+	match diet:
+		DietType.HERBIVORE:
+			return "Herbivore"
+		DietType.CARNIVORE:
+			return "Carnivore"
+		DietType.OMNIVORE:
+			return "Omnivore"
+	return "Unknown"
+
 static func get_resource_name(type: ResourceType) -> String:
 	match type:
 		ResourceType.WOOD: return "Wood"
@@ -212,23 +260,16 @@ static func get_resource_description(type: ResourceType) -> String:
 #   Meat = 10 points (highest) - when implemented
 # Note: FIBER is NOT a food item - it's a crafting resource
 static func get_food_nutrient_value(type: ResourceType) -> int:
-	# Preference ranking mirrors restore % (rounded).
-	return int(roundf(get_food_hunger_restore_percent(type)))
+	return get_food_calories(type)
 
 # Get hunger restoration amount for food items (as percentage of max hunger)
 static func get_food_hunger_restore_percent(type: ResourceType) -> float:
 	if BalanceConfig and BalanceConfig.has_method("get_food_hunger_restore_percent"):
 		return BalanceConfig.get_food_hunger_restore_percent(type)
-	match type:
-		ResourceData.ResourceType.BERRIES: return 8.0
-		ResourceData.ResourceType.GRAIN: return 10.0
-		ResourceData.ResourceType.MEAT: return 18.0
-		ResourceData.ResourceType.BREAD: return 22.0
-		ResourceData.ResourceType.MILK: return 10.0
-		ResourceData.ResourceType.MUSHROOM: return 8.0
-		ResourceData.ResourceType.BUGS: return 6.0
-		ResourceData.ResourceType.NUTS: return 9.0
-		_: return 0.0
+	var cal: int = get_food_calories(type)
+	if cal <= 0:
+		return 0.0
+	return clampf((float(cal) / 2200.0) * 100.0, 0.0, 100.0)
 
 # All edible food types (single source of truth for iteration)
 const EDIBLE_FOOD_TYPES: Array[ResourceType] = [

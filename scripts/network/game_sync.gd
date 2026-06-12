@@ -14,6 +14,9 @@ func _ready() -> void:
 	var nm: Node = get_node_or_null("/root/NetworkManager")
 	if nm and nm.has_signal("peer_connected_to_game"):
 		nm.peer_connected_to_game.connect(_on_net_peer_connected)
+	var sm := get_node_or_null("/root/SimulationManager")
+	if sm and sm.has_signal("simulation_tick") and not sm.simulation_tick.is_connected(_on_simulation_tick_sync):
+		sm.simulation_tick.connect(_on_simulation_tick_sync)
 
 
 func _on_net_peer_connected(id: int) -> void:
@@ -72,3 +75,44 @@ func receive_world_snapshot(snapshot: Dictionary) -> void:
 		wgc.world_seed = int(snapshot.get("seed", wgc.world_seed))
 	if ms and snapshot.has("mutations") and ms.has_method("load_from_dict"):
 		ms.call("load_from_dict", snapshot["mutations"])
+
+
+func _on_simulation_tick_sync(_delta: float) -> void:
+	if not multiplayer.is_server():
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	for claim in tree.get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim) or not claim.has_method("get_clan_brain"):
+			continue
+		var cb: RefCounted = claim.get_clan_brain()
+		if cb == null or cb.get("clan_metrics") == null:
+			continue
+		var cn: String = str(cb.clan_name) if cb.get("clan_name") != null else ""
+		if cn.is_empty():
+			continue
+		receive_clan_metrics.rpc(cb.clan_metrics, cn)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func receive_clan_metrics(metrics: Dictionary, clan_name: String) -> void:
+	if clan_name.is_empty():
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	for claim in tree.get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim):
+			continue
+		var cn: String = str(claim.get("clan_name")) if claim.get("clan_name") != null else ""
+		if cn != clan_name:
+			continue
+		if claim.has_method("get_clan_brain"):
+			var cb: RefCounted = claim.get_clan_brain()
+			if cb:
+				cb.clan_metrics = metrics
+		for key in ["calories_days_buffer", "calories_in_storage", "calories_daily_need", "food_days_buffer"]:
+			if metrics.has(key):
+				claim.set_meta(key, metrics[key])
+		break

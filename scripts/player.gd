@@ -27,10 +27,13 @@ var aim_dir: Vector2 = Vector2(1, 0)  # Cursor aim while weapon ready
 
 const WEAPON_READY_SPEED_MULT := 0.6
 
-# Player hunger (does NOT die from starvation - only penalties)
+# Player food meter (calories — hunger is derived 0-100% for UI/debuffs)
+var calories: float = 2000.0
+var calories_max: float = 2000.0
 var hunger: float = 100.0
 var hunger_max: float = 100.0
-var hunger_deplete_rate: float = 12.0  # Per minute — synced from BalanceConfig in _ready()
+var hunger_deplete_rate: float = 12.0  # Legacy; tick drain uses SimulationManager
+var _player_sim_connected: bool = false
 
 # Eat progress display (world-space pie timer, same pattern as NPCs)
 var eat_progress_display: Node2D = null
@@ -47,7 +50,10 @@ func _ready() -> void:
 	add_to_group("player")
 	if BalanceConfig:
 		hunger_deplete_rate = BalanceConfig.hunger_deplete_rate_per_min
-		hunger = hunger_max * (BalanceConfig.hunger_start_percent / 100.0)
+		calories_max = float(BalanceConfig.base_daily_calories_player)
+		calories = calories_max * (BalanceConfig.hunger_start_percent / 100.0)
+		_sync_hunger_from_calories()
+	_connect_player_simulation_tick()
 	if not sprite:
 		print("ERROR: Player sprite is null in _ready()!")
 		return
@@ -99,6 +105,52 @@ func _ready() -> void:
 	var progress_script := load("res://scripts/collection_progress.gd")
 	if progress_script:
 		eat_progress_display.set_script(progress_script)
+
+	if progress_script:
+		eat_progress_display.set_script(progress_script)
+
+
+func _connect_player_simulation_tick() -> void:
+	if _player_sim_connected:
+		return
+	var sm := get_node_or_null("/root/SimulationManager")
+	if sm and sm.has_signal("simulation_tick") and not sm.simulation_tick.is_connected(_on_player_simulation_tick):
+		sm.simulation_tick.connect(_on_player_simulation_tick)
+		_player_sim_connected = true
+
+
+func _on_player_simulation_tick(_delta_game_time: float) -> void:
+	if BalanceConfig:
+		calories_max = float(BalanceConfig.base_daily_calories_player)
+	var ticks_per_day: int = 5
+	if SimulationManager:
+		ticks_per_day = maxi(1, SimulationManager.ticks_per_sim_day)
+	var drain: float = calories_max / float(ticks_per_day)
+	calories = maxf(0.0, calories - drain)
+	_sync_hunger_from_calories()
+
+
+func _sync_hunger_from_calories() -> void:
+	if BalanceConfig:
+		hunger = BalanceConfig.get_hunger_percent_from_calories(calories, calories_max)
+	else:
+		hunger = clampf((calories / maxf(calories_max, 1.0)) * 100.0, 0.0, 100.0)
+
+
+func add_calories(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	calories = minf(calories + amount, calories_max)
+	_sync_hunger_from_calories()
+
+
+func get_hunger_percent() -> float:
+	return hunger
+
+
+func get_daily_calorie_need() -> float:
+	return calories_max if calories_max > 0.0 else float(BalanceConfig.base_daily_calories_player if BalanceConfig else 2000)
+
 
 func get_player_name() -> String:
 	# Return player name, or clan name if name not set yet
@@ -152,11 +204,8 @@ func _physics_process(_delta: float) -> void:
 			_update_entity_draw_order()
 			_apply_player_equipment_sprite_scale()
 		return
-	# Hunger depletion (player does NOT die from starvation)
-	var rate: float = hunger_deplete_rate
-	if BalanceConfig:
-		rate = BalanceConfig.hunger_deplete_rate_per_min
-	hunger = max(0.0, hunger - (rate * _delta / 60.0))
+	# Calorie drain runs on SimulationManager tick — hunger is derived each frame for debuffs.
+	_sync_hunger_from_calories()
 	
 	if not _can_move:
 		velocity = Vector2.ZERO

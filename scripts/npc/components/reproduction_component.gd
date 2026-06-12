@@ -271,7 +271,7 @@ func _can_reproduce() -> bool:
 	var min_buffer: float = 0.28
 	if BalanceConfig:
 		min_buffer = maxf(float(BalanceConfig.reproduction_min_food_buffer_days), 0.0)
-	var buf: float = _clan_food_days_buffer()
+	var buf: float = _clan_calorie_days_buffer()
 	if buf < min_buffer:
 		var bypass_min: int = 3
 		if BalanceConfig:
@@ -283,14 +283,21 @@ func _can_reproduce() -> bool:
 	return time_since_last_birth >= config.birth_cooldown
 
 
-func _clan_food_days_buffer() -> float:
+func _clan_calorie_days_buffer() -> float:
 	var clan: String = npc.clan_name if npc else ""
 	if clan.is_empty():
 		return 99.0
 	var claim = _get_land_claim(clan)
-	if claim and is_instance_valid(claim) and claim.has_meta("food_days_buffer"):
-		return float(claim.get_meta("food_days_buffer"))
+	if claim and is_instance_valid(claim):
+		if claim.has_meta("calories_days_buffer"):
+			return float(claim.get_meta("calories_days_buffer"))
+		if claim.has_meta("food_days_buffer"):
+			return float(claim.get_meta("food_days_buffer"))
 	return 99.0
+
+
+func _clan_food_days_buffer() -> float:
+	return _clan_calorie_days_buffer()
 
 
 func _clan_food_total() -> int:
@@ -761,3 +768,74 @@ func get_pregnancy_status() -> Dictionary:
 		"time_remaining": max(0.0, birth_timer),
 		"mate": mate_name
 	}
+
+
+func get_ui_reproduction_summary() -> Dictionary:
+	var timer_max: float = config.birth_timer_base if config else 90.0
+	var progress: float = 0.0
+	if is_pregnant and timer_max > 0.0:
+		progress = clampf(((timer_max - birth_timer) / timer_max) * 100.0, 0.0, 100.0)
+	var mate_name: String = "—"
+	if current_mate and is_instance_valid(current_mate):
+		if current_mate.is_in_group("player"):
+			mate_name = "Player"
+		elif current_mate.get("npc_name") != null:
+			mate_name = str(current_mate.get("npc_name"))
+	var father_name: String = mate_name
+	if designated_father and is_instance_valid(designated_father):
+		if designated_father.is_in_group("player"):
+			father_name = "Player"
+		elif designated_father.get("npc_name") != null:
+			father_name = str(designated_father.get("npc_name"))
+	var can_reproduce: bool = _can_reproduce() if not is_pregnant else false
+	return {
+		"is_pregnant": is_pregnant,
+		"pregnancy_progress_percent": progress,
+		"time_remaining_sec": max(0.0, birth_timer),
+		"mate_name": mate_name,
+		"father_name": father_name,
+		"can_reproduce": can_reproduce,
+		"block_reason": _get_reproduction_block_reason(),
+		"cooldown_remaining": _get_cooldown_remaining(),
+		"calorie_buffer_days": _clan_calorie_days_buffer(),
+	}
+
+
+func _get_mate_name() -> String:
+	if current_mate and is_instance_valid(current_mate):
+		if current_mate.is_in_group("player"):
+			return "Player"
+		if current_mate.get("npc_name") != null:
+			return str(current_mate.get("npc_name"))
+	return "—"
+
+
+func _get_cooldown_remaining() -> float:
+	if not config:
+		return 0.0
+	var elapsed: float = (Time.get_ticks_msec() / 1000.0) - last_birth_time
+	return maxf(0.0, config.birth_cooldown - elapsed)
+
+
+func _get_reproduction_block_reason() -> String:
+	if is_pregnant:
+		return "Pregnant"
+	if not npc or str(npc.clan_name) == "":
+		return "Blocked — not in a clan"
+	var elapsed_ok: bool = _get_cooldown_remaining() <= 0.0
+	if not elapsed_ok:
+		return "Blocked — birth cooldown (%.0fs left)" % _get_cooldown_remaining()
+	var buf: float = _clan_calorie_days_buffer()
+	var min_buffer: float = 0.28
+	if BalanceConfig:
+		min_buffer = float(BalanceConfig.reproduction_min_food_buffer_days)
+	if buf < min_buffer:
+		var bypass_min: int = 3
+		if BalanceConfig:
+			bypass_min = int(BalanceConfig.reproduction_food_items_bypass_min)
+		if _clan_food_total() < bypass_min:
+			return "Blocked — low food (%.2f days buffer, need %.2f)" % [buf, min_buffer]
+	if not current_mate and not designated_father:
+		return "Blocked — no mate"
+	return "Ready to conceive"
+
