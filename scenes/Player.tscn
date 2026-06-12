@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3 uid="uid://dcplayerquat01"]
+[gd_scene load_steps=6 format=3 uid="uid://dcplayerquat01"]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/npc/components/combat_component.gd" id="2"]
 [ext_resource type="Texture2D" path="res://assets/sprites/PlayerB.png" id="3"]
+[ext_resource type="Script" path="res://scripts/npc/components/health_component.gd" id="4"]
 
 [sub_resource type="RectangleShape2D" id="1"]
 size = Vector2(40, 40)
@@ -27,3 +28,6 @@ shape = SubResource("1")
 
 [node name="CombatComponent" type="Node" parent="."]
 script = ExtResource("2")
+
+[node name="HealthComponent" type="Node" parent="."]
+script = ExtResource("4")

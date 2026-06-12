@@ -47,6 +47,13 @@ var hunger_eat_threshold_percent: float = 80.0
 var hunger_gather_threshold_percent: float = 80.0
 ## When hunger hits 0, health drains until death (~50s at 2/min from full HP).
 var hunger_health_drain_per_min: float = 2.0
+## Vitals bar color thresholds (0-1 fill ratio).
+var vitals_bar_yellow_above: float = 0.65
+var vitals_bar_red_above: float = 0.25
+## Player combat HP (HealthComponent on Player.tscn).
+var player_max_health: int = 100
+## Hydration placeholder until water sim exists (0-100%).
+var hydration_start_percent: float = 100.0
 ## AI clan members spawn with full hunger (player uses hunger_start_percent above).
 var ai_hunger_start_percent: float = 100.0
 

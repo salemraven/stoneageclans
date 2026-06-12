@@ -2,7 +2,7 @@
 
 **Date**: April 2026  
 **Status**: Living Document  
-**Last Updated**: April 2026 (Prior pass: corpse looting, inventory sizes, drag-and-drop; **doc sweep** — world now streams via chunks; UI rules unchanged; see `bible/game_map.md` only where world visibility/overlap matters.)  
+**Last Updated**: June 2026 (Player vitals HUD: health / calories / water above hotbar; see §3 Player Vitals HUD.)  
 **Purpose**: Standardize all UI elements (menus, inventories, info screens) for consistency across the game
 
 ## Overview
@@ -154,6 +154,31 @@ Panel (320×400px)
 **Visual:**
 - Same panel style as all inventories
 - Hotbar: Separate panel, always visible
+
+### Player Vitals HUD (above hotbar)
+
+**Implemented:** June 2026 — `scripts/ui/vitals_bar_utils.gd`, `player_inventory_ui.gd`
+
+**Layout (bottom center, above hotbar slots):**
+
+```
+┌──────────────────────────────────────────┐
+│ ████████████████ Health (full width)     │  green → yellow (<65%) → red (<25%)
+├────────────────────┬─────────────────────┤
+│ █████ Calories     │ █████ Water         │  red / blue when healthy; yellow/red when low
+└────────────────────┴─────────────────────┘
+│ [ hotbar equipment + food slots ]        │
+```
+
+| Bar | Source | Behavior |
+|-----|--------|----------|
+| **Health** | `Player` → `HealthComponent` (`player_max_health` in BalanceConfig) | Combat damage; **starvation drain** when calories = 0 |
+| **Calories** | `player.calories / calories_max` | Fills when eating (hotbar 9/0); drains on `SimulationManager` tick |
+| **Water** | `player.hydration / hydration_max` | **Placeholder** (starts full; no drain yet) |
+
+**Color thresholds** (health, calories, water when low): green above **65%**, yellow above **25%**, red at/below **25%**. Calorie bar uses **red** tint when full; water bar uses **blue** when full.
+
+**NPC character menu:** same three labeled bars in Status section (`character_menu_ui.gd`).
 
 ### Building Inventory (Land Claim)
 

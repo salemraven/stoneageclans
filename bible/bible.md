@@ -30,7 +30,9 @@ Definitions of project-specific terms used throughout design and code.
 | **Defender quota** | ClanBrain-assigned number of NPCs to patrol claim border. |
 | **Searcher quota** | ClanBrain-assigned number of NPCs to search for herdables (Herd Wild NPC state). |
 | **defend/search/gather pressure** | ClanBrain floats (0–1, renormalized) that bias quota and job urgency alongside legacy economic weights. |
-| **food_days_buffer** | Claim food stock ÷ (population × daily proxy); hunt/raid gating input. |
+| **food_days_buffer** | Claim calorie buffer (days): stored kcal ÷ daily need; mirrors `calories_days_buffer`. Hunt/raid/breeding gate. |
+| **calories_days_buffer** | Same as food_days_buffer — kcal-based source of truth since tick calorie system. |
+| **SimulationManager** | Autoload: fixed sim tick (~120s) drains personal calories, farm/dairy pools; emits `simulation_tick`. |
 | **Survival mode** | AI clan with **&lt;2 fighters** skips hunt/raid; gather/herd only. |
 | **WildRole.PREY** | Deer, mammoth — AoH hunt targets, **`flee_prey`** FSM. Not herdables. |
 | **Fighter activity** | Telemetry/code: NPC currently in combat, defend, agro, or raid FSM — not roster headcount. |
@@ -56,7 +58,7 @@ All major systems in one place. Each row links to the section where that system 
 | System | What it does | Detailed in |
 |--------|----------------|-------------|
 | **World & resources** | Infinite 2D world; **chunk grid** (`ChunkUtils`); seeded layout + mutation deltas (MP partial); trees, boulders, berries, wheat, fiber; respawn rules; gatherable hitboxes aligned to sprite art (berries). | §II World, §XIII Items & resources, §XIX Gather & deposit |
-| **Player** | Movement, hunger, hotbar consumables (9/0), direct control; speed modifiers (hunger, herding, **formation stance** debuff with ordered followers). | §III Player character, §IV Universal controls & UI |
+| **Player** | Movement, **vitals HUD** (health/calories/water), hotbar consumables (9/0), direct control; speed modifiers (low calories, herding, **formation stance** debuff with ordered followers). | §III Player character, §IV Universal controls & UI |
 | **Land claim & territory** | Placement (craft recipe); radius 400px; campfire (250px, 3 huts max, **ClanBrain**) vs land claim; **AoH** on claims; inventory; destroy flag = wipe. | §V Land claim & territory |
 | **Buildings** | Placement (50px min, 128×128); Living Hut, Supply Hut, Shrine, Dairy, Oven; costs; woman slots; production. | §VI Buildings |
 | **Reproduction & housing** | 1 woman per Living Hut; pregnancy requires hut; birth timer in radius; baby growth → clansman; trait inheritance. | §VII Reproduction & housing |
@@ -134,7 +136,9 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 - **Male only**, spawn at age 13 → natural death at 101.
 - Choose one of **5 hominid species** at bloodline start → full 50/50 hybridization every generation.
 - **Direct control** of player character only; clansmen are AI.
-- **Speed**: **~110** px/s base (`player.gd` `move_speed`, aligned with clansman pace for formation); hunger <30% = 0.7×; herding = 0.97× per herded NPC; with **ordered clansmen**, **`formation_speed_mult`** slows the leader to match the strictest stance (**Guard** 0.75×, **Attack** 0.85×, **Follow** 1.0×).
+- **Vitals HUD** (above hotbar): full-width **health** bar; half-width **calories** (red) + **water** (blue, placeholder). Colors: green → yellow below 65% → red below 25%. Empty calories → health drains (`hunger_health_drain_per_min`).
+- **Calories:** tick-based via `SimulationManager`; eating adds kcal from food; `calories_max` = daily need.
+- **Speed**: **~110** px/s base (`player.gd` `move_speed`, aligned with clansman pace for formation); calorie bar **&lt;30%** = 0.7× speed; herding = 0.97× per herded NPC; with **ordered clansmen**, **`formation_speed_mult`** slows the leader to match the strictest stance (**Guard** 0.75×, **Attack** 0.85×, **Follow** 1.0×).
 
 ---
 
@@ -470,7 +474,7 @@ One **ClanBrain** per **territory** node (`land_claim.gd` or `campfire.gd` — s
 - **Hunt intent** — AI clans only: AoH prey + economics → **`hunt_state`** party (§XV-A).
 - **Economic weights** — `food_weight`, `resource_weight`, `build_weight`, `herd_weight` (claim meta for FSM/job selection).
 - **Pressures** — `defend_pressure`, `search_pressure`, `gather_pressure` (renormalized; search/gather dominate population-maxing sim).
-- **Clan metrics** — `food_days_buffer`, meat/hide counts, population; refreshed on eval tick.
+- **Clan metrics** — `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` (and legacy `food_days_buffer`), meat/hide counts, population; refreshed on eval tick.
 
 ### Strategic States
 PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
@@ -893,7 +897,7 @@ Use a fixed **`--playtest-world-seed`** when comparing patches.
 
 The **`bible/future implementations/`** folder holds design notes and concept docs (village, weapons, research, popcontrol, combat plans, etc.). These are **ideas for content that would be fun to add** — not committed roadmap or promised features. They’re there to inspire and to keep “someday” design in one place; priority and scope are decided separately.
 
-**Do not document unimplemented mechanics in §I–§XXI** until they are agreed and coded (or behind a clear feature flag). Examples: **prisoner/capture**, full **SimulationManager** food starvation tick, **governments/religions** — add here first, not as live systems.
+**Do not document unimplemented mechanics in §I–§XXI** until they are agreed and coded (or behind a clear feature flag). Examples: **prisoner/capture**, **starvation death wave** (tick drain exists; mass starvation kill order not wired), **governments/religions** — add here first, not as live systems.
 
 Below: every doc in that folder, with a short summary and **implementation-oriented notes** so each could be coded into the game.
 
@@ -906,12 +910,12 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **village.md** | Village = home huts (male+female), ClanBrain supply/demand, experience-based task assignment. Campfire → 3 huts then claim. | Extend ClanBrain: track "needs" (food, wood, stone) and publish work requests. Add `experience_by_activity: Dictionary` per NPC (gather/craft/defend); when assigning jobs, sort candidates by experience for that activity. Optional "home hut" = Living Hut with assigned couple; reuse OccupationSystem with a "household" slot type. |
 | **weapons.md** | Nameable weapons; buffs over time or with kills. | Add `weapon_name: String` and `kill_count: int` (or `use_time: float`) on WeaponComponent or item data. Buffs: resource/script that defines scaling (e.g. +1% damage per 10 kills, cap 20%). UI: rename weapon in inventory or character menu. |
 | **research.md** | Small "research" unlocks we take for granted (e.g. defecate outside village first; need to learn it). Gameify mundane behaviors. | Per-clan or global `unlocked_behaviors: Array[String]` (e.g. "defecate_outside"). NPCs check before executing behavior; if not unlocked, use fallback (defecate anywhere → hygiene penalty until researched). Research could be time-based, building-based (Shrine?), or event-triggered. |
-| **popcontrol.md** | Persistent world; housing caps clansmen, food caps/throttles babies, starvation kills. SimulationManager tick (e.g. 120s) drives consumption and reproduction. | Add autoload `SimulationManager`: `game_time`, `tick_interval_seconds`, signal `simulation_tick(delta_game_time)`. LandClaim connects to signal; on tick: compute daily_need (women + clansmen + babies), drain food_buffer, trigger_starvation() if buffer < 0, scale birth chance by surplus. `max_clansmen = 3 + living_huts * 3`; promote baby only if `current_clansmen < max_clansmen`. |
+| **popcontrol.md** | Persistent world; housing caps clansmen, food caps/throttles babies, starvation kills. SimulationManager tick (e.g. 120s) drives consumption and reproduction. | **Partial (2026-06):** `SimulationManager` autoload + per-NPC tick calorie drain + claim kcal metrics on ClanBrain. Still TODO: starvation kill wave, spoilage, birth chance scaling from surplus. |
 | **predator.md** | Hostile wildlife (Wolf first): hunt prey, eat corpses, attack cavemen. Stats (health, damage, attack_speed, hunger, fear threshold). | New NPC type "predator"; reuse NPCBase + CombatComponent + PerceptionArea. Add PredatorType resource or config: max_health, damage, detection_range, attack_range, hunger decay. States: Idle/Wander, Hunt (target sheep/goat), Eat (timer on corpse, restore hunger), Combat (caveman). DetectionArea mask includes prey layer; target selection: nearest prey or caveman by priority. |
 | **AOP_PHASE2_PLAN.md** | Herdables in PerceptionArea (event-driven); resources in AOP for gather; trait-based AOP radius; fix EnemiesInClaim mask = 3. | PerceptionArea: add `nearby_herdables` dict, body_entered/exited for woman/sheep/goat (wild only). Expose `get_herdables_in_range()`, `has_herdables()`. herd_wildnpc_state: use PerceptionArea when in range, fallback get_nodes_in_group for 1700px. land_claim.gd: set `_enemies_zone.collision_mask = 3`. |
 | **CRITICAL_FIXES.md** *(removed Apr 2026)* | Was a prioritized fix checklist in repo; **file deleted** to avoid stale P0 lists. Use issue tracker / small Cursor plans for urgent bugs. | — |
 | **daynight.md** | Day/night cycle; AOP lowers at night; torches broaden AOP but make you easier to see. | Global `game_time` or EnvironmentController; day_phase 0–1 (0=midnight, 0.5=noon). Shader or CanvasModulate for darkness. NPCConfig or PerceptionArea: `aop_radius_night = aop_radius * 0.5`. Torch: held item or building that adds AOP bonus and sets "torch_active" so hostiles get range bonus to detect carrier. |
-| **food.md** | Housing = clansmen cap; food = baby throttle + starvation; daily consumption per role; fertility scales with surplus. | Same as popcontrol: SimulationManager tick + LandClaim _on_simulation_tick. daily_need = women*1 + clansmen*2 + babies*0.5; food_buffer -= daily_need; if food_buffer < 0 trigger_starvation (kill order: babies → clansmen → women). Birth chance = f(food_buffer / daily_need). |
+| **food.md** | Housing = clansmen cap; food = baby throttle + starvation; daily consumption per role; fertility scales with surplus. | **Partial (2026-06):** kcal values in `BalanceConfig`, tick drain via `Stats` + `SimulationManager`, breeding gate uses `calories_days_buffer`. Still TODO: starvation kill order, spoilage, fertility scaling. |
 | **knapping.md** | Flint knapping minigame: Polygon2D core, target outline, strike drag, progress bar, fracture on bad strike. | New scene KnappingMinigame: CorePolygon (Polygon2D), TargetOutline (Line2D), StrikePreview (Line2D), ProgressBar. On drag release: ray/arc vs core polygon; subtract chip polygon or adjust vertices; compare to target, update progress. Bad angle → add FractureLines or fail. On success: yield tool item (Oldowan, etc.). |
 | **building_improvements.md** | Two-phase commit: placement mode (ghost, no cost) → confirm (consume materials, spawn building). Single place for effects. | UI: on build icon click enter "placement_mode"; show ghost BuildingPreview; on valid click call main._place_building() which consumes inventory and instances. Never consume on click card only. Centralize "building placed" effects in main or land_claim. |
 | **optimizations.md** | Event-driven perception, sticky targets, scheduled combat, optional Zone B; disable AOP when sleeping/far. | Already partly done (CombatScheduler, PerceptionArea). Add: target reselect only on enemy_entered/exited, ally_hit, target_died. For Zone B: when distance_to_player > threshold, run simplified combat tick or skip AOP. monitoring = false when sleeping/morale broken. |

@@ -3,6 +3,7 @@ class_name PlayerInventoryUI
 
 const CraftRegistryScript = preload("res://scripts/config/craft_registry.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
+const VitalsBarUtils = preload("res://scripts/ui/vitals_bar_utils.gd")
 
 # Player inventory: 10 vertical slots + 4-slot hotbar at bottom
 # No stacking, centered panel 320x480
@@ -20,7 +21,11 @@ const SLOT_SIZE := 32
 const PANEL_WIDTH := 320
 const PANEL_HEIGHT := 444  # Inventory slots + craft icons (32 + 8 separation) below
 const HOTBAR_HEIGHT := 64  # Just enough for 32x32 slots with padding (no labels below)
-const HUNGER_BAR_HEIGHT := 12  # 8px bar + 4px separation (above hotbar)
+const VITALS_BAR_HEIGHT := 8
+const VITALS_BAR_ROW_GAP := 3
+const VITALS_HALF_BAR_GAP := 4
+const VITALS_BAR_ROWS := 2
+const VITALS_BARS_BLOCK_HEIGHT := VITALS_BAR_ROWS * VITALS_BAR_HEIGHT + VITALS_BAR_ROW_GAP
 ## MarginContainer inside HotbarPanel uses 12px top + bottom — must be included in panel min height or content clips
 const HOTBAR_MARGIN_VERTICAL := 24
 ## Lift hotbar above viewport bottom (window frame / taskbar) — windowed mode
@@ -35,8 +40,10 @@ var inventory_container: VBoxContainer = null
 var hotbar_container: HBoxContainer = null
 
 var hotbar_slots: Array[InventorySlot] = []
-var hunger_bar: Control = null
-var _hunger_bar_update_frame: int = 0
+var health_bar: Control = null
+var calorie_bar: Control = null
+var water_bar: Control = null
+var _vitals_bar_update_frame: int = 0
 var craft_icons_container: HBoxContainer = null
 var craft_icons: Array[Control] = []
 var is_open: bool = false
@@ -71,7 +78,7 @@ func _position_inventory_for_viewport() -> void:
 	"""Keep inventory centered, shifted up so it clears hotbar + margin (reference 1920x1080)."""
 	if not inventory_panel or not is_instance_valid(inventory_panel):
 		return
-	var bottom_reserve: float = float(HOTBAR_HEIGHT + HUNGER_BAR_HEIGHT + HOTBAR_MARGIN_VERTICAL + HOTBAR_SAFE_BOTTOM + 24)
+	var bottom_reserve: float = float(HOTBAR_HEIGHT + VITALS_BARS_BLOCK_HEIGHT + HOTBAR_MARGIN_VERTICAL + HOTBAR_SAFE_BOTTOM + 24)
 	inventory_panel.offset_left = -PANEL_WIDTH / 2.0
 	inventory_panel.offset_right = PANEL_WIDTH / 2.0
 	inventory_panel.offset_top = -PANEL_HEIGHT / 2.0 - bottom_reserve
@@ -127,7 +134,7 @@ func _setup_panels() -> void:
 	
 	# Calculate hotbar width: 10 slots * 32px + spacing + padding (accounting for labels)
 	var hotbar_width: float = (HOTBAR_COUNT * 32) + ((HOTBAR_COUNT - 1) * 6) + 24  # 6px spacing, 12px padding each side
-	var hotbar_content_h: float = float(HOTBAR_HEIGHT + HUNGER_BAR_HEIGHT + HOTBAR_MARGIN_VERTICAL)
+	var hotbar_content_h: float = float(HOTBAR_HEIGHT + VITALS_BARS_BLOCK_HEIGHT + HOTBAR_MARGIN_VERTICAL)
 	hotbar_panel.custom_minimum_size = Vector2(hotbar_width, hotbar_content_h)
 	
 	# Style hotbar using UITheme
@@ -159,24 +166,14 @@ func _setup_panels() -> void:
 		hotbar_vbox.name = "HotbarVBox"
 		hotbar_vbox.add_theme_constant_override("separation", 4)
 		
-		# Hunger bar (above hotbar slots, same pattern as building health bar)
-		hunger_bar = Control.new()
-		hunger_bar.name = "HungerBar"
-		hunger_bar.custom_minimum_size = Vector2(80, HUNGER_BAR_HEIGHT)
-		hunger_bar.size = Vector2(80, HUNGER_BAR_HEIGHT)
-		var hunger_bg: ColorRect = ColorRect.new()
-		hunger_bg.name = "Background"
-		hunger_bg.color = Color(0.3, 0.0, 0.0, 0.8)
-		hunger_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		hunger_bar.add_child(hunger_bg)
-		var hunger_fill: ColorRect = ColorRect.new()
-		hunger_fill.name = "HungerFill"
-		hunger_fill.color = Color(0.0, 1.0, 0.0, 0.8)
-		hunger_fill.set_anchors_preset(Control.PRESET_TOP_LEFT)
-		hunger_fill.position = Vector2(0, 0)
-		hunger_fill.size = Vector2(80, HUNGER_BAR_HEIGHT)
-		hunger_bar.add_child(hunger_fill)
-		hotbar_vbox.add_child(hunger_bar)
+		var vitals_width: float = hotbar_width - 24.0
+		var vitals_block: Dictionary = VitalsBarUtils.create_hotbar_vitals_block(
+			vitals_width, VITALS_BAR_HEIGHT, VITALS_BAR_ROW_GAP, VITALS_HALF_BAR_GAP
+		)
+		health_bar = vitals_block["health_bar"] as Control
+		calorie_bar = vitals_block["calorie_bar"] as Control
+		water_bar = vitals_block["water_bar"] as Control
+		hotbar_vbox.add_child(vitals_block["root"] as Control)
 		
 		hotbar_container = HBoxContainer.new()
 		hotbar_container.name = "SlotContainer"
@@ -298,36 +295,27 @@ func _build_slots() -> void:
 	_update_hotbar_slots()
 
 func _process(_delta: float) -> void:
-	# Throttle hunger bar updates (match building health bar)
-	if not hunger_bar:
+	if not health_bar:
 		return
-	_hunger_bar_update_frame += 1
-	if _hunger_bar_update_frame >= HEALTH_BAR_UPDATE_INTERVAL:
-		_hunger_bar_update_frame = 0
-		_update_hunger_bar()
+	_vitals_bar_update_frame += 1
+	if _vitals_bar_update_frame >= HEALTH_BAR_UPDATE_INTERVAL:
+		_vitals_bar_update_frame = 0
+		_update_vitals_bars()
 
-func _update_hunger_bar() -> void:
-	if not hunger_bar:
-		return
-	var fill: ColorRect = hunger_bar.get_node_or_null("HungerFill") as ColorRect
-	if not fill:
-		return
+
+func _update_vitals_bars() -> void:
 	var main_node = get_tree().get_first_node_in_group("main")
 	if not main_node or not main_node.get("player"):
 		return
 	var p = main_node.player
-	if not p or not p.get("hunger") is float:
+	if not p:
 		return
-	var h: float = p.hunger
-	var h_max: float = p.get("hunger_max") if p.get("hunger_max") is float else 100.0
-	var percent: float = h / h_max if h_max > 0 else 0.0
-	fill.size.x = 80.0 * percent
-	if percent > 0.6:
-		fill.color = Color(0.0, 1.0, 0.0, 0.8)
-	elif percent > 0.3:
-		fill.color = Color(1.0, 1.0, 0.0, 0.8)
-	else:
-		fill.color = Color(1.0, 0.0, 0.0, 0.8)
+	if p.has_method("get_health_percent"):
+		VitalsBarUtils.update_compact_bar(health_bar, p.get_health_percent(), VitalsBarUtils.BarKind.HEALTH)
+	if p.has_method("get_calorie_percent"):
+		VitalsBarUtils.update_compact_bar(calorie_bar, p.get_calorie_percent(), VitalsBarUtils.BarKind.CALORIES)
+	if p.has_method("get_hydration_percent"):
+		VitalsBarUtils.update_compact_bar(water_bar, p.get_hydration_percent(), VitalsBarUtils.BarKind.WATER)
 
 func toggle() -> void:
 	is_open = not is_open

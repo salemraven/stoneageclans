@@ -81,6 +81,16 @@ func die() -> void:
 	if is_dead:
 		return
 	
+	if npc and npc.is_in_group("player"):
+		is_dead = true
+		current_hp = 0
+		health_changed.emit(current_hp, max_hp)
+		if npc.has_method("on_vitals_death"):
+			var cause := death_cause if death_cause != "" else "health"
+			npc.call("on_vitals_death", cause)
+		print("💀 Player died!")
+		return
+	
 	is_dead = true
 	current_hp = 0
 	

@@ -2,6 +2,15 @@
 
 This document tracks updates to guides based on implementation changes and design decisions.
 
+## June 12, 2026
+
+### Calorie system + vitals HUD + ClanBrain report instrumentation
+
+- **`SimulationManager`** autoload — tick-based calorie drain (~120s), `simulation_tick` JSONL events.
+- **ClanBrain metrics** — `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` on `clan_brain_eval`; report columns in `clanbrain_report.py`.
+- **Player / NPC vitals** — `vitals_bar_utils.gd`; hotbar HUD (health full-width, calories + water half-row); character menu bars; player `HealthComponent` + starvation health drain.
+- **Bible** — `bible.md` §III, `UI.md` §Player Vitals HUD, `ai_clan_brain.md`, `clanbrain_report.md`, `main.md` (calorie metrics).
+
 ## May 28, 2026
 
 ### Docs folder: `guides/` → `bible/`

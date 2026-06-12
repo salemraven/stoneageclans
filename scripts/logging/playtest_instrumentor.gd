@@ -495,6 +495,38 @@ func clan_brain_eval(clan_name: String, metrics: Dictionary) -> void:
 		obj[k] = metrics[k]
 	_write(obj)
 
+
+func productivity_report(
+	clan_name: String,
+	food_rate: float,
+	herd_rate: float,
+	population: int,
+	food_days_buffer: float,
+	calories_in_storage: int = 0,
+	calories_daily_need: int = 0,
+	calories_days_buffer: float = 0.0
+) -> void:
+	_write({
+		"evt": "productivity_report",
+		"clan": clan_name,
+		"food_rate": snappedf(food_rate, 0.01),
+		"herd_rate": snappedf(herd_rate, 0.01),
+		"population": population,
+		"food_days_buffer": snappedf(food_days_buffer, 0.1),
+		"calories_in_storage": calories_in_storage,
+		"calories_daily_need": calories_daily_need,
+		"calories_days_buffer": snappedf(calories_days_buffer, 0.1),
+	})
+
+
+func simulation_tick(game_time: float, tick_interval_seconds: float, ticks_per_sim_day: int) -> void:
+	_write({
+		"evt": "simulation_tick",
+		"game_time": snappedf(game_time, 0.01),
+		"tick_interval_seconds": tick_interval_seconds,
+		"ticks_per_sim_day": ticks_per_sim_day,
+	})
+
 func clan_brain_food_ratio(clan_name: String, food_total: int, population: int, target: int, ratio: float) -> void:
 	_write({
 		"evt": "clan_brain_food_ratio",

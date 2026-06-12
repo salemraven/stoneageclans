@@ -61,6 +61,18 @@ def fmt_ratio(num: int, den: int) -> str:
     return f"{num}/{den}"
 
 
+def fmt_kcal(val: Any) -> str:
+    try:
+        n = int(val)
+    except (TypeError, ValueError):
+        return "—"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
+
+
 def building_label(ev: dict[str, Any]) -> str:
     name = ev.get("building")
     if name:
@@ -161,6 +173,33 @@ def compute_food_buffer(rows: list[dict[str, Any]]) -> dict[str, float | None]:
     return {"min": min(vals), "max": max(vals), "end": vals[-1]}
 
 
+def compute_scalar_stats(rows: list[dict[str, Any]], key: str) -> dict[str, float | None]:
+    vals: list[float] = []
+    for ev in rows:
+        if key not in ev:
+            continue
+        vals.append(safe_float(ev.get(key)))
+    if not vals:
+        return {"min": None, "max": None, "end": None, "count": 0}
+    return {"min": min(vals), "max": max(vals), "end": vals[-1], "count": len(vals)}
+
+
+def compute_calorie_buffer(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    vals: list[float] = []
+    for ev in rows:
+        if "calories_days_buffer" in ev:
+            vals.append(safe_float(ev.get("calories_days_buffer")))
+        elif "food_days_buffer" in ev:
+            vals.append(safe_float(ev.get("food_days_buffer")))
+    if not vals:
+        return {"min": None, "max": None, "end": None}
+    return {"min": min(vals), "max": max(vals), "end": vals[-1]}
+
+
+def evals_have_calorie_fields(rows: list[dict[str, Any]]) -> bool:
+    return any("calories_in_storage" in ev for ev in rows)
+
+
 def compute_survival_seconds(rows: list[dict[str, Any]], max_t: float) -> float:
     if not rows:
         return 0.0
@@ -256,6 +295,8 @@ class ReportData:
         self.gather_no_resource: dict[str, int] = defaultdict(int)
         self.stuck_escapes: dict[str, int] = defaultdict(int)
         self.has_building_placed = False
+        self.simulation_ticks: list[dict[str, Any]] = []
+        self.productivity_reports: dict[str, list[dict]] = defaultdict(list)
         self._parse()
 
     def _parse(self) -> None:
@@ -360,6 +401,10 @@ class ReportData:
             elif evt == "npc_stuck_state_escaped":
                 c = str(ev.get("clan", "")) or self.npc_clans.get(str(ev.get("npc", "")), "?")
                 self.stuck_escapes[c] += 1
+            elif evt == "simulation_tick":
+                self.simulation_ticks.append(ev)
+            elif evt == "productivity_report":
+                self.productivity_reports[str(ev.get("clan", "?"))].append(ev)
 
     @property
     def ai_clans(self) -> list[str]:
@@ -430,16 +475,30 @@ class ReportData:
         ):
             lines.append("- **Timed run:** 2 min")
         lines.append(f"- **AI clans with eval:** {len(self.ai_clans)}")
+        if self.simulation_ticks:
+            lines.append(f"- **Simulation ticks:** {len(self.simulation_ticks)}")
+            last_tick = self.simulation_ticks[-1]
+            if last_tick.get("ticks_per_sim_day") is not None:
+                lines.append(
+                    f"- **Sim tick interval:** {last_tick.get('tick_interval_seconds', '?')}s "
+                    f"({last_tick.get('ticks_per_sim_day', '?')} ticks/sim-day)"
+                )
+        calorie_eval_clans = sum(1 for c in self.ai_clans if evals_have_calorie_fields(self.evals[c]))
+        if self.ai_clans:
+            lines.append(
+                f"- **Calorie eval coverage:** {calorie_eval_clans}/{len(self.ai_clans)} clans "
+                f"({fmt_pct(calorie_eval_clans / len(self.ai_clans)) if self.ai_clans else '—'})"
+            )
         lines.append("")
 
         # Summary
         lines.extend(["## Summary", ""])
         lines.append(
-            "| Clan | Pop | Fight | Food (end) | Hunts | Hunt OK | Gath | Dep | G fail* | "
+            "| Clan | Pop | Fight | Kcal store | Kcal need | Cal buffer | Hunts | Hunt OK | Gath | Dep | G fail* | "
             "Quota fill | Surv | Clansmen | Bld | 1st hunt |"
         )
         lines.append(
-            "|------|-----|-------|------------|-------|---------|------|-----|---------|"
+            "|------|-----|-------|------------|-----------|------------|-------|---------|------|-----|---------|"
             "------------|------|----------|-----|----------|"
         )
         for clan in self.ai_clans:
@@ -447,7 +506,11 @@ class ReportData:
             first, last = rows[0], rows[-1]
             pop = f"{int(first.get('clan_members', 0))}→{int(last.get('clan_members', 0))}"
             fight = int(last.get("cavemen", 0))
-            food = last.get("food_days_buffer", "—")
+            kcal_store = fmt_kcal(last.get("calories_in_storage"))
+            kcal_need = fmt_kcal(last.get("calories_daily_need"))
+            cal_buf = last.get("calories_days_buffer", last.get("food_days_buffer", "—"))
+            if isinstance(cal_buf, (int, float)):
+                cal_buf = f"{float(cal_buf):.1f}"
             n_hunt = len(self.hunts_started.get(clan, []))
             hunt_ok = self.hunt_completed_count(clan)
             qs = compute_quota_stats(rows)
@@ -462,18 +525,27 @@ class ReportData:
             g_fail = actionable_gather_fails(self.gather_fails.get(clan, {}))
             first_hunt = fmt_t(self.hunts_started[clan][0]["t"]) if self.hunts_started.get(clan) else "—"
             lines.append(
-                f"| {clan} | {pop} | {fight} | {food} | {n_hunt} | {hunt_ok} | "
+                f"| {clan} | {pop} | {fight} | {kcal_store} | {kcal_need} | {cal_buf} | {n_hunt} | {hunt_ok} | "
                 f"{self.clan_gather_total(clan)} | {self.clan_deposit_total(clan)} | {g_fail} | "
                 f"{fmt_pct(fill)} | {fmt_t(surv)} | {n_grown} | {self.clan_building_count(clan)} | {first_hunt} |"
             )
         lines.append("")
-        lines.append("*G fail* = gather failures excluding `inventory_full` noise.")
+        lines.append(
+            "*G fail* = gather failures excluding `inventory_full` noise. "
+            "**Cal buffer** = stored kcal ÷ daily need (days of food). "
+            "Legacy logs without calorie fields show `—` for kcal columns."
+        )
         lines.append("")
 
         # Gates
         lines.extend(["## Gates", ""])
         lines.append(f"- **ClanBrain invariant failures:** {len(self.invariants)}")
         lines.append(f"- **Parties formed / disbanded:** {len(self.parties_formed)} / {len(self.parties_disbanded)}")
+        if self.ai_clans and calorie_eval_clans < len(self.ai_clans):
+            lines.append(
+                f"- **⚠ Calorie metrics missing:** {len(self.ai_clans) - calorie_eval_clans} clan(s) "
+                f"have eval rows without `calories_in_storage` (re-run capture after calorie system update)"
+            )
         if stuck_parties > 0:
             lines.append(f"- **⚠ Possible stuck parties (formed − disbanded):** {stuck_parties}")
         else:
@@ -482,20 +554,33 @@ class ReportData:
 
         # ClanBrain health
         lines.extend(["## ClanBrain health", ""])
-        lines.append("| Clan | Def fill | Def under | Search fill | Search under (no breed) | Food min→max→end | Survival |")
-        lines.append("|------|----------|-----------|-------------|-------------------------|------------------|----------|")
+        lines.append(
+            "| Clan | Def fill | Def under | Search fill | Search under (no breed) | "
+            "Kcal store min→max→end | Cal buffer min→max→end | Survival |"
+        )
+        lines.append(
+            "|------|----------|-----------|-------------|-------------------------|"
+            "------------------------|------------------------|----------|"
+        )
         for clan in self.ai_clans:
             rows = self.evals[clan]
             qs = compute_quota_stats(rows)
-            fb = compute_food_buffer(rows)
+            cb = compute_calorie_buffer(rows)
+            kcal_stats = compute_scalar_stats(rows, "calories_in_storage")
             surv = compute_survival_seconds(rows, self.max_t)
-            food_str = "—"
-            if fb["min"] is not None:
-                food_str = f"{fb['min']:.1f}→{fb['max']:.1f}→{fb['end']:.1f}"
+            kcal_str = "—"
+            if kcal_stats["min"] is not None:
+                kcal_str = (
+                    f"{fmt_kcal(kcal_stats['min'])}→{fmt_kcal(kcal_stats['max'])}→"
+                    f"{fmt_kcal(kcal_stats['end'])}"
+                )
+            cal_str = "—"
+            if cb["min"] is not None:
+                cal_str = f"{cb['min']:.1f}→{cb['max']:.1f}→{cb['end']:.1f}"
             lines.append(
                 f"| {clan} | {fmt_pct(qs['defender_fill'])} | {fmt_pct(qs['defender_underfill_pct'])} | "
                 f"{fmt_pct(qs['searcher_fill'])} | {fmt_pct(qs['searcher_underfill_no_breed_pct'])} | "
-                f"{food_str} | {fmt_t(surv)} |"
+                f"{kcal_str} | {cal_str} | {fmt_t(surv)} |"
             )
         lines.append("")
 
@@ -634,6 +719,27 @@ class ReportData:
             )
             if fb["end"] is not None:
                 lines.append(f"- **Food days buffer:** {fb['min']:.1f} → {fb['max']:.1f} → {fb['end']:.1f}")
+            cb = compute_calorie_buffer(rows)
+            kcal_stats = compute_scalar_stats(rows, "calories_in_storage")
+            need_stats = compute_scalar_stats(rows, "calories_daily_need")
+            if kcal_stats["count"] > 0:
+                lines.append(
+                    f"- **Calories in storage:** {fmt_kcal(kcal_stats['min'])} → "
+                    f"{fmt_kcal(kcal_stats['max'])} → {fmt_kcal(kcal_stats['end'])}"
+                )
+            if need_stats["count"] > 0 and need_stats["end"] is not None:
+                lines.append(f"- **Daily calorie need (end):** {fmt_kcal(need_stats['end'])}")
+            if cb["end"] is not None:
+                lines.append(
+                    f"- **Calorie days buffer:** {cb['min']:.1f} → {cb['max']:.1f} → {cb['end']:.1f}"
+                )
+            prod_rows = self.productivity_reports.get(clan, [])
+            if prod_rows:
+                last_prod = prod_rows[-1]
+                lines.append(
+                    f"- **Productivity (end):** food_rate={last_prod.get('food_rate', '?')}/s | "
+                    f"herd_rate={last_prod.get('herd_rate', '?')}/s"
+                )
 
             g_items = self.gathered.get(clan, {})
             d_items = self.deposited.get(clan, {})

@@ -16,6 +16,8 @@ const COLOR_GREEN := Color(0.15, 0.85, 0.2, 0.95)
 const COLOR_YELLOW := Color(0.95, 0.85, 0.1, 0.95)
 const COLOR_RED := Color(0.9, 0.15, 0.1, 0.95)
 
+const _VitalsBarUtils = preload("res://scripts/ui/vitals_bar_utils.gd")
+
 
 static func create(parent: Node2D, top_y: float = BAR_TOP_Y, bottom_y: float = BAR_BOTTOM_Y) -> Control:
 	var health_bar := Control.new()
@@ -80,9 +82,4 @@ static func update_bar(health_bar: Control, current_health: float, max_health: f
 
 
 static func color_for_percent(health_percent: float) -> Color:
-	var p: float = clampf(health_percent, 0.0, 1.0)
-	if p > 0.6:
-		return COLOR_GREEN
-	if p > 0.3:
-		return COLOR_YELLOW
-	return COLOR_RED
+	return _VitalsBarUtils.color_for_percent(health_percent, _VitalsBarUtils.BarKind.HEALTH)

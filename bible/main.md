@@ -165,7 +165,7 @@
 - **Defense / search**: Defender and searcher quotas; pull-based Defend / HerdWildNpc.
 - **Raids**: AI clans — `raid_intent`, party formation, `raid_state` (see `bible/ai_clan_brain.md`).
 - **Hunts**: AI clans — AoH prey only (deer/mammoth); `hunt_intent` + `hunt_state`; skipped for player-owned claims and **survival mode** (&lt;2 fighters). See `bible/hunting.md`.
-- **Metrics**: `food_days_buffer`, meat/hide, population — drive pressures and weights.
+- **Metrics**: `calories_days_buffer`, `calories_in_storage`, `calories_daily_need`, meat/hide, population — drive pressures and weights.
 - **Full detail**: `bible/ai_clan_brain.md`, `bible.md` §XVI.
 
 ### 4.11 Reproduction & Baby Pool

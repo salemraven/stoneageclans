@@ -34,6 +34,11 @@ var hunger: float = 100.0
 var hunger_max: float = 100.0
 var hunger_deplete_rate: float = 12.0  # Legacy; tick drain uses SimulationManager
 var _player_sim_connected: bool = false
+var hydration: float = 100.0
+var hydration_max: float = 100.0
+var _starvation_damage_accum: float = 0.0
+
+@onready var health_component: HealthComponent = $"HealthComponent"
 
 # Eat progress display (world-space pie timer, same pattern as NPCs)
 var eat_progress_display: Node2D = null
@@ -52,8 +57,11 @@ func _ready() -> void:
 		hunger_deplete_rate = BalanceConfig.hunger_deplete_rate_per_min
 		calories_max = float(BalanceConfig.base_daily_calories_player)
 		calories = calories_max * (BalanceConfig.hunger_start_percent / 100.0)
+		hydration_max = 100.0
+		hydration = hydration_max * (BalanceConfig.hydration_start_percent / 100.0)
 		_sync_hunger_from_calories()
 	_connect_player_simulation_tick()
+	_setup_health_component()
 	if not sprite:
 		print("ERROR: Player sprite is null in _ready()!")
 		return
@@ -152,6 +160,53 @@ func get_daily_calorie_need() -> float:
 	return calories_max if calories_max > 0.0 else float(BalanceConfig.base_daily_calories_player if BalanceConfig else 2000)
 
 
+func get_calorie_percent() -> float:
+	if calories_max <= 0.0:
+		return 0.0
+	return clampf(calories / calories_max, 0.0, 1.0)
+
+
+func get_hydration_percent() -> float:
+	if hydration_max <= 0.0:
+		return 0.0
+	return clampf(hydration / hydration_max, 0.0, 1.0)
+
+
+func get_health_percent() -> float:
+	if health_component and is_instance_valid(health_component):
+		var mx: int = maxi(health_component.max_hp, 1)
+		return clampf(float(health_component.current_hp) / float(mx), 0.0, 1.0)
+	return 1.0
+
+
+func _setup_health_component() -> void:
+	if not health_component:
+		return
+	if BalanceConfig:
+		health_component.max_hp = maxi(1, int(BalanceConfig.player_max_health))
+	health_component.initialize(self)
+
+
+func on_vitals_death(cause: String) -> void:
+	_can_move = false
+	velocity = Vector2.ZERO
+	print("💀 Player died (%s)" % cause)
+
+
+func _apply_starvation_health_drain(delta: float) -> void:
+	if calories > 0.0 or not health_component or health_component.is_dead:
+		_starvation_damage_accum = 0.0
+		return
+	var drain_per_min: float = 2.0
+	if BalanceConfig:
+		drain_per_min = maxf(0.0, float(BalanceConfig.hunger_health_drain_per_min))
+	_starvation_damage_accum += drain_per_min * delta / 60.0
+	while _starvation_damage_accum >= 1.0:
+		_starvation_damage_accum -= 1.0
+		health_component.death_cause = "starvation"
+		health_component.take_damage(1)
+
+
 func get_player_name() -> String:
 	# Return player name, or clan name if name not set yet
 	if player_name != "":
@@ -206,6 +261,13 @@ func _physics_process(_delta: float) -> void:
 		return
 	# Calorie drain runs on SimulationManager tick — hunger is derived each frame for debuffs.
 	_sync_hunger_from_calories()
+	_apply_starvation_health_drain(_delta)
+	
+	if health_component and health_component.is_dead:
+		velocity = Vector2.ZERO
+		set_meta("formation_velocity", velocity)
+		move_and_slide()
+		return
 	
 	if not _can_move:
 		velocity = Vector2.ZERO
@@ -222,8 +284,8 @@ func _physics_process(_delta: float) -> void:
 	if input_vector != Vector2.ZERO:
 		last_facing = input_vector.normalized()
 
-	# Speed debuff when very hungry (player does not die)
-	var speed_mult: float = 0.7 if hunger < 30.0 else 1.0
+	# Speed debuff when very hungry
+	var speed_mult: float = 0.7 if get_calorie_percent() < 0.3 else 1.0
 	# Herding debuff when leading herd animals (women/sheep/goats). Ordered clansmen-only warbands do not slow the player.
 	var herd_animal_n: int = HerdManager.get_herd_animal_count(self) if HerdManager else 0
 	if herd_animal_n > 0 and not (DebugConfig and DebugConfig.disable_herd_leader_speed_debuff):

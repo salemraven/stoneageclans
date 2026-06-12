@@ -14,7 +14,7 @@ Answers:
 
 **Related docs:** `bible/ai_clan_brain.md`, `bible/Ultimate_npc_clanbrain_test.md`, `bible/PLAYTEST.md`
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-06-12
 
 ---
 
@@ -47,7 +47,7 @@ The markdown file is always generated in this order:
 | 1 | **Session** | Duration, seed, flags, clan count |
 | 2 | **Summary** | One row per AI clan — growth, economy, brain, hunts |
 | 3 | **Gates** | Invariants, stuck parties |
-| 4 | **ClanBrain health** | Quota fill, food buffer, survival time |
+| 4 | **ClanBrain health** | Quota fill, **calorie buffer**, kcal stored/need, survival time |
 | 4a | Hunt lifecycle | Started / completed / prey / hunt deposit |
 | 4b | Breeding pipeline | Women joined → babies → clansmen |
 | 5 | **Worker efficiency** | Tasks, gather starvation, FSM time % |
@@ -62,7 +62,9 @@ The markdown file is always generated in this order:
 |--------|--------|
 | Pop | `clan_brain_eval` clan_members start→end |
 | Fight | End `cavemen` |
-| Food (end) | End `food_days_buffer` |
+| Kcal store | End `calories_in_storage` (kcal in land claim) |
+| Kcal need | End `calories_daily_need` (clan daily burn) |
+| Cal buffer | End `calories_days_buffer` (= stored ÷ daily need; mirrors `food_days_buffer`) |
 | Hunts | Count `hunt_started` |
 | Hunt OK | Count `hunt_completed` |
 | Gath / Dep | Sum `gather_completed` / `deposit_completed` |
@@ -105,7 +107,9 @@ Legacy: `milestone_building_placed`, `campfire_building_built` (also emit `build
 
 | Event | Use in report |
 |-------|---------------|
-| `clan_brain_eval` | Quota fill, food min/max/end, pressures, alert |
+| `clan_brain_eval` | Quota fill, **kcal stored/need/buffer**, pressures, alert |
+| `simulation_tick` | Session tick count, tick interval (calorie drain cadence) |
+| `productivity_report` | Per-clan food/herd rate + calorie buffer snapshots |
 | `survival_mode_changed` | Survival transitions (eval integration for duration) |
 | `hunt_started` / `hunt_completed` / `hunt_aborted` | Hunt lifecycle table |
 | `hunt_prey_killed` / `hunt_prey_escaped` | Hunt outcomes |
@@ -130,7 +134,8 @@ One table per clan (cavemen + clansmen only):
 
 | KPI | Where in report | Good direction |
 |-----|-----------------|----------------|
-| Food buffer | ClanBrain health → Food min→max→end | ↑ end value |
+| Calorie buffer | ClanBrain health → Cal buffer min→max→end | ↑ end value |
+| Kcal in storage | Summary + health → Kcal store | ↑ with population |
 | Quota fill | Summary + health tables | → 100% when quota > 0 |
 | Hunt completion | Hunt lifecycle → Completed / Started | ↑ |
 | Stuck parties | Gates | 0 |
@@ -149,7 +154,9 @@ One table per clan (cavemen + clansmen only):
 
 ### In standard report today
 
-All events in §2.2–2.5 plus `clan_brain_invariant_failed`, `clan_brain_quota_update`, `party_*`, `hunt_*`, `raid_*`, `snapshot`, `npc_world_probe`.
+All events in §2.2–2.5 plus `clan_brain_invariant_failed`, `clan_brain_quota_update`, `party_*`, `hunt_*`, `raid_*`, `snapshot`, `npc_world_probe`, **`simulation_tick`**, **`productivity_report`**.
+
+**Calorie fields on `clan_brain_eval`:** `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` (required for post–2026-06 calorie system reports; legacy logs show `—` and a Gates warning).
 
 ### Not yet in report (future tiers)
 
@@ -172,12 +179,12 @@ All events in §2.2–2.5 plus `clan_brain_invariant_failed`, `clan_brain_quota_
 # ClanBrain Report (standard)
 
 ## Summary
-| Clan | Pop | Fight | Food (end) | Hunts | Hunt OK | Gath | Dep | G fail* | Quota fill | Surv | Clansmen | Bld | 1st hunt |
-| JI YUEF | 0→13 | 11 | 0.0 | 1 | 0 | 55 | 13 | 1 | 25% | 25.0s | 10 | 2 | 25.3s |
+| Clan | Pop | Fight | Kcal store | Kcal need | Cal buffer | Hunts | Hunt OK | Gath | Dep | G fail* | Quota fill | Surv | Clansmen | Bld | 1st hunt |
+| JI YUEF | 0→13 | 11 | 2.1k | 8.4k | 0.3 | 1 | 0 | 55 | 13 | 1 | 25% | 25.0s | 10 | 2 | 25.3s |
 
 ## ClanBrain health
-| Clan | Def fill | Search fill | Food min→max→end | Survival |
-| JI YUEF | — | 25% | 0.0→0.0→0.0 | 25.0s |
+| Clan | Def fill | Search fill | Kcal store min→max→end | Cal buffer min→max→end | Survival |
+| JI YUEF | — | 25% | 0→2.1k→2.1k | 0.0→0.3→0.3 | 25.0s |
 
 ## Worker efficiency
 | Clan | Tasks OK | Tasks fail | Task rate | Gather no-res | Top FSM (fighters) |
@@ -197,7 +204,7 @@ All events in §2.2–2.5 plus `clan_brain_invariant_failed`, `clan_brain_quota_
 | `clan_brain_invariant_failed` | > 0 → fail |
 | Parties formed − disbanded at session end | > 0 → warn/fail |
 | Hunt started, zero completed+aborted, party active | per clan → fail |
-| Zero deposits with gather > 0 and food days = 0 | warn |
+| Zero deposits with gather > 0 and calorie buffer = 0 | warn |
 | Task fail / (ok+fail) > 25% per clan | warn (when tasks logged) |
 
 Also run: `python3 scripts/logging/analyze_playtest.py … --strict-clanbrain`

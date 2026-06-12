@@ -383,7 +383,16 @@ func _update_productivity_rates() -> void:
 		return
 	var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("productivity_report"):
-		pi.productivity_report(clan_name, food_rate, herd_rate, clan_metrics.get("population", 0), clan_metrics.get("food_days_buffer", 0.0))
+		pi.productivity_report(
+			clan_name,
+			food_rate,
+			herd_rate,
+			clan_metrics.get("population", 0),
+			clan_metrics.get("food_days_buffer", 0.0),
+			clan_metrics.get("calories_in_storage", 0),
+			clan_metrics.get("calories_daily_need", 0),
+			clan_metrics.get("calories_days_buffer", 0.0)
+		)
 
 func _clan_brain_debug_print() -> void:
 	var tree = territory.get_tree() if territory else null
@@ -436,6 +445,9 @@ func _log_evaluation_snapshot() -> void:
 		"breeding_females": clan_metrics.get("breeding_females", 0),
 		"food_total": clan_metrics.get("food_total", 0),
 		"food_days_buffer": snappedf(clan_metrics.get("food_days_buffer", 0.0), 0.1),
+		"calories_in_storage": clan_metrics.get("calories_in_storage", 0),
+		"calories_daily_need": clan_metrics.get("calories_daily_need", 0),
+		"calories_days_buffer": snappedf(clan_metrics.get("calories_days_buffer", 0.0), 0.1),
 		"defender_quota": territory.get_meta("defender_quota", 0) if territory else 0,
 		"defender_count": get_current_defender_count(),
 		"searcher_quota": territory.get_meta("searcher_quota", 0) if territory else 0,

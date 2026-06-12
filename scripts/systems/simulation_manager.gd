@@ -31,6 +31,7 @@ func _process(delta: float) -> void:
 		var tick_delta: float = tick_interval_seconds * time_acceleration
 		next_tick_time += tick_interval_seconds
 		simulation_tick.emit(tick_delta)
+		_log_playtest_simulation_tick()
 		_broadcast_tick_if_server()
 
 
@@ -60,3 +61,11 @@ func _broadcast_tick_if_server() -> void:
 @rpc("authority", "call_remote", "reliable")
 func sync_game_time(server_game_time: float) -> void:
 	sync_from_server(server_game_time)
+
+
+func _log_playtest_simulation_tick() -> void:
+	if not is_inside_tree():
+		return
+	var pi: Node = get_tree().root.get_node_or_null("PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("simulation_tick"):
+		pi.simulation_tick(game_time, tick_interval_seconds, ticks_per_sim_day)

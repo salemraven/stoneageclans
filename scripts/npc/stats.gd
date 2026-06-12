@@ -34,6 +34,8 @@ var diet_type: ResourceData.DietType = ResourceData.DietType.OMNIVORE
 var _cached_daily_need: float = 2000.0
 var _uses_calorie_sim: bool = false
 var _sim_tick_connected: bool = false
+var hydration: float = 100.0
+var hydration_max: float = 100.0
 
 var base_stats: Dictionary = {}
 
@@ -60,6 +62,9 @@ func initialize(npc_ref: Node) -> void:
 	calories_max = maxf(_cached_daily_need, 1.0)
 	calories = calories_max * (start_percent / 100.0)
 	_sync_hunger_from_calories()
+	if BalanceConfig:
+		hydration_max = 100.0
+		hydration = hydration_max * (BalanceConfig.hydration_start_percent / 100.0)
 	stamina = stamina_max
 
 	hunger_deplete_rate = 0.0
@@ -158,6 +163,18 @@ func get_hunger_percent() -> float:
 	if calories_max <= 0.0:
 		return 0.0
 	return clampf((calories / calories_max) * 100.0, 0.0, 100.0)
+
+
+func get_calorie_percent() -> float:
+	if calories_max <= 0.0:
+		return 0.0
+	return clampf(calories / calories_max, 0.0, 1.0)
+
+
+func get_hydration_percent() -> float:
+	if hydration_max <= 0.0:
+		return 0.0
+	return clampf(hydration / hydration_max, 0.0, 1.0)
 
 
 func _sync_hunger_from_calories() -> void:
@@ -335,6 +352,8 @@ func get_all_stats() -> Dictionary:
 		"hunger_max": 100.0,
 		"calories": calories,
 		"calories_max": calories_max,
+		"hydration": hydration,
+		"hydration_max": hydration_max,
 		"daily_calorie_need": get_daily_calorie_need(),
 		"diet": ResourceData.get_diet_label(diet_type),
 		"strength": strength,

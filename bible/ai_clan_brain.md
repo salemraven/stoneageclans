@@ -167,8 +167,11 @@ ClanBrain populates **clan_metrics** each evaluation cycle; these drive quota an
 |--------|-------------|
 | population | Total clan members (cavemen + clansmen + women + animals) |
 | breeding_females | Women in clan |
-| food_total | Berries + grain + bread in land claim inventory |
-| food_days_buffer | Proxy: food_total / max(1, population × FOOD_PER_DAY_PROXY) |
+| food_total | Berries + grain + bread + meat + milk etc. in land claim inventory (item count) |
+| food_days_buffer | **Legacy alias** — mirrors `calories_days_buffer` (stored kcal ÷ daily need) |
+| calories_in_storage | Total kcal in land claim food inventory (`BalanceConfig.get_food_calories` per item) |
+| calories_daily_need | Sum of `get_daily_calorie_need()` for clan members + player when in clan |
+| calories_days_buffer | `calories_in_storage / max(1, calories_daily_need)` — hunt/raid/breeding gate input |
 | herd_value | Women + sheep + goats in clan |
 | building_count | Buildings (non-claim) with same clan_name |
 | recent_losses | From land_claim meta "recent_herd_losses" (future: increment on herd steal) |
@@ -365,7 +368,7 @@ Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian 
 | MAX_RAID_PARTY_SIZE | 8 | Max raiders in party |
 | RAID_COOLDOWN | 60.0 | Seconds between raid starts |
 | RAID_DISTANCE_MAX | 1500.0 | Max distance to consider raid targets |
-| FOOD_PER_DAY_PROXY | 2.0 | Used for food_days_buffer calculation |
+| FOOD_PER_DAY_PROXY | 2.0 | Fallback when `calories_daily_need` is 0 (legacy item-count proxy) |
 
 ---
 

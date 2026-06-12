@@ -10,6 +10,7 @@ const PANEL_HEIGHT := 700  # Increased to fit both info and inventory
 const PANEL_PADDING := 16
 const SLOT_COUNT := 10
 const SLOT_SIZE := 32
+const VitalsBarUtils = preload("res://scripts/ui/vitals_bar_utils.gd")
 
 var is_open: bool = false
 var target_npc: NPCBase = null  # The NPC this menu displays info for
@@ -24,7 +25,9 @@ var hominid_class_label: Label = null
 var status_bars_container: VBoxContainer = null
 var bravery_bar: Control = null
 var agro_bar: Control = null
-var calories_label: Label = null
+var health_vitals_bar: Control = null
+var calorie_vitals_bar: Control = null
+var water_vitals_bar: Control = null
 var traits_table: Control = null
 
 # Timer display (top right corner)
@@ -187,12 +190,12 @@ func _build_ui_elements() -> void:
 	agro_bar = _create_status_bar("Agro:")
 	status_bars_container.add_child(agro_bar)
 	
-	calories_label = Label.new()
-	calories_label.name = "CaloriesLabel"
-	calories_label.add_theme_font_size_override("font_size", 14)
-	calories_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	calories_label.text = ""
-	status_bars_container.add_child(calories_label)
+	health_vitals_bar = VitalsBarUtils.create_labeled_bar("Health:")
+	status_bars_container.add_child(health_vitals_bar)
+	calorie_vitals_bar = VitalsBarUtils.create_labeled_bar("Calories:")
+	status_bars_container.add_child(calorie_vitals_bar)
+	water_vitals_bar = VitalsBarUtils.create_labeled_bar("Water:")
+	status_bars_container.add_child(water_vitals_bar)
 	
 	# Spacer
 	var spacer3 := Control.new()
@@ -379,7 +382,7 @@ func _update_display() -> void:
 	print("CharacterMenuUI: Updating status bars...")
 	# Update status bars (bravery and agro)
 	_update_status_bars()
-	_update_calorie_display()
+	_update_vitals_bars()
 	
 	print("CharacterMenuUI: Updating traits table...")
 	# Update traits table
@@ -432,30 +435,39 @@ func _get_traits_list() -> Array[Dictionary]:
 		{"name": "Bravery", "stat": "bravery"}  # Dynamic value: 0.0-1.0, displayed as 0-100%
 	]
 
-func _update_calorie_display() -> void:
-	if not calories_label:
-		return
+func _update_vitals_bars() -> void:
 	if not target_npc or not is_instance_valid(target_npc):
-		calories_label.text = ""
 		return
 	var stats: Stats = target_npc.stats_component if target_npc.get("stats_component") else null
-	if not stats:
-		calories_label.text = ""
-		return
-	var cal_str: String = str(int(stats.calories))
-	var max_str: String = str(int(stats.calories_max))
-	if BalanceConfig:
-		cal_str = BalanceConfig.format_calories_short(int(stats.calories))
-		max_str = BalanceConfig.format_calories_short(int(stats.calories_max))
-	var daily_str: String = cal_str
-	if BalanceConfig:
-		daily_str = BalanceConfig.format_calories_short(int(stats.get_daily_calorie_need()))
-	calories_label.text = "Calories: %s / %s kcal\nDaily need: %s kcal\nDiet: %s" % [
-		cal_str,
-		max_str,
-		daily_str,
-		ResourceData.get_diet_label(stats.diet_type)
-	]
+	var health_pct: float = _get_npc_health_percent(target_npc, stats)
+	var calorie_pct: float = 0.0
+	var water_pct: float = 1.0
+	if stats:
+		calorie_pct = stats.get_calorie_percent()
+		water_pct = stats.get_hydration_percent()
+	if health_vitals_bar:
+		VitalsBarUtils.update_labeled_bar(health_vitals_bar, health_pct, VitalsBarUtils.BarKind.HEALTH)
+	if calorie_vitals_bar:
+		VitalsBarUtils.update_labeled_bar(calorie_vitals_bar, calorie_pct, VitalsBarUtils.BarKind.CALORIES)
+	if water_vitals_bar:
+		VitalsBarUtils.update_labeled_bar(water_vitals_bar, water_pct, VitalsBarUtils.BarKind.WATER)
+
+
+func _get_npc_health_percent(npc: NPCBase, stats: Stats) -> float:
+	var hc: HealthComponent = npc.get_node_or_null("HealthComponent") as HealthComponent
+	if hc:
+		var mx: int = maxi(hc.max_hp, 1)
+		return clampf(float(hc.current_hp) / float(mx), 0.0, 1.0)
+	if stats:
+		if stats.health_max <= 0.0:
+			return 0.0
+		return clampf(stats.health / stats.health_max, 0.0, 1.0)
+	return 1.0
+
+
+func _update_calorie_display() -> void:
+	# Legacy hook — vitals bars replaced text display.
+	_update_vitals_bars()
 
 
 func _update_traits_table() -> void:
@@ -1038,7 +1050,7 @@ func _process(delta: float) -> void:
 		
 		# Update status bars (bravery and agro change dynamically)
 		_update_status_bars()
-		_update_calorie_display()
+		_update_vitals_bars()
 		
 		# Update timers (pregnancy timer counts down, age may update)
 		_update_timers()
