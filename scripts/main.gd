@@ -97,6 +97,7 @@ const STANCE_CONFIG := {
 ## Shared RTS tuning (see scripts/config/rts_formation_config.gd)
 const RTS_CONFIG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
 var _follower_cache: Array = []  # Step 4: commander's list of follower entity IDs (for BREAK)
+var possessed_npc: Node2D = null  # Player succession — heir controlled after leader death
 var _followers_hostile_timer: float = 0.0  # Throttle weapon-derived is_hostile updates
 var _rts_snapshot_timer: float = 0.0
 var _war_horn_last_time: float = -999.0
@@ -159,6 +160,7 @@ const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
 const LAND_CLAIM_SCENE = preload("res://scenes/LandClaim.tscn")
 const CAMPFIRE_SCENE = preload("res://scenes/Campfire.tscn")
 const CampfireScript = preload("res://scripts/campfire.gd")
+const PlayerSuccessionScript = preload("res://scripts/systems/player_succession.gd")
 const TRAVOIS_GROUND_SCENE = preload("res://scenes/TravoisGround.tscn")
 const NPC_SCENE = preload("res://scenes/NPC.tscn")
 const BUILDING_SCENE = preload("res://scenes/Building.tscn")
@@ -715,6 +717,78 @@ func _ready() -> void:
 		_session_quit_start_time = Time.get_ticks_msec() / 1000.0
 
 	call_deferred("_reproduction_harness_begin_deferred")
+	_connect_player_death_succession()
+
+
+func _connect_player_death_succession() -> void:
+	if not player:
+		return
+	var hc: HealthComponent = player.get_node_or_null("HealthComponent") as HealthComponent
+	if hc and hc.has_signal("npc_died") and not hc.npc_died.is_connected(_on_player_health_died):
+		hc.npc_died.connect(_on_player_health_died)
+
+
+func _on_player_health_died(dead_node: Node) -> void:
+	if possessed_npc != null and is_instance_valid(possessed_npc):
+		return
+	PlayerSuccessionScript.transfer_to_heir(self, dead_node)
+
+
+func set_possessed_npc(npc: Node2D) -> void:
+	possessed_npc = npc
+
+
+func get_active_leader() -> Node2D:
+	if possessed_npc and is_instance_valid(possessed_npc):
+		return possessed_npc
+	return player
+
+
+func is_player_in_nomad_mode() -> bool:
+	var leader := get_active_leader()
+	if leader and leader.has_meta("nomad_state"):
+		return int(leader.get_meta("nomad_state")) != CampfireScript.NomadState.NONE
+	return false
+
+
+func is_clan_in_nomad_mode(clan: String) -> bool:
+	if clan == "":
+		return false
+	for cf in get_tree().get_nodes_in_group("campfires"):
+		if not is_instance_valid(cf) or not (cf is CampfireScript):
+			continue
+		var campfire: CampfireScript = cf as CampfireScript
+		if campfire.clan_name == clan and campfire.nomad_state != CampfireScript.NomadState.NONE:
+			return true
+	var leader := get_active_leader()
+	if leader and leader.has_meta("nomad_clan_name") and str(leader.get_meta("nomad_clan_name")) == clan:
+		if leader.has_meta("nomad_state") and int(leader.get_meta("nomad_state")) != CampfireScript.NomadState.NONE:
+			return true
+	return false
+
+
+func _find_nomad_campfire_for_clan(clan: String) -> CampfireScript:
+	for cf in get_tree().get_nodes_in_group("campfires"):
+		if not is_instance_valid(cf) or not (cf is CampfireScript):
+			continue
+		var campfire: CampfireScript = cf as CampfireScript
+		if campfire.clan_name == clan and campfire.nomad_state != CampfireScript.NomadState.NONE:
+			return campfire
+	return null
+
+
+func _process_possessed_leader_input(_delta: float) -> void:
+	if possessed_npc == null or not is_instance_valid(possessed_npc):
+		return
+	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if input_vector.length_squared() > 1.0:
+		input_vector = input_vector.normalized()
+	var speed: float = 110.0
+	if possessed_npc is CharacterBody2D:
+		var body := possessed_npc as CharacterBody2D
+		body.velocity = input_vector * speed
+		body.move_and_slide()
+	possessed_npc.set_meta("formation_velocity", input_vector * speed)
 
 func _connect_emergency_defend_horns() -> void:
 	"""Connect emergency_defend_triggered signal on all player-owned land claims."""
@@ -1047,8 +1121,13 @@ func _process(delta: float) -> void:
 	if _observer_cam_active:
 		_process_observer_camera(delta)
 	else:
-		camera.global_position = player.global_position
-		world.ensure_chunks_for_position(player.global_position, delta)
+		var leader: Node2D = get_active_leader()
+		if leader and camera:
+			camera.global_position = leader.global_position
+		if possessed_npc:
+			_process_possessed_leader_input(delta)
+		if player:
+			world.ensure_chunks_for_position(player.global_position, delta)
 	_process_weapon_ready_input()
 	_check_nearby_buildings()
 	_check_nearby_corpses()
@@ -3153,6 +3232,68 @@ func _on_dropdown_option_selected(id: String) -> void:
 		if target is LandClaim or target is CampfireScript:
 			_call_defend_for_claim(target as Node2D)
 		return
+	if id == "abandon_camp" and target is CampfireScript:
+		_confirm_abandon_camp(target as CampfireScript)
+		return
+
+func _confirm_abandon_camp(campfire: CampfireScript) -> void:
+	if not campfire or not is_instance_valid(campfire):
+		return
+	if campfire.nomad_state != CampfireScript.NomadState.NONE:
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.dialog_text = "Abandon this campsite and shelter? Your clan will follow you."
+	dialog.title = "Nomad Mode"
+	dialog.ok_button_text = "Abandon Camp"
+	dialog.cancel_button_text = "Stay"
+	dialog.confirmed.connect(func() -> void:
+		if is_instance_valid(campfire):
+			campfire.begin_nomad_mode("player")
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	get_tree().root.add_child(dialog)
+	dialog.popup_centered()
+
+
+func _set_nomad_follow(npc: Node, leader: Node, follow_source: String = "nomad_mode") -> void:
+	if not npc or not leader or not is_instance_valid(npc) or not is_instance_valid(leader):
+		return
+	var npc_type: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if npc_type == "clansman" or npc_type == "caveman":
+		if leader == player or leader.is_in_group("player"):
+			_set_ordered_follow(npc, follow_source)
+		else:
+			_set_npc_follow_leader(npc, leader, follow_source)
+	elif npc_type == "woman":
+		_set_woman_nomad_follow(npc, leader, follow_source)
+
+
+func _set_woman_nomad_follow(npc: Node, leader: Node, follow_source: String) -> void:
+	if "is_herded" not in npc or "herder" not in npc:
+		return
+	npc.set("is_herded", true)
+	npc.set("herder", leader)
+	npc.set("follow_is_ordered", true)
+	npc.set("herd_mentality_active", true)
+	var fsm = npc.get_node_or_null("FSM")
+	if fsm and fsm.has_method("change_state"):
+		fsm.evaluation_timer = 0.0
+		fsm.change_state("herd")
+	UnifiedLogger.log_system("NOMAD_FOLLOW", {"npc": str(npc.get("npc_name")), "source": follow_source})
+
+
+func _set_npc_follow_leader(npc: Node, leader: Node, follow_source: String) -> void:
+	if "is_herded" not in npc or "herder" not in npc or "follow_is_ordered" not in npc:
+		return
+	npc.set("is_herded", true)
+	npc.set("herder", leader)
+	npc.set("follow_is_ordered", true)
+	npc.set("herd_mentality_active", true)
+	var fsm = npc.get_node_or_null("FSM")
+	if fsm and fsm.has_method("change_state"):
+		fsm.evaluation_timer = 0.0
+		fsm.change_state("party")
 
 func _set_ordered_follow(npc: Node, follow_source: String = "unknown") -> void:
 	"""Step 6 / Step 4: Ordered follow with CommandContext; add to follower cache."""
@@ -3222,6 +3363,9 @@ func _set_ordered_follow(npc: Node, follow_source: String = "unknown") -> void:
 
 func _break_and_dismiss_all() -> void:
 	"""BREAK — clear herd, defend/search/hostile/follow; reset speed; deselect HUD."""
+	if is_player_in_nomad_mode():
+		print("BREAK blocked — clan is in Nomad Mode.")
+		return
 	if not player:
 		return
 	var cleared: int = _follower_cache.size()
@@ -4259,6 +4403,9 @@ func _get_dropdown_options_for_target(target: Variant, target_type: String) -> A
 		var cf_def := target as CampfireScript
 		if cf_def and cf_def.player_owned:
 			opts.append({ "id": "call_defend", "label": "DEFEND" })
+			var now: float = Time.get_ticks_msec() / 1000.0
+			if cf_def.nomad_state == CampfireScript.NomadState.NONE and now >= cf_def.nomad_cooldown_until:
+				opts.append({ "id": "abandon_camp", "label": "ABANDON CAMP" })
 	return opts
 
 func _animate_building_placement(building: Node2D) -> void:
@@ -4315,6 +4462,10 @@ func _place_land_claim(world_pos: Vector2, from_slot: InventorySlot) -> void:
 	_show_clan_name_dialog(world_pos, from_slot, "land_claim")
 
 func _place_campfire(world_pos: Vector2, from_slot: InventorySlot) -> void:
+	var clan_name: String = _get_player_clan_name()
+	if clan_name != "":
+		_on_campfire_clan_name_confirmed(clan_name, world_pos, from_slot)
+		return
 	_show_clan_name_dialog(world_pos, from_slot, "campfire")
 
 func _show_clan_name_dialog(world_pos: Vector2, from_slot: InventorySlot, place_type: String = "land_claim") -> void:
@@ -4473,6 +4624,16 @@ func _on_campfire_clan_name_confirmed(clan_name: String, world_pos: Vector2, fro
 	register_land_claim(campfire)
 	_animate_building_placement(campfire)
 	campfire.visible = true
+	var old_cf := _find_nomad_campfire_for_clan(clan_name)
+	if old_cf and old_cf != campfire:
+		old_cf._complete_nomad_mode()
+	CampfireScript.resume_clan_after_nomad(clan_name, get_tree())
+	var leader := get_active_leader()
+	if leader:
+		if leader.has_meta("nomad_state"):
+			leader.remove_meta("nomad_state")
+		if leader.has_meta("nomad_clan_name"):
+			leader.remove_meta("nomad_clan_name")
 	var pi = get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("campfire_placed"):
 		pi.campfire_placed(clan_name, world_pos.x, world_pos.y)
@@ -4559,6 +4720,9 @@ func _instantiate_land_claim_for_campfire_upgrade() -> LandClaim:
 	return inst as LandClaim
 
 func _on_campfire_upgrade_with_landclaim(campfire_ref: CampfireScript) -> void:
+	if campfire_ref and campfire_ref.nomad_state != CampfireScript.NomadState.NONE:
+		print("Campfire upgrade blocked during Nomad Mode.")
+		return
 	"""Upgrade campfire using LANDCLAIM item (dropped in upgrade slot). Item already removed from player by drag."""
 	var new_lc: LandClaim = _instantiate_land_claim_for_campfire_upgrade()
 	if not new_lc:
@@ -4566,6 +4730,9 @@ func _on_campfire_upgrade_with_landclaim(campfire_ref: CampfireScript) -> void:
 	_apply_campfire_replaced_by_land_claim(campfire_ref, new_lc)
 
 func _on_campfire_upgrade_confirmed(campfire_ref: CampfireScript) -> void:
+	if campfire_ref and campfire_ref.nomad_state != CampfireScript.NomadState.NONE:
+		print("Campfire upgrade blocked during Nomad Mode.")
+		return
 	if not campfire_ref or not is_instance_valid(campfire_ref) or not campfire_ref.inventory:
 		return
 	var inv = campfire_ref.inventory

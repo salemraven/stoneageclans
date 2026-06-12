@@ -44,6 +44,10 @@ var decay_rate: float = 2.0  # Health lost per second (default, varies by buildi
 var health_bar: Control = null  # Health bar UI
 var is_raidable: bool = false  # Whether building inventory can be raided (clan died)
 
+# Orphan grace (Nomad Mode — buildings left behind at old camp)
+var is_orphaned: bool = false
+var orphaned_at_game_time: float = -1.0
+
 # OPTIMIZATION: Throttle health bar updates during decay
 var _health_bar_update_frame: int = 0
 const HEALTH_BAR_UPDATE_INTERVAL: int = 5  # Update every 5 frames (~12 times per second at 60fps)
@@ -107,6 +111,41 @@ func _ready() -> void:
 	
 	# Enable processing for decay
 	set_process(true)
+	if is_orphaned:
+		_check_orphan_grace_on_load()
+
+
+func set_orphaned(orphaned: bool) -> void:
+	is_orphaned = orphaned
+	if orphaned:
+		var now: float = Time.get_ticks_msec() / 1000.0
+		if is_inside_tree():
+			var sm := get_node_or_null("/root/SimulationManager")
+			if sm:
+				now = sm.game_time
+		orphaned_at_game_time = now
+	else:
+		orphaned_at_game_time = -1.0
+
+
+func _check_orphan_grace_on_load() -> void:
+	if not is_orphaned or orphaned_at_game_time < 0.0:
+		return
+	if _orphan_grace_expired():
+		call_deferred("_destroy_building")
+
+
+func _orphan_grace_expired() -> bool:
+	if not is_orphaned or orphaned_at_game_time < 0.0:
+		return false
+	var grace: float = BalanceConfig.campfire_building_grace_period if BalanceConfig else 60.0
+	var now: float = orphaned_at_game_time
+	var sm := get_node_or_null("/root/SimulationManager")
+	if sm:
+		now = sm.game_time
+	else:
+		now = Time.get_ticks_msec() / 1000.0
+	return (now - orphaned_at_game_time) >= grace
 
 # Load task scripts at runtime (avoids compile-time dependency issues)
 func _init_slots() -> void:
@@ -191,6 +230,9 @@ func take_damage(damage: float) -> void:
 
 func _process(delta: float) -> void:
 	"""Process building decay and oven cooking animation"""
+	if is_orphaned and orphaned_at_game_time >= 0.0 and _orphan_grace_expired():
+		_destroy_building()
+		return
 	if building_type == ResourceData.ResourceType.OVEN and _cook_sprite:
 		_update_oven_cook_animation(delta)
 	

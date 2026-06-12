@@ -172,6 +172,21 @@ var campfire_upgrade_hide: int = 0
 var campfire_upgrade_wood: int = 1
 var campfire_upgrade_stone: int = 1
 
+# --- Stage 1 nomadic campfire / Nomad Mode ---
+var campfire_wood_burn_interval: float = 60.0
+var campfire_panic_threshold_wood: int = 0
+var campfire_panic_threshold_food: int = 0
+var campfire_building_grace_period: float = 60.0
+var campfire_max_living_huts: int = 3
+var nomad_formation_spacing: float = 45.0
+var ai_nomad_wood_threshold: int = 2
+var ai_nomad_food_threshold: int = 3
+var nomad_cooldown_sec: float = 30.0
+var ai_nomad_low_resource_sec: float = 60.0
+var ai_nomad_reloc_min_dist: float = 800.0
+var ai_nomad_reloc_max_dist: float = 1500.0
+var ai_nomad_arrival_radius: float = 50.0
+
 
 func _ready() -> void:
 	apply_hunger_game_mode()

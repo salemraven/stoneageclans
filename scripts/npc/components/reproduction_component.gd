@@ -584,6 +584,9 @@ func _start_pregnancy() -> void:
 		print("✓ REPRODUCTION: %s started pregnancy (mate: %s, clan: %s, timer: %.1fs)" % [npc_name, mate_name, clan_name, birth_timer])
 
 func _update_birth_timer(delta: float) -> void:
+	# Nomad Mode: pregnancy timer frozen until new camp placed
+	if npc and npc.has_meta("nomad_pregnancy_frozen"):
+		return
 	# Cancel pregnancy if woman lost hut
 	if not _has_living_hut_assigned():
 		is_pregnant = false

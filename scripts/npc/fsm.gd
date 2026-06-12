@@ -28,6 +28,7 @@ const OccupyBuildingStateScript = preload("res://scripts/npc/states/occupy_build
 const WorkAtBuildingStateScript = preload("res://scripts/npc/states/work_at_building_state.gd")
 const CraftStateScript = preload("res://scripts/npc/states/craft_state.gd")
 const BuildHutForWomanStateScript = preload("res://scripts/npc/states/build_hut_for_woman_state.gd")
+const PanicStateScript = preload("res://scripts/npc/states/panic_state.gd")
 
 var npc: NPCBase = null
 var current_state: Node = null
@@ -103,6 +104,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("work_at_building", "")  # Work at building state for women
 	_register_state("craft", "")  # Craft state for knapping (clansmen/cavemen)
 	_register_state("build_hut_for_woman", "")  # Herder builds Living Hut for delivered woman
+	_register_state("panic", "")  # Women panic when campfire resources depleted
 	
 	# Create state instances directly
 	_create_state_instances()
@@ -457,6 +459,18 @@ func _create_state_instances() -> void:
 		else:
 			state.queue_free()
 
+	if PanicStateScript:
+		var panic_st: Node = Node.new()
+		panic_st.set_script(PanicStateScript)
+		if panic_st.has_method("initialize"):
+			panic_st.name = "PanicState"
+			add_child(panic_st)
+			states["panic"] = panic_st
+			panic_st.initialize(npc)
+			panic_st.set("fsm", self)
+		else:
+			panic_st.queue_free()
+
 func _register_state(state_name: String, script_path: String) -> void:
 	states[state_name] = null  # Will be instantiated on demand
 	state_scripts[state_name] = script_path
@@ -711,6 +725,8 @@ func _evaluate_states() -> void:
 			if state_name == "build" and npc_type_str != "caveman":
 				continue
 			if state_name == "craft" and npc_type_str != "caveman" and npc_type_str != "clansman":
+				continue
+			if state_name == "panic" and npc_type_str != "woman":
 				continue
 		candidates.append(state_name)
 	

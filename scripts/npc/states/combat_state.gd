@@ -131,6 +131,7 @@ func exit() -> void:
 		# Clear combat entry logging meta when exiting
 		if npc.has_meta("last_combat_entry_logged"):
 			npc.remove_meta("last_combat_entry_logged")
+		_try_nomad_rejoin_after_combat()
 		# Safe access to npc_name (might be null if NPC is being destroyed)
 		var npc_name_str: String = "unknown"
 		if npc and is_instance_valid(npc):
@@ -770,4 +771,23 @@ func _should_flee() -> bool:
 	if float(en_c) >= float(maxi(al_c, 1)) * eff_ratio:
 		return true
 	return false
+
+
+func _try_nomad_rejoin_after_combat() -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	var tree := npc.get_tree()
+	if tree == null:
+		return
+	var main = tree.get_first_node_in_group("main")
+	if main == null or not main.has_method("is_clan_in_nomad_mode"):
+		return
+	var npc_clan: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
+	if npc_clan == "" or not main.is_clan_in_nomad_mode(npc_clan):
+		return
+	if npc.get("follow_is_ordered") and npc.get("herder") != null and is_instance_valid(npc.get("herder")):
+		return
+	var leader: Node = main.get_active_leader() if main.has_method("get_active_leader") else null
+	if leader and main.has_method("_set_nomad_follow"):
+		main._set_nomad_follow(npc, leader, "nomad_rejoin")
 
