@@ -11,7 +11,7 @@ signal emergency_defend_triggered
 signal nomad_state_changed(new_state: int)
 signal resources_status_changed(has_wood: bool, has_food: bool)
 
-# Small base (radius 250), clan name on placement, inventory, fire on/off
+# Small base (radius 250), clan name on placement, inventory; fire burns wood automatically
 # LandClaim-compatible interface for NPCs (defend_target, search_home_claim)
 
 @export var clan_name: String = "CLAN"
@@ -29,6 +29,7 @@ var inventory: InventoryData = null
 
 var is_fire_on: bool = false
 var _wood_consume_timer: float = 0.0
+var _cooking_timer: float = 0.0
 var _fire_off_from_depletion: bool = false
 var _last_has_wood: bool = true
 var _last_has_food: bool = true
@@ -82,6 +83,7 @@ func _ready() -> void:
 	set_meta("defender_quota", 0)
 	_initialize_clan_brain()
 	_refresh_resource_flags(true)
+	_try_auto_light_fire()
 	set_process(true)
 
 
@@ -133,6 +135,13 @@ func _refresh_resource_flags(force_emit: bool = false) -> void:
 		_last_has_wood = has_wood
 		_last_has_food = has_food
 		resources_status_changed.emit(has_wood, has_food)
+	_try_auto_light_fire()
+
+
+func _try_auto_light_fire() -> void:
+	if is_fire_on or get_wood_count() <= 0:
+		return
+	set_fire_on(true)
 
 
 func _setup_sprite() -> void:
@@ -222,7 +231,27 @@ func _process(delta: float) -> void:
 			_update_fire_visual()
 			_refresh_resource_flags()
 
+	_process_passive_cooking(delta)
 	_track_ai_low_resources(delta)
+
+
+func _process_passive_cooking(delta: float) -> void:
+	if not is_fire_on or not inventory:
+		return
+	var interval: float = BalanceConfig.campfire_cooking_interval if BalanceConfig else 30.0
+	_cooking_timer += delta
+	if _cooking_timer < interval:
+		return
+	_cooking_timer = 0.0
+	var raw_meat: int = inventory.get_count(ResourceData.ResourceType.MEAT)
+	if raw_meat <= 0:
+		return
+	if not inventory.has_space():
+		if inventory.get_count(ResourceData.ResourceType.COOKED_MEAT) >= inventory.max_stack:
+			return
+	inventory.remove_item(ResourceData.ResourceType.MEAT, 1)
+	inventory.add_item(ResourceData.ResourceType.COOKED_MEAT, 1)
+	_refresh_resource_flags()
 
 
 func _track_ai_low_resources(delta: float) -> void:
@@ -293,12 +322,15 @@ func _update_nomadic_crowding() -> void:
 
 
 func set_fire_on(on: bool) -> void:
-	if on:
-		_fire_off_from_depletion = false
-	is_fire_on = on
-	_update_fire_visual()
+	# Manual fire-off removed — only wood depletion extinguishes the fire (_process path).
 	if not on:
-		_refresh_resource_flags()
+		return
+	if is_fire_on:
+		return
+	_fire_off_from_depletion = false
+	is_fire_on = true
+	_update_fire_visual()
+	_refresh_resource_flags()
 
 
 func _update_fire_visual() -> void:

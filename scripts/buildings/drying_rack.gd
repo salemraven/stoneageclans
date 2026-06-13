@@ -1,4 +1,4 @@
 extends BuildingBase
 class_name DryingRackBuilding
 
-## Stub: nomadic drying rack (meat -> jerky). Add ResourceData types + BuildingRegistry + scene to enable.
+## Drying rack — passive hide -> leather. Setup handled by BuildingBase._setup_drying_rack().

@@ -91,6 +91,7 @@ var berries_storage_target_per_capita: float = 0.45
 var berries_hunger_percent: float = 8.0
 var grain_hunger_percent: float = 10.0
 var meat_hunger_percent: float = 18.0
+var cooked_meat_hunger_percent: float = 24.0
 var bread_hunger_percent: float = 22.0
 var milk_hunger_percent: float = 10.0
 var mushroom_hunger_percent: float = 8.0
@@ -103,6 +104,7 @@ var grain_calories: int = 60
 var fiber_calories: int = 20
 var meat_calories: int = 250
 var bread_calories: int = 300
+var cooked_meat_calories: int = 320
 var milk_calories: int = 100
 var mushroom_calories: int = 30
 var bugs_calories: int = 25
@@ -135,6 +137,17 @@ var simulation_ticks_per_sim_day: int = 5
 var bread_craft_time: float = 90.0
 var wool_craft_time: float = 45.0
 var milk_craft_time: float = 45.0
+
+# --- Production economy (ClanBrain allocation) ---
+var abundance_threshold: float = 2.5
+var safety_buffer_days: float = 0.5
+var allocation_eval_interval: int = 3
+var work_request_expire_seconds: float = 90.0
+var daily_need_grain_per_capita: float = 2.0
+var daily_need_wood_per_capita: float = 2.0
+var daily_need_hide_per_capita: float = 0.5
+var campfire_cooking_interval: float = 30.0
+var drying_rack_process_time: float = 120.0
 
 # Oldowan slower than specialized tools (multiplier on collection time)
 var oldowan_gather_multiplier: float = 1.5
@@ -207,6 +220,8 @@ func get_food_calories(resource_type: ResourceData.ResourceType) -> int:
 			return fiber_calories
 		ResourceData.ResourceType.MEAT:
 			return meat_calories
+		ResourceData.ResourceType.COOKED_MEAT:
+			return cooked_meat_calories
 		ResourceData.ResourceType.BREAD:
 			return bread_calories
 		ResourceData.ResourceType.MILK:

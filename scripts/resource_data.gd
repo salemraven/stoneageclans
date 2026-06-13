@@ -27,12 +27,15 @@ enum ResourceType {
 	CORDAGE,
 	CAMPFIRE,
 	HIDE,
+	LEATHER,
 	BONE,
 	TRAVOIS,
 	MUSHROOM,
 	BUGS,
 	NUTS,
-	SPEAR
+	SPEAR,
+	DRYING_RACK,
+	COOKED_MEAT
 }
 
 enum DietType { HERBIVORE, CARNIVORE, OMNIVORE }
@@ -54,6 +57,7 @@ static func get_diet_foods(diet: DietType) -> Array[ResourceType]:
 				ResourceType.BERRIES,
 				ResourceType.GRAIN,
 				ResourceType.MEAT,
+				ResourceType.COOKED_MEAT,
 				ResourceType.BREAD,
 				ResourceType.MILK,
 				ResourceType.MUSHROOM,
@@ -109,7 +113,10 @@ static func get_resource_name(type: ResourceType) -> String:
 		ResourceType.CORDAGE: return "Cordage"
 		ResourceType.CAMPFIRE: return "Campfire"
 		ResourceType.HIDE: return "Hide"
+		ResourceType.LEATHER: return "Leather"
 		ResourceType.BONE: return "Bone"
+		ResourceType.DRYING_RACK: return "Drying Rack"
+		ResourceType.COOKED_MEAT: return "Cooked Meat"
 		ResourceType.TRAVOIS: return "Travois"
 		ResourceType.MUSHROOM: return "Mushroom"
 		ResourceType.BUGS: return "Bugs"
@@ -136,7 +143,10 @@ static func get_resource_color(type: ResourceType) -> Color:
 		ResourceType.CORDAGE: return Color(0.6, 0.45, 0.3) # Tan for cordage
 		ResourceType.CAMPFIRE: return Color(0.9, 0.4, 0.1) # Orange for campfire
 		ResourceType.HIDE: return Color(0.7, 0.55, 0.4) # Leather brown for hide
+		ResourceType.LEATHER: return Color(0.55, 0.4, 0.28) # Dark leather brown
 		ResourceType.BONE: return Color(0.95, 0.92, 0.85) # Off-white for bone
+		ResourceType.DRYING_RACK: return Color(0.6, 0.45, 0.3)
+		ResourceType.COOKED_MEAT: return Color(0.75, 0.3, 0.2) # Cooked red-brown
 		ResourceType.TRAVOIS: return Color(0.5, 0.4, 0.3) # Brown for travois
 		ResourceType.MUSHROOM: return Color(0.65, 0.35, 0.45)
 		ResourceType.BUGS: return Color(0.45, 0.5, 0.35)
@@ -170,7 +180,10 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.CORDAGE: return "res://assets/sprites/cordage.png"
 		ResourceType.CAMPFIRE: return "res://assets/sprites/campfire.png"
 		ResourceType.HIDE: return "res://assets/sprites/hide.png"
+		ResourceType.LEATHER: return "res://assets/sprites/leather.png"
 		ResourceType.BONE: return "res://assets/sprites/bone.png"
+		ResourceType.DRYING_RACK: return "res://assets/sprites/drying_rack.png"
+		ResourceType.COOKED_MEAT: return "res://assets/sprites/cooked_meat.png"
 		ResourceType.TRAVOIS: return "res://assets/sprites/travois.png"
 		ResourceType.MUSHROOM: return "res://assets/sprites/mushroom.png"
 		ResourceType.BUGS: return "res://assets/sprites/bugs.png"
@@ -202,7 +215,10 @@ static func get_resource_tier(_type: ResourceType) -> int:
 		ResourceType.CORDAGE: return 1
 		ResourceType.CAMPFIRE: return 1
 		ResourceType.HIDE: return 0
+		ResourceType.LEATHER: return 1
 		ResourceType.BONE: return 0
+		ResourceType.DRYING_RACK: return 1
+		ResourceType.COOKED_MEAT: return 1
 		ResourceType.TRAVOIS: return 1
 		ResourceType.MUSHROOM: return 0
 		ResourceType.BUGS: return 0
@@ -243,8 +259,11 @@ static func get_resource_description(type: ResourceType) -> String:
 		ResourceType.OLDOWAN: return "Crude hand axe. Gather wood, stone, meat, hide. Crafted from 2 stone."
 		ResourceType.CORDAGE: return "Twisted fiber rope. Used for land claim. Crafted from 3 fiber."
 		ResourceType.CAMPFIRE: return "Place to cook and upgrade to land claim. Crafted from 2 wood, 2 stone."
-		ResourceType.HIDE: return "Animal hide from corpses. Used for land claim."
+		ResourceType.HIDE: return "Animal hide from corpses. Used for land claim and leather."
+		ResourceType.LEATHER: return "Processed hide from a drying rack. Used for crafts."
 		ResourceType.BONE: return "Bone from corpses. Used for future crafts."
+		ResourceType.DRYING_RACK: return "Dries hide into leather over time. No woman needed at the rack."
+		ResourceType.COOKED_MEAT: return "Cooked meat. Better food than raw meat."
 		ResourceType.TRAVOIS: return "Portable storage. 2 wood + 2 cordage. 2-handed."
 		ResourceType.MUSHROOM: return "Foraged mushroom. Food."
 		ResourceType.BUGS: return "Insects from tall grass. Food."
@@ -276,6 +295,7 @@ const EDIBLE_FOOD_TYPES: Array[ResourceType] = [
 	ResourceType.BERRIES,
 	ResourceType.GRAIN,
 	ResourceType.MEAT,
+	ResourceType.COOKED_MEAT,
 	ResourceType.BREAD,
 	ResourceType.MILK,
 	ResourceType.MUSHROOM,

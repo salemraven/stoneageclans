@@ -26,6 +26,7 @@ const BuildStateScript = preload("res://scripts/npc/states/build_state.gd")
 const ReproductionStateScript = preload("res://scripts/npc/states/reproduction_state.gd")
 const OccupyBuildingStateScript = preload("res://scripts/npc/states/occupy_building_state.gd")
 const WorkAtBuildingStateScript = preload("res://scripts/npc/states/work_at_building_state.gd")
+const ProductionWorkStateScript = preload("res://scripts/npc/states/production_work_state.gd")
 const CraftStateScript = preload("res://scripts/npc/states/craft_state.gd")
 const BuildHutForWomanStateScript = preload("res://scripts/npc/states/build_hut_for_woman_state.gd")
 const PanicStateScript = preload("res://scripts/npc/states/panic_state.gd")
@@ -66,6 +67,7 @@ const MAX_STATE_DURATION_SEC: Dictionary = {
 	"herd_wildnpc": 90.0,
 	"occupy_building": 120.0,
 	"work_at_building": 120.0,
+	"production_work": 120.0,
 }
 ## After exiting these states, NPC cannot re-enter same state for this many seconds (reduces flicker).
 const STATE_REENTER_COOLDOWN_SEC: float = 2.0
@@ -102,6 +104,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("reproduction", "")  # Reproduction state for women
 	_register_state("occupy_building", "")  # Occupy building state for women
 	_register_state("work_at_building", "")  # Work at building state for women
+	_register_state("production_work", "")  # ClanBrain-directed production chains
 	_register_state("craft", "")  # Craft state for knapping (clansmen/cavemen)
 	_register_state("build_hut_for_woman", "")  # Herder builds Living Hut for delivered woman
 	_register_state("panic", "")  # Women panic when campfire resources depleted
@@ -432,6 +435,18 @@ func _create_state_instances() -> void:
 		else:
 			push_error("FSM: Failed to attach work_at_building_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
+	
+	if ProductionWorkStateScript:
+		var prod_state: Node = Node.new()
+		prod_state.set_script(ProductionWorkStateScript)
+		if prod_state.has_method("initialize"):
+			prod_state.name = "ProductionWorkState"
+			add_child(prod_state)
+			states["production_work"] = prod_state
+			prod_state.initialize(npc)
+			prod_state.set("fsm", self)
+		else:
+			prod_state.queue_free()
 	
 	if CraftStateScript:
 		var state: Node = Node.new()

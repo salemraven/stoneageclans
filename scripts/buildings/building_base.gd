@@ -86,6 +86,8 @@ func _ready() -> void:
 		_setup_farm()
 	elif building_type == ResourceData.ResourceType.DAIRY_FARM:
 		_setup_dairy()
+	elif building_type == ResourceData.ResourceType.DRYING_RACK:
+		_setup_drying_rack()
 	elif building_type == ResourceData.ResourceType.LIVING_HUT:
 		_setup_living_hut()
 	
@@ -192,6 +194,8 @@ func _set_decay_rate() -> void:
 			decay_rate = 2.0
 		ResourceData.ResourceType.DAIRY_FARM:
 			decay_rate = 2.0
+		ResourceData.ResourceType.DRYING_RACK:
+			decay_rate = 1.5
 		ResourceData.ResourceType.LIVING_HUT:
 			decay_rate = 1.5
 		_:
@@ -578,6 +582,14 @@ func _setup_dairy() -> void:
 	production_component.name = "ProductionComponent"
 	add_child(production_component)
 	# Playtest: dairy spawns empty (no starting FIBER)
+
+func _setup_drying_rack() -> void:
+	requires_woman = false
+	if has_node("PassiveProductionComponent"):
+		return
+	var passive := PassiveProductionComponent.new(self, ProductionConfig.get_drying_rack_recipe())
+	passive.name = "PassiveProductionComponent"
+	add_child(passive)
 
 func _setup_living_hut() -> void:
 	requires_woman = true
@@ -1156,4 +1168,121 @@ func get_animal_calorie_days_buffer() -> float:
 	if daily <= 0.0:
 		return 99.0
 	return animal_calories / daily
+
+
+func get_passive_production_component() -> PassiveProductionComponent:
+	var node := get_node_or_null("PassiveProductionComponent")
+	return node as PassiveProductionComponent
+
+
+func has_passive_output_ready() -> bool:
+	var passive := get_passive_production_component()
+	if not passive:
+		return false
+	return passive.has_output_ready()
+
+
+func can_accept_passive_input(input_type: ResourceData.ResourceType, quantity: int = 1) -> bool:
+	if not inventory:
+		return false
+	if not inventory.has_space():
+		var existing: int = inventory.get_count(input_type)
+		if existing <= 0 or existing + quantity > inventory.max_stack:
+			return false
+	return true
+
+
+func generate_clanbrain_delivery_job(worker: NPCBase, claim: LandClaim, chain: ProductionChain) -> Job:
+	if not worker or not claim or not chain or not inventory:
+		return null
+	var inputs: Array = chain.inputs
+	if inputs.is_empty():
+		return null
+	var items_to_reserve: Dictionary = {}
+	var tasks: Array = []
+	for input in inputs:
+		var input_type: ResourceData.ResourceType = input.get("type", ResourceData.ResourceType.NONE)
+		var input_quantity: int = input.get("quantity", 1)
+		var avail: int = claim.inventory.get_count(input_type) - (claim.get_reserved_count(input_type) if claim.has_method("get_reserved_count") else 0)
+		var transport_quantity: int = min(5, avail)
+		if transport_quantity < input_quantity:
+			return null
+		items_to_reserve[int(input_type)] = items_to_reserve.get(int(input_type), 0) + transport_quantity
+		if PickUpTaskScript:
+			tasks.append(PickUpTaskScript.new(claim, input_type, transport_quantity))
+		if MoveToTaskScript:
+			tasks.append(MoveToTaskScript.new(global_position, 18.0))
+		if DropOffTaskScript:
+			tasks.append(DropOffTaskScript.new(self, input_type, transport_quantity, 20.0))
+	if not items_to_reserve.is_empty() and claim.has_method("reserve_items"):
+		if not claim.reserve_items(worker, items_to_reserve):
+			return null
+	if chain.is_passive:
+		var hut_pos: Vector2 = _find_home_hut_position(worker)
+		if MoveToTaskScript and hut_pos != Vector2.ZERO:
+			tasks.append(MoveToTaskScript.new(hut_pos, 40.0))
+	else:
+		if OccupyTaskScript:
+			tasks.append(OccupyTaskScript.new(self))
+		var output_type: ResourceData.ResourceType = chain.get_output_type()
+		var output_qty: int = chain.get_output_quantity()
+		if PickUpTaskScript:
+			tasks.append(PickUpTaskScript.new(self, output_type, output_qty))
+		if MoveToTaskScript:
+			tasks.append(MoveToTaskScript.new(claim.global_position, 50.0))
+		if DropOffTaskScript:
+			tasks.append(DropOffTaskScript.new(claim, output_type, output_qty, 50.0))
+		var hut_pos_active: Vector2 = _find_home_hut_position(worker)
+		if MoveToTaskScript and hut_pos_active != Vector2.ZERO:
+			tasks.append(MoveToTaskScript.new(hut_pos_active, 40.0))
+	job_reserved_by = worker
+	var job: Job = JobScript.new(tasks) if JobScript else null
+	if job:
+		job.building = self
+	return job
+
+
+func generate_clanbrain_pickup_job(worker: NPCBase, claim: LandClaim, chain: ProductionChain) -> Job:
+	if not worker or not claim or not chain or not inventory:
+		return null
+	var output_type: ResourceData.ResourceType = chain.get_output_type()
+	if not inventory.has_item(output_type, 1):
+		return null
+	var pickup_qty: int = min(5, inventory.get_count(output_type))
+	var tasks: Array = []
+	if MoveToTaskScript:
+		tasks.append(MoveToTaskScript.new(global_position, 18.0))
+	if PickUpTaskScript:
+		tasks.append(PickUpTaskScript.new(self, output_type, pickup_qty))
+	if MoveToTaskScript:
+		tasks.append(MoveToTaskScript.new(claim.global_position, 50.0))
+	if DropOffTaskScript:
+		tasks.append(DropOffTaskScript.new(claim, output_type, pickup_qty, 50.0))
+	var hut_pos: Vector2 = _find_home_hut_position(worker)
+	if MoveToTaskScript and hut_pos != Vector2.ZERO:
+		tasks.append(MoveToTaskScript.new(hut_pos, 40.0))
+	transport_reserved_by = worker
+	var job: Job = JobScript.new(tasks) if JobScript else null
+	if job:
+		job.building = self
+	return job
+
+
+func _find_home_hut_position(worker: NPCBase) -> Vector2:
+	if not worker:
+		return Vector2.ZERO
+	if OccupationSystem:
+		var workplace := OccupationSystem.get_workplace(worker)
+		if workplace and is_instance_valid(workplace):
+			if workplace.get("building_type") == ResourceData.ResourceType.LIVING_HUT:
+				return workplace.global_position
+	var worker_clan: String = worker.get_clan_name() if worker.has_method("get_clan_name") else ""
+	for b in worker.get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		if b.get("building_type") != ResourceData.ResourceType.LIVING_HUT:
+			continue
+		if b.get("clan_name") == worker_clan:
+			return b.global_position
+	return Vector2.ZERO
 

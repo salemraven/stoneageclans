@@ -79,6 +79,15 @@ static func _initialize_buildings() -> void:
 		{"stone": 2}  # Testing cost: 2 stone
 	))
 
+	# Drying Rack: Hide to leather (passive, woman delivers only)
+	_buildings.append(BuildingData.new(
+		ResourceData.ResourceType.DRYING_RACK,
+		"Drying Rack",
+		"Dries hide into leather over time. Women deliver hide and pick up leather.",
+		"res://assets/sprites/drying_rack.png",
+		{"wood": 1, "stone": 1}
+	))
+
 # Get all building definitions
 static func get_all_buildings() -> Array[BuildingData]:
 	_initialize_buildings()

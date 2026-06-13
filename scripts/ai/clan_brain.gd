@@ -111,6 +111,12 @@ var economic_priority_weights: Dictionary = {
 	"herd_weight": 0.7
 }
 
+# === Production Economy (Stage 2 work requests) ===
+var abundance_ratios: Dictionary = {}
+var work_requests: Array[Dictionary] = []
+var _next_work_request_id: int = 1
+var _allocation_eval_counter: int = 0
+
 # === Alert System ===
 enum AlertLevel { NONE, INTRUDER, SKIRMISH, RAID }
 var alert_level: AlertLevel = AlertLevel.NONE
@@ -292,12 +298,16 @@ func _evaluate_clan_state() -> void:
 	# Phase 4: Update searcher assignments
 	_update_searcher_assignments()
 	
+	# Production economy: abundance + work requests (Stage 2 land claims only)
+	_evaluate_resource_allocation()
+	
 	# Instrumentation: log full evaluation snapshot
 	_log_evaluation_snapshot()
 	_clan_brain_debug_print()
 	
 	if OS.is_debug_build():
 		_assert_clan_brain_invariants()
+		_assert_work_request_invariants()
 
 func _update_survival_mode() -> void:
 	"""Low fighter count: skip offensive brain (hunt/raid in update + strategies); max herd/search via quota paths."""
@@ -1249,6 +1259,9 @@ func _evaluate_milestone_buildings() -> void:
 		var placed: bool = main_node._place_ai_building(territory, ResourceData.ResourceType.LIVING_HUT)
 		if not placed:
 			print("🧠 ClanBrain %s: Living Hut milestone (baby_count=%d) but _place_ai_building returned false" % [clan_name, baby_count])
+	var hide_count: int = inv.get_count(ResourceData.ResourceType.HIDE)
+	if hide_count >= 3 and not _claim_has_building_type(territory, ResourceData.ResourceType.DRYING_RACK):
+		main_node._place_ai_building(territory, ResourceData.ResourceType.DRYING_RACK)
 
 func _update_defender_assignments() -> void:
 	"""Update defender quota - NPCs will pull this and self-assign."""
@@ -2907,3 +2920,266 @@ func _notify_party_instrument(formed: bool, leader: Node, followers: Array, sour
 	else:
 		if phi.has_method("on_party_disbanded"):
 			phi.on_party_disbanded(clan_name, leader, followers, source_or_reason, hunt_l, raid_l)
+
+
+# === Production Economy ===
+
+func _is_stage_2() -> bool:
+	return brain_mode == "settled" and territory is LandClaim
+
+
+func _evaluate_resource_allocation() -> void:
+	if not _is_stage_2() or not territory or not is_instance_valid(territory):
+		return
+	_allocation_eval_counter += 1
+	var interval: int = BalanceConfig.allocation_eval_interval if BalanceConfig else 3
+	if _allocation_eval_counter < interval:
+		return
+	_allocation_eval_counter = 0
+	_cleanup_work_requests()
+	_issue_pickup_requests()
+	_refresh_abundance_ratios()
+	var chains: Array = _select_production_chains()
+	for chain in chains:
+		if chain is ProductionChain and _can_issue_delivery_request(chain):
+			_issue_delivery_request(chain)
+	if territory:
+		var pending: int = 0
+		for req in work_requests:
+			if req.get("state", "") == "PENDING":
+				pending += 1
+		territory.set_meta("work_request_pending_count", pending)
+
+
+func _cleanup_work_requests() -> void:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var expire: float = BalanceConfig.work_request_expire_seconds if BalanceConfig else 90.0
+	var to_remove: Array[int] = []
+	for i in work_requests.size():
+		var req: Dictionary = work_requests[i]
+		var state: String = req.get("state", "")
+		if state == "COMPLETED":
+			to_remove.append(i)
+		elif state == "PENDING" and (now - float(req.get("created_at", now))) > expire:
+			to_remove.append(i)
+	for i in range(to_remove.size() - 1, -1, -1):
+		work_requests.remove_at(to_remove[i])
+
+
+func _issue_pickup_requests() -> void:
+	if not ProductionChainRegistry:
+		return
+	for building in _get_clan_production_buildings():
+		if not is_instance_valid(building):
+			continue
+		if not building.has_method("has_passive_output_ready"):
+			continue
+		if not building.has_passive_output_ready():
+			continue
+		if _has_pending_request_for_building(building, "pickup"):
+			continue
+		var chain: ProductionChain = ProductionChainRegistry.get_chain("leather")
+		if chain == null:
+			continue
+		_issue_work_request("pickup", chain.chain_id, building)
+
+
+func _refresh_abundance_ratios() -> void:
+	if not territory or not territory.inventory:
+		return
+	var inv: InventoryData = territory.inventory
+	var types: Array = [
+		ResourceData.ResourceType.GRAIN,
+		ResourceData.ResourceType.WOOD,
+		ResourceData.ResourceType.BREAD,
+		ResourceData.ResourceType.FIBER,
+		ResourceData.ResourceType.HIDE,
+		ResourceData.ResourceType.LEATHER,
+	]
+	for resource_type in types:
+		var stock: int = inv.get_count(resource_type)
+		var daily_need: float = _get_daily_need_for_resource(resource_type)
+		var safety: float = (BalanceConfig.safety_buffer_days if BalanceConfig else 0.5) * daily_need
+		var denom: float = maxf(daily_need + safety, 1.0)
+		abundance_ratios[resource_type] = float(stock) / denom
+
+
+func _get_daily_need_for_resource(resource_type: int) -> float:
+	var pop: float = maxf(float(clan_metrics.get("population", 1)), 1.0)
+	match resource_type:
+		ResourceData.ResourceType.GRAIN:
+			return pop * (BalanceConfig.daily_need_grain_per_capita if BalanceConfig else 2.0)
+		ResourceData.ResourceType.WOOD:
+			return pop * (BalanceConfig.daily_need_wood_per_capita if BalanceConfig else 2.0)
+		ResourceData.ResourceType.HIDE:
+			return pop * (BalanceConfig.daily_need_hide_per_capita if BalanceConfig else 0.5)
+		ResourceData.ResourceType.BREAD, ResourceData.ResourceType.LEATHER:
+			return pop * 1.0
+		_:
+			return 1.0
+
+
+func _select_production_chains() -> Array:
+	var selected: Array = []
+	if not ProductionChainRegistry:
+		return selected
+	var food_buffer: float = float(clan_metrics.get("food_days_buffer", 0.0))
+	var target_days: float = BalanceConfig.clan_food_buffer_target_days if BalanceConfig else 1.0
+	var threshold: float = BalanceConfig.abundance_threshold if BalanceConfig else 2.5
+	var bread: ProductionChain = ProductionChainRegistry.get_chain("bread")
+	var leather: ProductionChain = ProductionChainRegistry.get_chain("leather")
+	if bread:
+		if food_buffer < target_days:
+			if abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > 1.5 and abundance_ratios.get(ResourceData.ResourceType.WOOD, 0.0) > 1.0:
+				selected.append(bread)
+		elif abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > threshold:
+			selected.append(bread)
+	if leather and abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0) > threshold:
+		selected.append(leather)
+	return selected
+
+
+func _can_issue_delivery_request(chain: ProductionChain) -> bool:
+	if not chain or not territory or not territory.inventory:
+		return false
+	for input in chain.inputs:
+		var input_type: ResourceData.ResourceType = input.get("type", ResourceData.ResourceType.NONE)
+		var qty: int = input.get("quantity", 1)
+		if territory.inventory.get_count(input_type) < qty:
+			return false
+	var building: BuildingBase = _find_available_building(chain.building_type)
+	if not building:
+		return false
+	if _has_pending_request_for_building(building, "delivery"):
+		return false
+	if chain.is_passive and building.has_method("can_accept_passive_input"):
+		var first_type: ResourceData.ResourceType = chain.inputs[0].get("type", ResourceData.ResourceType.NONE)
+		if not building.can_accept_passive_input(first_type, chain.inputs[0].get("quantity", 1)):
+			return false
+	return true
+
+
+func _issue_delivery_request(chain: ProductionChain) -> void:
+	var building: BuildingBase = _find_available_building(chain.building_type)
+	if not building:
+		return
+	_issue_work_request("delivery", chain.chain_id, building)
+
+
+func _issue_work_request(request_type: String, chain_id: String, building: Node) -> void:
+	if not building or not is_instance_valid(building):
+		return
+	var req: Dictionary = {
+		"id": _next_work_request_id,
+		"request_type": request_type,
+		"chain_id": chain_id,
+		"building": building,
+		"state": "PENDING",
+		"npc": null,
+		"created_at": Time.get_ticks_msec() / 1000.0,
+		"claimed_at": 0.0,
+	}
+	_next_work_request_id += 1
+	work_requests.append(req)
+
+
+func _has_pending_request_for_building(building: Node, request_type: String) -> bool:
+	for req in work_requests:
+		if req.get("state", "") != "PENDING" and req.get("state", "") != "CLAIMED" and req.get("state", "") != "IN_PROGRESS":
+			continue
+		if req.get("building") == building and req.get("request_type", "") == request_type:
+			return true
+	return false
+
+
+func _find_available_building(building_type: ResourceData.ResourceType) -> BuildingBase:
+	var best: BuildingBase = null
+	var best_dist: float = 1e12
+	for b in _get_clan_production_buildings():
+		if not is_instance_valid(b) or not (b is BuildingBase):
+			continue
+		if b.building_type != building_type:
+			continue
+		if not b.inventory:
+			continue
+		var dist: float = territory.global_position.distance_to(b.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = b
+	return best
+
+
+func _get_clan_production_buildings() -> Array:
+	var result: Array = []
+	if ClaimBuildingIndex and territory:
+		result = ClaimBuildingIndex.get_buildings_in_claim(territory)
+	if not result.is_empty():
+		return result
+	for b in _get_tree_nodes_buildings():
+		if is_instance_valid(b) and b.get("clan_name") == clan_name:
+			result.append(b)
+	return result
+
+
+func _get_tree_nodes_buildings() -> Array:
+	if not territory or not territory.is_inside_tree():
+		return []
+	return territory.get_tree().get_nodes_in_group("buildings")
+
+
+func has_pending_work_request() -> bool:
+	for req in work_requests:
+		if req.get("state", "") == "PENDING":
+			return true
+	return false
+
+
+func claim_work_request(npc: Node) -> Dictionary:
+	if not npc:
+		return {}
+	for req in work_requests:
+		if req.get("state", "") == "PENDING":
+			req["state"] = "CLAIMED"
+			req["npc"] = npc
+			req["claimed_at"] = Time.get_ticks_msec() / 1000.0
+			return req
+	return {}
+
+
+func set_request_state(request_id: int, state: String) -> void:
+	for req in work_requests:
+		if req.get("id", -1) == request_id:
+			req["state"] = state
+			if state == "COMPLETED" or state == "PENDING":
+				if state == "PENDING":
+					req["npc"] = null
+			return
+
+
+func release_work_request(request_id: int) -> void:
+	for req in work_requests:
+		if req.get("id", -1) == request_id:
+			req["state"] = "PENDING"
+			req["npc"] = null
+			return
+
+
+func complete_work_request(request_id: int) -> void:
+	set_request_state(request_id, "COMPLETED")
+
+
+func _assert_work_request_invariants() -> void:
+	if not OS.is_debug_build():
+		return
+	var npcs_with_claims: Array = []
+	for req in work_requests:
+		var state: String = req.get("state", "")
+		if state in ["CLAIMED", "IN_PROGRESS"]:
+			var req_npc: Variant = req.get("npc")
+			assert(req_npc != null, "Work request missing npc")
+			if req_npc != null:
+				assert(is_instance_valid(req_npc), "Work request has invalid npc")
+				assert(req_npc not in npcs_with_claims, "NPC has multiple work requests")
+				npcs_with_claims.append(req_npc)
+		if state == "PENDING":
+			assert(req.get("npc") == null, "PENDING request has npc assigned")

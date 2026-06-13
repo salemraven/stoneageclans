@@ -53,3 +53,14 @@ static func get_dairy_recipe() -> Dictionary:
 		"craft_time": ct,
 		"requires_woman": true
 	}
+
+static func get_drying_rack_recipe() -> Dictionary:
+	var ct: float = BalanceConfig.drying_rack_process_time if BalanceConfig else 120.0
+	return {
+		"inputs": [
+			{"type": ResourceData.ResourceType.HIDE, "quantity": 1}
+		],
+		"output": {"type": ResourceData.ResourceType.LEATHER, "quantity": 1},
+		"craft_time": ct,
+		"requires_woman": false
+	}
