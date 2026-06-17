@@ -73,6 +73,9 @@ var wild_npc_trace_interval_sec: float = 2.5
 var enable_session_quickstart: bool = false
 var session_quit_after_seconds: float = 0.0
 var enable_session_instrumentation: bool = false
+## Periodic worker snapshots (clansmen/cavemen job + FSM histogram) → JSONL when playtest capture is on.
+var enable_npc_productivity_snapshots: bool = false
+var npc_productivity_snapshot_interval_sec: float = 30.0
 var enable_agro_session_logs: bool = false
 var disable_herd_leader_speed_debuff: bool = false
 
@@ -80,6 +83,9 @@ var disable_herd_leader_speed_debuff: bool = false
 var enable_movement_debug: bool = false
 var movement_debug_interval_sec: float = 0.5
 var movement_debug_filter: String = "clansman"
+
+## Procedural arm IK debug markers (shoulder/elbow/hand). CLI: `--arms-debug`; F9 toggles in-game.
+var enable_procedural_arms_debug: bool = false
 
 # Performance monitoring settings
 var performance_log_interval: float = 1.0  # Log performance stats every N seconds
@@ -127,7 +133,7 @@ func _parse_command_line_args() -> void:
 		enable_performance_monitoring = true
 		print("✓ Performance monitoring enabled")
 	
-	# Check for --headless flag (implies debug mode for automated testing)
+	# Headless implies debug mode for automated testing
 	if "--headless" in args:
 		enable_debug_mode = true
 		enable_file_logging = true
@@ -137,6 +143,19 @@ func _parse_command_line_args() -> void:
 		enable_state_transition_logging = true
 		enable_occupation_drag_logging = true
 		print("✓ Headless debug mode enabled")
+
+	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
+	if "--session-quickstart" in args:
+		enable_session_quickstart = true
+		print("✓ Session quickstart enabled (claim + women + Living Huts)")
+
+	# Session instrumentation: SESSION + MOVEMENT logs to user://game_logs.txt
+	if "--session-instrument" in args:
+		enable_session_instrumentation = true
+		enable_file_logging = true
+		enable_movement_debug = true
+		movement_debug_filter = "woman,clansman"
+		print("✓ Session instrumentation enabled (SESSION + MOVEMENT)")
 
 	# Woman transport test: only player, land claim + ovens + 2 women (no cavemen)
 	if "--woman-test" in args:
@@ -173,12 +192,16 @@ func _parse_command_line_args() -> void:
 	if "--playtest-capture" in args or "--herd-capture" in args:
 		enable_herd_logging = true
 		enable_file_logging = true
-		print("✓ Playtest capture enabled (user://playtest_*.jsonl)")
+		enable_session_instrumentation = true
+		enable_npc_productivity_snapshots = true
+		print("✓ Playtest capture enabled (user://playtest_*.jsonl + worker JSONL instruments)")
 
 	# Timed playtests: disable herd resistance for deterministic transport validation
 	if "--playtest-2min" in args or "--playtest-4min" in args or "--playtest-5min" in args or "--playtest-10min" in args or "--playtest-30min" in args:
 		test_overrides["herd_resist_disabled"] = true
 		print("✓ Herd resistance disabled for playtest (deterministic transport)")
+	if "--playtest-10min" in args or "--playtest-30min" in args:
+		npc_productivity_snapshot_interval_sec = 30.0
 
 	for i in range(args.size()):
 		if args[i] == "--session-quit-after" and i + 1 < args.size():
@@ -197,6 +220,10 @@ func _parse_command_line_args() -> void:
 	if "--party-hunt-debug" in args:
 		enable_party_hunt_debug = true
 		print("✓ Party/hunt debug enabled (FSM traces + test deer seeded in AoH rings)")
+
+	if "--arms-debug" in args:
+		enable_procedural_arms_debug = true
+		print("✓ Procedural arms debug markers enabled (F9 toggles in-game)")
 
 	if "--godmode" in args:
 		enable_godmode = true

@@ -160,6 +160,12 @@ const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
 const LAND_CLAIM_SCENE = preload("res://scenes/LandClaim.tscn")
 const CAMPFIRE_SCENE = preload("res://scenes/Campfire.tscn")
 const CampfireScript = preload("res://scripts/campfire.gd")
+## Tier 1 campfire: Living Hut + production buildings (Farm/Dairy stay land-claim only).
+const CAMPFIRE_ALLOWED_BUILDING_TYPES: Array = [
+	ResourceData.ResourceType.LIVING_HUT,
+	ResourceData.ResourceType.OVEN,
+	ResourceData.ResourceType.DRYING_RACK,
+]
 const PlayerSuccessionScript = preload("res://scripts/systems/player_succession.gd")
 const TRAVOIS_GROUND_SCENE = preload("res://scenes/TravoisGround.tscn")
 const NPC_SCENE = preload("res://scenes/NPC.tscn")
@@ -176,6 +182,9 @@ var _repro_harness_birth_count: int = 0
 var _repro_harness_start_time: float = -1.0
 var _repro_harness_preg_backup: float = -1.0
 var _repro_harness_cool_backup: float = -1.0
+var _repro_harness_woman: Node = null
+var _repro_harness_last_diag_time: float = -1.0
+const REPRO_HARNESS_DIAG_INTERVAL_SEC: float = 5.0
 
 # Building placement duration (seconds) - pie timer on slot icon
 const BUILDING_PLACEMENT_DURATION := 1.5
@@ -693,6 +702,10 @@ func _ready() -> void:
 	_setup_debug_ui()
 	if _cmdline_has("--player-move-debug") and player_movement_debug_overlay and not player_movement_debug_overlay.is_debug_visible():
 		player_movement_debug_overlay.toggle()
+	if _cmdline_has("--arms-debug") and player:
+		var arm_ctrl: Node = player.get_node_or_null("ProceduralArmController")
+		if arm_ctrl and arm_ctrl.has_method("set_debug_draw"):
+			arm_ctrl.set_debug_draw(true)
 	if _cmdline_has("--movement-stress-test"):
 		call_deferred("_run_movement_stress_test")
 	_setup_godmode_ui()
@@ -951,6 +964,9 @@ func _process(delta: float) -> void:
 	# Reproduction harness: two births = pass (Player as designated father must stay eligible — see reproduction_component _father_eligible).
 	if _repro_harness_active:
 		var nowh: float = Time.get_ticks_msec() / 1000.0
+		if _repro_harness_last_diag_time < 0.0 or (nowh - _repro_harness_last_diag_time) >= REPRO_HARNESS_DIAG_INTERVAL_SEC:
+			_repro_harness_last_diag_time = nowh
+			_repro_harness_emit_diag(nowh)
 		if _repro_harness_birth_count >= 2:
 			print("REPRO_HARNESS_PASS: two births observed (Player father path OK)")
 			_reproduction_harness_restore_balance()
@@ -1242,6 +1258,15 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.keycode == KEY_F8 and event.pressed:
 		if player_movement_debug_overlay:
 			player_movement_debug_overlay.toggle()
+		get_viewport().set_input_as_handled()
+
+	# F9: procedural arm IK debug markers (shoulder / elbow / hand)
+	if event is InputEventKey and event.keycode == KEY_F9 and event.pressed:
+		if player:
+			var arm_ctrl: Node = player.get_node_or_null("ProceduralArmController")
+			if arm_ctrl and arm_ctrl.has_method("toggle_debug_draw"):
+				var on: bool = arm_ctrl.toggle_debug_draw()
+				print("Procedural arms debug: %s" % ("ON" if on else "OFF"))
 		get_viewport().set_input_as_handled()
 
 	# F2: test context menu. Same resolution + options as right-click (Step 2/4).
@@ -1647,7 +1672,9 @@ func _spawn_initial_resources() -> void:
 	await get_tree().process_frame
 	
 	# Spawn resources randomly across the game map (spread out, not clustered in center)
-	var spawn_count := 75  # Total resources to spawn (reduced by half)
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
+	var spawn_count := int(ceili(75.0 * density_mult))  # Total resources to spawn (scaled by density)
 	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
 	var center_pos := player.global_position
 	var min_resource_distance: float = BalanceConfig.resource_min_distance if BalanceConfig else 1000.0
@@ -1708,7 +1735,9 @@ func _spawn_tallgrass() -> void:
 		return
 	var center_pos := player.global_position
 	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
-	var group_count := randi_range(65, 85)  # Number of tallgrass clusters
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
+	var group_count := int(ceili(float(randi_range(65, 85)) * density_mult))  # Scaled by density
 	var texture_paths := [
 		"res://assets/sprites/tallgrass1.png",
 		"res://assets/sprites/tallgrass2.png",
@@ -1765,7 +1794,9 @@ func _spawn_decorative_trees() -> void:
 		return
 	var center_pos := player.global_position
 	var spawn_radius: float = (BalanceConfig.resource_spawn_radius * 1.1) if BalanceConfig else 3500.0
-	var group_count := randi_range(28, 42)
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
+	var group_count := int(ceili(float(randi_range(28, 42)) * density_mult))
 	var min_tree_dist := 110.0
 	var existing_positions: Array[Vector2] = []
 	print("Spawning forest trees (choppable wood) in %d groups (radius: %.0f)" % [group_count, spawn_radius])
@@ -3722,6 +3753,29 @@ func _repro_harness_on_birth() -> void:
 	print("REPRO_HARNESS: observed birth #%d" % _repro_harness_birth_count)
 
 
+func _repro_harness_emit_diag(now_sec: float) -> void:
+	var elapsed: float = now_sec - _repro_harness_start_time if _repro_harness_start_time >= 0.0 else 0.0
+	var diag: Dictionary = {
+		"elapsed_sec": snappedf(elapsed, 0.1),
+		"birth_count": _repro_harness_birth_count,
+		"player_in_claim": false,
+	}
+	if player and is_instance_valid(player):
+		diag["player_clan"] = player.get_clan_name() if player.has_method("get_clan_name") else ""
+		if _repro_harness_woman and is_instance_valid(_repro_harness_woman):
+			var wrc: Node = _repro_harness_woman.get("reproduction_component")
+			if wrc and wrc.has_method("get_harness_diag_dict"):
+				diag.merge(wrc.get_harness_diag_dict(player))
+			else:
+				diag["woman"] = str(_repro_harness_woman.get("npc_name"))
+				diag["repro_component"] = wrc != null
+		if player.has_method("get_clan_name") and _repro_harness_woman:
+			var wrc2: Node = _repro_harness_woman.get("reproduction_component")
+			if wrc2 and wrc2.has_method("_is_player_in_land_claim"):
+				diag["player_in_claim"] = wrc2._is_player_in_land_claim()
+	print("REPRO_HARNESS_DIAG: %s" % str(diag))
+
+
 func _reproduction_harness_run() -> void:
 	print("═══════════════════════════════════════════════════════════")
 	print("REPRO_HARNESS: claim + woman + Living Hut; Player = designated father")
@@ -3756,6 +3810,10 @@ func _reproduction_harness_run() -> void:
 	land_claim.player_owned = true
 	if not land_claim.inventory:
 		land_claim.inventory = _new_land_claim_inventory()
+	if BalanceConfig:
+		BalanceConfig.seed_ai_claim_starting_food(land_claim.inventory)
+	land_claim.inventory.add_item(ResourceData.ResourceType.GRAIN, 20)
+	land_claim.set_meta("calories_days_buffer", 5.0)
 	world_objects.add_child(land_claim)
 	_despawn_tallgrass_near(hub_pos, land_claim.radius)
 	_despawn_decorative_trees_near(hub_pos, land_claim.radius)
@@ -3775,19 +3833,33 @@ func _reproduction_harness_run() -> void:
 	woman.set("npc_type", "woman")
 	woman.set("traits", ["herd"])
 	woman.set("age", 25)
-	_apply_placeholder_card_to_npc(woman)
-	world_objects.add_child(woman)
-	woman.global_position = woman_pos
-	woman.set("spawn_position", woman_pos)
-	woman.set_meta("repro_harness_diag", true)
 	if woman.has_method("set_clan_name"):
 		woman.set_clan_name(REPRO_HARNESS_CLAN_NAME, "repro_harness")
 	else:
 		woman.set("clan_name", REPRO_HARNESS_CLAN_NAME)
+	woman.set_meta("repro_harness_diag", true)
+	_apply_placeholder_card_to_npc(woman)
+	world_objects.add_child(woman)
+	woman.global_position = woman_pos
+	woman.set("spawn_position", woman_pos)
 	woman.visible = true
+	_repro_harness_woman = woman
 	await get_tree().process_frame
 	await get_tree().process_frame
-	_place_herder_hut(land_claim, woman, player)
+	if not _place_herder_hut(land_claim, woman, player):
+		push_error("REPRO_HARNESS_FAIL: could not place Living Hut")
+		get_tree().quit(1)
+		return
+	await get_tree().process_frame
+	var rc: Node = woman.get("reproduction_component") if woman.has_method("get") else null
+	if rc and rc.has_method("session_quickstart_start_pregnancy_now"):
+		rc.session_quickstart_start_pregnancy_now(player)
+		print("REPRO_HARNESS: kickstarted first pregnancy (Player = father); waiting for 2nd natural birth after cooldown")
+	else:
+		push_error("REPRO_HARNESS_FAIL: woman missing reproduction_component")
+		get_tree().quit(1)
+		return
+	_repro_harness_emit_diag(Time.get_ticks_msec() / 1000.0)
 	print("REPRO_HARNESS: waiting for 2 births (max 90s). Player in claim + designated father = Player.")
 
 
@@ -4847,6 +4919,11 @@ func _get_living_hut_count_near_claim(claim: Node2D) -> int:
 		count += 1
 	return count
 
+func _is_building_allowed_on_territory(building_type: ResourceData.ResourceType, claim_node: Node) -> bool:
+	if claim_node is CampfireScript:
+		return building_type in CAMPFIRE_ALLOWED_BUILDING_TYPES
+	return true
+
 func _validate_building_placement(world_pos: Vector2, building_type: ResourceData.ResourceType) -> bool:
 	# Calculate offset positions for safe zone checks (anchor point moved up 20px)
 	var world_pos_offset: Vector2 = world_pos + BUILDING_SAFE_ZONE_OFFSET
@@ -4875,13 +4952,13 @@ func _validate_building_placement(world_pos: Vector2, building_type: ResourceDat
 	if not player_land_claim:
 		return false
 	
-	# Campfire: only Living Huts, max 3 (use cast to avoid LandClaim/Campfire type error)
-	var as_campfire := player_land_claim as Campfire
+	# Campfire (Tier 1): Living Hut, Oven, Drying Rack — not Farm/Dairy
+	var as_campfire := player_land_claim as CampfireScript
 	if as_campfire:
-		if building_type != ResourceData.ResourceType.LIVING_HUT:
-			_last_placement_failure_message = "Only Living Huts at campfire. Upgrade to Land Claim for Oven, Farm, etc."
+		if not _is_building_allowed_on_territory(building_type, player_land_claim):
+			_last_placement_failure_message = "At campfire you can place Living Huts, Oven, and Drying Rack. Upgrade to Land Claim for Farm, Dairy, etc."
 			return false
-		if _get_living_hut_count_near_claim(player_land_claim) >= 6:
+		if building_type == ResourceData.ResourceType.LIVING_HUT and _get_living_hut_count_near_claim(player_land_claim) >= 6:
 			_last_placement_failure_message = "Campfire can only support 6 Living Huts. Upgrade to Land Claim for more!"
 			return false
 	
@@ -4919,6 +4996,8 @@ func _validate_building_placement(world_pos: Vector2, building_type: ResourceDat
 func _validate_building_placement_near_claim_node(world_pos: Vector2, building_type: ResourceData.ResourceType, claim_node: Node, min_from_claim_center: float = -1.0) -> bool:
 	"""Validate placement near any claim-like node (Campfire or LandClaim). Uses global_position and radius."""
 	if not claim_node or not is_instance_valid(claim_node):
+		return false
+	if not _is_building_allowed_on_territory(building_type, claim_node):
 		return false
 	var world_pos_offset: Vector2 = world_pos + BUILDING_SAFE_ZONE_OFFSET
 	var distance := world_pos.distance_to(claim_node.global_position)
@@ -4960,17 +5039,17 @@ func _validate_building_placement_for_claim(world_pos: Vector2, building_type: R
 			return false
 	return true
 
-func _place_ai_building(land_claim: LandClaim, building_type: ResourceData.ResourceType) -> bool:
-	"""Place a building for an AI clan when milestone is met. Free (no cost). Returns true if placed."""
-	if not land_claim or not is_instance_valid(land_claim) or not world_objects:
-		return false
-	var claim_center: Vector2 = land_claim.global_position
-	var radius: float = land_claim.radius if land_claim else 400.0
-	# Keep buildings in ring around claim - NOT on the land claim center (min 120px from center)
+func _find_ai_building_site(territory: Node, building_type: ResourceData.ResourceType) -> Vector2:
+	"""Find a valid position for an AI building within the territory's ring. Returns Vector2.ZERO if none found."""
+	if not territory or not is_instance_valid(territory):
+		return Vector2.ZERO
+	if not _is_building_allowed_on_territory(building_type, territory):
+		return Vector2.ZERO
+	var claim_center: Vector2 = territory.global_position
+	var radius: float = territory.get("radius") if territory.get("radius") != null else 400.0
 	var min_from_center: float = AI_BUILDING_MIN_FROM_CLAIM
 	var max_dist: float = maxf(min_from_center + 10.0, radius - 60.0)
 	var step_angle: float = 0.5
-	var place_pos: Vector2 = Vector2.ZERO
 	var r_start: int = int(min_from_center)
 	var r_end: int = int(max_dist)
 	for r in range(r_start, r_end, 70):
@@ -4978,30 +5057,44 @@ func _place_ai_building(land_claim: LandClaim, building_type: ResourceData.Resou
 		for k in range(20):
 			var angle: float = k * step_angle + randf() * 0.2
 			var cand: Vector2 = claim_center + Vector2(cos(angle * TAU), sin(angle * TAU)) * dist
-			if _validate_building_placement_for_claim(cand, building_type, land_claim, AI_BUILDING_MIN_FROM_CLAIM):
-				place_pos = cand
-				break
-		if place_pos != Vector2.ZERO:
-			break
+			if _validate_building_placement_near_claim_node(cand, building_type, territory, AI_BUILDING_MIN_FROM_CLAIM):
+				return cand
+	return Vector2.ZERO
+
+
+func _place_ai_building_at(territory: Node, building_type: ResourceData.ResourceType, place_pos: Vector2) -> bool:
+	"""Place a building at an exact position for an AI clan. No site search. Returns true if placed."""
+	if not territory or not is_instance_valid(territory) or not world_objects:
+		return false
 	if place_pos == Vector2.ZERO:
 		return false
 	var building: BuildingBase = BUILDING_SCENE.instantiate() as BuildingBase
 	if not building:
 		return false
 	building.building_type = building_type
-	building.clan_name = land_claim.clan_name
+	building.clan_name = territory.clan_name if territory.get("clan_name") != null else ""
 	building.player_owned = false
 	building.global_position = place_pos
 	world_objects.add_child(building)
 	_despawn_tallgrass_near(place_pos, 150.0)
 	_despawn_decorative_trees_near(place_pos, 150.0)
 	building.visible = true
-	_handle_building_placed(building, land_claim)
-	print("🏠 Milestone: %s placed %s at %s" % [land_claim.clan_name, ResourceData.get_resource_name(building_type), place_pos])
+	_handle_building_placed(building, territory)
+	var clan_label: String = str(territory.get("clan_name")) if territory.get("clan_name") != null else "?"
+	print("🏠 Milestone: %s placed %s at %s" % [clan_label, ResourceData.get_resource_name(building_type), place_pos])
 	var pi = get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("milestone_building_placed"):
-		pi.milestone_building_placed(land_claim.clan_name, building_type, place_pos)
+		pi.milestone_building_placed(clan_label, building_type, place_pos)
 	return true
+
+
+func _place_ai_building(territory: Node, building_type: ResourceData.ResourceType) -> bool:
+	"""Place a building for an AI clan when milestone is met. Free (no cost). Returns true if placed.
+	Legacy wrapper — new code should use _find_ai_building_site + _place_ai_building_at for queued builds."""
+	var site: Vector2 = _find_ai_building_site(territory, building_type)
+	if site == Vector2.ZERO:
+		return false
+	return _place_ai_building_at(territory, building_type, site)
 
 func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign_woman_to_hut: bool = true) -> bool:
 	"""Place Living Hut for herder-delivered woman. No cost. Random valid spot inside claim.
@@ -6518,6 +6611,10 @@ func _initialize_minigame() -> void:
 	
 	# GATHER TASK SYSTEM TEST: Enable test environment
 	# await _setup_gather_test_environment()  # DISABLED - normal play
+	# Repro harness builds its own isolated claim — skip default cavemen/wildlife bootstrap.
+	if _cmdline_has("--repro-harness"):
+		print("REPRO_HARNESS: skipping default minigame NPC spawn (isolated claim at 12000,12000)")
+		return
 	# Session quickstart: player claim + 2 women + 2 Living Huts (before woman-test / agro / raid)
 	if DebugConfig.enable_session_quickstart:
 		await _setup_session_quickstart_environment()
