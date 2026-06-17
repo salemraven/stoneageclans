@@ -1,8 +1,8 @@
 # AI Clan Brain System
 
-**Status:** Implemented. Defense, searcher, raid, and **NPC-clan hunting** (Area of Hunt) active; strategic pressures drive quotas.  
-**Last Updated:** 2026-05-28 (territory = flag + campfire; survival mode; hunt pressures)  
-**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A
+**Status:** Implemented. Defense, searcher, raid, **NPC-clan hunting** (Area of Hunt), and **production economy** (WorkRequests) active; strategic pressures drive quotas.  
+**Last Updated:** 2026-06-13 (production economy + Living Hut home binding)  
+**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md`
 
 ## Overview
 
@@ -257,6 +257,17 @@ Land claim also has `reserve_items(worker, items)`, `release_items(worker)` for 
 
 **Campfire** is in group `land_claims` and runs the **same** `ClanBrain` script as the flag. `initialize()` detects `Campfire` and sets `brain_mode = "nomadic"`. **Single writer** for `defender_quota` meta: only ClanBrain (or `_update_player_defender_quota` refresh after UI/drag). **Player preference:** `player_defend_ratio` on the territory — **0** = auto (baseline **n/4** slots + drag pool); **>0** = `ceil(n * ratio)` combined with baseline and pool via `max(...)`. **Alerts:** `trigger_alert` / `report_intruder` / `report_skirmish` / `report_raid` mirror the flag so intrusions notify `clan_brain.on_alert`. Enemy **campfires** are included in `_refresh_nearby_enemies` (duck-typed territory nodes in `land_claims`).
 
+**Nomadic tuning** (when `brain_mode == "nomadic"`):
+
+| Area | Effect |
+|------|--------|
+| Economic weights | ↑ herd (+35%), ↑ resource gather (+15%), ↓ build (−55%) |
+| Role pressures | ↓ defend (−45%), ↑ search (+20%), ↑ gather (+10%) |
+
+**Nomad Mode relocation** (moving the physical campfire) is **not** a ClanBrain eval — it is implemented on **`campfire.gd`**: wood/food burn timer, AI low-resource timer, player **ABANDON CAMP**, panic → march → new fire. See **`bible/camp_relocation.md`**. Wood burn pauses while `nomad_state != NONE`.
+
+**Headless tests:** `bash tools/run_nomad_mode_test.sh` (bundled in `run_ultimate_npc_clanbrain_test.sh` and `run_earlygame_verify.sh`).
+
 ---
 
 ## NPC tasks and decisions
@@ -380,6 +391,25 @@ Combat (12.0) &gt; Herd/search (11.5–12.0) &gt; Defend if protective/guardian 
 - **Hunts:** `is_hunting()`, `get_hunt_intent()`, `should_npc_hunt(npc)`, `npc_join_hunt(npc)`, `npc_leave_hunt(npc)` (mirror raid pull pattern).
 - **Searchers:** `get_searcher_quota()`, `get_current_searcher_count()`, `needs_more_searchers()`, `is_searcher_slot_available()`.
 - **Resources:** `is_resource_critical(name)`, `needs_resources()`, `get_gathering_priorities()`, `get_most_needed_resource()`.
+- **Production:** `has_pending_work_request()`, `claim_work_request(npc)`, `complete_work_request(id)`, `release_work_request(id, reason)`.
+
+---
+
+## Production economy (Tier 1 + Tier 2)
+
+**Full spec:** [production_economy.md](production_economy.md)
+
+On **established campfires** (not marching) and **settled land claims**, every **`allocation_eval_interval`** eval cycles (~15s default):
+
+1. **`_evaluate_resource_allocation()`** — cleanup expired WorkRequests, issue pickup requests for ready passive output, refresh abundance ratios, select chains, issue delivery requests.
+2. Women in **`production_work`** FSM state claim PENDING requests and run TaskRunner jobs from the target building.
+3. After work, **`OccupationSystem.restore_home_living_hut()`** returns the woman to her assigned Living Hut.
+
+**Tier 1 campfire:** Oven + Drying Rack allowed; bread/leather WorkRequests run when camp is idle. Meat still passively cooks on the fire.
+
+**Milestones on campfire:** 10 stone → Oven; 3 hide → Drying Rack (AI). Farm/Dairy/Living Hut milestones remain land-claim only.
+
+**JSONL:** `production_allocation_eval`, `work_request_*`, `production_output`, `campfire_passive_cooked` (see production_economy.md).
 
 ---
 

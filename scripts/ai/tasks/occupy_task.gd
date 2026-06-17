@@ -72,6 +72,8 @@ func _start_impl(actor: Node) -> void:
 		if not can_craft_result:
 			if OccupationSystem and OccupationSystem.has_ref(actor):
 				OccupationSystem.unassign(actor, "task_failed")
+			if OccupationSystem and OccupationSystem.has_method("restore_home_living_hut"):
+				OccupationSystem.restore_home_living_hut(actor)
 			building.set_active(false)
 			_occupied = false
 			if DebugConfig and DebugConfig.enable_debug_mode:
@@ -117,6 +119,8 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			_production_complete = true
 			if OccupationSystem and OccupationSystem.has_ref(actor):
 				OccupationSystem.unassign(actor, "task_complete")
+			if OccupationSystem and OccupationSystem.has_method("restore_home_living_hut"):
+				OccupationSystem.restore_home_living_hut(actor)
 			return TaskStatus.SUCCESS
 	
 	# Continue waiting
@@ -126,3 +130,5 @@ func _cancel_impl(actor: Node) -> void:
 	if _occupied and building and is_instance_valid(building):
 		if OccupationSystem and OccupationSystem.has_ref(actor):
 			OccupationSystem.unassign(actor, "task_cancel")
+		if OccupationSystem and OccupationSystem.has_method("restore_home_living_hut"):
+			OccupationSystem.restore_home_living_hut(actor)

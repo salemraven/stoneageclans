@@ -2,6 +2,31 @@
 
 This document tracks updates to guides based on implementation changes and design decisions.
 
+## June 13, 2026 (Production economy — Tier 1 Oven/Rack)
+
+- **Tier 1 campfire** may place **Oven** and **Drying Rack**; ClanBrain WorkRequests run when camp is not marching.
+- Farm/Dairy milestones remain land-claim only. Docs updated in `production_economy.md`, `earlygame.md`.
+
+## June 13, 2026 (Production economy)
+
+### ClanBrain WorkRequests + bible + test instrumentation
+
+- **`clan_brain.gd`** — production allocation JSONL; `work_requests_pending/active` on eval rows.
+- **`production_work_state.gd`**, **`passive_production_component.gd`**, **`campfire.gd`** — claim/complete/output/cooking telemetry.
+- **`playtest_instrumentor.gd`** — `production_allocation_eval`, `work_request_*`, `production_output`, `campfire_passive_cooked`.
+- **`analyze_playtest.py`** — `--strict-production` + min threshold flags.
+- **`clanbrain_report.py`** — Production economy table per clan.
+- **Bible** — [production_economy.md](production_economy.md), [ai_clan_brain.md](ai_clan_brain.md), [Ultimate_npc_clanbrain_test.md](Ultimate_npc_clanbrain_test.md), [clanbrain_report.md](clanbrain_report.md).
+
+## June 12, 2026 (Nomad Mode)
+
+### Nomad Mode playstyle (Tier 1 campfire)
+
+- **`campfire.gd`** — Nomad Mode (player **ABANDON CAMP** + AI low-resource relocate), wood burn timer (1 wood / 60s), auto fire (no manual off), panic state, building orphan grace, pregnancy freeze.
+- **`main.gd`**, **`player_succession.gd`**, **`panic_state.gd`**, **`building_base.gd`**, **`balance_config.gd`** — march rules, heir possess, BREAK/upgrade blocks.
+- **Bible** — [camp_relocation.md](camp_relocation.md) (canonical flow), [nomad.md](nomad.md) refreshed, [ai_clan_brain.md](ai_clan_brain.md) nomadic + relocation split, [earlygame.md](earlygame.md) Tier 1 section.
+- **Tests** — `tools/test_nomad_mode.gd`, `bash tools/run_nomad_mode_test.sh`; wired into `run_earlygame_verify.sh` and `run_ultimate_npc_clanbrain_test.sh`.
+
 ## June 12, 2026
 
 ### Calorie system + vitals HUD + ClanBrain report instrumentation

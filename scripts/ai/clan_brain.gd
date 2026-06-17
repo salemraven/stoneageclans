@@ -22,6 +22,7 @@ class_name ClanBrain
 extends RefCounted
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
@@ -111,11 +112,16 @@ var economic_priority_weights: Dictionary = {
 	"herd_weight": 0.7
 }
 
-# === Production Economy (Stage 2 work requests) ===
+# === Production Economy (WorkRequests — Tier 1 campfire + Tier 2 land claim) ===
 var abundance_ratios: Dictionary = {}
 var work_requests: Array[Dictionary] = []
 var _next_work_request_id: int = 1
 var _allocation_eval_counter: int = 0
+
+# === Milestone Build Requests (visible AI construction — clansman walks up and builds) ===
+## Parallel to work_requests but for milestone buildings (oven, drying rack, farm, dairy, living hut).
+var build_requests: Array[Dictionary] = []
+var _next_build_request_id: int = 1
 
 # === Alert System ===
 enum AlertLevel { NONE, INTRUDER, SKIRMISH, RAID }
@@ -256,7 +262,7 @@ func _evaluate_clan_state() -> void:
 	
 	_refresh_nearby_enemies()
 	
-	# Milestone buildings: AI land claims only (campfire uses nomadic milestones elsewhere)
+	# Milestone buildings: AI territories (campfire + land claim)
 	if not is_player_clan:
 		_evaluate_milestone_buildings()
 	
@@ -298,7 +304,7 @@ func _evaluate_clan_state() -> void:
 	# Phase 4: Update searcher assignments
 	_update_searcher_assignments()
 	
-	# Production economy: abundance + work requests (Stage 2 land claims only)
+	# Production economy: abundance + work requests (campfire Tier 1 + land claim Tier 2)
 	_evaluate_resource_allocation()
 	
 	# Instrumentation: log full evaluation snapshot
@@ -477,7 +483,11 @@ func _log_evaluation_snapshot() -> void:
 		"player_owned": territory.get("player_owned") == true if territory else false,
 		"player_defend_ratio": snappedf(pref_ratio, 0.01),
 		"defender_quota_freeze_reason": freeze_reason,
-		"survival_mode": _is_survival_mode
+		"survival_mode": _is_survival_mode,
+		"work_requests_pending": _count_work_requests_by_state("PENDING"),
+		"work_requests_active": _count_work_requests_by_state("CLAIMED") + _count_work_requests_by_state("IN_PROGRESS"),
+		"build_requests_pending": _count_build_requests_by_state("PENDING"),
+		"build_requests_active": _count_build_requests_by_state("CLAIMED") + _count_build_requests_by_state("IN_PROGRESS"),
 	}
 	pi.clan_brain_eval(clan_name, metrics)
 
@@ -1224,17 +1234,17 @@ func _claim_has_building_type(claim: Node, building_type: ResourceData.ResourceT
 	return false
 
 func _evaluate_milestone_buildings() -> void:
-	"""When AI hits milestones, spawn buildings: 10 stone→Oven, 3 sheep→Farm, 3 goats→Dairy, 2 babies→Living Hut (empty)."""
-	if not (territory is LandClaim):
-		return
+	"""Queue milestone builds when AI hits thresholds. Tier 1 (campfire): Oven, Drying Rack. Tier 2+: Farm, Dairy, Living Hut.
+	Builds are queued (not instant) so a clansman can visibly construct them via build_milestone_state."""
 	if not territory or not is_instance_valid(territory) or not territory.inventory:
 		return
-	var main_node = territory.get_tree().get_first_node_in_group("main") if territory.get_tree() else null
-	if not main_node or not main_node.has_method("_place_ai_building"):
+	if not _is_server_authoritative():
 		return
+	_cleanup_build_requests()
+	var is_campfire: bool = territory is Campfire
 	var inv = territory.inventory
-	var stone: int = inv.get_count(ResourceData.ResourceType.STONE)
-	var wood: int = inv.get_count(ResourceData.ResourceType.WOOD)
+	var grain_count: int = inv.get_count(ResourceData.ResourceType.GRAIN)
+	var hide_count: int = inv.get_count(ResourceData.ResourceType.HIDE)
 	var sheep_count: int = 0
 	var goat_count: int = 0
 	var baby_count: int = 0
@@ -1248,20 +1258,178 @@ func _evaluate_milestone_buildings() -> void:
 			goat_count += 1
 		elif nt == "baby":
 			baby_count += 1
-	# Milestones: 10 stone → Oven; 3 sheep → Farm; 3 goats → Dairy; 2 babies → Living Hut (no woman assign — herder path in play)
-	if stone >= 10 and not _claim_has_building_type(territory, ResourceData.ResourceType.OVEN):
-		main_node._place_ai_building(territory, ResourceData.ResourceType.OVEN)
-	if sheep_count >= 3 and not _claim_has_building_type(territory, ResourceData.ResourceType.FARM):
-		main_node._place_ai_building(territory, ResourceData.ResourceType.FARM)
-	if goat_count >= 3 and not _claim_has_building_type(territory, ResourceData.ResourceType.DAIRY_FARM):
-		main_node._place_ai_building(territory, ResourceData.ResourceType.DAIRY_FARM)
-	if baby_count >= 2 and not _claim_has_building_type(territory, ResourceData.ResourceType.LIVING_HUT):
-		var placed: bool = main_node._place_ai_building(territory, ResourceData.ResourceType.LIVING_HUT)
-		if not placed:
-			print("🧠 ClanBrain %s: Living Hut milestone (baby_count=%d) but _place_ai_building returned false" % [clan_name, baby_count])
-	var hide_count: int = inv.get_count(ResourceData.ResourceType.HIDE)
-	if hide_count >= 3 and not _claim_has_building_type(territory, ResourceData.ResourceType.DRYING_RACK):
-		main_node._place_ai_building(territory, ResourceData.ResourceType.DRYING_RACK)
+
+	# Thresholds from BalanceConfig
+	var oven_grain: int = BalanceConfig.milestone_oven_min_grain if BalanceConfig else 1
+	var rack_hide: int = BalanceConfig.milestone_drying_rack_min_hide if BalanceConfig else 3
+	var farm_sheep: int = BalanceConfig.milestone_farm_min_sheep if BalanceConfig else 1
+	var dairy_goats: int = BalanceConfig.milestone_dairy_min_goats if BalanceConfig else 1
+	var hut_babies: int = BalanceConfig.milestone_living_hut_min_babies if BalanceConfig else 2
+
+	# Oven + Drying Rack: Tier 1 campfire and Tier 2 land claim
+	if grain_count >= oven_grain:
+		_try_queue_milestone_build(ResourceData.ResourceType.OVEN, "grain>=%d" % oven_grain)
+	if hide_count >= rack_hide:
+		_try_queue_milestone_build(ResourceData.ResourceType.DRYING_RACK, "hide>=%d" % rack_hide)
+	if is_campfire:
+		return
+	# Land claim only below
+	if sheep_count >= farm_sheep:
+		_try_queue_milestone_build(ResourceData.ResourceType.FARM, "sheep>=%d" % farm_sheep)
+	if goat_count >= dairy_goats:
+		_try_queue_milestone_build(ResourceData.ResourceType.DAIRY_FARM, "goats>=%d" % dairy_goats)
+	if baby_count >= hut_babies:
+		_try_queue_milestone_build(ResourceData.ResourceType.LIVING_HUT, "babies>=%d" % hut_babies)
+
+
+func _try_queue_milestone_build(building_type: ResourceData.ResourceType, reason: String) -> void:
+	"""Queue a milestone build if not already built or pending. Server-only."""
+	if _claim_has_building_type(territory, building_type):
+		return
+	if _has_pending_build_request(building_type):
+		return
+	var main_node = territory.get_tree().get_first_node_in_group("main") if territory.get_tree() else null
+	if not main_node or not main_node.has_method("_find_ai_building_site"):
+		return
+	var site: Vector2 = main_node._find_ai_building_site(territory, building_type)
+	if site == Vector2.ZERO:
+		print("🧠 ClanBrain %s: milestone %s queued but no valid site found" % [clan_name, ResourceData.get_resource_name(building_type)])
+		return
+	var req: Dictionary = {
+		"id": _next_build_request_id,
+		"building_type": building_type,
+		"build_pos": site,
+		"state": "PENDING",
+		"npc": null,
+		"reason": reason,
+		"created_at": Time.get_ticks_msec() / 1000.0,
+		"claimed_at": 0.0,
+	}
+	_next_build_request_id += 1
+	build_requests.append(req)
+	print("🧠 ClanBrain %s: queued %s build at %s (reason: %s)" % [clan_name, ResourceData.get_resource_name(building_type), site, reason])
+	_log_build_request_queued(req)
+
+
+func _has_pending_build_request(building_type: ResourceData.ResourceType) -> bool:
+	"""True if there's already a pending/claimed/in-progress build request for this building type."""
+	for req in build_requests:
+		var st: String = req.get("state", "")
+		if st in ["PENDING", "CLAIMED", "IN_PROGRESS"] and req.get("building_type") == building_type:
+			return true
+	return false
+
+
+func _cleanup_build_requests() -> void:
+	"""Remove completed or expired build requests."""
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var expire_sec: float = 120.0
+	var to_remove: Array[int] = []
+	for i in build_requests.size():
+		var req: Dictionary = build_requests[i]
+		var state: String = req.get("state", "")
+		if state == "COMPLETED":
+			to_remove.append(i)
+		elif state == "PENDING" and (now - req.get("created_at", 0.0)) > expire_sec:
+			to_remove.append(i)
+	for i in range(to_remove.size() - 1, -1, -1):
+		build_requests.remove_at(to_remove[i])
+
+
+func has_pending_build_request() -> bool:
+	"""True if there's at least one PENDING milestone build request."""
+	for req in build_requests:
+		if req.get("state", "") == "PENDING":
+			return true
+	return false
+
+
+func claim_build_request(npc: Node) -> Dictionary:
+	"""Claim the first pending build request for an NPC. Returns the request dict or empty if none."""
+	if not npc:
+		return {}
+	for req in build_requests:
+		if req.get("state", "") == "PENDING":
+			req["state"] = "CLAIMED"
+			req["npc"] = npc
+			req["claimed_at"] = Time.get_ticks_msec() / 1000.0
+			_log_build_request_claimed(req, npc)
+			return req
+	return {}
+
+
+func complete_build_request(request_id: int) -> void:
+	"""Mark a build request as completed. Called by build_milestone_state after building placed."""
+	for req in build_requests:
+		if req.get("id", -1) == request_id:
+			var npc_name: String = ""
+			var req_npc: Variant = req.get("npc")
+			if req_npc and is_instance_valid(req_npc) and req_npc.has_method("get"):
+				npc_name = str(req_npc.get("npc_name"))
+			req["state"] = "COMPLETED"
+			_log_build_request_completed(req, npc_name)
+			return
+
+
+func release_build_request(request_id: int, reason: String = "") -> void:
+	"""Release a claimed build request back to PENDING (e.g. NPC interrupted by combat)."""
+	for req in build_requests:
+		if req.get("id", -1) == request_id:
+			req["state"] = "PENDING"
+			req["npc"] = null
+			req["claimed_at"] = 0.0
+			_log_build_request_released(req, reason)
+			return
+
+
+func _count_build_requests_by_state(state_name: String) -> int:
+	var count: int = 0
+	for req in build_requests:
+		if req.get("state", "") == state_name:
+			count += 1
+	return count
+
+
+func _assert_build_request_invariants() -> void:
+	"""Debug check: ensure no duplicate claims, PENDING has no npc, etc."""
+	if not OS.is_debug_build():
+		return
+	var npcs_with_claims: Array = []
+	for req in build_requests:
+		var state: String = req.get("state", "")
+		if state in ["CLAIMED", "IN_PROGRESS"]:
+			var req_npc: Variant = req.get("npc")
+			if req_npc:
+				assert(req_npc not in npcs_with_claims, "NPC has multiple build claims")
+				npcs_with_claims.append(req_npc)
+		elif state == "PENDING":
+			assert(req.get("npc") == null, "PENDING build request has npc assigned")
+
+
+func _log_build_request_queued(req: Dictionary) -> void:
+	var pi = territory.get_node_or_null("/root/PlaytestInstrumentor") if territory and territory.get_tree() else null
+	if pi and pi.is_enabled() and pi.has_method("build_request_queued"):
+		pi.build_request_queued(clan_name, req.get("id", 0), req.get("building_type"), req.get("build_pos", Vector2.ZERO), req.get("reason", ""))
+
+
+func _log_build_request_claimed(req: Dictionary, npc: Node) -> void:
+	var pi = territory.get_node_or_null("/root/PlaytestInstrumentor") if territory and territory.get_tree() else null
+	if pi and pi.is_enabled() and pi.has_method("build_request_claimed"):
+		var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "?"
+		pi.build_request_claimed(clan_name, req.get("id", 0), req.get("building_type"), npc_name)
+
+
+func _log_build_request_completed(req: Dictionary, npc_name: String) -> void:
+	var pi = territory.get_node_or_null("/root/PlaytestInstrumentor") if territory and territory.get_tree() else null
+	if pi and pi.is_enabled() and pi.has_method("build_milestone_completed"):
+		var duration: float = (Time.get_ticks_msec() / 1000.0) - req.get("claimed_at", 0.0)
+		pi.build_milestone_completed(clan_name, req.get("id", 0), req.get("building_type"), npc_name, duration)
+
+
+func _log_build_request_released(req: Dictionary, reason: String) -> void:
+	var pi = territory.get_node_or_null("/root/PlaytestInstrumentor") if territory and territory.get_tree() else null
+	if pi and pi.is_enabled() and pi.has_method("build_milestone_released"):
+		pi.build_milestone_released(clan_name, req.get("id", 0), req.get("building_type"), reason)
 
 func _update_defender_assignments() -> void:
 	"""Update defender quota - NPCs will pull this and self-assign."""
@@ -2026,45 +2194,31 @@ func _evaluate_hunt_opportunity() -> void:
 		cooldown_sec = NPCConfig.hunt_cooldown_hungry_sec
 	if now_sec - _last_hunt_time < cooldown_sec:
 		return
-	var clansmen_count: int = _count_clansmen()
-	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
-	var allow_solo: bool = false
-	if BalanceConfig and BalanceConfig.hunt_allow_solo_when_food_critical:
-		var solo_thresh: float = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
-		allow_solo = (
-			fdb < solo_thresh
-			or fdb < _food_buffer_critical_days()
-			or need_pressure >= 1.0
-			or (clansmen_count == 0 and cavemen.size() == 1)
-		)
-	if cavemen.size() < 1:
+	var min_h: int = NPCConfig.hunt_party_min_size if NPCConfig else 2
+	var max_h: int = NPCConfig.hunt_party_max_size if NPCConfig else 4
+	# Require enough fighters for a full party before starting (no solo caveman hunts).
+	if cavemen.size() < min_h:
 		return
-	if cavemen.size() < 2 and not allow_solo:
+	var defender_quota: int = get_defender_quota()
+	var available: int = cavemen.size() - defender_quota
+	if available < min_h:
 		return
 	var huntables: Array = territory.get_huntables_in_aoh() if territory.has_method("get_huntables_in_aoh") else []
 	if huntables.is_empty():
 		return
-	var defender_quota: int = get_defender_quota()
-	var available: int = cavemen.size() - defender_quota
-	var min_h: int = 2
-	var max_h: int = 4
-	if NPCConfig:
-		min_h = NPCConfig.hunt_party_min_size
-		max_h = NPCConfig.hunt_party_max_size
-	if allow_solo and cavemen.size() == 1:
-		min_h = 1
-		max_h = 1
-	if available < min_h:
-		return
 	var target: Node = _pick_nearest_huntable(huntables)
 	if not target or not is_instance_valid(target):
 		return
-	_start_hunt(target, clampi(available, min_h, max_h), need_pressure)
+	var hunter_quota: int = clampi(available, min_h, max_h)
+	_start_hunt(target, hunter_quota, need_pressure)
 
 func _start_hunt(target: Node, hunter_quota: int, need_pressure: float = 0.0) -> void:
 	if not target or not is_instance_valid(target) or not territory:
 		return
 	if is_raiding():
+		return
+	var min_h: int = NPCConfig.hunt_party_min_size if NPCConfig else 2
+	if hunter_quota < min_h or cavemen.size() < min_h:
 		return
 	_hunt_prey_lost_logged = false
 	var tname: String = str(target.get("npc_type")) if target.get("npc_type") != null else "prey"
@@ -2121,7 +2275,8 @@ func _update_hunt() -> void:
 		HuntIntentState.RECRUITING:
 			var hc: int = _count_active_hunters()
 			var min_h: int = NPCConfig.hunt_party_min_size if NPCConfig else 2
-			if hc >= min_h:
+			var quota_needed: int = maxi(min_h, int(hunt_intent.get("hunter_quota", min_h)))
+			if hc >= quota_needed:
 				_log_hunt_phase_change("RECRUITING", "ACTIVE")
 				hunt_intent["state"] = HuntIntentState.ACTIVE
 				hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
@@ -2924,12 +3079,26 @@ func _notify_party_instrument(formed: bool, leader: Node, followers: Array, sour
 
 # === Production Economy ===
 
-func _is_stage_2() -> bool:
-	return brain_mode == "settled" and territory is LandClaim
+func _get_territory_tier() -> int:
+	if territory is LandClaim:
+		return 2
+	if territory is Campfire:
+		return 1
+	return 0
+
+
+func _supports_production_economy() -> bool:
+	if not territory or not is_instance_valid(territory):
+		return false
+	if territory is Campfire:
+		return (territory as Campfire).nomad_state == Campfire.NomadState.NONE
+	if territory is LandClaim:
+		return brain_mode == "settled"
+	return false
 
 
 func _evaluate_resource_allocation() -> void:
-	if not _is_stage_2() or not territory or not is_instance_valid(territory):
+	if not _supports_production_economy() or not territory or not is_instance_valid(territory):
 		return
 	_allocation_eval_counter += 1
 	var interval: int = BalanceConfig.allocation_eval_interval if BalanceConfig else 3
@@ -2941,14 +3110,12 @@ func _evaluate_resource_allocation() -> void:
 	_refresh_abundance_ratios()
 	var chains: Array = _select_production_chains()
 	for chain in chains:
-		if chain is ProductionChain and _can_issue_delivery_request(chain):
+		if chain is ProductionChainScript and _can_issue_delivery_request(chain):
 			_issue_delivery_request(chain)
+	var pending: int = _count_work_requests_by_state("PENDING")
 	if territory:
-		var pending: int = 0
-		for req in work_requests:
-			if req.get("state", "") == "PENDING":
-				pending += 1
 		territory.set_meta("work_request_pending_count", pending)
+	_log_production_allocation_eval(chains, pending)
 
 
 func _cleanup_work_requests() -> void:
@@ -2961,6 +3128,7 @@ func _cleanup_work_requests() -> void:
 		if state == "COMPLETED":
 			to_remove.append(i)
 		elif state == "PENDING" and (now - float(req.get("created_at", now))) > expire:
+			_log_work_request_expired(req)
 			to_remove.append(i)
 	for i in range(to_remove.size() - 1, -1, -1):
 		work_requests.remove_at(to_remove[i])
@@ -2978,7 +3146,7 @@ func _issue_pickup_requests() -> void:
 			continue
 		if _has_pending_request_for_building(building, "pickup"):
 			continue
-		var chain: ProductionChain = ProductionChainRegistry.get_chain("leather")
+		var chain: Resource = ProductionChainRegistry.get_chain("leather")
 		if chain == null:
 			continue
 		_issue_work_request("pickup", chain.chain_id, building)
@@ -3026,20 +3194,21 @@ func _select_production_chains() -> Array:
 	var food_buffer: float = float(clan_metrics.get("food_days_buffer", 0.0))
 	var target_days: float = BalanceConfig.clan_food_buffer_target_days if BalanceConfig else 1.0
 	var threshold: float = BalanceConfig.abundance_threshold if BalanceConfig else 2.5
-	var bread: ProductionChain = ProductionChainRegistry.get_chain("bread")
-	var leather: ProductionChain = ProductionChainRegistry.get_chain("leather")
-	if bread:
+	var tier: int = _get_territory_tier()
+	var bread: Resource = ProductionChainRegistry.get_chain("bread")
+	var leather: Resource = ProductionChainRegistry.get_chain("leather")
+	if bread and bread.min_stage <= tier:
 		if food_buffer < target_days:
 			if abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > 1.5 and abundance_ratios.get(ResourceData.ResourceType.WOOD, 0.0) > 1.0:
 				selected.append(bread)
 		elif abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > threshold:
 			selected.append(bread)
-	if leather and abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0) > threshold:
+	if leather and leather.min_stage <= tier and abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0) > threshold:
 		selected.append(leather)
 	return selected
 
 
-func _can_issue_delivery_request(chain: ProductionChain) -> bool:
+func _can_issue_delivery_request(chain: Resource) -> bool:
 	if not chain or not territory or not territory.inventory:
 		return false
 	for input in chain.inputs:
@@ -3059,7 +3228,7 @@ func _can_issue_delivery_request(chain: ProductionChain) -> bool:
 	return true
 
 
-func _issue_delivery_request(chain: ProductionChain) -> void:
+func _issue_delivery_request(chain: Resource) -> void:
 	var building: BuildingBase = _find_available_building(chain.building_type)
 	if not building:
 		return
@@ -3081,6 +3250,7 @@ func _issue_work_request(request_type: String, chain_id: String, building: Node)
 	}
 	_next_work_request_id += 1
 	work_requests.append(req)
+	_log_work_request_issued(req)
 
 
 func _has_pending_request_for_building(building: Node, request_type: String) -> bool:
@@ -3156,15 +3326,24 @@ func set_request_state(request_id: int, state: String) -> void:
 			return
 
 
-func release_work_request(request_id: int) -> void:
+func release_work_request(request_id: int, reason: String = "") -> void:
 	for req in work_requests:
 		if req.get("id", -1) == request_id:
 			req["state"] = "PENDING"
 			req["npc"] = null
+			_log_work_request_released(req, reason)
 			return
 
 
 func complete_work_request(request_id: int) -> void:
+	for req in work_requests:
+		if req.get("id", -1) == request_id:
+			var npc_name: String = ""
+			var req_npc: Variant = req.get("npc")
+			if req_npc and is_instance_valid(req_npc) and req_npc.has_method("get_npc_name"):
+				npc_name = str(req_npc.get_npc_name())
+			_log_work_request_completed(req, npc_name)
+			break
 	set_request_state(request_id, "COMPLETED")
 
 
@@ -3183,3 +3362,93 @@ func _assert_work_request_invariants() -> void:
 				npcs_with_claims.append(req_npc)
 		if state == "PENDING":
 			assert(req.get("npc") == null, "PENDING request has npc assigned")
+
+
+func _count_work_requests_by_state(state_name: String) -> int:
+	var count: int = 0
+	for req in work_requests:
+		if req.get("state", "") == state_name:
+			count += 1
+	return count
+
+
+func _get_playtest_instrumentor() -> Node:
+	if not territory or not territory.get_tree():
+		return null
+	return territory.get_tree().root.get_node_or_null("PlaytestInstrumentor")
+
+
+func _log_production_allocation_eval(selected_chains: Array, pending_requests: int) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("production_allocation_eval"):
+		return
+	var chain_ids: Array = []
+	for chain in selected_chains:
+		if chain is ProductionChainScript:
+			chain_ids.append(chain.chain_id)
+	var abundance_log: Dictionary = {}
+	for resource_type in abundance_ratios:
+		var key: String = ResourceData.get_resource_name(resource_type) if ResourceData else str(resource_type)
+		abundance_log[key] = snappedf(float(abundance_ratios[resource_type]), 0.01)
+	pi.production_allocation_eval(clan_name, abundance_log, chain_ids, pending_requests)
+
+
+func _log_work_request_issued(req: Dictionary) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("work_request_issued"):
+		return
+	var building: Node = req.get("building")
+	var building_type: int = building.building_type if building and building.get("building_type") != null else -1
+	pi.work_request_issued(
+		clan_name,
+		int(req.get("id", -1)),
+		str(req.get("request_type", "")),
+		str(req.get("chain_id", "")),
+		building_type
+	)
+
+
+func _log_work_request_expired(req: Dictionary) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("work_request_expired"):
+		return
+	pi.work_request_expired(
+		clan_name,
+		int(req.get("id", -1)),
+		str(req.get("chain_id", "")),
+		str(req.get("request_type", ""))
+	)
+
+
+func _log_work_request_released(req: Dictionary, reason: String) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("work_request_released"):
+		return
+	pi.work_request_released(clan_name, int(req.get("id", -1)), reason)
+
+
+func _log_work_request_completed(req: Dictionary, npc_name: String) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("work_request_completed"):
+		return
+	pi.work_request_completed(
+		clan_name,
+		int(req.get("id", -1)),
+		str(req.get("chain_id", "")),
+		str(req.get("request_type", "")),
+		npc_name
+	)
+
+
+func log_work_request_claimed(req: Dictionary, npc: Node) -> void:
+	var pi := _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled() or not pi.has_method("work_request_claimed"):
+		return
+	var npc_name: String = npc.get_npc_name() if npc and npc.has_method("get_npc_name") else "?"
+	pi.work_request_claimed(
+		clan_name,
+		int(req.get("id", -1)),
+		npc_name,
+		str(req.get("chain_id", "")),
+		str(req.get("request_type", ""))
+	)

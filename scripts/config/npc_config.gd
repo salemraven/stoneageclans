@@ -219,6 +219,7 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var priority_agro_low: float = 3.0
 @export var priority_hunt: float = 9.0
 @export var priority_build_hut_for_woman: float = 12.5
+@export var priority_build_milestone: float = 12.0
 @export var priority_wander_moving_to_deposit: float = 12.0
 @export var priority_wander_returning_from_break: float = 13.0
 @export var priority_wander_caveman_fallback: float = 0.01

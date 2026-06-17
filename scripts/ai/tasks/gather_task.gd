@@ -35,12 +35,14 @@ func _playtest_clan(npc: NPCBase) -> String:
 func _playtest_gather_completed(npc: NPCBase, resource_type: int, amount: int) -> void:
 	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("gather_completed"):
-		pi.gather_completed(npc.npc_name, _playtest_clan(npc), resource_type, amount)
+		var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		pi.gather_completed(npc.npc_name, _playtest_clan(npc), resource_type, amount, nt)
 
 func _playtest_gather_failed(npc: NPCBase, reason: String, resource_type: int = -1) -> void:
 	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("gather_failed"):
-		pi.gather_failed(npc.npc_name, _playtest_clan(npc), reason, resource_type)
+		var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		pi.gather_failed(npc.npc_name, _playtest_clan(npc), reason, resource_type, nt)
 
 func _init(resource: Node2D, duration: float = 1.0, dist: float = 56.0) -> void:
 	resource_node = resource
@@ -142,6 +144,11 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	var distance_to_resource: float = npc_pos.distance_to(resource_pos)
 
 	if distance_to_resource > gather_distance:
+		# Approaching — walk, no berry/timer ring until in harvest range
+		if _has_started_gathering:
+			_has_started_gathering = false
+			_gather_timer = 0.0
+		_clear_gathering(npc, false)
 		# Need to move closer - use MoveToTask; no harvestable check while moving
 		if not _move_task:
 			_move_task = MoveToTaskScript.new(resource_pos, gather_distance) as Task
@@ -198,7 +205,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 				var icon_path: String = ResourceData.get_resource_icon_path(res_type)
 				if icon_path != "":
 					icon = load(icon_path) as Texture2D
-			npc.progress_display.start_collection(icon, gather_duration)
+			_start_gather_progress(npc, icon)
 
 	# If NPC moved after starting gather, cancel
 	var moved: float = npc.global_position.distance_to(_gather_start_position)
@@ -306,7 +313,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			var icon_path: String = ResourceData.get_resource_icon_path(res_type)
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
-		npc.progress_display.start_collection(icon, gather_duration)
+		_start_gather_progress(npc, icon)
 	return TaskStatus.RUNNING
 
 func _find_alternative_resource(npc: Node) -> Node2D:
@@ -343,6 +350,21 @@ func _clear_gathering(npc: NPCBase, cancelled: bool = false) -> void:
 	npc.set("is_gathering", false)
 	if npc.progress_display:
 		npc.progress_display.stop_collection(cancelled)
+
+
+func _kill_progress_tween(npc: NPCBase) -> void:
+	if not npc or not npc.progress_display:
+		return
+	if npc.progress_display.get("_collection_tween") and npc.progress_display._collection_tween:
+		npc.progress_display._collection_tween.kill()
+		npc.progress_display._collection_tween = null
+
+
+func _start_gather_progress(npc: NPCBase, icon: Texture2D) -> void:
+	if not npc or not npc.progress_display:
+		return
+	npc.progress_display.start_collection(icon, gather_duration)
+	_kill_progress_tween(npc)
 
 func _cancel_impl(actor: Node) -> void:
 	if actor is NPCBase:

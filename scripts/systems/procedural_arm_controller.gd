@@ -17,11 +17,20 @@ func _ready() -> void:
 	_player = get_parent() as CharacterBody2D
 	if config == null:
 		config = ProceduralArmConfigScript.new()
+	_apply_draw_layer()
 	_arm_left = ProceduralArmScript.new()
 	_arm_right = ProceduralArmScript.new()
 	_arm_left.setup(self, "L", config)
 	_arm_right.setup(self, "R", config)
 	_apply_debug_state()
+
+
+func _apply_draw_layer() -> void:
+	z_as_relative = false
+	if YSortUtils:
+		z_index = YSortUtils.Z_ABOVE_WORLD
+	elif config:
+		z_index = config.arm_z_index
 
 
 func _process(_delta: float) -> void:
@@ -37,25 +46,34 @@ func _process(_delta: float) -> void:
 	global_rotation = 0.0
 	scale = Vector2.ONE
 
-	var sprite_scale := sprite.scale
-	var shoulder_r := _shoulder_local(sprite, config.shoulder_offset_right, sprite_scale)
-	var shoulder_l := _shoulder_local(sprite, config.shoulder_offset_left, sprite_scale)
-
 	var overlay: Sprite2D = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
-	var weapon_visible := overlay != null and overlay.visible and _player_has_combat_weapon()
+	if not _should_show_spear_arms(overlay):
+		_set_arms_visible(false)
+		return
+
+	var sprite_scale := sprite.scale
+	var card_center := _card_center_local(sprite, sprite_scale)
+	var weapon_center := _weapon_overlay_center_local(sprite, overlay)
 	var aiming_left := _is_aiming_left()
 
-	if weapon_visible:
-		var grip_local := _weapon_grip_local(sprite, overlay)
-		if aiming_left:
-			_arm_left.update_arm(shoulder_l, grip_local, config, -1.0, sprite_scale)
-			_arm_right.update_arm(shoulder_r, _idle_hand_local(sprite, false, sprite_scale), config, 1.0, sprite_scale)
-		else:
-			_arm_right.update_arm(shoulder_r, grip_local, config, 1.0, sprite_scale)
-			_arm_left.update_arm(shoulder_l, _idle_hand_local(sprite, true, sprite_scale), config, -1.0, sprite_scale)
+	if aiming_left:
+		_arm_left.update_arm(card_center, weapon_center, config, -1.0, sprite_scale)
+		_arm_right.update_arm(
+			_shoulder_local(sprite, config.shoulder_offset_right, sprite_scale),
+			_idle_hand_local(sprite, false, sprite_scale),
+			config,
+			1.0,
+			sprite_scale
+		)
 	else:
-		_arm_right.update_arm(shoulder_r, _idle_hand_local(sprite, false, sprite_scale), config, 1.0, sprite_scale)
-		_arm_left.update_arm(shoulder_l, _idle_hand_local(sprite, true, sprite_scale), config, -1.0, sprite_scale)
+		_arm_right.update_arm(card_center, weapon_center, config, 1.0, sprite_scale)
+		_arm_left.update_arm(
+			_shoulder_local(sprite, config.shoulder_offset_left, sprite_scale),
+			_idle_hand_local(sprite, true, sprite_scale),
+			config,
+			-1.0,
+			sprite_scale
+		)
 
 	_set_arms_visible(true)
 	_apply_debug_state()
@@ -92,13 +110,17 @@ func _set_arms_visible(visible_arms: bool) -> void:
 		_arm_right.set_visible_arm(visible_arms)
 
 
-func _player_has_combat_weapon() -> bool:
+func _should_show_spear_arms(overlay: Sprite2D) -> bool:
+	if overlay == null or not overlay.visible:
+		return false
+	return _player_has_spear()
+
+
+func _player_has_spear() -> bool:
 	if _player.has_method("get_equipped_weapon_type"):
-		var wt: ResourceData.ResourceType = _player.get_equipped_weapon_type()
-		return wt != ResourceData.ResourceType.NONE and wt != ResourceData.ResourceType.TRAVOIS
+		return _player.get_equipped_weapon_type() == ResourceData.ResourceType.SPEAR
 	if _player.get("_equipped_item") != null:
-		var item: ResourceData.ResourceType = _player.get("_equipped_item") as ResourceData.ResourceType
-		return ResourceData.is_equipment(item) and item != ResourceData.ResourceType.TRAVOIS
+		return (_player.get("_equipped_item") as ResourceData.ResourceType) == ResourceData.ResourceType.SPEAR
 	return false
 
 
@@ -111,6 +133,15 @@ func _is_aiming_left() -> bool:
 	return sprite != null and sprite.flip_h
 
 
+func _card_center_local(sprite: Sprite2D, sprite_scale: Vector2) -> Vector2:
+	var off: Vector2 = config.card_center_offset
+	return sprite.position + Vector2(off.x * sprite_scale.x, off.y * sprite_scale.y)
+
+
+func _weapon_overlay_center_local(sprite: Sprite2D, overlay: Sprite2D) -> Vector2:
+	return sprite.to_local(overlay.global_position)
+
+
 func _shoulder_local(sprite: Sprite2D, offset_px: Vector2, sprite_scale: Vector2) -> Vector2:
 	var offset := _flip_offset_x(offset_px, sprite.flip_h)
 	return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
@@ -120,12 +151,6 @@ func _idle_hand_local(sprite: Sprite2D, is_left: bool, sprite_scale: Vector2) ->
 	var offset_px: Vector2 = config.idle_hand_offset_left if is_left else config.idle_hand_offset_right
 	var offset := _flip_offset_x(offset_px, sprite.flip_h)
 	return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
-
-
-func _weapon_grip_local(sprite: Sprite2D, overlay: Sprite2D) -> Vector2:
-	var grip_px: Vector2 = config.grip_offset_from_overlay_px
-	var grip_overlay_local := Vector2(grip_px.x * overlay.scale.x, grip_px.y * overlay.scale.y)
-	return sprite.to_local(overlay.to_global(grip_overlay_local))
 
 
 func _flip_offset_x(offset_px: Vector2, flip_h: bool) -> Vector2:

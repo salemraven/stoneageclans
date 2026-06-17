@@ -64,7 +64,7 @@ Hold A/D to see `[PlayerMoveTrace]` in the console.
 
 ## Ultimate NPC & ClanBrain test (recommended gate)
 
-Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_verify`** + short ClanBrain **`Main`** capture + **`analyze_playtest.py --strict-clanbrain`**, plus **NPC-only ~120 s `Main`** (`--npc-only-world`) + **`--strict-npc-sim`** (gather/hunt/growth JSONL thresholds). Details: **`bible/Ultimate_npc_clanbrain_test.md`**.
+Smoke + **`run_instrumented_playtest`** + **`run_territory_brain_integration_verify`** + **`run_nomad_mode_test`** + short ClanBrain **`Main`** capture + **`analyze_playtest.py --strict-clanbrain`**, plus **NPC-only ~120 s `Main`** (`--npc-only-world`) + **`--strict-npc-sim`** (gather/hunt/growth JSONL thresholds). Details: **`bible/Ultimate_npc_clanbrain_test.md`**.
 
 ```bash
 bash tools/run_ultimate_npc_clanbrain_test.sh
@@ -80,7 +80,7 @@ Cli: **`analyze_playtest.py --strict-clanbrain`**, **`--strict-npc-sim`**, **`--
 
 ## Early-game verification (CI-style bundle)
 
-Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **reproduction harness** (Player designated-father / two births), and optionally the longer **ClanBrain** Main session.
+Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **Nomad Mode headless tests**, **reproduction harness** (Player designated-father / two births), and optionally the longer **ClanBrain** Main session.
 
 ```bash
 bash tools/run_earlygame_verify.sh
@@ -88,7 +88,18 @@ bash tools/run_earlygame_verify.sh
 
 - **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 5 (~15s `Main` + JSONL assertions); steps 1–4 stay.
 - **`SKIP_REPRO_HARNESS=1`** — skip step 4 (`--repro-harness` ~12–15s).
-- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, `run_ultimate_npc_clanbrain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_nomad_mode_test.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, `run_ultimate_npc_clanbrain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+
+## Nomad Mode headless tests
+
+Validates Tier 1 campfire relocation rules (wood burn, panic, march, BREAK block). See **`bible/camp_relocation.md`**.
+
+```bash
+bash tools/run_nomad_mode_test.sh
+# or: SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_nomad_mode.gd
+```
+
+Also runs as step **4/6** in **`run_earlygame_verify.sh`** and after territory integration in **`run_ultimate_npc_clanbrain_test.sh`**.
 
 ## Reproduction regression (Player + two births)
 

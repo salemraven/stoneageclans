@@ -10,6 +10,7 @@
 #   ULTIMATE_LONG_2MIN=1       — append 2‑min instrumented Main + herd strict (adds ~2 min wall time).
 #                               Passes ANALYZER_EXTRA_ARGS to include --strict-clanbrain there too.
 #   ULTIMATE_ECONOMY_5MIN=1    — append 5‑min NPC-only economy stress test (hunger/eat/starvation gate).
+#   ULTIMATE_PRODUCTION_STRICT=1 — with ULTIMATE_ECONOMY_5MIN=1, also require work_request_completed + production_work FSM
 #   SKIP_ULTIMATE_2MIN=1       — omit long step even if defaulted elsewhere (explicit skip)
 #   SKIP_NPC_ONLY_2MIN=1       — skip ~120s NPC-only Main + analyze (--npc-only-world proof)
 #
@@ -42,6 +43,10 @@ echo "=============================================="
 bash "$ROOT/tools/run_instrumented_playtest.sh"
 
 bash "$ROOT/tools/run_territory_brain_integration_verify.sh"
+
+echo ""
+echo ">>> Nomad Mode headless tests (campfire relocation invariants)"
+bash "$ROOT/tools/run_nomad_mode_test.sh"
 
 echo ""
 echo ">>> ClanBrain capture into bundle (same JSONL analyzed below)"
@@ -117,6 +122,9 @@ if [[ "${ULTIMATE_ECONOMY_5MIN:-}" == "1" ]]; then
 	echo ""
 	echo ">>> 5-min NPC-only economy stress test: bash tools/run_playtest_npc_only_5min_economy.sh"
 	export OUT_DIR="$ECON_OUT"
+	if [[ "${ULTIMATE_PRODUCTION_STRICT:-}" == "1" ]]; then
+		export PRODUCTION_STRICT=1
+	fi
 	bash "$ROOT/tools/run_playtest_npc_only_5min_economy.sh"
 	ECON_EC=$?
 	if [[ "${FINAL_EC}" -eq 0 ]] && [[ "${ECON_EC}" -ne 0 ]]; then

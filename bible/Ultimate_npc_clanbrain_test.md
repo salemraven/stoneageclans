@@ -4,7 +4,7 @@
 
 **Non-goals:** Full worldgen/chunk exhaustive runs (separate doc), UI/UX polish, player-only mechanics.
 
-**Last Updated:** 2026-05-14
+**Last Updated:** 2026-06-13
 
 ---
 
@@ -20,7 +20,7 @@ Boots `Main.tscn` headless for ~4 iterations; logs to `Tests/logs/`.
 
 ### 1.1b One-command bundled gate (recommended)
 
-Runs instrumented smoke, territory/brain integration, short ClanBrain `Main` capture, **`analyze_playtest.py --strict-clanbrain`**, then **by default** a **~120 s NPC-only `Main`** (`--npc-only-world`, player hidden at origin) with **`analyze_playtest.py --strict-clanbrain --strict-npc-sim`** so AI clans must show gather FSM touches, hunt telemetry, and baby/growth signals. Bundle root **`Tests/logs/ultimate_npc_cb_<timestamp>/`** contains **`npc_only_2min/`**.
+Runs instrumented smoke, territory/brain integration, **Nomad Mode headless tests** (`run_nomad_mode_test.sh`), short ClanBrain `Main` capture, **`analyze_playtest.py --strict-clanbrain`**, then **by default** a **~120 s NPC-only `Main`** (`--npc-only-world`, player hidden at origin) with **`analyze_playtest.py --strict-clanbrain --strict-npc-sim`** so AI clans must show gather FSM touches, hunt telemetry, and baby/growth signals. Bundle root **`Tests/logs/ultimate_npc_cb_<timestamp>/`** contains **`npc_only_2min/`**.
 
 ```bash
 bash tools/run_ultimate_npc_clanbrain_test.sh
@@ -30,7 +30,8 @@ Environment:
 
 - **`SKIP_NPC_ONLY_2MIN=1`** — skip the NPC-only ~120 s step + **`--strict-npc-sim`** gate (saves ~2 min wall time).
 - **`ULTIMATE_LONG_2MIN=1`** — also runs **`bash tools/run_playtest_2min_analyze.sh`** (~2 min `Main`): herd **`--strict`** plus **`--strict-clanbrain`** via **`ANALYZER_EXTRA_ARGS`**.
-- **`ULTIMATE_ECONOMY_5MIN=1`** — append **5-min economy stress test** (`--playtest-5min --npc-only-world`): validates hunger/eat loop working (≥10 `npc_ate` events), **zero starvation deaths** (`--strict-economy --max-starvation-deaths 0 --min-eat-events 10`). Proves long-term play sustainability.
+- **`ULTIMATE_ECONOMY_5MIN=1`** — append **5-min economy stress test** … plus **`--strict-production`** (≥1 `production_allocation_eval` on Tier 1+ territories).
+- **`ULTIMATE_PRODUCTION_STRICT=1`** — with **`ULTIMATE_ECONOMY_5MIN=1`**, also require ≥1 `work_request_completed` and ≥1 `production_work` FSM touch (harder gate; may fail if clans are slow to build Oven/rack).
 - **`ULTIMATE_MIN_CLAN_BRAIN_EVALS`** — default **`1`**; passed to **`--min-clanbrain-eval-events`** (short ClanBrain JSONL and NPC-only analyzer).
 - **`ULTIMATE_MIN_QUOTA_UPDATES`** — default **`0`**; set **`1`** if the short ClanBrain slice must prove quota logs.
 - **`ULTIMATE_NPC_SIM_MIN_GATHER`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_WORLD`** / **`ULTIMATE_NPC_SIM_MIN_HUNT_BRAIN`** / **`ULTIMATE_NPC_SIM_MIN_GROWTH_UNIQUE`** — NPC-only analyzer thresholds (defaults **`8`** / **`1`** / **`1`** / **`1`**). **`MIN_NPC_SESSION_SEC_FOR_ANALYZE`** (default **`90`**) gates **`max(t)`**. **`PLAYTEST_WORLD_SEED`** default **`88442201`** on the bundled NPC-only runners; **`random`** omits **`--playtest-world-seed`**. JSONL **`session_start`** stores **`playtest_world_seed_cli`** when the CLI flag is present (and **`world_seed`** when **`WorldGenConfig`** is on the tree at capture start).
@@ -117,10 +118,14 @@ Set `DebugConfig.enable_session_instrumentation = true` for FSM/agro/task logs i
 - `combat_started`, `combat_ended`, `combat_hit`, `combat_whiff`
 - `friendly_fire_combat_started` — **must stay at 0**
 
-### H. Tasks & economy
+### H. Tasks, production & economy
 - `task_no_job` — why NPC couldn't get work
 - `land_claim_placed`, `milestone_building_placed`
 - `baby_spawned`, `baby_grew_to_clansman`
+- `production_allocation_eval` — abundance snapshot + selected chains (Tier 1 campfire or Tier 2 land claim)
+- `work_request_issued`, `work_request_claimed`, `work_request_completed`, `work_request_released`, `work_request_expired`
+- `production_output` — passive building finished (Drying Rack)
+- `campfire_passive_cooked` — meat→cooked meat at campfire
 
 ### I. Hunger & sustainability (NEW)
 - `npc_hunger_threshold` — fires when NPC crosses 80%, 50%, 30% hunger (direction: above/below)
@@ -314,6 +319,44 @@ ULTIMATE_ECONOMY_5MIN=1 bash tools/run_ultimate_npc_clanbrain_test.sh
 bash tools/run_playtest_npc_only_5min_economy.sh
 ```
 
+Also runs **`--strict-production --min-production-allocation-eval 1`** by default. Set **`ULTIMATE_PRODUCTION_STRICT=1`** on the ultimate bundle for harder work-request floors.
+
+---
+
+### 4.16 Production economy (WorkRequests)
+
+**Setup:** AI clan on **campfire or land claim** with women, grain/wood stock, Oven and/or Drying Rack (milestone: 10 stone → Oven; hide ≥ 3 → rack).
+
+**Stimulus:** Let ClanBrain run allocation ticks (~15s) and women claim jobs.
+
+**Expected JSONL sequence (happy path — leather):**
+1. `production_allocation_eval` with `selected_chains` containing `"leather"` (when hide abundance high)
+2. `work_request_issued` — `request_type: "delivery"`, `chain_id: "leather"`
+3. `work_request_claimed` — woman NPC name
+4. `production_output` — passive rack finished hide→leather
+5. `work_request_issued` — `request_type: "pickup"`
+6. `work_request_completed` — leather deposited to claim
+
+**Bread path:** same pattern with `chain_id: "bread"`, woman stays at Oven (OccupyTask); no `production_output` (active craft).
+
+**Campfire cooking:** `campfire_passive_cooked` when meat in campfire inventory and fire on (parallel to WorkRequests).
+
+**Home hut:** after `work_request_completed`, woman meta should point back to assigned Living Hut (`OccupationSystem.restore_home_living_hut`).
+
+**Pass criteria (soft — 5 min bundle):**
+```bash
+python3 scripts/logging/analyze_playtest.py \
+  --strict-production --min-production-allocation-eval 1 \
+  playtest_session.jsonl
+```
+
+**Pass criteria (strict — optional):**
+```bash
+--min-work-request-issued 1 --min-work-request-completed 1 --min-production-work-fsm 1
+```
+
+**Triage:** See [production_economy.md](production_economy.md) and ClanBrain report **Production economy** table.
+
 ---
 
 ### 4.13 FSM stuck-state watchdog
@@ -340,6 +383,34 @@ bash tools/run_playtest_npc_only_5min_economy.sh
 - No new `hunt_started` / `raid_started` from brain while in survival (offensive phases skipped)
 
 **Pass:** Search/herd prioritized; brain does not schedule raids/hunts until population recovers.
+
+---
+
+### 4.15 Nomad Mode (headless, Tier 1 campfire)
+
+**Setup:** Headless Godot; no full `Main.tscn` boot required (`tools/nomad_test_stub_main.gd`).
+
+**Stimulus:** Run `bash tools/run_nomad_mode_test.sh` (or `--script res://tools/test_nomad_mode.gd`).
+
+**Expected (console):** 11 `ok:` lines + `All Nomad Mode tests passed`.
+
+**Covers:**
+
+| Check | Why |
+|-------|-----|
+| Food count helper | Panic uses total edible types |
+| Stone despawn removed | Tier 1 no longer dies on zero stone |
+| Wood depletion extinguishes fire | 1 wood / 60s timer path |
+| Manual fire-off blocked | Player cannot snuff fire while wood remains |
+| Double nomad trigger blocked | No re-entry during march |
+| Nomad walk blocks abandonment despawn | March ≠ abandoned extinguished camp |
+| All clan members collected | Distant members join march |
+| BREAK blocked during nomad | Followers stay on march |
+| Pregnancy frozen on nomad start | Repro pause during relocation |
+
+**Pass:** Exit code **0**. Bundled in **`run_earlygame_verify.sh`** (step 4/6) and **`run_ultimate_npc_clanbrain_test.sh`** (after territory integration).
+
+**Design reference:** **`bible/camp_relocation.md`**.
 
 ---
 
@@ -528,7 +599,29 @@ Fails when:
 - **`npc_died`** events with `cause: "starvation"` exceed `--max-starvation-deaths` (default -1 = off, set 0 for no starvation allowed)
 - **`npc_ate`** events below `--min-eat-events` (hunger/eat loop must be active)
 
-Bundled runner: **`bash tools/run_playtest_npc_only_5min_economy.sh`** (zero starvation, ≥10 eat events).
+Bundled runner: **`bash tools/run_playtest_npc_only_5min_economy.sh`** (zero starvation, ≥10 eat events, ≥1 allocation eval).
+
+### 6.1e Production economy (`--strict-production`)
+
+Use on **5+ min** NPC-only captures where clans may reach Stage 2 land claims.
+
+```bash
+python3 scripts/logging/analyze_playtest.py \
+  --strict-production \
+  [--min-production-allocation-eval N] \
+  [--min-work-request-issued N] \
+  [--min-work-request-completed N] \
+  [--min-production-output N] \
+  [--min-campfire-passive-cooked N] \
+  [--min-production-work-fsm N] \
+  playtest_session.jsonl
+```
+
+**Soft default** (5-min economy runner): `--min-production-allocation-eval 1` only.
+
+**Strict optional** (`ULTIMATE_PRODUCTION_STRICT=1`): also `--min-work-request-completed 1 --min-production-work-fsm 1`.
+
+**ClanBrain report:** `bash tools/run_clanbrain_report_5min.sh` → section **Production economy**.
 
 ### 6.2 Stability mode
 
@@ -546,11 +639,14 @@ Fails on:
 | Check | Condition |
 |-------|-----------|
 | Brain runs | ≥1 `clan_brain_eval` in 2min run |
+| Nomad Mode | `bash tools/run_nomad_mode_test.sh` exit 0 (11 checks) |
 | No friendly fire | `friendly_fire_instrumented_hits == 0` |
 | Hunts valid | No bad **`hunt_started`** prey (**`--strict-clanbrain`**); NPC strict adds separate **world vs brain** hunt floors |
 | Raids form | Heuristic stress only: after `raid_started`, expect **`party_formed`** shortly (not enforced by analyzer yet) |
-|| No starvation | Zero `npc_died` with `cause: "starvation"` in 5-min run (`--strict-economy --max-starvation-deaths 0`) |
-|| NPCs eating | ≥10 `npc_ate` events in 5-min run (`--strict-economy --min-eat-events 10`) |
+| No starvation | Zero `npc_died` with `cause: "starvation"` in 5-min run (`--strict-economy --max-starvation-deaths 0`) |
+| NPCs eating | ≥10 `npc_ate` events in 5-min run (`--strict-economy --min-eat-events 10`) |
+| Production alloc | ≥1 `production_allocation_eval` in 5-min run (`--strict-production --min-production-allocation-eval 1`) |
+| Work requests (optional) | ≥1 `work_request_completed` when `ULTIMATE_PRODUCTION_STRICT=1` |
 
 ### 6.4 Combined example
 
@@ -570,12 +666,17 @@ python3 scripts/logging/analyze_playtest.py \
 | FSM churn violations | Combat/agro hysteresis broken, target flickering |
 | Friendly fire hits | `CombatAllyCheck` bug or missing call site |
 | Quota never changes | Min-stock gate, single-caveman branch, or alert stuck |
+| No `work_request_*` | Camp marching (Nomad Mode), missing Oven/rack, inputs below gate, or no women |
+| Requests expire only | Women not entering `production_work`, job gen failed, building invalid |
+| `work_request_released` spam | OccupyTask cancel, abort work, or FSM exit mid-job |
+| No `production_output` | Hide never delivered to rack, rack timer not started, or inventory full |
 
 ---
 
 ## 8. Gaps / Backlog for "Ultimate" Test
 
 - [ ] **Scripted deterministic scene:** Pre-spawn two NPC claims + prey + herdables at known positions (not random placement)
+- [ ] **Production deterministic scene:** Pre-stock land claim (grain/wood/hide), Oven, Drying Rack, one woman — prove bread + leather JSONL in &lt;60s
 - [ ] **MP harness:** Automated server + client spin-up with JSONL capture on both
 - [ ] **Raid completion events:** Add explicit `raid_completed` row (currently implicit via party disband + state clear)
 - [ ] **Hunt kill event:** Add `hunt_prey_killed` before butcher phase

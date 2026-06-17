@@ -80,15 +80,8 @@ func update(delta: float) -> void:
 	if npc_type != "woman":
 		return  # Not a woman, skip silently
 	
-	# Must be in clan (wild NPCs cannot reproduce)
-	var clan_name: String = ""
-	if npc:
-		if npc is NPCBase:
-			clan_name = npc.clan_name if npc.clan_name else ""
-		elif npc.has_method("get") and npc.get("clan_name"):
-			clan_name = npc.get("clan_name")
-	
-	if not clan_name or clan_name == "":
+	var clan_name: String = _get_npc_clan_name()
+	if clan_name == "":
 		return  # Wild women cannot reproduce
 	
 	_refresh_designated_father_if_invalid()
@@ -199,32 +192,30 @@ func _father_eligible_for_current_pregnancy(father: Node) -> bool:
 	return true
 
 func _has_living_hut_assigned() -> bool:
-	"""Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
+	"""Woman has a home Living Hut (required for pregnancy)."""
 	if not npc or not OccupationSystem:
 		return false
-	var building = OccupationSystem.get_workplace(npc)
-	if not building or not is_instance_valid(building):
-		return false
-	if not (building is BuildingBase):
-		return false
-	var bt = building.get("building_type")
-	if bt == null:
-		return false
-	return bt == ResourceData.ResourceType.LIVING_HUT or bt == ResourceData.ResourceType.OVEN or bt == ResourceData.ResourceType.FARM or bt == ResourceData.ResourceType.DAIRY_FARM
+	return OccupationSystem.get_home_living_hut(npc) != null
+
+func _get_npc_clan_name() -> String:
+	if not npc:
+		return ""
+	if npc.has_method("get_clan_name"):
+		return str(npc.get_clan_name()).strip_edges()
+	if npc is NPCBase:
+		return npc.clan_name.strip_edges() if npc.clan_name else ""
+	if npc.has_method("get") and npc.get("clan_name"):
+		return str(npc.get("clan_name")).strip_edges()
+	return ""
+
 
 func _is_in_land_claim() -> bool:
 	# Check if woman is inside her clan's land claim
 	if not npc:
 		return false
 	
-	var clan: String = ""
-	if npc:
-		if npc is NPCBase:
-			clan = npc.clan_name if npc.clan_name else ""
-		elif npc.has_method("get") and npc.get("clan_name"):
-			clan = npc.get("clan_name")
-	
-	if not clan or clan == "":
+	var clan: String = _get_npc_clan_name()
+	if clan == "":
 		return false
 	
 	var land_claim = _get_land_claim(clan)
@@ -556,6 +547,13 @@ func _start_pregnancy() -> void:
 		})
 	
 	if not is_pregnant and can_reproduce_result:
+		if not config:
+			config = ReproductionConfig.new()
+			if config and BalanceConfig:
+				config.birth_timer_base = BalanceConfig.pregnancy_seconds
+				config.birth_cooldown = BalanceConfig.birth_cooldown_seconds
+		if not config:
+			return
 		is_pregnant = true
 		birth_timer = config.birth_timer_base
 		last_birth_time = Time.get_ticks_msec() / 1000.0
@@ -770,6 +768,32 @@ func get_pregnancy_status() -> Dictionary:
 		"birth_timer_max": config.birth_timer_base if config else 90.0,
 		"time_remaining": max(0.0, birth_timer),
 		"mate": mate_name
+	}
+
+
+func get_harness_diag_dict(_player: Node = null) -> Dictionary:
+	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
+	var father_eligible: bool = false
+	if designated_father and is_instance_valid(designated_father):
+		father_eligible = _father_eligible_for_current_pregnancy(designated_father)
+	var player_in_claim: bool = _is_player_in_land_claim()
+	return {
+		"woman": npc_name,
+		"clan": _get_npc_clan_name(),
+		"in_claim": _is_in_land_claim(),
+		"has_hut": _has_living_hut_assigned(),
+		"is_pregnant": is_pregnant,
+		"birth_timer": snappedf(birth_timer, 0.1),
+		"can_reproduce": _can_reproduce() if not is_pregnant else false,
+		"designated_father": "Player" if designated_father and designated_father.is_in_group("player") else (
+			str(designated_father.get("npc_name")) if designated_father and designated_father.get("npc_name") != null else "none"
+		),
+		"father_eligible": father_eligible,
+		"player_in_claim": player_in_claim,
+		"food_total": _clan_food_total(),
+		"calorie_buffer_days": snappedf(_clan_calorie_days_buffer(), 0.02),
+		"component_npc_set": npc != null,
+		"block_reason": _get_reproduction_block_reason(),
 	}
 
 

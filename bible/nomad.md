@@ -1,167 +1,107 @@
 # Nomadic Playstyle & Clan Migration
 
-**Last updated:** May 2026 · **Campfire + ClanBrain today:** `bible.md` §V, `bible/earlygame.md` · **Index:** `bible/README.md`
+**Last updated:** June 2026 · **Implemented Nomad Mode:** [camp_relocation.md](camp_relocation.md) · **Tier 1 loop:** [earlygame.md](earlygame.md) · **Index:** [README.md](README.md)
 
-Collected design concepts for nomadic living, packing up, and clan migration. Single doc to flesh out the full vision.
+Design for **Tier 1 campfire** play: survival, mobility, and **Nomad Mode** relocation without disbanding the clan.
 
-**Related:** [earlygame.md](earlygame.md), [future implementations/village.md](future%20implementations/village.md), [Phase3/phase3.md](Phase3/phase3.md).
+**Related:** [earlygame.md](earlygame.md), [ai_clan_brain.md](ai_clan_brain.md), [leader_hut.md](leader_hut.md), [future implementations/village.md](future%20implementations/village.md).
 
 ---
 
-## Design Principle
+## Design principle
 
 **Campfire = survival and mobility.**  
 **Land claim = production and territory.**
 
-- **Nomadic:** Gather, herd, reproduce, move. Lower risk (can flee). Smaller scale.
-- **Stationary:** Build, produce, defend, raid. Higher risk (raids). Larger scale.
+- **Nomadic:** Gather, herd, reproduce, **move the camp** (Nomad Mode). Lower footprint, fewer buildings.
+- **Stationary:** Build, produce, defend, raid. Higher footprint, full production chains.
+
+**Terminology:** **Nomad Mode** = clan relocation (player **ABANDON CAMP** or AI low-resources). **Migration** = wild animal corridor movement only — not used for clans.
 
 ---
 
-## Campfire (Nomadic Base)
+## Campfire (Tier 1 — implemented today)
 
 | Dimension | Campfire | Land Claim |
 |----------|----------|------------|
-| Identity | Temporary base | Permanent settlement |
-| Capacity | 6 slots | 12 slots |
+| Identity | Mobile Tier 1 claim | Settled home |
+| Inventory | 20 slots | 12+ slots (claim) |
 | Radius | 250px | 400px |
-| Buildings | None | Oven, dairy, farm, huts, etc. |
-| ClanBrain | No | Yes |
-| Decay | Despawns when extinguished + player far | Decays when clan dies |
-| Upgrade path | Can become land claim | N/A |
+| Buildings | Living Huts only (**max 3**) | Oven, dairy, farm, huts, etc. |
+| ClanBrain | **Yes** — `brain_mode = "nomadic"` (higher herd/gather, lower defense) | **Yes** — settled tuning |
+| Area of Hunt | No AoH ring | Yes (`AreaOfHunt`) |
+| Fire | Auto-lit when wood present; **1 wood / 60s**; no manual off | N/A |
+| Relocation | **Nomad Mode** — [camp_relocation.md](camp_relocation.md) | Fixed; upgrade chain |
 
-**Campfire does:** Deposit, reproduction, clan join (herd into radius), cooking, warmth, basic "home."
+**Campfire does:** Deposit, reproduction, clan join (herd into radius), warmth, basic home, defender/searcher quotas (nomadic brain), **ABANDON CAMP** relocation.
 
-**Campfire does not:** Place buildings, run ClanBrain, production chains, defenders/searchers.
-
----
-
-## Migration Triggers
-
-### 1. Seasonal Pressure (earlygame)
-
-Around Day 6, stars shift to hint at approaching winter. Player must either:
-- Stockpile dried tubers and cooked meat, or
-- **Prepare to migrate** — pack up and move.
-
-### 2. ClanBrain Migration Impulse (phase3)
-
-Voluntary "strike out" when conditions are met:
-- Clan is stable
-- Male has been there long enough
-- **Migration impulse from ClanBrain** — AI decides to send someone to found a satellite or move the whole clan
-
-### 3. Crisis Triggers (phase3)
-
-- **Flee:** Threat/panic → run. If claim destroyed, become cavemen, can found new clan.
-- **Leave:** Hunger + no food, long hunger, long low morale → voluntary leave. Same outcome: caveman → can found new clan.
+**Campfire does not (yet):** Production chains (oven/farm), NPC-initiated raids from player camp, travois pack-up flow (see backlog below).
 
 ---
 
-## Packing & Moving
+## Nomad Mode (implemented)
 
-### Clansmen Carry Travois
+Full step-by-step: **[camp_relocation.md](camp_relocation.md)**.
 
-Clansmen can pick up and carry travois (like the player), increasing mobile capacity for the whole tribe.
+**Player:** Right-click campfire → **ABANDON CAMP** → all clan members march → place new campfire (clan name skipped) → old fire + orphan building loot **lost**.
 
-**Systems:**
-- `carried_travois_inventory: InventoryData | null` on NPCBase
-- Hotbar slots 0+1 = TRAVOIS when carrying (2-handed)
-- `PickUpTravoisTask` — MoveTo(travois) → reserve → transfer → destroy node → set carried state
-- `PlaceTravoisTask` — MoveTo(pos) → spawn TravoisGround → transfer → clear carried state
-- `carried_by: NPCBase` on TravoisGround — reservation
+**AI Stage 1:** `campfire.gd` tracks wood/food; when low for **60s**, leader walks **800–1500px** and spawns a new fire. ClanBrain **nomadic** pressures still run during camp life; relocation trigger lives on the **campfire**, not a separate ClanBrain migration impulse.
 
-**AI:** TransportJob chains. Clan brain or land claim generates jobs when transport needed.
+**During march:** pregnancies **frozen**, babies as **icons** on mother, **BREAK** and **upgrade blocked**, wood burn **paused**, combat stragglers **auto rejoin**.
 
-### Delegation & Aggregate Carry Capacity
-
-- Player: fixed slots
-- Each clansman: 5 inventory + 8 travois (when carrying)
-- 3 clansmen with travois ≈ 39 extra slots of mobile storage
-
-**Design intent:** Growth directly increases logistics. Player shifts from "I do everything" to "I lead, they work."
-
-### Pack Hut into Travois
-
-Dismantle a nomadic hut and convert its materials into a travois. Leftover materials go into the travois inventory.
-
-**Formula:** `pack_result = hut_recipe - travois_recipe` (per resource). If any result < 0, cannot pack.
-
-**Example:** Hut = 4 wood, 2 cordage, 8 hides. Travois = 2 wood, 2 cordage. Result: 1 travois with 2 wood + 8 hides in inventory.
-
-**Implementation:** `get_pack_into_travois_result()` using CraftRegistry. Data-driven; works for multiple hut tiers.
+**Tests:** `bash tools/run_nomad_mode_test.sh` (11 headless checks). Bundled in `run_earlygame_verify.sh` and `run_ultimate_npc_clanbrain_test.sh`.
 
 ---
 
-## Hut Tier Progression (Thatch → Hide)
+## ClanBrain on campfire (nomadic mode)
 
-- **Thatch hut** — cheaper (wood, cordage, fiber)
-- **Hide hut** — more expensive (wood, cordage, hides)
+Same `scripts/ai/clan_brain.gd` as land claims. On `Campfire`, `initialize()` sets `brain_mode = "nomadic"`:
 
-Pack-into-travois only works when hut materials satisfy travois recipe. Hide hut can pack; thatch may not if cordage deficit.
+- Higher **herd** and **gather** economic weights; lower **build** weight.
+- Lower **defend** pressure; higher **search** / **gather** pressure vs settled clans.
+- Player-owned campfires: brain runs for quotas/alerts; player drives raids/hunts via RTS (same as flag).
 
----
-
-## Decay for Abandoned Structures
-
-Abandoned structures decay over time. In-use structures do not.
-
-**"In use" definition:**
-- Campfire/land claim: has living clan members, items in inventory, recent deposit/interaction, assigned NPCs
-- Building: has occupant, has items, belongs to active claim
-
-**Decay trigger:** `last_activity_time`. Decay when `Time.now - last_activity_time > ABANDON_THRESHOLD` AND not in use.
-
-**Performance:** Central `DecayManager`, staggered batch processing, spatial culling, lazy evaluation.
+See **[ai_clan_brain.md](ai_clan_brain.md)** § Campfire.
 
 ---
 
-## Open Questions & To Flesh Out
+## Future / backlog (not shipped)
 
-### Animal Migration (concept)
+### Seasonal pressure
 
-- Do wild herds (sheep, goats) migrate seasonally? (e.g. move toward water/greener areas)
-- Do clans follow animal migrations — move camp to stay near herds?
-- Or is clan migration purely human-driven (seasonal pressure, resources depleted, ClanBrain)?
+Around Day 6, winter hint → stockpile or **migrate**. Not wired to Nomad Mode yet; use manual **ABANDON CAMP** or AI low-resource nomad today.
 
-### Nomadic Huts vs Living Huts
+### ClanBrain “migration impulse” (phase3 concept)
 
-- **village.md:** Campfire can support up to 3 living huts; then player must claim land.
-- **bible:** Living Hut requires land claim for pregnancy; houses 1 woman + children.
-- **Tension:** Can nomadic campfire have "temporary huts" (thatch/hide) that don't enable pregnancy? Or does campfire reproduction use a different model (lean-to, no hut)?
+Voluntary strike-out when clan is stable — separate from **implemented** AI low-resource Nomad Mode in `campfire.gd`.
 
-### Migration Flow (step-by-step)
+### Travois & pack hut
 
-1. Player decides to migrate — how? (UI action? ClanBrain suggestion?)
-2. Pack hut(s) into travois
-3. Clansmen pick up travois, women/children follow
-4. Player leads — where? (Waypoint? Follow herds? Random direction?)
-5. Place campfire at new location
-6. Unpack? Or build new huts from carried materials?
+- Clansmen carry travois (`PickUpTravoisTask`, `PlaceTravoisTask`) — designed, not full nomad pack-up UI.
+- Dismantle hut → travois inventory — see earlygame § travois.
 
-### Campfire → Land Claim Upgrade
+### Decay for abandoned structures
 
-- When does player "claim land" — place flag, convert campfire?
-- What happens to campfire inventory? To huts?
-- village.md: campfire supports 3 living huts → then must claim. So nomadic phase has huts before land claim?
+Orphan buildings: **60s grace** then despawn (inventories lost). Broader `DecayManager` batch decay — designed in earlygame, partial via `building_base.gd` grace.
 
-### Environment (project-context)
+### Open questions
 
-- Storms, droughts, migrations, harsh winters — how do these affect nomadic vs stationary?
-- Does winter force migration? Does drought force migration toward water?
+- Animal migration follow (herd corridors vs human-driven nomad).
+- Environment forcing migration (drought, winter) vs player/AI resource triggers.
+- Full travois-led migration flow (steps 1–6 in old design doc) vs current **ABANDON CAMP** + place new fire.
 
 ---
 
-## Summary Checklist
+## Summary checklist
 
-| Concept | Status | Source |
-|---------|--------|--------|
-| Campfire vs Land Claim split | Solid | earlygame, bible |
+| Concept | Status | Doc |
+|---------|--------|-----|
+| Campfire vs land claim split | **Shipped** | earlygame, bible |
+| ClanBrain nomadic mode | **Shipped** | ai_clan_brain |
+| Nomad Mode relocation | **Shipped** | camp_relocation |
+| Auto wood burn / no manual fire off | **Shipped** | camp_relocation |
+| Headless nomad tests in CI gates | **Shipped** | Ultimate_npc_clanbrain_test |
+| Pack hut → travois | Designed | earlygame |
 | Seasonal migration pressure | Concept | earlygame |
-| Pack hut into travois | Designed | earlygame |
-| Clansmen carry travois | Designed | earlygame |
-| Hut tiers (thatch/hide) | Designed | earlygame |
-| Decay for abandoned | Designed | earlygame |
 | ClanBrain migration impulse | Concept | phase3 |
-| Animal migration follow | Unspecified | — |
-| Full migration flow | To flesh | — |
+| Full travois migration UX | Backlog | — |

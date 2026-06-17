@@ -88,6 +88,11 @@ func update(_delta: float) -> void:
 		return
 	if not npc.task_runner.has_job():
 		var now: float = Time.get_ticks_msec() / 1000.0
+		# Job ended/cancelled while still in gather state — clear frozen gather visuals
+		if npc.get("is_gathering") == true or (npc.progress_display and npc.progress_display.is_collecting()):
+			npc.set("is_gathering", false)
+			if npc.progress_display:
+				npc.progress_display.stop_collection(false)
 		if now < _no_gather_job_backoff_until:
 			return
 		if now - _last_target_search_time < SEARCH_THROTTLE:
@@ -96,7 +101,10 @@ func update(_delta: float) -> void:
 		if _try_pull_gather_job():
 			return
 		_no_job_retry_time = now + NO_JOB_RETRY_SEC
-		if fsm and fsm.has_method("force_evaluation"):
+		# No work available — leave gather instead of force_eval spam (GUAT/YUUP loop in console.md)
+		if fsm and fsm.has_method("change_state"):
+			fsm.change_state("wander")
+		elif fsm and fsm.has_method("force_evaluation"):
 			fsm.force_evaluation()
 
 func can_enter() -> bool:

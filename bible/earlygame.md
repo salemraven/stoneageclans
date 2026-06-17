@@ -105,8 +105,8 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 | **Identity** | Nomadic home | Settled home | Upgraded settlement |
 | **Inventory slots** | Fewer (e.g. 6) | More (e.g. 12) | TBD |
 | **Radius** | Smaller (e.g. 250px) | Larger (e.g. 400px) | TBD |
-| **Buildings** | Limited (e.g. Living Huts only until upgrade) | Oven, dairy, farm, huts, etc. | Full building set + upgrades |
-| **Production** | Minimal / fire-based only | Bread, cheese, crops, … | TBD |
+| **Buildings** | Living Hut, **Oven**, **Drying Rack** (+ campfire cooking) | Oven, dairy, farm, huts, etc. | Full building set + upgrades |
+| **Production** | Bread, leather (WorkRequests), fire-based meat cooking | Bread, cheese, crops, … | TBD |
 | **ClanBrain** | **Nomadic** mode on campfire (defenders/searchers/threat; no NPC raid start on player) | Full settled (defenders, searchers, raids) | Full + scaling |
 | **Move / abandon** | **Yes** — pack up, relocate, or abandon and place a new campfire; **clan persists** | Typically fixed; upgrade chain, not nomadic pack-up | Fixed |
 | **Upgrade path** | Campfire → **Flag** (place/replace with flag claim) | Flag → Tier 3 → Tier 4 | N/A |
@@ -125,8 +125,10 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 
 ### Campfire-specific (Tier 1 only)
 
-- **Pack / move / abandon:** Remove or itemize the campfire, spawn a new one elsewhere; **do not** wipe `clan_name`, roster, or bloodline—clan is not the stone circle, it’s the people + persistent clan state.
-- **Rebuild:** Placing a new campfire reattaches the same clan the way placing a flag does.
+- **Nomad Mode (implemented):** Right-click campfire → **ABANDON CAMP**; clan marches; place new fire without renaming. Wood **auto-burns** (1 log / 60s); **no manual fire-off**. Full spec: **[camp_relocation.md](camp_relocation.md)**.
+- **Pack / move / abandon:** Old campfire + orphan building inventories are **lost**; **clan_name**, roster, and bloodline **persist**.
+- **Rebuild:** Placing a new campfire reattaches the same clan (skips name dialog if clan already exists).
+- **Tests:** `bash tools/run_nomad_mode_test.sh` — part of early-game and Ultimate ClanBrain gates.
 
 ### Design principle (short)
 

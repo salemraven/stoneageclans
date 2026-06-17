@@ -71,6 +71,18 @@ func _complete_processing() -> void:
 	building.inventory.add_item(output_type, output_quantity)
 	is_processing = false
 	process_timer = 0.0
+	_log_production_output(output_type, output_quantity)
+
+
+func _log_production_output(output_type: ResourceData.ResourceType, quantity: int) -> void:
+	if not building or not is_instance_valid(building):
+		return
+	var pi = building.get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.is_enabled() or not pi.has_method("production_output"):
+		return
+	var clan: String = str(building.get("clan_name")) if building.get("clan_name") != null else "?"
+	var btype: int = int(building.building_type) if building.get("building_type") != null else -1
+	pi.production_output(clan, btype, int(output_type), quantity, true)
 
 
 func has_output_ready() -> bool:

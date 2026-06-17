@@ -1,6 +1,7 @@
 extends Node
 
 ## Autoload: canonical list of production chains for ClanBrain allocation.
+const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 
 var _chains: Dictionary = {}
 
@@ -10,7 +11,7 @@ func _ready() -> void:
 
 
 func _register_builtin_chains() -> void:
-	var bread := ProductionChain.new()
+	var bread := ProductionChainScript.new()
 	bread.chain_id = "bread"
 	bread.display_name = "Bread"
 	bread.building_type = ResourceData.ResourceType.OVEN
@@ -22,10 +23,10 @@ func _register_builtin_chains() -> void:
 	bread.craft_time = BalanceConfig.bread_craft_time if BalanceConfig else 90.0
 	bread.is_passive = false
 	bread.priority_category = "human_food"
-	bread.min_stage = 2
+	bread.min_stage = 1
 	register_chain(bread)
 
-	var leather := ProductionChain.new()
+	var leather := ProductionChainScript.new()
 	leather.chain_id = "leather"
 	leather.display_name = "Leather"
 	leather.building_type = ResourceData.ResourceType.DRYING_RACK
@@ -36,18 +37,18 @@ func _register_builtin_chains() -> void:
 	leather.craft_time = BalanceConfig.drying_rack_process_time if BalanceConfig else 120.0
 	leather.is_passive = true
 	leather.priority_category = "preservation"
-	leather.min_stage = 2
+	leather.min_stage = 1
 	register_chain(leather)
 
 
-func register_chain(chain: ProductionChain) -> void:
+func register_chain(chain: Resource) -> void:
 	if not chain or chain.chain_id.is_empty():
 		return
 	_chains[chain.chain_id] = chain
 
 
-func get_chain(chain_id: String) -> ProductionChain:
-	return _chains.get(chain_id, null) as ProductionChain
+func get_chain(chain_id: String) -> Resource:
+	return _chains.get(chain_id, null) as Resource
 
 
 func get_all_chains() -> Array:
@@ -57,6 +58,6 @@ func get_all_chains() -> Array:
 func get_chains_for_building(building_type: ResourceData.ResourceType) -> Array:
 	var result: Array = []
 	for chain in _chains.values():
-		if chain is ProductionChain and chain.building_type == building_type:
+		if chain is ProductionChainScript and chain.building_type == building_type:
 			result.append(chain)
 	return result

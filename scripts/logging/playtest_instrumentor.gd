@@ -397,18 +397,21 @@ func competition_complete(data: Dictionary) -> void:
 func npc_joined_clan(npc_name: String, clan_name: String, npc_type: String, reason: String = "herded") -> void:
 	_write({"evt": "npc_joined_clan", "npc": npc_name, "clan": clan_name, "type": npc_type, "reason": reason})
 
-func gather_completed(npc_name: String, clan_name: String, resource_type: int, amount: int) -> void:
+func gather_completed(npc_name: String, clan_name: String, resource_type: int, amount: int, npc_type: String = "") -> void:
 	var res_name: String = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
-	_write({
+	var obj: Dictionary = {
 		"evt": "gather_completed",
 		"npc": npc_name,
 		"clan": clan_name,
 		"resource_type": resource_type,
 		"resource": res_name,
 		"amount": amount,
-	})
+	}
+	if npc_type != "":
+		obj["type"] = npc_type
+	_write(obj)
 
-func gather_failed(npc_name: String, clan_name: String, reason: String, resource_type: int = -1) -> void:
+func gather_failed(npc_name: String, clan_name: String, reason: String, resource_type: int = -1, npc_type: String = "") -> void:
 	var obj: Dictionary = {
 		"evt": "gather_failed",
 		"npc": npc_name,
@@ -418,16 +421,21 @@ func gather_failed(npc_name: String, clan_name: String, reason: String, resource
 	if resource_type >= 0:
 		obj["resource_type"] = resource_type
 		obj["resource"] = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	if npc_type != "":
+		obj["type"] = npc_type
 	_write(obj)
 
-func deposit_completed(npc_name: String, clan_name: String, items: Dictionary, total: int) -> void:
-	_write({
+func deposit_completed(npc_name: String, clan_name: String, items: Dictionary, total: int, npc_type: String = "") -> void:
+	var obj: Dictionary = {
 		"evt": "deposit_completed",
 		"npc": npc_name,
 		"clan": clan_name,
 		"items": items,
 		"total": total,
-	})
+	}
+	if npc_type != "":
+		obj["type"] = npc_type
+	_write(obj)
 
 func deposit_failed(npc_name: String, clan_name: String, reason: String, resource_type: int = -1, amount: int = 0) -> void:
 	var obj: Dictionary = {
@@ -443,11 +451,60 @@ func deposit_failed(npc_name: String, clan_name: String, reason: String, resourc
 		obj["amount"] = amount
 	_write(obj)
 
-func task_completed(npc_name: String, clan_name: String, task_type: String) -> void:
-	_write({"evt": "task_completed", "npc": npc_name, "clan": clan_name, "task_type": task_type})
+func task_completed(npc_name: String, clan_name: String, task_type: String, npc_type: String = "") -> void:
+	var obj: Dictionary = {
+		"evt": "task_completed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"task_type": task_type,
+	}
+	if npc_type != "":
+		obj["type"] = npc_type
+	_write(obj)
 
-func task_failed(npc_name: String, clan_name: String, task_type: String, reason: String = "task_failed") -> void:
-	_write({"evt": "task_failed", "npc": npc_name, "clan": clan_name, "task_type": task_type, "reason": reason})
+func task_failed(npc_name: String, clan_name: String, task_type: String, reason: String = "task_failed", npc_type: String = "") -> void:
+	var obj: Dictionary = {
+		"evt": "task_failed",
+		"npc": npc_name,
+		"clan": clan_name,
+		"task_type": task_type,
+		"reason": reason,
+	}
+	if npc_type != "":
+		obj["type"] = npc_type
+	_write(obj)
+
+func task_cancel(npc_name: String, npc_type: String, clan_name: String, reason: String) -> void:
+	_write({
+		"evt": "task_cancel",
+		"npc": npc_name,
+		"type": npc_type,
+		"clan": clan_name,
+		"reason": reason,
+	})
+
+func npc_productivity_snapshot(
+		worker_total: int,
+		with_task_job: int,
+		idle_worker_no_job: int,
+		pct_workers_with_job: float,
+		clansman_total: int,
+		clansman_with_job: int,
+		fsm_states: Dictionary,
+		clansman_fsm_states: Dictionary,
+		by_clan: Dictionary) -> void:
+	_write({
+		"evt": "npc_productivity_snapshot",
+		"worker_total": worker_total,
+		"with_task_job": with_task_job,
+		"idle_worker_no_job": idle_worker_no_job,
+		"pct_workers_with_job": pct_workers_with_job,
+		"clansman_total": clansman_total,
+		"clansman_with_job": clansman_with_job,
+		"fsm_states": fsm_states,
+		"clansman_fsm_states": clansman_fsm_states,
+		"by_clan": by_clan,
+	})
 
 func gather_no_resource(npc_name: String, clan_name: String, reason: String = "no_resource") -> void:
 	_write({"evt": "gather_no_resource", "npc": npc_name, "clan": clan_name, "reason": reason})
@@ -552,6 +609,153 @@ func clan_brain_invariant_failed(clan_name: String, message: String) -> void:
 
 func survival_mode_changed(clan_name: String, entered: bool, population: int) -> void:
 	_write({"evt": "survival_mode_changed", "clan": clan_name, "entered": entered, "population": population})
+
+# --- Production economy (ClanBrain work requests + passive buildings) ---
+
+func production_allocation_eval(
+	clan_name: String,
+	abundance: Dictionary,
+	selected_chains: Array,
+	pending_requests: int
+) -> void:
+	var obj := {
+		"evt": "production_allocation_eval",
+		"clan": clan_name,
+		"pending_requests": pending_requests,
+		"selected_chains": selected_chains,
+	}
+	for k in abundance:
+		obj["abundance_" + str(k)] = abundance[k]
+	_write(obj)
+
+func work_request_issued(
+	clan_name: String,
+	request_id: int,
+	request_type: String,
+	chain_id: String,
+	building_type: int
+) -> void:
+	_write({
+		"evt": "work_request_issued",
+		"clan": clan_name,
+		"request_id": request_id,
+		"request_type": request_type,
+		"chain_id": chain_id,
+		"building_type": building_type,
+	})
+
+func work_request_claimed(clan_name: String, request_id: int, npc_name: String, chain_id: String, request_type: String) -> void:
+	_write({
+		"evt": "work_request_claimed",
+		"clan": clan_name,
+		"request_id": request_id,
+		"npc": npc_name,
+		"chain_id": chain_id,
+		"request_type": request_type,
+	})
+
+func work_request_completed(clan_name: String, request_id: int, chain_id: String, request_type: String, npc_name: String = "") -> void:
+	var obj := {
+		"evt": "work_request_completed",
+		"clan": clan_name,
+		"request_id": request_id,
+		"chain_id": chain_id,
+		"request_type": request_type,
+	}
+	if npc_name != "":
+		obj["npc"] = npc_name
+	_write(obj)
+
+func work_request_released(clan_name: String, request_id: int, reason: String = "") -> void:
+	var obj := {
+		"evt": "work_request_released",
+		"clan": clan_name,
+		"request_id": request_id,
+	}
+	if reason != "":
+		obj["reason"] = reason
+	_write(obj)
+
+func work_request_expired(clan_name: String, request_id: int, chain_id: String, request_type: String) -> void:
+	_write({
+		"evt": "work_request_expired",
+		"clan": clan_name,
+		"request_id": request_id,
+		"chain_id": chain_id,
+		"request_type": request_type,
+	})
+
+
+# --- Build Request Events (milestone construction by clansmen) ---
+
+func build_request_queued(clan_name: String, request_id: int, building_type: int, build_pos: Vector2, reason: String) -> void:
+	_write({
+		"evt": "build_request_queued",
+		"clan": clan_name,
+		"request_id": request_id,
+		"building_type": building_type,
+		"x": build_pos.x,
+		"y": build_pos.y,
+		"reason": reason,
+	})
+
+
+func build_request_claimed(clan_name: String, request_id: int, building_type: int, npc_name: String) -> void:
+	_write({
+		"evt": "build_request_claimed",
+		"clan": clan_name,
+		"request_id": request_id,
+		"building_type": building_type,
+		"npc": npc_name,
+	})
+
+
+func build_milestone_completed(clan_name: String, request_id: int, building_type: int, npc_name: String, duration_sec: float) -> void:
+	_write({
+		"evt": "build_milestone_completed",
+		"clan": clan_name,
+		"request_id": request_id,
+		"building_type": building_type,
+		"npc": npc_name,
+		"duration_sec": duration_sec,
+	})
+
+
+func build_milestone_released(clan_name: String, request_id: int, building_type: int, reason: String) -> void:
+	var obj := {
+		"evt": "build_milestone_released",
+		"clan": clan_name,
+		"request_id": request_id,
+		"building_type": building_type,
+	}
+	if reason != "":
+		obj["reason"] = reason
+	_write(obj)
+
+
+func production_output(
+	clan_name: String,
+	building_type: int,
+	output_type: int,
+	quantity: int,
+	passive: bool
+) -> void:
+	_write({
+		"evt": "production_output",
+		"clan": clan_name,
+		"building_type": building_type,
+		"output_type": output_type,
+		"quantity": quantity,
+		"passive": passive,
+	})
+
+func campfire_passive_cooked(clan_name: String, quantity: int = 1) -> void:
+	_write({
+		"evt": "campfire_passive_cooked",
+		"clan": clan_name,
+		"quantity": quantity,
+		"output_type": ResourceData.ResourceType.COOKED_MEAT,
+	})
 
 func npc_stuck_state_escaped(npc_name: String, from_state: String, elapsed_sec: float) -> void:
 	_write({"evt": "npc_stuck_state_escaped", "npc": npc_name, "from": from_state, "elapsed_sec": elapsed_sec})

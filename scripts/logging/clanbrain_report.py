@@ -297,6 +297,26 @@ class ReportData:
         self.has_building_placed = False
         self.simulation_ticks: list[dict[str, Any]] = []
         self.productivity_reports: dict[str, list[dict]] = defaultdict(list)
+        self.production_allocs: dict[str, list[dict]] = defaultdict(list)
+        self.work_issued: dict[str, list[dict]] = defaultdict(list)
+        self.work_claimed: dict[str, list[dict]] = defaultdict(list)
+        self.work_completed: dict[str, list[dict]] = defaultdict(list)
+        self.work_expired: dict[str, list[dict]] = defaultdict(list)
+        self.work_released: dict[str, list[dict]] = defaultdict(list)
+        self.production_outputs: dict[str, list[dict]] = defaultdict(list)
+        self.campfire_cooked: dict[str, int] = defaultdict(int)
+        # Milestone build requests (visible clansman construction)
+        self.build_queued: dict[str, list[dict]] = defaultdict(list)
+        self.build_claimed: dict[str, list[dict]] = defaultdict(list)
+        self.build_completed: dict[str, list[dict]] = defaultdict(list)
+        self.build_released: dict[str, list[dict]] = defaultdict(list)
+        self.clansmen_names: set[str] = set()
+        self.task_cancel: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.task_cancel_npc: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.clansman_gather: dict[str, int] = defaultdict(int)
+        self.clansman_deposit: dict[str, int] = defaultdict(int)
+        self.clansman_fsm_gather: int = 0
+        self.productivity_snapshots: list[dict] = []
         self._parse()
 
     def _parse(self) -> None:
@@ -346,7 +366,11 @@ class ReportData:
             elif evt == "party_disbanded":
                 self.parties_disbanded.append(ev)
             elif evt == "baby_grew_to_clansman":
+                npc_g = str(ev.get("npc", "?"))
                 self.baby_growth[str(ev.get("clan", "?"))].append(ev)
+                self.clansmen_names.add(npc_g)
+                self.npc_types[npc_g] = "clansman"
+                self.npc_clans[npc_g] = str(ev.get("clan", self.npc_clans.get(npc_g, "?")))
             elif evt == "baby_spawned":
                 self.baby_spawned[str(ev.get("clan", "?"))].append(ev)
             elif evt == "npc_joined_clan":
@@ -363,6 +387,12 @@ class ReportData:
                 self.gathered[clan][resource] += amount
                 npc = str(ev.get("npc", "?"))
                 self.gathered_npc[npc][resource] += amount
+                nt_g = str(ev.get("type", self.npc_types.get(npc, "")))
+                if nt_g:
+                    self.npc_types[npc] = nt_g
+                if nt_g == "clansman" or npc in self.clansmen_names:
+                    self.clansman_gather[clan] += amount
+                    self.clansmen_names.add(npc)
             elif evt == "gather_failed":
                 self.gather_fails[clan][str(ev.get("reason", "unknown"))] += 1
             elif evt == "gather_empty_switch":
@@ -373,6 +403,13 @@ class ReportData:
                 add_item_counts(self.deposited[clan], ev.get("items", {}))
                 npc = str(ev.get("npc", "?"))
                 self.deposit_trips[clan][npc] = self.deposit_trips[clan].get(npc, 0) + 1
+                nt_d = str(ev.get("type", self.npc_types.get(npc, "")))
+                if nt_d:
+                    self.npc_types[npc] = nt_d
+                dep_total = int(ev.get("total", 0))
+                if nt_d == "clansman" or npc in self.clansmen_names:
+                    self.clansman_deposit[clan] += dep_total if dep_total > 0 else 1
+                    self.clansmen_names.add(npc)
             elif evt == "deposit_failed":
                 self.deposit_fails[clan][str(ev.get("reason", "unknown"))] += 1
             elif evt == "building_placed":
@@ -386,13 +423,41 @@ class ReportData:
                 npc = str(ev.get("npc", "?"))
                 self.npc_types[npc] = str(ev.get("type", self.npc_types.get(npc, "?")))
                 self.npc_clans[npc] = str(ev.get("clan", self.npc_clans.get(npc, "?")))
+                nt_f = self.npc_types.get(npc, "")
+                frm = str(ev.get("from", ""))
+                to = str(ev.get("to", ""))
+                if nt_f == "clansman" and ("gather" in frm or "gather" in to):
+                    self.clansman_fsm_gather += 1
+            elif evt == "task_cancel":
+                npc = str(ev.get("npc", "?"))
+                reason = str(ev.get("reason", "unknown"))
+                c_cancel = str(ev.get("clan", "")) or self.npc_clans.get(npc, "?")
+                nt_c = str(ev.get("type", self.npc_types.get(npc, "")))
+                if nt_c:
+                    self.npc_types[npc] = nt_c
+                self.task_cancel[c_cancel][reason] += 1
+                self.task_cancel_npc[npc][reason] += 1
+                if nt_c == "clansman":
+                    self.clansmen_names.add(npc)
+            elif evt == "npc_productivity_snapshot":
+                self.productivity_snapshots.append(ev)
             elif evt == "task_completed":
                 npc = str(ev.get("npc", "?"))
+                nt_t = str(ev.get("type", self.npc_types.get(npc, "")))
+                if nt_t:
+                    self.npc_types[npc] = nt_t
+                if nt_t == "clansman":
+                    self.clansmen_names.add(npc)
                 self.task_ok[clan][str(ev.get("task_type", "?"))] += 1
                 self.task_ok_npc[npc] += 1
                 self.npc_clans[npc] = clan
             elif evt == "task_failed":
                 npc = str(ev.get("npc", "?"))
+                nt_tf = str(ev.get("type", self.npc_types.get(npc, "")))
+                if nt_tf:
+                    self.npc_types[npc] = nt_tf
+                if nt_tf == "clansman":
+                    self.clansmen_names.add(npc)
                 self.task_fail[clan][str(ev.get("task_type", "?"))] += 1
                 self.task_fail_npc[npc] += 1
                 self.npc_clans[npc] = clan
@@ -405,6 +470,31 @@ class ReportData:
                 self.simulation_ticks.append(ev)
             elif evt == "productivity_report":
                 self.productivity_reports[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "production_allocation_eval":
+                self.production_allocs[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "work_request_issued":
+                self.work_issued[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "work_request_claimed":
+                self.work_claimed[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "work_request_completed":
+                self.work_completed[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "work_request_expired":
+                self.work_expired[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "work_request_released":
+                self.work_released[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "production_output":
+                self.production_outputs[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "campfire_passive_cooked":
+                self.campfire_cooked[str(ev.get("clan", "?"))] += int(ev.get("quantity", 1))
+            # Milestone build requests
+            elif evt == "build_request_queued":
+                self.build_queued[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "build_request_claimed":
+                self.build_claimed[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "build_milestone_completed":
+                self.build_completed[str(ev.get("clan", "?"))].append(ev)
+            elif evt == "build_milestone_released":
+                self.build_released[str(ev.get("clan", "?"))].append(ev)
 
     @property
     def ai_clans(self) -> list[str]:
@@ -439,6 +529,17 @@ class ReportData:
     def fighters_for_clan(self, c: str) -> list[str]:
         names = [n for n, cl in self.npc_clans.items() if cl == c and self.npc_types.get(n, "") in FIGHTER_TYPES]
         return sorted(set(names))
+
+    def clansmen_for_clan(self, c: str) -> list[str]:
+        names = [
+            n
+            for n, cl in self.npc_clans.items()
+            if cl == c and (self.npc_types.get(n, "") == "clansman" or n in self.clansmen_names)
+        ]
+        return sorted(set(names))
+
+    def clansman_cancel_total(self, c: str) -> int:
+        return sum(self.task_cancel.get(c, {}).values())
 
     def fsm_dwell_for_clan(self, c: str) -> dict[str, float]:
         fighters = set(self.fighters_for_clan(c))
@@ -605,6 +706,107 @@ class ReportData:
             grown = len(self.baby_growth.get(clan, []))
             first_g = fmt_t(self.baby_growth[clan][0]["t"]) if self.baby_growth.get(clan) else "—"
             lines.append(f"| {clan} | {women} | {babies} | {grown} | {first_g} |")
+        lines.append("")
+
+        lines.extend(["## Clansmen workforce", ""])
+        lines.append(
+            f"- **Unique clansmen seen:** {len(self.clansmen_names)} "
+            f"(gather FSM transitions: {self.clansman_fsm_gather}, productivity snapshots: {len(self.productivity_snapshots)})"
+        )
+        if self.productivity_snapshots:
+            last_snap = self.productivity_snapshots[-1]
+            lines.append(
+                f"- **Last snapshot:** clansmen={last_snap.get('clansman_total', '?')} "
+                f"with_job={last_snap.get('clansman_with_job', '?')} "
+                f"(all workers job %={last_snap.get('pct_workers_with_job', '?')})"
+            )
+        lines.append("")
+        lines.append(
+            "| Clan | Clansmen | Grown | Gathered (clansmen) | Deposited (clansmen) | "
+            "Deposit trips | Task cancels | Top cancel reasons |"
+        )
+        lines.append(
+            "|------|----------|-------|---------------------|----------------------|"
+            "---------------|--------------|-------------------|"
+        )
+        for clan in self.ai_clans:
+            clansmen = self.clansmen_for_clan(clan)
+            grown = len(self.baby_growth.get(clan, []))
+            g_cl = self.clansman_gather.get(clan, 0)
+            d_cl = self.clansman_deposit.get(clan, 0)
+            trips = sum(
+                self.deposit_trips.get(clan, {}).get(n, 0)
+                for n in clansmen
+            )
+            cancels = self.clansman_cancel_total(clan)
+            reasons = self.task_cancel.get(clan, {})
+            top_cancel = ", ".join(
+                f"{k}={v}" for k, v in sorted(reasons.items(), key=lambda x: (-x[1], x[0]))[:3]
+            ) if reasons else "—"
+            lines.append(
+                f"| {clan} | {len(clansmen)} | {grown} | {g_cl} | {d_cl} | {trips} | {cancels} | {top_cancel} |"
+            )
+        lines.append("")
+        all_clansmen = sorted(self.clansmen_names)
+        if all_clansmen:
+            lines.extend(["### Per-clansman activity", ""])
+            lines.append("| NPC | Clan | Gathered | Deposits | Task OK | Task fail | Cancels | Top states |")
+            lines.append("|-----|------|----------|----------|---------|-----------|---------|------------|")
+            trs = self.fsm_transitions
+            dwell_all = compute_fsm_dwell(trs, self.max_t)
+            for npc in all_clansmen:
+                clan_n = self.npc_clans.get(npc, "?")
+                gath = sum(self.gathered_npc.get(npc, {}).values())
+                deps = self.deposit_trips.get(clan_n, {}).get(npc, 0)
+                ok_n = self.task_ok_npc.get(npc, 0)
+                fail_n = self.task_fail_npc.get(npc, 0)
+                cancels_n = sum(self.task_cancel_npc.get(npc, {}).values())
+                states = top_states(dwell_all.get(npc, {}))
+                lines.append(
+                    f"| {npc} | {clan_n} | {gath} | {deps} | {ok_n} | {fail_n} | {cancels_n} | {states} |"
+                )
+            lines.append("")
+
+        lines.extend(["### Production economy", ""])
+        lines.append(
+            "| Clan | Alloc evals | WR issued | WR claimed | WR completed | WR expired | WR released | "
+            "Passive output | Campfire cooked |"
+        )
+        lines.append(
+            "|------|-------------|-----------|------------|--------------|------------|-------------|"
+            "----------------|-----------------|"
+        )
+        for clan in self.ai_clans:
+            lines.append(
+                f"| {clan} | {len(self.production_allocs.get(clan, []))} | "
+                f"{len(self.work_issued.get(clan, []))} | {len(self.work_claimed.get(clan, []))} | "
+                f"{len(self.work_completed.get(clan, []))} | {len(self.work_expired.get(clan, []))} | "
+                f"{len(self.work_released.get(clan, []))} | {len(self.production_outputs.get(clan, []))} | "
+                f"{self.campfire_cooked.get(clan, 0)} |"
+            )
+        lines.append("")
+        lines.append(
+            "*WR* = ClanBrain **work request** (delivery or pickup). "
+            "**Alloc evals** = `production_allocation_eval` rows (~every 15s on established campfire or land claim)."
+        )
+        lines.append("")
+
+        # Milestone construction (visible AI building)
+        lines.extend(["## Milestone construction", ""])
+        lines.append("| Clan | Queued | Claimed | Completed | Released |")
+        lines.append("|------|--------|---------|-----------|----------|")
+        for clan in self.ai_clans:
+            lines.append(
+                f"| {clan} | {len(self.build_queued.get(clan, []))} | "
+                f"{len(self.build_claimed.get(clan, []))} | "
+                f"{len(self.build_completed.get(clan, []))} | "
+                f"{len(self.build_released.get(clan, []))} |"
+            )
+        lines.append("")
+        lines.append(
+            "Build requests = clansmen walking to site and visibly constructing milestone buildings "
+            "(oven, drying rack, farm, dairy). **Completed** = building placed; **Released** = interrupted."
+        )
         lines.append("")
 
         # Worker efficiency

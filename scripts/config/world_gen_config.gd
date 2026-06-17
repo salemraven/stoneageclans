@@ -48,6 +48,9 @@ var clan_density_check_interval_sec: float = 30.0
 var clan_respawn_avoid_player_chunk: bool = true
 
 # --- Resources / trees / decor ---
+## Multiplier for all gatherable resources (trees, bushes, ground items, tallgrass).
+## Does NOT affect NPC spawns (clans, migratory wildlife). Default 2.0 = double density.
+var resource_density_multiplier: float = 2.0
 var resource_spawn_chance: float = 0.55
 var resources_per_chunk: int = 10
 var tree_group_chance: float = 0.35

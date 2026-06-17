@@ -29,6 +29,7 @@ const WorkAtBuildingStateScript = preload("res://scripts/npc/states/work_at_buil
 const ProductionWorkStateScript = preload("res://scripts/npc/states/production_work_state.gd")
 const CraftStateScript = preload("res://scripts/npc/states/craft_state.gd")
 const BuildHutForWomanStateScript = preload("res://scripts/npc/states/build_hut_for_woman_state.gd")
+const BuildMilestoneStateScript = preload("res://scripts/npc/states/build_milestone_state.gd")
 const PanicStateScript = preload("res://scripts/npc/states/panic_state.gd")
 
 var npc: NPCBase = null
@@ -64,6 +65,7 @@ const MAX_STATE_DURATION_SEC: Dictionary = {
 	"search": 120.0,
 	"craft": 120.0,
 	"build": 180.0,
+	"build_milestone": 60.0,
 	"herd_wildnpc": 90.0,
 	"occupy_building": 120.0,
 	"work_at_building": 120.0,
@@ -107,6 +109,7 @@ func initialize(npc_ref: NPCBase) -> void:
 	_register_state("production_work", "")  # ClanBrain-directed production chains
 	_register_state("craft", "")  # Craft state for knapping (clansmen/cavemen)
 	_register_state("build_hut_for_woman", "")  # Herder builds Living Hut for delivered woman
+	_register_state("build_milestone", "")  # Clansman builds milestone buildings for AI clans
 	_register_state("panic", "")  # Women panic when campfire resources depleted
 	
 	# Create state instances directly
@@ -474,6 +477,18 @@ func _create_state_instances() -> void:
 		else:
 			state.queue_free()
 
+	if BuildMilestoneStateScript:
+		var bm_state: Node = Node.new()
+		bm_state.set_script(BuildMilestoneStateScript)
+		if bm_state.has_method("initialize"):
+			bm_state.name = "BuildMilestoneState"
+			add_child(bm_state)
+			states["build_milestone"] = bm_state
+			bm_state.initialize(npc)
+			bm_state.set("fsm", self)
+		else:
+			bm_state.queue_free()
+
 	if PanicStateScript:
 		var panic_st: Node = Node.new()
 		panic_st.set_script(PanicStateScript)
@@ -645,6 +660,15 @@ func _evaluate_states() -> void:
 	if in_craft_and_busy:
 		# Will override best_state below so only defend/combat can take over
 		pass
+
+	# Gather lock: finish the assigned gather job before herd_wildnpc / wander preempt (prevents berry-ring freeze from mid-gather cancel)
+	var in_gather_and_busy: bool = (
+		current_state_name == "gather"
+		and npc
+		and npc.task_runner
+		and npc.task_runner.has_method("has_job")
+		and npc.task_runner.has_job()
+	)
 
 	# SIMPLIFIED: Skip random idle chance for cavemen and clansmen (they should always be productive)
 	var should_skip_idle: bool = (npc_type_str == "caveman" or npc_type_str == "clansman")
@@ -841,6 +865,10 @@ func _evaluate_states() -> void:
 	
 	# Craft lock: only combat may interrupt when actively crafting (defend handled by directive above)
 	if in_craft_and_busy and best_state != "combat":
+		best_state = current_state_name
+
+	# Gather lock: only defend/combat may interrupt an active gather job (herd_wildnpc must wait)
+	if in_gather_and_busy and best_state != "combat" and best_state != "defend":
 		best_state = current_state_name
 	
 	# Switch to best state if different
@@ -1073,7 +1101,7 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 	if new_state_name == "gather":
 		var nt3 = npc.get("npc_type") if npc else null
 		var npc_type: String = (nt3 as String) if nt3 != null else ""
-		if npc_type == "caveman":
+		if npc_type == "caveman" or npc_type == "clansman":
 			print("🔵 FSM TRANSITION TO GATHER: %s (from %s, clan_name='%s')" % [npc_name_track, old_state_track, clan_after])
 		if DebugConfig and DebugConfig.enable_session_instrumentation and (npc_type == "caveman" or npc_type == "clansman"):
 			UnifiedLogger.log_session("FSM_TO_GATHER", {

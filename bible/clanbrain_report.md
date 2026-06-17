@@ -14,7 +14,7 @@ Answers:
 
 **Related docs:** `bible/ai_clan_brain.md`, `bible/Ultimate_npc_clanbrain_test.md`, `bible/PLAYTEST.md`
 
-**Last updated:** 2026-06-12
+**Last updated:** 2026-06-13
 
 ---
 
@@ -50,6 +50,7 @@ The markdown file is always generated in this order:
 | 4 | **ClanBrain health** | Quota fill, **calorie buffer**, kcal stored/need, survival time |
 | 4a | Hunt lifecycle | Started / completed / prey / hunt deposit |
 | 4b | Breeding pipeline | Women joined → babies → clansmen |
+| 4c | Production economy | WorkRequests issued/claimed/completed, passive output, campfire cooking |
 | 5 | **Worker efficiency** | Tasks, gather starvation, FSM time % |
 | 6 | **Economy (session)** | Gather/deposit totals, yield, failures |
 | 7 | **Buildings (session)** | All placements by type, source, time |
@@ -117,7 +118,24 @@ Legacy: `milestone_building_placed`, `campfire_building_built` (also emit `build
 | `npc_joined_clan` / `baby_spawned` / `baby_grew_to_clansman` | Breeding pipeline |
 | `party_formed` / `party_disbanded` | Gates (stuck parties) |
 
-### 2.6 Per-clan fighter roster
+### 2.6 Production economy JSONL events
+
+| Event | Emitter | Key fields |
+|-------|---------|------------|
+| `production_allocation_eval` | `clan_brain.gd` | `clan`, `selected_chains`, `pending_requests`, `abundance_*` |
+| `work_request_issued` | `clan_brain.gd` | `request_id`, `request_type`, `chain_id`, `building_type` |
+| `work_request_claimed` | `production_work_state.gd` | `npc`, `request_id`, `chain_id` |
+| `work_request_completed` | `clan_brain.gd` | `request_id`, `chain_id`, `request_type` |
+| `work_request_released` | `clan_brain.gd` | `request_id`, `reason` |
+| `work_request_expired` | `clan_brain.gd` | `request_id`, `chain_id` |
+| `production_output` | `passive_production_component.gd` | `building_type`, `output_type`, `quantity`, `passive` |
+| `campfire_passive_cooked` | `campfire.gd` | `quantity`, `output_type` |
+
+**Analyzer:** `--strict-production` with optional min thresholds — see [Ultimate_npc_clanbrain_test.md](Ultimate_npc_clanbrain_test.md) §6.1e.
+
+**Design doc:** [production_economy.md](production_economy.md)
+
+### 2.7 Per-clan fighter roster
 
 One table per clan (cavemen + clansmen only):
 

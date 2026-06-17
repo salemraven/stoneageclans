@@ -11,6 +11,9 @@ signal occupation_reserved(npc: Node, building: Node)
 signal occupation_confirmed(npc: Node, building: Node)
 signal occupation_cleared(npc: Node, building: Node, reason: String)
 
+const HOME_LIVING_HUT_META := "home_living_hut"
+const ASSIGNED_WOMAN_META := "assigned_woman"
+
 
 func _ready() -> void:
 	add_to_group("occupation_system")
@@ -177,6 +180,8 @@ func confirm_arrival(npc: Node) -> bool:
 	else:
 		building.set_occupant(ref.slot_index, npc, true)
 	occupation_confirmed.emit(npc, building)
+	if ref.slot_type == "woman" and building.building_type == ResourceData.ResourceType.LIVING_HUT:
+		_bind_home_living_hut(npc, building)
 	if OccupationDiagLogger and OccupationDiagLogger.enabled:
 		OccupationDiagLogger.log("CONFIRM_ARRIVAL", {"npc": npc.get("npc_name") if npc else "?", "type": ref.slot_type, "building": building.name, "slot": ref.slot_index, "state": "OCCUPIED"})
 	return true
@@ -231,9 +236,40 @@ func force_assign(npc: Node, building: BuildingBase, slot_index: int, slot_type:
 	else:
 		building.set_occupant(slot_index, npc, true)
 	occupation_confirmed.emit(npc, building)
+	if slot_type == "woman" and building.building_type == ResourceData.ResourceType.LIVING_HUT:
+		_bind_home_living_hut(npc, building)
 	if OccupationDiagLogger and OccupationDiagLogger.enabled:
 		OccupationDiagLogger.log("FORCE_ASSIGN", {"npc": npc.get("npc_name") if npc else "?", "type": slot_type, "building": building.name, "slot": slot_index, "state": "OCCUPIED"})
 	return true
+
+
+func get_home_living_hut(npc: Node) -> Node2D:
+	if not npc:
+		return null
+	if npc.has_meta(HOME_LIVING_HUT_META):
+		var hut: Variant = npc.get_meta(HOME_LIVING_HUT_META)
+		if hut is Node2D and is_instance_valid(hut):
+			return hut as Node2D
+	if _npc_to_ref.has(npc):
+		var ref = _npc_to_ref[npc]
+		var b: BuildingBase = ref.building
+		if b and is_instance_valid(b) and b.building_type == ResourceData.ResourceType.LIVING_HUT:
+			return b as Node2D
+	return null
+
+
+func restore_home_living_hut(npc: Node) -> bool:
+	var hut := get_home_living_hut(npc)
+	if not hut or not is_instance_valid(hut):
+		return false
+	return force_assign(npc, hut as BuildingBase, 0, "woman")
+
+
+func _bind_home_living_hut(npc: Node, hut: BuildingBase) -> void:
+	if not npc or not hut or hut.building_type != ResourceData.ResourceType.LIVING_HUT:
+		return
+	npc.set_meta(HOME_LIVING_HUT_META, hut)
+	hut.set_meta(ASSIGNED_WOMAN_META, npc)
 
 
 func _is_woman_slot_reserved(building: BuildingBase, slot_index: int, exclude_npc: Node) -> bool:

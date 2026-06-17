@@ -3,6 +3,8 @@ extends "res://scripts/npc/states/base_state.gd"
 ## ClanBrain-directed production work for women (Oven bread + Drying Rack leather).
 ## Pulls WorkRequests from territory ClanBrain; uses TaskRunner for multi-step jobs.
 
+const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
+
 var work_request: Dictionary = {}
 var _brain: RefCounted = null
 var _job_started: bool = false
@@ -20,6 +22,8 @@ func enter() -> void:
 	work_request = _brain.claim_work_request(npc)
 	if work_request.is_empty():
 		return
+	if _brain.has_method("log_work_request_claimed"):
+		_brain.log_work_request_claimed(work_request, npc)
 	_brain.set_request_state(int(work_request.get("id", -1)), "IN_PROGRESS")
 	_start_job_from_request()
 
@@ -32,7 +36,9 @@ func exit() -> void:
 	if _brain and not work_request.is_empty():
 		var state: String = work_request.get("state", "")
 		if state != "COMPLETED":
-			_brain.release_work_request(int(work_request.get("id", -1)))
+			_brain.release_work_request(int(work_request.get("id", -1)), "production_work_exit")
+	if OccupationSystem and OccupationSystem.has_method("restore_home_living_hut"):
+		OccupationSystem.restore_home_living_hut(npc)
 	work_request = {}
 	_brain = null
 	_job_started = false
@@ -52,6 +58,8 @@ func update(_delta: float) -> void:
 	if _brain and not work_request.is_empty():
 		_brain.complete_work_request(int(work_request.get("id", -1)))
 		work_request = {}
+	if OccupationSystem and OccupationSystem.has_method("restore_home_living_hut"):
+		OccupationSystem.restore_home_living_hut(npc)
 	# Job done — leave state so FSM can pick next behavior (or re-enter if more requests)
 	fsm.change_state("wander")
 
@@ -93,11 +101,11 @@ func _start_job_from_request() -> void:
 	var building: Node = work_request.get("building")
 	if not is_instance_valid(building):
 		return
-	var claim := _get_territory() as LandClaim
+	var claim := _get_territory()
 	if not claim:
 		return
 	var chain_id: String = work_request.get("chain_id", "")
-	var chain: ProductionChain = ProductionChainRegistry.get_chain(chain_id) if ProductionChainRegistry else null
+	var chain: Resource = ProductionChainRegistry.get_chain(chain_id) if ProductionChainRegistry else null
 	if chain == null:
 		return
 	var request_type: String = work_request.get("request_type", "delivery")
@@ -111,7 +119,7 @@ func _start_job_from_request() -> void:
 		_job_started = true
 	else:
 		if _brain:
-			_brain.release_work_request(int(work_request.get("id", -1)))
+			_brain.release_work_request(int(work_request.get("id", -1)), "job_generation_failed")
 		work_request = {}
 
 
@@ -129,12 +137,19 @@ func _get_territory() -> Node:
 	var npc_clan: String = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
 	if npc_clan.is_empty():
 		return null
+	var campfire_territory: Node = null
 	for claim in get_tree().get_nodes_in_group("land_claims"):
 		if not is_instance_valid(claim):
 			continue
-		if claim.get("clan_name") == npc_clan:
+		if claim.get("clan_name") != npc_clan:
+			continue
+		if claim is LandClaim:
 			return claim
-	return null
+		if claim is Campfire:
+			var cf: Campfire = claim as Campfire
+			if cf.nomad_state == Campfire.NomadState.NONE:
+				campfire_territory = claim
+	return campfire_territory
 
 
 func _get_clan_brain() -> RefCounted:

@@ -9,6 +9,8 @@ const MoveToTaskScript = preload("res://scripts/ai/tasks/move_to_task.gd")
 const DropOffTaskScript = preload("res://scripts/ai/tasks/drop_off_task.gd")
 const OccupyTaskScript = preload("res://scripts/ai/tasks/occupy_task.gd")
 const JobScript = preload("res://scripts/ai/jobs/job.gd")
+const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
+const PassiveProductionComponentScript = preload("res://scripts/buildings/components/passive_production_component.gd")
 
 # Base class for all buildings
 # Similar structure to LandClaim
@@ -587,7 +589,7 @@ func _setup_drying_rack() -> void:
 	requires_woman = false
 	if has_node("PassiveProductionComponent"):
 		return
-	var passive := PassiveProductionComponent.new(self, ProductionConfig.get_drying_rack_recipe())
+	var passive = PassiveProductionComponentScript.new(self, ProductionConfig.get_drying_rack_recipe())
 	passive.name = "PassiveProductionComponent"
 	add_child(passive)
 
@@ -1170,9 +1172,9 @@ func get_animal_calorie_days_buffer() -> float:
 	return animal_calories / daily
 
 
-func get_passive_production_component() -> PassiveProductionComponent:
+func get_passive_production_component() -> Node:
 	var node := get_node_or_null("PassiveProductionComponent")
-	return node as PassiveProductionComponent
+	return node
 
 
 func has_passive_output_ready() -> bool:
@@ -1192,7 +1194,7 @@ func can_accept_passive_input(input_type: ResourceData.ResourceType, quantity: i
 	return true
 
 
-func generate_clanbrain_delivery_job(worker: NPCBase, claim: LandClaim, chain: ProductionChain) -> Job:
+func generate_clanbrain_delivery_job(worker: NPCBase, claim: Node, chain: Resource) -> Job:
 	if not worker or not claim or not chain or not inventory:
 		return null
 	var inputs: Array = chain.inputs
@@ -1242,7 +1244,7 @@ func generate_clanbrain_delivery_job(worker: NPCBase, claim: LandClaim, chain: P
 	return job
 
 
-func generate_clanbrain_pickup_job(worker: NPCBase, claim: LandClaim, chain: ProductionChain) -> Job:
+func generate_clanbrain_pickup_job(worker: NPCBase, claim: Node, chain: Resource) -> Job:
 	if not worker or not claim or not chain or not inventory:
 		return null
 	var output_type: ResourceData.ResourceType = chain.get_output_type()
@@ -1272,17 +1274,8 @@ func _find_home_hut_position(worker: NPCBase) -> Vector2:
 	if not worker:
 		return Vector2.ZERO
 	if OccupationSystem:
-		var workplace := OccupationSystem.get_workplace(worker)
-		if workplace and is_instance_valid(workplace):
-			if workplace.get("building_type") == ResourceData.ResourceType.LIVING_HUT:
-				return workplace.global_position
-	var worker_clan: String = worker.get_clan_name() if worker.has_method("get_clan_name") else ""
-	for b in worker.get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(b):
-			continue
-		if b.get("building_type") != ResourceData.ResourceType.LIVING_HUT:
-			continue
-		if b.get("clan_name") == worker_clan:
-			return b.global_position
+		var hut := OccupationSystem.get_home_living_hut(worker)
+		if hut and is_instance_valid(hut):
+			return hut.global_position
 	return Vector2.ZERO
 

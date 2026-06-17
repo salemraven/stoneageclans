@@ -90,19 +90,20 @@ func _physics_process(delta: float) -> void:
 			# Task completed successfully, advance job to next task
 			if DebugConfig and DebugConfig.enable_debug_mode:
 				UnifiedLogger.log_npc("TaskRunner: Task %s (%s) completed SUCCESS" % [current_job.get_progress_string(), task_type], {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+			var npc_ns: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
 			if DebugConfig and DebugConfig.enable_session_instrumentation:
-				var npc_ns: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
 				var prog_s: String = current_job.get_progress_string() if current_job else ""
 				UnifiedLogger.log_session("WORK_TASK_SUCCESS", {
 					"npc": npc_ns,
 					"task_type": task_type,
 					"progress_before_advance": prog_s
 				}, UnifiedLogger.Level.INFO)
-				if npc is NPCBase:
-					var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
-					if pi and pi.is_enabled() and pi.has_method("task_completed"):
-						var clan_s: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
-						pi.task_completed(npc_ns, clan_s, task_type)
+			if npc is NPCBase:
+				var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
+				if pi and pi.is_enabled() and pi.has_method("task_completed"):
+					var clan_s: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
+					var nt_ok: String = str((npc as NPCBase).get("npc_type")) if (npc as NPCBase).get("npc_type") != null else ""
+					pi.task_completed(npc_ns, clan_s, task_type, nt_ok)
 			current_task = null
 			if current_job:
 				current_job.advance()
@@ -122,11 +123,12 @@ func _physics_process(delta: float) -> void:
 					"task_type": task_type,
 					"progress": current_job.get_progress_string() if current_job else ""
 				}, UnifiedLogger.Level.INFO)
-				if npc is NPCBase:
-					var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
-					if pi and pi.is_enabled() and pi.has_method("task_failed"):
-						var clan_f: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
-						pi.task_failed(npc_name, clan_f, task_type, "task_failed")
+			if npc is NPCBase:
+				var pi = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
+				if pi and pi.is_enabled() and pi.has_method("task_failed"):
+					var clan_f: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
+					var nt_fail: String = str((npc as NPCBase).get("npc_type")) if (npc as NPCBase).get("npc_type") != null else ""
+					pi.task_failed(npc_name, clan_f, task_type, "task_failed", nt_fail)
 			if current_task:
 				current_task.cancel(npc)
 			cancel_current_job("task_failed")
@@ -210,20 +212,27 @@ func cancel_current_job(reason: String = "unspecified") -> void:
 	
 	current_job = null
 	is_active = false
+	_clear_npc_gather_visuals()
 	
 	if npc is NPCBase:
 		CorpseJobs.clear_worker_meta(npc as NPCBase)
 	
 	if DebugConfig and DebugConfig.enable_debug_mode:
-		UnifiedLogger.log_npc("TaskRunner: Job cancelled", {"npc": (npc as NPCBase).npc_name if npc is NPCBase else "unknown"}, UnifiedLogger.Level.DEBUG)
+		var cancel_npc: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+		UnifiedLogger.log_npc("TaskRunner: Job cancelled (%s)" % reason, {"npc": cancel_npc, "reason": reason}, UnifiedLogger.Level.DEBUG)
+	var npc_name_s: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
+	var nt: String = (npc as NPCBase).npc_type if npc is NPCBase and "npc_type" in npc else ""
 	if DebugConfig and DebugConfig.enable_session_instrumentation:
-		var npc_name_s: String = (npc as NPCBase).npc_name if npc is NPCBase else "unknown"
-		var nt: String = (npc as NPCBase).npc_type if npc is NPCBase and "npc_type" in npc else ""
 		UnifiedLogger.log_session("TASK_CANCEL", {
 			"npc": npc_name_s,
 			"type": nt,
 			"reason": reason
 		}, UnifiedLogger.Level.INFO)
+	if npc is NPCBase:
+		var pi_cancel = (npc as NPCBase).get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_cancel and pi_cancel.is_enabled() and pi_cancel.has_method("task_cancel"):
+			var clan_c: String = (npc as NPCBase).get_clan_name() if (npc as NPCBase).has_method("get_clan_name") else ""
+			pi_cancel.task_cancel(npc_name_s, nt, clan_c, reason)
 
 # Clear the job (job completed successfully)
 func _clear_job() -> void:
@@ -256,6 +265,7 @@ func _clear_job() -> void:
 	current_job = null
 	current_task = null
 	is_active = false
+	_clear_npc_gather_visuals()
 	
 	if npc is NPCBase:
 		CorpseJobs.clear_worker_meta(npc as NPCBase)
@@ -352,7 +362,20 @@ func controls_movement() -> bool:
 		# Approach phase uses an internal MoveToTask; must win over herd steering like gather/move jobs.
 		var internal_move_task: Variant = current_task.get("_move_task") if current_task else null
 		return internal_move_task != null
+	if script_path == "gather_task.gd":
+		# GatherTask walks via internal MoveToTask when out of range — parent physics must not overwrite velocity first.
+		var gather_move: Variant = current_task.get("_move_task") if current_task else null
+		return gather_move != null
 	return false
+
+
+func _clear_npc_gather_visuals() -> void:
+	if not npc is NPCBase:
+		return
+	var nb := npc as NPCBase
+	nb.set("is_gathering", false)
+	if nb.progress_display:
+		nb.progress_display.stop_collection(false)
 
 # Get current task status (for debugging)
 func get_status_string() -> String:

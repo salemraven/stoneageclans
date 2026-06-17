@@ -29,17 +29,19 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 	if cfg == null:
 		return out
 
+	# Resource density multiplier (does NOT affect clans/wildlife)
+	var density_mult: float = maxf(0.1, float(cfg.get("resource_density_multiplier")) if cfg.get("resource_density_multiplier") != null else 1.0)
 	var res_chance: float = float(cfg.get("resource_spawn_chance"))
-	var res_n: int = int(cfg.get("resources_per_chunk"))
+	var res_n: int = maxi(1, int(ceili(float(cfg.get("resources_per_chunk")) * density_mult)))
 	var tree_chance: float = float(cfg.get("tree_group_chance"))
-	var tree_groups: int = int(cfg.get("tree_groups_per_chunk"))
+	var tree_groups: int = maxi(1, int(ceili(float(cfg.get("tree_groups_per_chunk")) * density_mult)))
 	var tmin: int = int(cfg.get("trees_per_group_min"))
 	var tmax: int = int(cfg.get("trees_per_group_max"))
 	var spread: float = float(cfg.get("tree_group_spread_radius"))
-	var grass_clusters: int = int(cfg.get("tallgrass_clusters_per_chunk"))
+	var grass_clusters: int = maxi(1, int(ceili(float(cfg.get("tallgrass_clusters_per_chunk")) * density_mult)))
 	var gci_min: int = int(cfg.get("tallgrass_per_cluster_min"))
 	var gci_max: int = int(cfg.get("tallgrass_per_cluster_max"))
-	var ground_n: int = int(cfg.get("ground_items_per_chunk"))
+	var ground_n: int = maxi(1, int(ceili(float(cfg.get("ground_items_per_chunk")) * density_mult)))
 	var clan_chance: float = float(cfg.get("clan_spawn_chance"))
 
 	var origin := Vector2(float(cx), float(cy)) * ChunkUtils.CHUNK_SIZE

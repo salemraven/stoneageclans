@@ -4,10 +4,11 @@ class_name ProceduralArm
 const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_config.gd")
 
 var _line: Line2D
+var _endpoint_root: Node2D
+var _shoulder_marker: Node2D
+var _hand_marker: Node2D
 var _debug_root: Node2D
-var _debug_shoulder: Node2D
 var _debug_elbow: Node2D
-var _debug_hand: Node2D
 
 var _points: PackedVector2Array = PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 var _last_shoulder := Vector2.ZERO
@@ -21,6 +22,7 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 		return
 	_line = Line2D.new()
 	_line.name = "ArmLine_%s" % side_label
+	_line.z_as_relative = false
 	_line.z_index = cfg.arm_z_index
 	_line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_line.joint_mode = Line2D.LINE_JOINT_ROUND
@@ -30,19 +32,28 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	_apply_line_style(cfg)
 	parent.add_child(_line)
 
+	_endpoint_root = Node2D.new()
+	_endpoint_root.name = "ArmEndpoints_%s" % side_label
+	_endpoint_root.z_as_relative = false
+	_endpoint_root.z_index = cfg.arm_z_index
+	parent.add_child(_endpoint_root)
+	_shoulder_marker = _make_circle_marker(_endpoint_root, cfg.shoulder_marker_color)
+	_hand_marker = _make_circle_marker(_endpoint_root, cfg.hand_marker_color)
+
 	_debug_root = Node2D.new()
 	_debug_root.name = "ArmDebug_%s" % side_label
-	_debug_root.z_index = cfg.arm_z_index + 1
+	_debug_root.z_as_relative = false
+	_debug_root.z_index = cfg.arm_z_index
 	_debug_root.visible = false
 	parent.add_child(_debug_root)
-	_debug_shoulder = _make_debug_marker(_debug_root, Color(0.2, 0.8, 0.2, 1.0))
-	_debug_elbow = _make_debug_marker(_debug_root, Color(0.9, 0.8, 0.1, 1.0))
-	_debug_hand = _make_debug_marker(_debug_root, Color(0.9, 0.2, 0.2, 1.0))
+	_debug_elbow = _make_circle_marker(_debug_root, Color(0.9, 0.8, 0.1, 1.0))
 
 
 func set_visible_arm(visible_arm: bool) -> void:
 	if _line:
 		_line.visible = visible_arm
+	if _endpoint_root:
+		_endpoint_root.visible = visible_arm
 	if _debug_root:
 		_debug_root.visible = visible_arm and _debug_root.get_meta("debug_enabled", false)
 
@@ -76,6 +87,7 @@ func update_arm(
 	_last_shoulder = local_shoulder
 	_last_elbow = elbow
 	_last_hand = local_hand
+	_update_endpoint_markers(cfg)
 	_update_debug_markers(cfg)
 
 
@@ -145,32 +157,36 @@ func _solve_ik(shoulder: Vector2, hand: Vector2, upper_len: float, lower_len: fl
 	return shoulder + elbow_dir * upper_len
 
 
+func _update_endpoint_markers(cfg: ProceduralArmConfigScript) -> void:
+	var r: float = cfg.endpoint_marker_radius
+	_shoulder_marker.position = _last_shoulder
+	_hand_marker.position = _last_hand
+	_resize_circle_marker(_shoulder_marker, r)
+	_resize_circle_marker(_hand_marker, r)
+
+
 func _update_debug_markers(cfg: ProceduralArmConfigScript) -> void:
 	var r: float = cfg.debug_marker_radius
-	_debug_shoulder.position = _last_shoulder
 	_debug_elbow.position = _last_elbow
-	_debug_hand.position = _last_hand
-	_resize_debug_marker(_debug_shoulder, r)
-	_resize_debug_marker(_debug_elbow, r)
-	_resize_debug_marker(_debug_hand, r)
+	_resize_circle_marker(_debug_elbow, r)
 
 
-func _make_debug_marker(parent: Node2D, color: Color) -> Node2D:
+func _make_circle_marker(parent: Node2D, color: Color) -> Node2D:
 	var marker := Node2D.new()
 	var poly := Polygon2D.new()
 	poly.color = color
-	poly.polygon = _circle_polygon(4.0, 8)
+	poly.polygon = _circle_polygon(4.0, 10)
 	marker.add_child(poly)
 	parent.add_child(marker)
 	return marker
 
 
-func _resize_debug_marker(marker: Node2D, radius: float) -> void:
+func _resize_circle_marker(marker: Node2D, radius: float) -> void:
 	if marker == null or marker.get_child_count() == 0:
 		return
 	var poly := marker.get_child(0) as Polygon2D
 	if poly:
-		poly.polygon = _circle_polygon(radius, 10)
+		poly.polygon = _circle_polygon(radius, 12)
 
 
 func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:

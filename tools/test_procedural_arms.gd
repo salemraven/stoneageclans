@@ -75,6 +75,8 @@ func _test_player_scene() -> void:
 		_fail("ProceduralArmController missing on Player")
 	elif not ctrl.has_method("toggle_debug_draw"):
 		_fail("ProceduralArmController missing toggle_debug_draw")
+	if int(ctrl.get("z_index")) < 4000:
+		_fail("ProceduralArmController z_index should draw above card/weapon")
 	player.queue_free()
 
 

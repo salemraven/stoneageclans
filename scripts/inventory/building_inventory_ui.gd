@@ -26,7 +26,7 @@ var buildings_container: HBoxContainer = null  # Container for building icons
 var building_icons: Array[Control] = []  # Array of building icon controls
 var land_claim: LandClaim = null  # Reference to land claim for checking resources
 var building: BuildingBase = null  # Reference to building (for non-land-claim buildings)
-var campfire: CampfireScript = null  # Reference to campfire (small base, fire on/off)
+var campfire: CampfireScript = null  # Reference to campfire (small base; fire burns automatically)
 var title_label: Label = null  # Title label (for "Corpse of [NPC Name]" or building name)
 var character_info_label: Label = null  # Character info label (for corpse inventories)
 var is_corpse_inventory: bool = false  # Track if this is showing a corpse inventory
@@ -1019,6 +1019,10 @@ func _update_living_hut_info() -> void:
 		return
 	var info_lines: Array[String] = []
 	var woman = building.get_primary_occupant() if building.has_method("get_primary_occupant") else null
+	if (not woman or not is_instance_valid(woman)) and building.has_meta("assigned_woman"):
+		var assigned: Variant = building.get_meta("assigned_woman")
+		if assigned is Node and is_instance_valid(assigned):
+			woman = assigned
 	if not woman or not is_instance_valid(woman):
 		info_lines.append("No woman assigned")
 		character_info_label.text = "\n".join(info_lines)
@@ -1965,11 +1969,6 @@ func _on_defend_slider_changed(value: float) -> void:
 
 func _on_fire_button_pressed() -> void:
 	if campfire:
-		campfire.set_fire_on(not campfire.is_fire_on)
-		_update_campfire_fire_button()
-		var pi = get_node_or_null("/root/PlaytestInstrumentor")
-		if pi and pi.has_method("campfire_fire_toggled"):
-			pi.campfire_fire_toggled(campfire.clan_name, campfire.is_fire_on)
 		return
 	if not building:
 		return
@@ -2002,8 +2001,7 @@ func _on_fire_button_pressed() -> void:
 func _update_campfire_fire_button() -> void:
 	if not campfire or not fire_button:
 		return
-	fire_button.text = "🔥" if campfire.is_fire_on else "❄"
-	fire_button.visible = true
+	fire_button.visible = false
 
 func _update_campfire_upgrade_icon() -> void:
 	# Upgrade to Land Claim is only in the buildings row (land-claim tile): click with mats or drop Land Claim item.

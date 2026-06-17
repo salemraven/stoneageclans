@@ -51,6 +51,17 @@ fi
 MAX_STARVE="${MAX_STARVATION_DEATHS:-0}"
 MIN_EAT="${MIN_EAT_EVENTS:-10}"
 
+PROD_ARGS=(
+	"--strict-production"
+	"--min-production-allocation-eval" "${MIN_PRODUCTION_ALLOC_EVAL:-1}"
+)
+if [[ "${ULTIMATE_PRODUCTION_STRICT:-}" == "1" ]] || [[ "${PRODUCTION_STRICT:-}" == "1" ]]; then
+	PROD_ARGS+=(
+		"--min-work-request-completed" "${MIN_WORK_REQUEST_COMPLETED:-1}"
+		"--min-production-work-fsm" "${MIN_PRODUCTION_WORK_FSM:-1}"
+	)
+fi
+
 AN_CMD=(
 	python3 "$ROOT/scripts/logging/analyze_playtest.py"
 	"--strict-clanbrain"
@@ -65,6 +76,7 @@ AN_CMD=(
 	"--strict-economy"
 	"--max-starvation-deaths" "$MAX_STARVE"
 	"--min-eat-events" "$MIN_EAT"
+	"${PROD_ARGS[@]}"
 )
 EXTRA=()
 if [[ -n "${ANALYZER_EXTRA_ARGS:-}" ]]; then

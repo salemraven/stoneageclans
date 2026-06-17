@@ -1282,7 +1282,20 @@ func _physics_process(delta: float) -> void:
 	if not crafting and task_runner and task_runner.has_method("is_current_task_knap") and task_runner.is_current_task_knap():
 		crafting = true  # Knap task active (in case is_crafting not set yet this frame)
 	var building_hut: bool = get("is_building_hut") == true
-	if crafting or building_hut or get("is_gathering") == true:
+	var gathering: bool = get("is_gathering") == true
+	if gathering:
+		var gather_job_active: bool = (
+			task_runner != null
+			and task_runner.has_method("has_job")
+			and task_runner.has_job()
+		)
+		if not gather_job_active:
+			# Stale flag after cancel/state exit — unfreeze and hide berry ring
+			set("is_gathering", false)
+			if progress_display:
+				progress_display.stop_collection(false)
+			gathering = false
+	if crafting or building_hut or gathering:
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return
@@ -3338,7 +3351,7 @@ func _check_and_deposit_items() -> void:
 		set_meta("last_deposit_time", current_time)
 		var pi_dep = get_node_or_null("/root/PlaytestInstrumentor")
 		if pi_dep and pi_dep.is_enabled() and pi_dep.has_method("deposit_completed"):
-			pi_dep.deposit_completed(npc_name, my_clan, deposited_by_name, total_deposited)
+			pi_dep.deposit_completed(npc_name, my_clan, deposited_by_name, total_deposited, npc_type)
 		if herding_two_plus:
 			if pi_dep and pi_dep.has_method("deposit_while_herding"):
 				pi_dep.deposit_while_herding(npc_name, herded_count, total_deposited)

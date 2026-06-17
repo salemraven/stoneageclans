@@ -76,7 +76,8 @@ var deposit_food_keep_default: int = 1
 ## Below this claim buffer, deposit ALL food (keep 0 for personal snacking).
 var deposit_zero_food_keep_buffer_days: float = 0.75
 ## Allow 1-fighter hunt parties when food buffer is critical (early clans with one caveman).
-var hunt_allow_solo_when_food_critical: bool = true
+## Default false — hunts need a full party (see NPCConfig.hunt_party_min_size, usually 2+).
+var hunt_allow_solo_when_food_critical: bool = false
 ## Solo hunts also allowed when buffer drops below this (sim-days), before full critical.
 var hunt_solo_food_buffer_days: float = 0.15
 ## AI land claims start with this many berries in storage (bootstrap breeding; player claims unchanged).
@@ -199,6 +200,20 @@ var ai_nomad_low_resource_sec: float = 60.0
 var ai_nomad_reloc_min_dist: float = 800.0
 var ai_nomad_reloc_max_dist: float = 1500.0
 var ai_nomad_arrival_radius: float = 50.0
+
+# --- AI milestone buildings (ClanBrain auto-building triggers) ---
+## Oven: built when claim has this much GRAIN (not stone). Changed from stone >= 10 to grain-based.
+var milestone_oven_min_grain: int = 1
+## Drying rack: built when claim has this many HIDE.
+var milestone_drying_rack_min_hide: int = 3
+## Farm: built when clan has this many SHEEP (lowered from 3 to enable earlier farms).
+var milestone_farm_min_sheep: int = 1
+## Dairy: built when clan has this many GOATS (lowered from 3 to enable earlier dairies).
+var milestone_dairy_min_goats: int = 1
+## Living hut: built when clan has this many BABIES.
+var milestone_living_hut_min_babies: int = 2
+## Duration (seconds) for a clansman to visibly construct an AI milestone building.
+var ai_milestone_build_duration_sec: float = 18.0
 
 
 func _ready() -> void:

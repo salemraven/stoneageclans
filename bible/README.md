@@ -27,6 +27,7 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [main.md](main.md) | Full mechanics + implementation status |
 | [game_dictionary.md](game_dictionary.md) | Terms (AoH, party, herd, hunt intent, …) |
 | [ai_clan_brain.md](ai_clan_brain.md) | ClanBrain: defense, search, raid, **hunt**, pressures |
+| [production_economy.md](production_economy.md) | **WorkRequests**, bread/leather chains, passive cooking |
 | [hunting.md](hunting.md) | **Hunting hub** — NPC AoH hunts + player RTS hunt modes |
 | [Phase4/raiding_hunting.md](Phase4/raiding_hunting.md) | RTS PEACE/AGRO/HUNT, stances, deer flee |
 | [rts.md](rts.md) | War Horn, formations, `RTS_CONFIG`, engineering |
@@ -44,7 +45,8 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
 | [multiplayer.md](multiplayer.md) | MP roadmap + repo stubs |
 | [earlygame.md](earlygame.md) | Nomadic loop, territory tiers |
-| [nomad.md](nomad.md) | Campfire / relocation |
+| [nomad.md](nomad.md) | Nomadic playstyle overview |
+| [camp_relocation.md](camp_relocation.md) | **Nomad Mode** (ABANDON CAMP, AI relocate) |
 
 ---
 

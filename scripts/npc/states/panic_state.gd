@@ -1,7 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
 ## Panic — women erratically wander inside campfire radius when wood OR food hits zero.
-## Only when fire went out from resource depletion (not manual fire-off with wood left).
+## Only when fire went out from resource depletion (manual fire-off is disabled).
 
 const PANIC_WANDER_INTERVAL: float = 0.8
 const PANIC_SPEED_MULT: float = 1.15
@@ -27,7 +27,8 @@ func update(delta: float) -> void:
 		_wander_timer = PANIC_WANDER_INTERVAL
 		_pick_panic_target()
 	if npc.steering_agent:
-		npc.steering_agent.speed_multiplier = PANIC_SPEED_MULT
+		if npc.steering_agent.has_method("set_speed_multiplier"):
+			npc.steering_agent.set_speed_multiplier(PANIC_SPEED_MULT)
 
 func exit() -> void:
 	if npc and npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):

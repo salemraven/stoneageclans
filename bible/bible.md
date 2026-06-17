@@ -175,7 +175,7 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 ### Campfire vs Land Claim
 | Dimension | Campfire (Nomadic) | Land Claim (Stationary) |
 |-----------|--------------------|--------------------------|
-| Capacity | 6 slots | 12 slots |
+| Capacity | 20 slots | 12 slots |
 | Radius | 250px | 400px |
 | ClanBrain | Yes (nomadic mode in same `clan_brain.gd`) | Yes |
 | Area of Hunt | No (campfire has no AoH ring) | Yes (`AreaOfHunt` on claim) |
@@ -472,6 +472,7 @@ One **ClanBrain** per **territory** node (`land_claim.gd` or `campfire.gd` — s
 - **Searcher quota** — NPCs self-assign to HerdWildNpc (search / lead herdables).
 - **Raid intent** — NPCs self-assign to Raid state (AI clans; player clans gated).
 - **Hunt intent** — AI clans only: AoH prey + economics → **`hunt_state`** party (§XV-A).
+- **Work requests** — Tier 1 campfire + Tier 2 land claim: abundance-driven bread/leather chains; women claim via **`production_work`** (§XVI-A).
 - **Economic weights** — `food_weight`, `resource_weight`, `build_weight`, `herd_weight` (claim meta for FSM/job selection).
 - **Pressures** — `defend_pressure`, `search_pressure`, `gather_pressure` (renormalized; search/gather dominate population-maxing sim).
 - **Clan metrics** — `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` (and legacy `food_days_buffer`), meat/hide counts, population; refreshed on eval tick.
@@ -493,6 +494,12 @@ PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
 - **Evaluation interval:** 5s default; staggered per claim to avoid spike.
 - **One brain per claim:** no global manager; each claim’s brain only iterates its own clan_members and nearby_enemy_claims.
 - **Future (village):** resource targets and quotas can scale by population and building count; supply/demand and experience-based task pick described in `bible/future implementations/village.md`.
+
+### XVI-A. Production economy (WorkRequests)
+
+ClanBrain posts **WorkRequests** on **Tier 1 campfires** (when not marching) and **Tier 2 land claims**; women pull jobs through **`production_work`** FSM state. Chains: **bread** (Oven, active occupy) and **leather** (Drying Rack, passive deliver + pickup). **Campfire** also runs passive meat→cooked meat. **Farm/Dairy** milestones stay land-claim only.
+
+**Canon:** [production_economy.md](production_economy.md) · **Code:** `clan_brain.gd`, `production_work_state.gd`, `ProductionChainRegistry`
 
 ---
 

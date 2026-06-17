@@ -252,6 +252,9 @@ func _process_passive_cooking(delta: float) -> void:
 	inventory.remove_item(ResourceData.ResourceType.MEAT, 1)
 	inventory.add_item(ResourceData.ResourceType.COOKED_MEAT, 1)
 	_refresh_resource_flags()
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("campfire_passive_cooked"):
+		pi.campfire_passive_cooked(clan_name, 1)
 
 
 func _track_ai_low_resources(delta: float) -> void:

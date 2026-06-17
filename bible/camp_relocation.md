@@ -39,16 +39,24 @@ AI campfires always run wood/food decay (even off-screen). When wood ≤ thresho
 
 ---
 
+## Fire & fuel (automatic)
+
+- Fire **auto-lights** when the campfire inventory has wood; **manual fire-off is disabled** (no UI toggle).
+- While lit, wood burns on a **timer**: **1 wood every 60 seconds** (`BalanceConfig.campfire_wood_burn_interval`).
+- When wood hits **0**, fire goes out and `_fire_off_from_depletion` is set (triggers panic / nomad rules below).
+- Adding wood to a depleted fire **re-lights** it automatically.
+- Wood burn is **paused** during **Nomad Mode** (`nomad_state != NONE`).
+
+---
+
 ## Panic (women)
 
-When campfire **wood = 0** OR **total edible food = 0**:
+When campfire **wood = 0** OR **total edible food = 0** (after fire went out from depletion, or food truly empty):
 
-- Fire goes out (if wood depleted).
 - Women inside radius enter **`panic_state`** — erratic movement, no jobs.
-- Panic does **not** trigger if fire was turned off manually while wood remains.
 - Panic ends when resources restored, Nomad Mode starts, or woman leaves radius.
 
-Wood burns every **60 seconds** per wood (BalanceConfig).
+Wood burns every **60 seconds** per wood (BalanceConfig). See **Fire & fuel** above.
 
 ---
 
@@ -84,7 +92,7 @@ Wood burns every **60 seconds** per wood (BalanceConfig).
 | Building grace | `scripts/buildings/building_base.gd` |
 | Player succession | `scripts/systems/player_succession.gd` |
 | Tunables | `scripts/config/balance_config.gd` |
-| Tests | `tools/test_nomad_mode.gd` |
+| Tests | `tools/test_nomad_mode.gd`, `bash tools/run_nomad_mode_test.sh` |
 
 ---
 

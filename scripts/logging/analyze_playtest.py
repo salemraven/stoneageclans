@@ -6,6 +6,8 @@ Strict modes:
   --strict-stability      Fail on combat FSM churn, agro ping-pong, or frozen combat probes.
   --strict-clanbrain      Fail on bad hunt_started prey, friendly-fire JSONL markers, optional brain coverage.
   --strict-npc-sim        Fail if gather / layered hunt-world+hunt-brain / unique growth thresholds miss.
+  --strict-economy        Fail on starvation deaths or low npc_ate counts.
+  --strict-production     Fail if production economy JSONL signals fall below thresholds.
 
 See tools/README.md for capture flags (--playtest-capture, --playtest-2min).
 """
@@ -229,12 +231,109 @@ def _parse_allowed_hunt_prey(arg: Optional[str]) -> frozenset:
     return names if names else DEFAULT_AI_HUNT_PREY_TYPES
 
 
+def analyze_clansmen_actions(
+    events: Sequence[Dict[str, Any]],
+    *,
+    min_grew: int,
+    min_gather: int,
+    min_deposit: int,
+    min_productivity_snapshots: int,
+    violations_out: List[str],
+) -> None:
+    """Clansmen workforce JSONL coverage (gather/deposit/tasks/cancels/snapshots)."""
+
+    _mark_start = len(violations_out)
+    clansmen: Set[str] = set()
+    gather_events = 0
+    deposit_events = 0
+    task_ok = 0
+    task_fail = 0
+    task_cancel = 0
+    cancel_by_reason: Dict[str, int] = defaultdict(int)
+    productivity_snapshots = 0
+    fsm_gather = 0
+
+    for e in events:
+        evt = e.get("evt")
+        npc = str(e.get("npc", ""))
+        nt = str(e.get("type", "")).lower()
+        if evt == "baby_grew_to_clansman":
+            clansmen.add(npc)
+        elif evt == "npc_fsm_transition":
+            if nt == "clansman":
+                clansmen.add(npc)
+                frm = str(e.get("from", ""))
+                to = str(e.get("to", ""))
+                if "gather" in frm or "gather" in to:
+                    fsm_gather += 1
+        elif evt == "npc_productivity_snapshot":
+            productivity_snapshots += 1
+        elif evt in ("gather_completed", "deposit_completed", "task_completed", "task_failed", "task_cancel"):
+            is_clansman = nt == "clansman" or npc in clansmen
+            if not is_clansman:
+                continue
+            clansmen.add(npc)
+            if evt == "gather_completed":
+                gather_events += 1
+            elif evt == "deposit_completed":
+                deposit_events += 1
+            elif evt == "task_completed":
+                task_ok += 1
+            elif evt == "task_failed":
+                task_fail += 1
+            elif evt == "task_cancel":
+                task_cancel += 1
+                cancel_by_reason[str(e.get("reason", "unknown"))] += 1
+
+    grew = sum(1 for e in events if e.get("evt") == "baby_grew_to_clansman")
+
+    print("\n--- Clansmen actions (JSONL) ---")
+    print(f"  baby_grew_to_clansman: {grew}")
+    print(f"  unique clansmen tracked: {len(clansmen)}")
+    print(f"  gather_completed (clansmen): {gather_events}")
+    print(f"  deposit_completed (clansmen): {deposit_events}")
+    print(f"  task_completed / task_failed / task_cancel: {task_ok} / {task_fail} / {task_cancel}")
+    print(f"  gather FSM touches (clansman): {fsm_gather}")
+    print(f"  npc_productivity_snapshot rows: {productivity_snapshots}")
+    if cancel_by_reason:
+        top = sorted(cancel_by_reason.items(), key=lambda x: (-x[1], x[0]))[:5]
+        print(f"  top task_cancel reasons: {', '.join(f'{k}={v}' for k, v in top)}")
+
+    if min_grew > 0 and grew < min_grew:
+        msg = f"coverage:clansmen_grew have={grew} need>={min_grew}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_gather > 0 and gather_events < min_gather:
+        msg = f"coverage:clansmen_gather have={gather_events} need>={min_gather}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_deposit > 0 and deposit_events < min_deposit:
+        msg = f"coverage:clansmen_deposit have={deposit_events} need>={min_deposit}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_productivity_snapshots > 0 and productivity_snapshots < min_productivity_snapshots:
+        msg = (
+            f"coverage:clansmen_productivity_snapshots have={productivity_snapshots} "
+            f"need>={min_productivity_snapshots}"
+        )
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if len(violations_out) == _mark_start:
+        print("  ✓ Clansmen action thresholds satisfied")
+
+
 def analyze_strict_clanbrain(
     events: Sequence[Dict[str, Any]],
     allowed_hunt_prey: frozenset,
     min_clan_brain_eval_events: int,
     min_quota_update_events: int,
     violations_out: List[str],
+    *,
+    min_clansmen_grew: int = 0,
+    min_clansmen_gather: int = 0,
+    min_clansmen_deposit: int = 0,
+    min_clansmen_productivity_snapshots: int = 0,
 ) -> None:
     """AoH hunt targets + friendly-fire JSONL gates (ultimate NPC / ClanBrain spec)."""
 
@@ -301,6 +400,21 @@ def analyze_strict_clanbrain(
     if not clan_brain_violations_only:
         print("  ✓ ClanBrain strict thresholds satisfied")
 
+    if (
+        min_clansmen_grew > 0
+        or min_clansmen_gather > 0
+        or min_clansmen_deposit > 0
+        or min_clansmen_productivity_snapshots > 0
+    ):
+        analyze_clansmen_actions(
+            events,
+            min_grew=min_clansmen_grew,
+            min_gather=min_clansmen_gather,
+            min_deposit=min_clansmen_deposit,
+            min_productivity_snapshots=min_clansmen_productivity_snapshots,
+            violations_out=violations_out,
+        )
+
 
 def analyze_economy_sustainability(
     events: Sequence[Dict[str, Any]],
@@ -355,6 +469,81 @@ def analyze_economy_sustainability(
 
     if len(violations_out) == _mark_start:
         print("  ✓ Economy sustainability thresholds satisfied")
+
+
+def analyze_strict_production(
+    events: Sequence[Dict[str, Any]],
+    *,
+    min_allocation_eval_events: int,
+    min_work_request_issued: int,
+    min_work_request_completed: int,
+    min_production_output: int,
+    min_campfire_passive_cooked: int,
+    min_production_work_fsm: int,
+    violations_out: List[str],
+) -> None:
+    """ClanBrain production economy JSONL gates (work requests + passive output)."""
+
+    _mark_start = len(violations_out)
+
+    alloc_ct = sum(1 for e in events if e.get("evt") == "production_allocation_eval")
+    issued_ct = sum(1 for e in events if e.get("evt") == "work_request_issued")
+    completed_ct = sum(1 for e in events if e.get("evt") == "work_request_completed")
+    expired_ct = sum(1 for e in events if e.get("evt") == "work_request_expired")
+    released_ct = sum(1 for e in events if e.get("evt") == "work_request_released")
+    output_ct = sum(1 for e in events if e.get("evt") == "production_output")
+    campfire_ct = sum(
+        int(e.get("quantity", 1))
+        for e in events
+        if e.get("evt") == "campfire_passive_cooked"
+    )
+    prod_fsm = 0
+    for e in events:
+        if e.get("evt") != "npc_fsm_transition":
+            continue
+        frm = str(e.get("from", ""))
+        to = str(e.get("to", ""))
+        if "production_work" in frm or "production_work" in to:
+            prod_fsm += 1
+
+    print("\n--- Production economy strict (JSONL oracle) ---")
+    print(f"  production_allocation_eval: {alloc_ct}")
+    print(
+        f"  work_request issued/claimed/completed/expired/released: "
+        f"{issued_ct}/"
+        f"{sum(1 for e in events if e.get('evt') == 'work_request_claimed')}/"
+        f"{completed_ct}/{expired_ct}/{released_ct}"
+    )
+    print(f"  production_output: {output_ct}, campfire_passive_cooked qty: {campfire_ct}")
+    print(f"  production_work FSM touches: {prod_fsm}")
+
+    if min_allocation_eval_events > 0 and alloc_ct < min_allocation_eval_events:
+        msg = f"production:allocation_eval have={alloc_ct} need>={min_allocation_eval_events}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_work_request_issued > 0 and issued_ct < min_work_request_issued:
+        msg = f"production:work_request_issued have={issued_ct} need>={min_work_request_issued}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_work_request_completed > 0 and completed_ct < min_work_request_completed:
+        msg = f"production:work_request_completed have={completed_ct} need>={min_work_request_completed}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_production_output > 0 and output_ct < min_production_output:
+        msg = f"production:output have={output_ct} need>={min_production_output}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_campfire_passive_cooked > 0 and campfire_ct < min_campfire_passive_cooked:
+        msg = f"production:campfire_cooked have={campfire_ct} need>={min_campfire_passive_cooked}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+    if min_production_work_fsm > 0 and prod_fsm < min_production_work_fsm:
+        msg = f"production:fsm_touches have={prod_fsm} need>={min_production_work_fsm}"
+        print(f"  VIOLATION: {msg}")
+        violations_out.append(msg)
+
+    if len(violations_out) == _mark_start:
+        print("  ✓ Production economy thresholds satisfied")
 
 
 def analyze_strict_npc_sim(
@@ -485,6 +674,10 @@ def analyze(
     allowed_hunt_prey: frozenset = DEFAULT_AI_HUNT_PREY_TYPES,
     min_clanbrain_eval_events: int = 0,
     min_clanbrain_quota_updates: int = 0,
+    min_clansmen_grew: int = 0,
+    min_clansmen_gather: int = 0,
+    min_clansmen_deposit: int = 0,
+    min_clansmen_productivity_snapshots: int = 0,
     combat_churn_window_sec: float = 14.0,
     max_combat_touches_window: int = 14,
     agro_flip_window_sec: float = 30.0,
@@ -502,6 +695,13 @@ def analyze(
     strict_economy: bool = False,
     max_starvation_deaths: int = -1,
     min_eat_events: int = 0,
+    strict_production: bool = False,
+    min_production_allocation_eval: int = 0,
+    min_work_request_issued: int = 0,
+    min_work_request_completed: int = 0,
+    min_production_output: int = 0,
+    min_campfire_passive_cooked: int = 0,
+    min_production_work_fsm: int = 0,
 ) -> int:
     events = _loads_events(path)
     violations: list[str] = []
@@ -685,6 +885,10 @@ def analyze(
             min_clanbrain_eval_events,
             min_clanbrain_quota_updates,
             clanbrain_violations,
+            min_clansmen_grew=min_clansmen_grew,
+            min_clansmen_gather=min_clansmen_gather,
+            min_clansmen_deposit=min_clansmen_deposit,
+            min_clansmen_productivity_snapshots=min_clansmen_productivity_snapshots,
         )
         if clanbrain_violations:
             print(f"STRICT CLANBRAIN FAIL: {len(clanbrain_violations)} issue(s)")
@@ -730,6 +934,26 @@ def analyze(
             exit_code = max(exit_code, 1)
         else:
             print("STRICT ECONOMY OK")
+
+    production_violations: list[str] = []
+    if strict_production:
+        analyze_strict_production(
+            events,
+            min_allocation_eval_events=min_production_allocation_eval,
+            min_work_request_issued=min_work_request_issued,
+            min_work_request_completed=min_work_request_completed,
+            min_production_output=min_production_output,
+            min_campfire_passive_cooked=min_campfire_passive_cooked,
+            min_production_work_fsm=min_production_work_fsm,
+            violations_out=production_violations,
+        )
+        if production_violations:
+            print(f"STRICT PRODUCTION FAIL: {len(production_violations)} issue(s)")
+            for v in production_violations:
+                print(f"  - {v}")
+            exit_code = max(exit_code, 1)
+        else:
+            print("STRICT PRODUCTION OK")
 
     return exit_code
 
@@ -844,6 +1068,81 @@ def main() -> None:
         help="With --strict-clanbrain: require at least N clan_brain_quota_update rows (0 = off)",
     )
     ap.add_argument(
+        "--min-clansmen-grew",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N baby_grew_to_clansman events (0 = off)",
+    )
+    ap.add_argument(
+        "--min-clansmen-gather",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N gather_completed rows from clansmen (0 = off)",
+    )
+    ap.add_argument(
+        "--min-clansmen-deposit",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N deposit_completed rows from clansmen (0 = off)",
+    )
+    ap.add_argument(
+        "--min-clansmen-productivity-snapshots",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-clanbrain: require at least N npc_productivity_snapshot rows (0 = off)",
+    )
+    ap.add_argument(
+        "--strict-production",
+        action="store_true",
+        help="Exit 1 if production economy JSONL signals fall below thresholds (work requests, passive output)",
+    )
+    ap.add_argument(
+        "--min-production-allocation-eval",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N production_allocation_eval events",
+    )
+    ap.add_argument(
+        "--min-work-request-issued",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N work_request_issued events",
+    )
+    ap.add_argument(
+        "--min-work-request-completed",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N work_request_completed events",
+    )
+    ap.add_argument(
+        "--min-production-output",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N production_output events (passive buildings)",
+    )
+    ap.add_argument(
+        "--min-campfire-passive-cooked",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N total campfire_passive_cooked quantity",
+    )
+    ap.add_argument(
+        "--min-production-work-fsm",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --strict-production: require at least N npc_fsm_transition rows touching production_work",
+    )
+    ap.add_argument(
         "--rapid-reenter-sec",
         type=float,
         default=1.5,
@@ -933,6 +1232,10 @@ def main() -> None:
             allowed_hunt_prey=allowed_hp,
             min_clanbrain_eval_events=args.min_clanbrain_eval_events,
             min_clanbrain_quota_updates=args.min_clanbrain_quota_updates,
+            min_clansmen_grew=args.min_clansmen_grew,
+            min_clansmen_gather=args.min_clansmen_gather,
+            min_clansmen_deposit=args.min_clansmen_deposit,
+            min_clansmen_productivity_snapshots=args.min_clansmen_productivity_snapshots,
             combat_churn_window_sec=args.combat_churn_window,
             max_combat_touches_window=args.max_combat_touches_window,
             agro_flip_window_sec=args.agro_flip_window,
@@ -950,6 +1253,13 @@ def main() -> None:
             strict_economy=args.strict_economy,
             max_starvation_deaths=args.max_starvation_deaths,
             min_eat_events=args.min_eat_events,
+            strict_production=args.strict_production,
+            min_production_allocation_eval=args.min_production_allocation_eval,
+            min_work_request_issued=args.min_work_request_issued,
+            min_work_request_completed=args.min_work_request_completed,
+            min_production_output=args.min_production_output,
+            min_campfire_passive_cooked=args.min_campfire_passive_cooked,
+            min_production_work_fsm=args.min_production_work_fsm,
         )
     )
 
