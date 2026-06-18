@@ -3,7 +3,14 @@ class_name ProceduralArmConfig
 
 ## Tweakable layout for procedural Line2D arms (player first; reusable per body type).
 
-# Card anchor: offset from body Sprite2D origin (centered card texture). Weapon arm runs card center -> weapon overlay center.
+## Red shoulder on body card; green hand grip on weapon overlay (display px, pre-scale).
+@export var weapon_shoulder_offset_px := Vector2.ZERO
+@export var hand_grip_offset_px := Vector2(0.0, 72.0)
+@export var hand_grip_ready_offset_px := Vector2.ZERO
+@export var support_hand_grip_offset_px := Vector2(6.0, 52.0)
+@export var support_hand_idle_offset_px := Vector2(-12.0, 30.0)
+
+# Legacy alias — prefer weapon_shoulder_offset_px.
 @export var card_center_offset := Vector2.ZERO
 
 # Support (idle) arm shoulder anchors relative to body sprite origin (display pixels, pre-flip).
@@ -30,6 +37,7 @@ class_name ProceduralArmConfig
 
 # Draw above character card and weapon overlay (YSortUtils.Z_ABOVE_WORLD).
 @export var arm_z_index := 4095
+@export var line_endpoint_inset_px := 3.0
 @export var endpoint_marker_radius := 5.0
 @export var shoulder_marker_color := Color(0.9, 0.2, 0.2, 1.0)
 @export var hand_marker_color := Color(0.2, 0.8, 0.2, 1.0)

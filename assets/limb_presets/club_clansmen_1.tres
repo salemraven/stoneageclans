@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_club"]
+
+[resource]
+script = ExtResource("1_club")
+weapon_type = 1
+body_card_id = "clansmen_1"
+body_card_index = 1
+shoulder_offset_px = Vector2(102, -70.125)
+hand_grip_offset_px = Vector2(0, 82)
+hand_grip_ready_offset_px = Vector2(0.000122, 82)
+support_shoulder_offset_px = Vector2(-95.625, -66.9375)
+support_hand_idle_offset_px = Vector2(-140.25, 172.125)
+support_hand_offset_px = Vector2(6, 52)
+overlay_offset_idle_px = Vector2(25.5, -16)
+idle_rotation_deg = 0.0
+ready_offset_px = Vector2(22, -34)
+ready_forward_px = 24.0
+upper_arm_length = 24.0
+lower_arm_length = 22.0
+elbow_hint_outward = 18.0
+tuner_stage_scale = 1.0

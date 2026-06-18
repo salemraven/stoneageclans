@@ -162,7 +162,7 @@ func sync_weapon_overlay(entity: Node, weapon_type: ResourceData.ResourceType, s
 	if ostate == WeaponOverlayCombat.OverlayState.RECOVERING:
 		_apply_overlay_combat_pose(entity, weapon_type, overlay)
 		return
-	var base_offset: Vector2 = _overlay_local_offset(sprite, registry.get_tool_overlay_offset_px(weapon_type))
+	var base_offset: Vector2 = _overlay_local_offset(sprite, _effective_overlay_offset_px(weapon_type))
 	overlay.set_meta("card_overlay_offset", base_offset)
 	CardVisualController.sync_weapon_overlay_flip(sprite, overlay, base_offset)
 	_apply_overlay_combat_pose(entity, weapon_type, overlay)
@@ -259,6 +259,12 @@ func _apply_overlay_combat_pose(entity: Node, weapon_type: ResourceData.Resource
 	else:
 		WeaponOverlayCombat.apply_idle_pose(sprite, overlay, registry, weapon_type)
 		WeaponOverlayCombat.set_overlay_state(entity, WeaponOverlayCombat.OverlayState.IDLE)
+
+
+func _effective_overlay_offset_px(weapon_type: ResourceData.ResourceType) -> Vector2:
+	if LimbPresetRegistry:
+		return LimbPresetRegistry.get_overlay_offset_idle_px(weapon_type)
+	return registry.get_tool_overlay_offset_px(weapon_type)
 
 
 func _overlay_local_offset(sprite: Sprite2D, offset_px: Vector2) -> Vector2:

@@ -8,6 +8,25 @@ The player uses **2D spritesheets** (`scripts/player.gd`, `WalkAnimation`, asset
 godot --path . res://scenes/MovementVisualTest.tscn
 ```
 
+## Procedural limb tuner (windowed)
+
+Tune shoulder, hand grip, and spear placement on clansmen card 1. Saves to `assets/limb_presets/spear_clansmen_1.tres` (loaded by game at runtime).
+
+```bash
+godot --path . res://scenes/tools/LimbTuner.tscn
+```
+
+- **Assemble** — drag red shoulder, green hand, yellow spear anchor; use Idle/Ready tabs.
+- **Lock** — freeze anchors.
+- **Test** — **Shift** = weapon ready + aim; **Shift + click** = thrust (same as main game).
+- **Save** — writes preset `.tres` the game reads via `LimbPresetRegistry`.
+
+Headless smoke:
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_limb_tuner.gd
+```
+
 WASD / arrows; mouse wheel or **+** / **-** zooms. Root export **`equip_wood_club_for_test`** toggles wood club equipment for 2D club walk frames.
 
 ## Headless smoke + logs

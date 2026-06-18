@@ -73,16 +73,23 @@ static func compute_aim_rotation(body_sprite: Sprite2D, world_aim: Vector2, text
 	return dir.angle() - tip_rad + deg_to_rad(extra_offset_deg)
 
 
+static func _combat_profile(registry, weapon_type: ResourceData.ResourceType) -> Dictionary:
+	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		return LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	return profile
+
+
 static func uses_aim_facing_flip(registry, weapon_type: ResourceData.ResourceType) -> bool:
 	if registry == null:
 		return false
-	return int(registry.get_weapon_combat_profile(weapon_type).get("attack_kind", AttackKind.SWING_DOWN)) == AttackKind.THRUST
+	return int(_combat_profile(registry, weapon_type).get("attack_kind", AttackKind.SWING_DOWN)) == AttackKind.THRUST
 
 
 static func apply_idle_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, weapon_type: ResourceData.ResourceType) -> void:
 	if body_sprite == null or overlay == null or registry == null:
 		return
-	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var idle_deg: float = float(profile.get("idle_rotation_deg", 0.0))
 	_ensure_weapon_pivot(overlay, profile)
 	var base_offset: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, false)
@@ -93,7 +100,7 @@ static func apply_idle_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, 
 
 static func _overlay_mirror_texture(registry, weapon_type: ResourceData.ResourceType) -> bool:
 	## Thrust spears mirror with body flip; swing weapons use signed rotation instead.
-	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	return int(profile.get("attack_kind", AttackKind.SWING_DOWN)) == AttackKind.THRUST
 
 
@@ -104,7 +111,7 @@ static func uses_overlay_texture_mirror(registry, weapon_type: ResourceData.Reso
 static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, weapon_type: ResourceData.ResourceType, aim_dir: Vector2) -> void:
 	if body_sprite == null or overlay == null or registry == null:
 		return
-	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
 	var kind: int = int(profile.get("attack_kind", AttackKind.SWING_DOWN))
 	var rot: float
@@ -141,7 +148,7 @@ static func play_strike(
 	if not entity.is_inside_tree():
 		return
 	set_overlay_state(entity, OverlayState.STRIKING)
-	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var strike_duration: float = float(profile.get("strike_duration", 0.12))
 	var kind: int = int(profile.get("attack_kind", AttackKind.SWING_DOWN))
 	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
@@ -269,7 +276,13 @@ static func _base_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceD
 
 
 static func _pose_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceData.ResourceType, profile: Dictionary, ready: bool) -> Vector2:
-	var offset_px: Vector2 = registry.get_tool_overlay_offset_px(weapon_type)
+	# Get idle offset from LimbPresetRegistry if available (tuned value), else fall back to registry default
+	var offset_px: Vector2
+	if LimbPresetRegistry:
+		offset_px = LimbPresetRegistry.get_overlay_offset_idle_px(weapon_type)
+	else:
+		offset_px = registry.get_tool_overlay_offset_px(weapon_type)
+	# ready_offset_px is an absolute position (same as idle format)
 	if ready and profile.has("ready_offset_px"):
 		offset_px = profile["ready_offset_px"] as Vector2
 	return _offset_px_to_local(body_sprite, offset_px)

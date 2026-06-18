@@ -14,6 +14,7 @@ var _points: PackedVector2Array = PackedVector2Array([Vector2.ZERO, Vector2.ZERO
 var _last_shoulder := Vector2.ZERO
 var _last_elbow := Vector2.ZERO
 var _last_hand := Vector2.ZERO
+var _endpoint_markers_visible := true
 
 
 func setup(parent: Node2D, side_label: String, config: Resource) -> void:
@@ -26,8 +27,8 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	_line.z_index = cfg.arm_z_index
 	_line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_line.joint_mode = Line2D.LINE_JOINT_ROUND
-	_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	_line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_line.begin_cap_mode = Line2D.LINE_CAP_BOX
+	_line.end_cap_mode = Line2D.LINE_CAP_BOX
 	_line.antialiased = false
 	_apply_line_style(cfg)
 	parent.add_child(_line)
@@ -49,11 +50,17 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	_debug_elbow = _make_circle_marker(_debug_root, Color(0.9, 0.8, 0.1, 1.0))
 
 
+func set_endpoint_markers_visible(visible_markers: bool) -> void:
+	_endpoint_markers_visible = visible_markers
+	if _endpoint_root:
+		_endpoint_root.visible = visible_markers and (_line != null and _line.visible)
+
+
 func set_visible_arm(visible_arm: bool) -> void:
 	if _line:
 		_line.visible = visible_arm
 	if _endpoint_root:
-		_endpoint_root.visible = visible_arm
+		_endpoint_root.visible = visible_arm and _endpoint_markers_visible
 	if _debug_root:
 		_debug_root.visible = visible_arm and _debug_root.get_meta("debug_enabled", false)
 
@@ -82,6 +89,7 @@ func update_arm(
 	_points[0] = local_shoulder
 	_points[1] = elbow
 	_points[2] = local_hand
+	_trim_line_endpoints(cfg, sprite_scale)
 	_line.points = _points
 
 	_last_shoulder = local_shoulder
@@ -169,6 +177,21 @@ func _update_debug_markers(cfg: ProceduralArmConfigScript) -> void:
 	var r: float = cfg.debug_marker_radius
 	_debug_elbow.position = _last_elbow
 	_resize_circle_marker(_debug_elbow, r)
+
+
+func _trim_line_endpoints(cfg: ProceduralArmConfigScript, sprite_scale: Vector2) -> void:
+	if _points.size() < 3:
+		return
+	var width_mult: float = cfg.width_genetics_mult
+	var inset: float = cfg.line_endpoint_inset_px * absf(sprite_scale.x)
+	if inset <= 0.0:
+		inset = cfg.hand_width * width_mult * 0.45
+	var shoulder_to_elbow := _points[1] - _points[0]
+	if shoulder_to_elbow.length_squared() > 0.01:
+		_points[0] += shoulder_to_elbow.normalized() * minf(inset, shoulder_to_elbow.length() * 0.35)
+	var elbow_to_hand := _points[2] - _points[1]
+	if elbow_to_hand.length_squared() > 0.01:
+		_points[2] -= elbow_to_hand.normalized() * minf(inset, elbow_to_hand.length() * 0.35)
 
 
 func _make_circle_marker(parent: Node2D, color: Color) -> Node2D:

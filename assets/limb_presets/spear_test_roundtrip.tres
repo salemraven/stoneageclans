@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_d4ehs"]
+
+[resource]
+script = ExtResource("1_d4ehs")
+weapon_type = 31
+body_card_id = "test_roundtrip"
+body_card_index = 1
+shoulder_offset_px = Vector2(5, -12)
+hand_grip_offset_px = Vector2(2, 80)
+support_shoulder_offset_px = Vector2(-18, -20)
+support_hand_idle_offset_px = Vector2(-12, 30)
+support_hand_offset_px = Vector2(6, 52)
+overlay_offset_idle_px = Vector2(22, -34)
+idle_rotation_deg = 0.0
+ready_offset_px = Vector2(8, 6)
+ready_forward_px = 24.0
+upper_arm_length = 24.0
+lower_arm_length = 22.0
+elbow_hint_outward = 18.0
+tuner_stage_scale = 1.0
