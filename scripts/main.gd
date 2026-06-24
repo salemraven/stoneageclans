@@ -66,6 +66,7 @@ var drag_manager: Node = null  # Changed from DragManager to Node to avoid parse
 var npc_debug_ui: NPCDebugUI = null
 var player_movement_debug_overlay: PlayerMovementDebugOverlayScript = null
 var godmode_clan_jumper: Control = null
+var dev_balance_menu: Control = null
 var npcs_container: Node2D = null  # Empty; NPCs add to world_objects for YSort
 var decorations_container: Node2D = null  # Empty; grass adds to world_objects for YSort
 var clicked_npc: Node = null  # NPC currently being clicked
@@ -173,6 +174,7 @@ const BUILDING_SCENE = preload("res://scenes/Building.tscn")
 const DROPDOWN_MENU_UI_SCRIPT = preload("res://scripts/ui/dropdown_menu_ui.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
 const GodmodeClanJumperUIScript = preload("res://scripts/ui/godmode_clan_jumper_ui.gd")
+const DevBalanceMenuScript = preload("res://scripts/ui/dev_balance_menu.gd")
 ## F5 / --rts-playtest-spawn: isolated player claim + 5 clansmen (matches horn / stance / DEFEND tests)
 const RTS_PLAYTEST_CLAN_NAME := "RTS PLAYTEST"
 ## --repro-harness: headless player claim + woman + Living Hut; exits 0 after 2 births (validates Player father fix).
@@ -185,6 +187,31 @@ var _repro_harness_cool_backup: float = -1.0
 var _repro_harness_woman: Node = null
 var _repro_harness_last_diag_time: float = -1.0
 const REPRO_HARNESS_DIAG_INTERVAL_SEC: float = 5.0
+
+## --production-chain-test: isolated claim + oven + rack + stocked pantry + woman (real WorkRequests, no brain cheat spawn).
+const PRODUCTION_CHAIN_CLAN_NAME := "PROD_CHAIN_TEST"
+const PRODUCTION_CHAIN_HUB := Vector2(50000.0, 50000.0)
+const PRODUCTION_CHAIN_TIMEOUT_SEC: float = 120.0
+const PRODUCTION_CHAIN_DIAG_INTERVAL_SEC: float = 10.0
+var _production_chain_test_active: bool = false
+var _production_chain_claim: LandClaim = null
+var _production_chain_start_time: float = -1.0
+var _production_chain_last_diag_time: float = -1.0
+var _production_chain_baseline_bread: int = 0
+var _production_chain_baseline_leather: int = 0
+var _production_chain_timing_backup: Dictionary = {}
+
+## --milestone-chain-test: stocked claim + clansman, no pre-placed production buildings (real milestone queue + build FSM).
+const MILESTONE_CHAIN_CLAN_NAME := "MILESTONE_CHAIN_TEST"
+const MILESTONE_CHAIN_HUB := Vector2(51000.0, 50000.0)
+const MILESTONE_CHAIN_TIMEOUT_SEC: float = 180.0
+const MILESTONE_CHAIN_DIAG_INTERVAL_SEC: float = 10.0
+var _milestone_chain_test_active: bool = false
+var _milestone_chain_claim: LandClaim = null
+var _milestone_chain_start_time: float = -1.0
+var _milestone_chain_last_diag_time: float = -1.0
+var _milestone_chain_timing_backup: Dictionary = {}
+var _chain_test_isolation_backup: Dictionary = {}
 
 # Building placement duration (seconds) - pie timer on slot icon
 const BUILDING_PLACEMENT_DURATION := 1.5
@@ -214,7 +241,23 @@ func _main_cmdline_user_args() -> PackedStringArray:
 func _cmdline_has(flag: String) -> bool:
 	if OS.get_name() == "Web":
 		return false
-	return flag in OS.get_cmdline_args() or flag in OS.get_cmdline_user_args()
+	return flag in _all_cli_args()
+
+
+func _all_cli_args() -> PackedStringArray:
+	var args: PackedStringArray = OS.get_cmdline_args()
+	for a in OS.get_cmdline_user_args():
+		if a not in args:
+			args.append(a)
+	return args
+
+
+func _cli_arg_value(flag: String) -> String:
+	var args: PackedStringArray = _all_cli_args()
+	for i in range(args.size()):
+		if args[i] == flag and i + 1 < args.size():
+			return str(args[i + 1]).strip_edges()
+	return ""
 
 
 func _cmdline_npc_only_world() -> bool:
@@ -225,11 +268,9 @@ func _cmdline_npc_only_world() -> bool:
 func _apply_playtest_world_seed_from_cli() -> void:
 	if OS.get_name() == "Web":
 		return
-	var ua := OS.get_cmdline_user_args()
-	var idx: int = ua.find("--playtest-world-seed")
-	if idx < 0 or idx + 1 >= ua.size():
+	var s: String = _cli_arg_value("--playtest-world-seed")
+	if s.is_empty():
 		return
-	var s: String = str(ua[idx + 1]).strip_edges()
 	if not s.is_valid_int():
 		push_warning("Main: invalid --playtest-world-seed (not integer): %s" % s)
 		return
@@ -309,6 +350,8 @@ func _on_ai_claim_destroyed(_clan_name: String) -> void:
 
 func _spawn_replacement_caveman() -> void:
 	"""Spawn 1 land claim + 1 caveman when AI claim destroyed (same as initial spawn: claim and caveman together)."""
+	if _chain_test_is_active():
+		return
 	if not player or not world_objects:
 		return
 	
@@ -694,12 +737,21 @@ func _ready() -> void:
 	
 	# Use DebugConfig for logging (playtest: clean console; use --debug for verbose)
 	
+	# Chain-test harness: isolate world before SpawnManager loads chunks at player position.
+	if _cmdline_has("--production-chain-test"):
+		_chain_test_begin_isolation()
+		_chain_test_prepare_hub(PRODUCTION_CHAIN_HUB)
+	elif _cmdline_has("--milestone-chain-test"):
+		_chain_test_begin_isolation()
+		_chain_test_prepare_hub(MILESTONE_CHAIN_HUB)
+
 	await _setup_npcs()
 	# FLOW FIX: Resources now spawn AFTER NPCs (see _ready() - moved to after _initialize_minigame())
 	# _spawn_initial_resources()  # Moved to after NPCs spawn
 	_spawn_ground_items()
 	_give_starting_items()
 	_setup_debug_ui()
+	_setup_dev_balance_menu()
 	if _cmdline_has("--player-move-debug") and player_movement_debug_overlay and not player_movement_debug_overlay.is_debug_visible():
 		player_movement_debug_overlay.toggle()
 	if _cmdline_has("--arms-debug") and player:
@@ -730,6 +782,7 @@ func _ready() -> void:
 		_session_quit_start_time = Time.get_ticks_msec() / 1000.0
 
 	call_deferred("_reproduction_harness_begin_deferred")
+	call_deferred("_chain_test_harness_begin_deferred")
 	_connect_player_death_succession()
 
 
@@ -960,6 +1013,12 @@ func _process(delta: float) -> void:
 				get_tree().quit(0)
 				return
 	if not player:
+		return
+	if _production_chain_test_active:
+		_production_chain_test_tick(Time.get_ticks_msec() / 1000.0)
+		return
+	if _milestone_chain_test_active:
+		_milestone_chain_test_tick(Time.get_ticks_msec() / 1000.0)
 		return
 	# Reproduction harness: two births = pass (Player as designated father must stay eligible — see reproduction_component _father_eligible).
 	if _repro_harness_active:
@@ -1258,6 +1317,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.keycode == KEY_F8 and event.pressed:
 		if player_movement_debug_overlay:
 			player_movement_debug_overlay.toggle()
+		get_viewport().set_input_as_handled()
+
+	# F10: ClanBrain tuning panel (dev balance — not gameplay balance defaults)
+	if event is InputEventKey and event.keycode == KEY_F10 and event.pressed:
+		if dev_balance_menu:
+			dev_balance_menu.toggle()
 		get_viewport().set_input_as_handled()
 
 	# F9: procedural arm IK debug markers (shoulder / elbow / hand)
@@ -1733,6 +1798,9 @@ func _spawn_tallgrass() -> void:
 	"""Spawn tallgrass sprites in groups of 8-16 in random areas across the map (spread out)."""
 	if not world_objects or not player:
 		return
+	var wgc_stream: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc_stream and bool(wgc_stream.use_chunk_content_streaming):
+		return
 	var center_pos := player.global_position
 	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
@@ -1758,7 +1826,9 @@ func _spawn_tallgrass() -> void:
 		var group_center_angle := randf() * TAU
 		var group_center_dist := randf() * spawn_radius
 		var group_center := Vector2(cos(group_center_angle), sin(group_center_angle)) * group_center_dist + center_pos
-		var count_in_group := randi_range(8, 16)
+		var grass_min: int = maxi(4, int(ceili(8.0 * density_mult / 2.0)))
+		var grass_max: int = maxi(grass_min, int(ceili(16.0 * density_mult / 2.0)))
+		var count_in_group := randi_range(grass_min, grass_max)
 		var cluster_radius := 90.0  # Slightly looser spacing
 		for _i in count_in_group:
 			var offset := Vector2(randf_range(-cluster_radius, cluster_radius), randf_range(-cluster_radius, cluster_radius))
@@ -1804,7 +1874,9 @@ func _spawn_decorative_trees() -> void:
 		var group_center_angle := randf() * TAU
 		var group_center_dist := randf() * spawn_radius
 		var group_center := Vector2(cos(group_center_angle), sin(group_center_angle)) * group_center_dist + center_pos
-		var count_in_group := randi_range(3, 7)
+		var tree_min: int = maxi(2, int(ceili(3.0 * density_mult / 2.0)))
+		var tree_max: int = maxi(tree_min, int(ceili(7.0 * density_mult / 2.0)))
+		var count_in_group := randi_range(tree_min, tree_max)
 		var cluster_radius := 320.0
 		for _i in count_in_group:
 			var offset := Vector2(randf_range(-cluster_radius, cluster_radius), randf_range(-cluster_radius, cluster_radius))
@@ -1839,7 +1911,16 @@ func _get_random_sheep_goat_tint() -> Color:
 	return Color(v, v, v)
 
 func _despawn_tallgrass_near(center_pos: Vector2, radius: float) -> void:
-	"""Remove tall grass nodes within radius of the given position."""
+	"""Persist grass clear + bug depletion; rebuild batched visuals when chunk streaming is on."""
+	if MutationStore:
+		MutationStore.deplete_in_radius(center_pos, radius)
+	var cm: Node = get_node_or_null("/root/ChunkManager")
+	if cm and cm.has_method("rebuild_grass_in_loaded_chunks_near"):
+		cm.call("rebuild_grass_in_loaded_chunks_near", center_pos, radius)
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and bool(wgc.use_chunk_content_streaming):
+		return
+	# Legacy non-streaming fallback
 	var nodes := get_tree().get_nodes_in_group("tallgrass")
 	for node in nodes:
 		if not is_instance_valid(node):
@@ -1892,22 +1973,13 @@ func _cancel_ambient_grass_forage() -> void:
 	if _ambient_grass_forage_progress != null and is_instance_valid(_ambient_grass_forage_progress):
 		_ambient_grass_forage_progress.stop_collection(true)
 
-func _find_closest_tallgrass(from_pos: Vector2, max_dist: float) -> Node2D:
-	var best: Node2D = null
-	var best_d: float = max_dist
-	for n in get_tree().get_nodes_in_group("tallgrass"):
-		if not is_instance_valid(n):
-			continue
-		if not n.get_meta(TALLGRASS_HAS_BUGS_META, false):
-			continue
-		var left: int = int(n.get_meta(TALLGRASS_BUGS_REMAINING_META, 1))
-		if left <= 0:
-			continue
-		var d: float = from_pos.distance_to(n.global_position)
-		if d < best_d:
-			best_d = d
-			best = n
-	return best
+func _find_closest_grass_bug_patch(from_pos: Vector2, max_dist: float) -> Node2D:
+	if DecorIndex:
+		return DecorIndex.query_nearest_node(from_pos, max_dist, {
+			"kind": &"grass_bug",
+			"forageable_only": true,
+		})
+	return null
 
 func _deferred_try_ambient_grass_forage() -> void:
 	if not player:
@@ -1922,7 +1994,7 @@ func _deferred_try_ambient_grass_forage() -> void:
 		return
 	if active_collection_resource != null:
 		return
-	var patch: Node2D = _find_closest_tallgrass(player.global_position, AMBIENT_GRASS_FORAGE_RANGE)
+	var patch: Node2D = _find_closest_grass_bug_patch(player.global_position, AMBIENT_GRASS_FORAGE_RANGE)
 	if patch == null:
 		return
 	_ambient_grass_forage_active = true
@@ -1956,17 +2028,21 @@ func _finish_ambient_grass_forage() -> void:
 		return
 	if player.global_position.distance_to(patch.global_position) > AMBIENT_GRASS_STAY_RANGE:
 		return
-	var left: int = int(patch.get_meta(TALLGRASS_BUGS_REMAINING_META, 1))
-	if left <= 0:
-		return
-	add_to_inventory(ResourceData.ResourceType.BUGS, 1)
-	left -= 1
-	if left <= 0:
-		patch.remove_meta(TALLGRASS_HAS_BUGS_META)
-		if patch.has_meta(TALLGRASS_BUGS_REMAINING_META):
-			patch.remove_meta(TALLGRASS_BUGS_REMAINING_META)
+	if patch.has_method("consume_one"):
+		if not patch.call("consume_one"):
+			return
 	else:
-		patch.set_meta(TALLGRASS_BUGS_REMAINING_META, left)
+		var left: int = int(patch.get_meta(TALLGRASS_BUGS_REMAINING_META, 1))
+		if left <= 0:
+			return
+		left -= 1
+		if left <= 0:
+			patch.remove_meta(TALLGRASS_HAS_BUGS_META)
+			if patch.has_meta(TALLGRASS_BUGS_REMAINING_META):
+				patch.remove_meta(TALLGRASS_BUGS_REMAINING_META)
+		else:
+			patch.set_meta(TALLGRASS_BUGS_REMAINING_META, left)
+	add_to_inventory(ResourceData.ResourceType.BUGS, 1)
 
 func _spawn_ground_items() -> void:
 	# Spawn sparse ground items (stone, wood, mushrooms) spread across the map
@@ -1975,7 +2051,9 @@ func _spawn_ground_items() -> void:
 	if not player:
 		return
 	
-	var spawn_count := 40  # Increased for better coverage
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
+	var spawn_count := int(ceili(40.0 * density_mult))
 	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
 	var center_pos := player.global_position
 	
@@ -2005,8 +2083,11 @@ func _spawn_ground_items_around_player() -> void:
 	if not player:
 		return
 	
-	# Spawn occasionally (not every frame)
-	if randf() > 0.01:  # 1% chance per frame
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
+	# Spawn occasionally (not every frame); scale chance with density.
+	var spawn_chance: float = clampf(0.01 * density_mult, 0.01, 0.08)
+	if randf() > spawn_chance:
 		return
 	
 	var spawn_radius := 1000.0  # Increased radius for exploration
@@ -2022,8 +2103,9 @@ func _spawn_ground_items_around_player() -> void:
 		if distance < spawn_radius:
 			nearby_items += 1
 	
-	# Only spawn if there are few items nearby (keep it sparse)
-	if nearby_items < 5:
+	# Only spawn if there are few items nearby (cap scales with density)
+	var nearby_cap: int = maxi(5, int(ceili(5.0 * density_mult)))
+	if nearby_items < nearby_cap:
 		var angle := randf() * TAU
 		var distance := randf_range(400.0, spawn_radius)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
@@ -2437,6 +2519,52 @@ func _get_player_party_follower_nodes() -> Array:
 			continue
 		out.append(n)
 	return out
+
+
+func _get_party_follower_network_ids() -> Array:
+	var out: Array = []
+	if not EntityRegistry:
+		return out
+	for n in _get_player_party_follower_nodes():
+		var nid: int = EntityRegistry.get_network_id(n)
+		if nid > 0:
+			out.append(nid)
+	return out
+
+
+func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
+	if data.is_empty() or parent == null:
+		return
+	var npc: Node = NPC_SCENE.instantiate()
+	if not npc:
+		return
+	var nid: int = int(data.get("network_id", -1))
+	if EntityRegistry and nid > 0:
+		EntityRegistry.register_with_network_id(npc, nid)
+	parent.add_child(npc)
+	npc.global_position = data.get("position", Vector2.ZERO) as Vector2
+	npc.set("npc_name", str(data.get("npc_name", "NPC")))
+	npc.set("npc_type", str(data.get("npc_type", "generic")))
+	npc.set("age", int(data.get("age", 13)))
+	npc.set("quality_tier", str(data.get("quality_tier", "Flawed")))
+	npc.set("skin_tone", str(data.get("skin_tone", "Medium")))
+	npc.set("card_index", int(data.get("card_index", 0)))
+	var traits_val = data.get("traits", [])
+	if traits_val is Array:
+		npc.set("traits", (traits_val as Array).duplicate())
+	var clan: String = str(data.get("clan_name", ""))
+	npc.set("clan_name", clan)
+	if clan != "":
+		npc.set_meta("clan_name", clan)
+		npc.set_meta("land_claim_clan_name", clan)
+	if npc.has_method("set_clan_name") and clan != "":
+		npc.set_clan_name(clan, "main.spawn_npc_from_sleep_data")
+	if npc.has_method("apply_sleep_data"):
+		npc.call("apply_sleep_data", data)
+	if EntityRegistry and nid < 1:
+		EntityRegistry.register(npc)
+	call_deferred("_apply_placeholder_card_to_npc", npc)
+	npc.visible = true
 
 
 func _sync_party_selection_from_follower_cache() -> void:
@@ -3861,6 +3989,367 @@ func _reproduction_harness_run() -> void:
 		return
 	_repro_harness_emit_diag(Time.get_ticks_msec() / 1000.0)
 	print("REPRO_HARNESS: waiting for 2 births (max 90s). Player in claim + designated father = Player.")
+
+
+func _chain_test_harness_begin_deferred() -> void:
+	if _cmdline_has("--production-chain-test"):
+		await _production_chain_test_run()
+	elif _cmdline_has("--milestone-chain-test"):
+		await _milestone_chain_test_run()
+
+
+func _chain_test_is_active() -> bool:
+	return (
+		_production_chain_test_active
+		or _milestone_chain_test_active
+		or _cmdline_has("--production-chain-test")
+		or _cmdline_has("--milestone-chain-test")
+	)
+
+
+func _chain_test_begin_isolation() -> void:
+	if not _chain_test_isolation_backup.is_empty():
+		return
+	_chain_test_isolation_backup.clear()
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and "wild_migratory_chunk_spawns_enabled" in wgc:
+		_chain_test_isolation_backup["wild_migratory"] = wgc.get("wild_migratory_chunk_spawns_enabled")
+		wgc.set("wild_migratory_chunk_spawns_enabled", false)
+	if wgc and "clan_respawn_enabled" in wgc:
+		_chain_test_isolation_backup["clan_respawn_enabled"] = wgc.get("clan_respawn_enabled")
+		_chain_test_isolation_backup["clan_spawn_chance"] = wgc.get("clan_spawn_chance")
+		_chain_test_isolation_backup["min_clans_per_player"] = wgc.get("min_clans_per_player")
+		wgc.set("clan_respawn_enabled", false)
+		wgc.set("clan_spawn_chance", 0.0)
+		wgc.set("min_clans_per_player", 0)
+	if NPCConfig:
+		_chain_test_isolation_backup["combat_disabled"] = NPCConfig.combat_disabled
+		NPCConfig.combat_disabled = true
+
+
+func _chain_test_end_isolation() -> void:
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and _chain_test_isolation_backup.has("wild_migratory"):
+		wgc.set("wild_migratory_chunk_spawns_enabled", _chain_test_isolation_backup["wild_migratory"])
+	if wgc and _chain_test_isolation_backup.has("clan_respawn_enabled"):
+		wgc.set("clan_respawn_enabled", _chain_test_isolation_backup["clan_respawn_enabled"])
+	if wgc and _chain_test_isolation_backup.has("clan_spawn_chance"):
+		wgc.set("clan_spawn_chance", _chain_test_isolation_backup["clan_spawn_chance"])
+	if wgc and _chain_test_isolation_backup.has("min_clans_per_player"):
+		wgc.set("min_clans_per_player", _chain_test_isolation_backup["min_clans_per_player"])
+	if NPCConfig and _chain_test_isolation_backup.has("combat_disabled"):
+		NPCConfig.combat_disabled = _chain_test_isolation_backup["combat_disabled"]
+	_chain_test_isolation_backup.clear()
+
+
+func _chain_test_force_brain_eval(claim: LandClaim) -> void:
+	if not claim or not is_instance_valid(claim):
+		return
+	var brain: RefCounted = claim.get_clan_brain() if claim.has_method("get_clan_brain") else null
+	if not brain:
+		return
+	if brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
+	if brain.has_method("_evaluate_metrics"):
+		brain._evaluate_metrics()
+	var interval: int = BalanceConfig.allocation_eval_interval if BalanceConfig else 3
+	if "_allocation_eval_counter" in brain:
+		brain._allocation_eval_counter = maxi(interval - 1, 0)
+	if brain.has_method("_evaluate_resource_allocation"):
+		brain._evaluate_resource_allocation()
+	if brain.has_method("_evaluate_milestone_buildings"):
+		brain._evaluate_milestone_buildings()
+
+
+func _chain_test_backup_timings(into: Dictionary) -> void:
+	if not BalanceConfig:
+		return
+	into["bread_craft_time"] = BalanceConfig.bread_craft_time
+	into["drying_rack_process_time"] = BalanceConfig.drying_rack_process_time
+	into["ai_milestone_build_duration_sec"] = BalanceConfig.ai_milestone_build_duration_sec
+	# Faster craft/passive/build for harness wall-clock (logic unchanged).
+	BalanceConfig.bread_craft_time = 8.0
+	BalanceConfig.drying_rack_process_time = 8.0
+	BalanceConfig.ai_milestone_build_duration_sec = 4.0
+
+
+func _chain_test_restore_timings(from: Dictionary) -> void:
+	if not BalanceConfig or from.is_empty():
+		return
+	if from.has("bread_craft_time"):
+		BalanceConfig.bread_craft_time = float(from["bread_craft_time"])
+	if from.has("drying_rack_process_time"):
+		BalanceConfig.drying_rack_process_time = float(from["drying_rack_process_time"])
+	if from.has("ai_milestone_build_duration_sec"):
+		BalanceConfig.ai_milestone_build_duration_sec = float(from["ai_milestone_build_duration_sec"])
+
+
+func _chain_test_prepare_hub(hub_pos: Vector2) -> void:
+	if player:
+		player.global_position = hub_pos
+	if camera:
+		camera.global_position = hub_pos
+	if world:
+		world.ensure_chunks_for_position(hub_pos)
+
+
+func _chain_test_spawn_ai_claim(clan_name: String, hub_pos: Vector2) -> LandClaim:
+	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
+	if not land_claim:
+		return null
+	land_claim.global_position = hub_pos
+	land_claim.set_clan_name(clan_name)
+	land_claim.player_owned = false
+	if not land_claim.inventory:
+		land_claim.inventory = _new_land_claim_inventory()
+	world_objects.add_child(land_claim)
+	_despawn_tallgrass_near(hub_pos, land_claim.radius)
+	_despawn_decorative_trees_near(hub_pos, land_claim.radius)
+	register_land_claim(land_claim)
+	land_claim.visible = true
+	return land_claim
+
+
+func _chain_test_spawn_woman(clan_name: String, hub_pos: Vector2, offset: Vector2) -> Node:
+	var woman: Node = NPC_SCENE.instantiate()
+	if not woman:
+		return null
+	woman.set("npc_name", "CHAIN_W")
+	woman.set("npc_type", "woman")
+	woman.set("traits", ["herd"])
+	woman.set("age", 25)
+	if woman.has_method("set_clan_name"):
+		woman.set_clan_name(clan_name, "chain_test")
+	else:
+		woman.set("clan_name", clan_name)
+	_apply_placeholder_card_to_npc(woman)
+	world_objects.add_child(woman)
+	woman.global_position = hub_pos + offset
+	woman.set("spawn_position", hub_pos + offset)
+	woman.visible = true
+	return woman
+
+
+func _chain_test_spawn_clansman(clan_name: String, hub_pos: Vector2, offset: Vector2) -> Node:
+	var fighter: Node = NPC_SCENE.instantiate()
+	if not fighter:
+		return null
+	fighter.set("npc_name", "CHAIN_F")
+	fighter.set("npc_type", "clansman")
+	fighter.set("age", 20)
+	if fighter.has_method("set_clan_name"):
+		fighter.set_clan_name(clan_name, "chain_test")
+	else:
+		fighter.set("clan_name", clan_name)
+	_apply_placeholder_card_to_npc(fighter)
+	world_objects.add_child(fighter)
+	fighter.global_position = hub_pos + offset
+	fighter.set("spawn_position", hub_pos + offset)
+	fighter.visible = true
+	return fighter
+
+
+func _chain_test_claim_has_building(claim: LandClaim, building_type: ResourceData.ResourceType) -> bool:
+	if not claim or not is_instance_valid(claim):
+		return false
+	var cn: String = str(claim.clan_name)
+	for bld in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(bld) or bld is LandClaim:
+			continue
+		if str(bld.get("clan_name")) == cn and bld.get("building_type") == building_type:
+			return true
+	return false
+
+
+func _chain_test_brain_snapshot(claim: LandClaim) -> Dictionary:
+	var snap: Dictionary = {"clan": str(claim.clan_name) if claim else "?"}
+	if not claim:
+		return snap
+	var brain: RefCounted = claim.get_clan_brain() if claim.has_method("get_clan_brain") else null
+	if brain:
+		if brain.has_method("get_debug_info"):
+			var di: Dictionary = brain.get_debug_info()
+			snap["workforce_mode"] = di.get("workforce_mode", "?")
+		snap["work_requests_pending"] = claim.get_meta("work_request_pending_count", -1)
+	if claim.inventory:
+		snap["bread"] = claim.inventory.get_count(ResourceData.ResourceType.BREAD)
+		snap["leather"] = claim.inventory.get_count(ResourceData.ResourceType.LEATHER)
+		snap["grain"] = claim.inventory.get_count(ResourceData.ResourceType.GRAIN)
+		snap["hide"] = claim.inventory.get_count(ResourceData.ResourceType.HIDE)
+	snap["has_oven"] = _chain_test_claim_has_building(claim, ResourceData.ResourceType.OVEN)
+	snap["has_rack"] = _chain_test_claim_has_building(claim, ResourceData.ResourceType.DRYING_RACK)
+	return snap
+
+
+func _production_chain_test_run() -> void:
+	print("═══════════════════════════════════════════════════════════")
+	print("PRODUCTION_CHAIN_TEST: oven + rack + stocked claim + woman (real WorkRequests)")
+	if not world_objects:
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: missing world_objects")
+		get_tree().quit(1)
+		return
+	_chain_test_backup_timings(_production_chain_timing_backup)
+	_production_chain_test_active = true
+	_production_chain_start_time = Time.get_ticks_msec() / 1000.0
+	_production_chain_last_diag_time = -1.0
+	var hub := PRODUCTION_CHAIN_HUB
+	_chain_test_prepare_hub(hub)
+	var claim := _chain_test_spawn_ai_claim(PRODUCTION_CHAIN_CLAN_NAME, hub)
+	if not claim:
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: LandClaim instantiate failed")
+		_production_chain_test_finish(1)
+		return
+	_production_chain_claim = claim
+	claim.inventory.add_item(ResourceData.ResourceType.GRAIN, 12)
+	claim.inventory.add_item(ResourceData.ResourceType.WOOD, 12)
+	claim.inventory.add_item(ResourceData.ResourceType.HIDE, 8)
+	claim.set_meta("calories_days_buffer", 2.0)
+	_production_chain_baseline_bread = claim.inventory.get_count(ResourceData.ResourceType.BREAD)
+	_production_chain_baseline_leather = claim.inventory.get_count(ResourceData.ResourceType.LEATHER)
+	await get_tree().process_frame
+	var oven_site: Vector2 = _find_ai_building_site(claim, ResourceData.ResourceType.OVEN)
+	var rack_site: Vector2 = _find_ai_building_site(claim, ResourceData.ResourceType.DRYING_RACK)
+	if oven_site == Vector2.ZERO or rack_site == Vector2.ZERO:
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: no valid build site oven=%s rack=%s" % [oven_site, rack_site])
+		_production_chain_test_finish(1)
+		return
+	if not _place_ai_building_at(claim, ResourceData.ResourceType.OVEN, oven_site):
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: oven placement failed")
+		_production_chain_test_finish(1)
+		return
+	if not _place_ai_building_at(claim, ResourceData.ResourceType.DRYING_RACK, rack_site):
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: drying rack placement failed")
+		_production_chain_test_finish(1)
+		return
+	await get_tree().process_frame
+	var woman := _chain_test_spawn_woman(PRODUCTION_CHAIN_CLAN_NAME, hub, Vector2(48.0, 0.0))
+	if not woman:
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: woman spawn failed")
+		_production_chain_test_finish(1)
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not _place_herder_hut(claim, woman, null, true):
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: Living Hut placement failed")
+		_production_chain_test_finish(1)
+		return
+	await get_tree().process_frame
+	_chain_test_force_brain_eval(claim)
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("log_event"):
+		pi.log_event("production_chain_test_ready", _chain_test_brain_snapshot(claim))
+	print("PRODUCTION_CHAIN_TEST: waiting for bread+leather in claim pantry (max %.0fs)" % PRODUCTION_CHAIN_TIMEOUT_SEC)
+	print("PRODUCTION_CHAIN_TEST: snapshot %s" % str(_chain_test_brain_snapshot(claim)))
+
+
+func _production_chain_test_tick(now_sec: float) -> void:
+	if not _production_chain_claim or not is_instance_valid(_production_chain_claim):
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: claim invalid")
+		_production_chain_test_finish(1)
+		return
+	var inv = _production_chain_claim.inventory
+	var bread: int = inv.get_count(ResourceData.ResourceType.BREAD) if inv else 0
+	var leather: int = inv.get_count(ResourceData.ResourceType.LEATHER) if inv else 0
+	if bread > _production_chain_baseline_bread and leather > _production_chain_baseline_leather:
+		print("PRODUCTION_CHAIN_TEST_PASS: bread=%d leather=%d (baseline %d/%d)" % [
+			bread, leather, _production_chain_baseline_bread, _production_chain_baseline_leather
+		])
+		var pi = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("log_event"):
+			pi.log_event("production_chain_test_pass", _chain_test_brain_snapshot(_production_chain_claim))
+		_production_chain_test_finish(0)
+		return
+	var elapsed: float = now_sec - _production_chain_start_time
+	if _production_chain_last_diag_time < 0.0 or (now_sec - _production_chain_last_diag_time) >= PRODUCTION_CHAIN_DIAG_INTERVAL_SEC:
+		_production_chain_last_diag_time = now_sec
+		print("PRODUCTION_CHAIN_TEST_DIAG @ %.0fs: %s" % [elapsed, str(_chain_test_brain_snapshot(_production_chain_claim))])
+	if elapsed >= PRODUCTION_CHAIN_TIMEOUT_SEC:
+		push_error("PRODUCTION_CHAIN_TEST_FAIL: timeout bread=%d leather=%d need > baseline %d/%d — %s" % [
+			bread, leather, _production_chain_baseline_bread, _production_chain_baseline_leather,
+			str(_chain_test_brain_snapshot(_production_chain_claim))
+		])
+		_production_chain_test_finish(1)
+
+
+func _production_chain_test_finish(exit_code: int) -> void:
+	_chain_test_restore_timings(_production_chain_timing_backup)
+	_production_chain_timing_backup.clear()
+	_chain_test_end_isolation()
+	_production_chain_test_active = false
+	_production_chain_claim = null
+	get_tree().quit(exit_code)
+
+
+func _milestone_chain_test_run() -> void:
+	print("═══════════════════════════════════════════════════════════")
+	print("MILESTONE_CHAIN_TEST: stocked claim + clansman (real milestone queue + build FSM)")
+	if not world_objects:
+		push_error("MILESTONE_CHAIN_TEST_FAIL: missing world_objects")
+		get_tree().quit(1)
+		return
+	_chain_test_backup_timings(_milestone_chain_timing_backup)
+	_milestone_chain_test_active = true
+	_milestone_chain_start_time = Time.get_ticks_msec() / 1000.0
+	_milestone_chain_last_diag_time = -1.0
+	var hub := MILESTONE_CHAIN_HUB
+	_chain_test_prepare_hub(hub)
+	var claim := _chain_test_spawn_ai_claim(MILESTONE_CHAIN_CLAN_NAME, hub)
+	if not claim:
+		push_error("MILESTONE_CHAIN_TEST_FAIL: LandClaim instantiate failed")
+		_milestone_chain_test_finish(1)
+		return
+	_milestone_chain_claim = claim
+	claim.inventory.add_item(ResourceData.ResourceType.GRAIN, 5)
+	claim.inventory.add_item(ResourceData.ResourceType.HIDE, 5)
+	claim.inventory.add_item(ResourceData.ResourceType.WOOD, 10)
+	claim.set_meta("calories_days_buffer", 2.0)
+	await get_tree().process_frame
+	var fighter := _chain_test_spawn_clansman(MILESTONE_CHAIN_CLAN_NAME, hub, Vector2(40.0, 0.0))
+	if not fighter:
+		push_error("MILESTONE_CHAIN_TEST_FAIL: clansman spawn failed")
+		_milestone_chain_test_finish(1)
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_chain_test_force_brain_eval(claim)
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("log_event"):
+		pi.log_event("milestone_chain_test_ready", _chain_test_brain_snapshot(claim))
+	print("MILESTONE_CHAIN_TEST: waiting for oven + drying rack via milestone build (max %.0fs)" % MILESTONE_CHAIN_TIMEOUT_SEC)
+
+
+func _milestone_chain_test_tick(now_sec: float) -> void:
+	if not _milestone_chain_claim or not is_instance_valid(_milestone_chain_claim):
+		push_error("MILESTONE_CHAIN_TEST_FAIL: claim invalid")
+		_milestone_chain_test_finish(1)
+		return
+	var has_oven: bool = _chain_test_claim_has_building(_milestone_chain_claim, ResourceData.ResourceType.OVEN)
+	var has_rack: bool = _chain_test_claim_has_building(_milestone_chain_claim, ResourceData.ResourceType.DRYING_RACK)
+	if has_oven and has_rack:
+		print("MILESTONE_CHAIN_TEST_PASS: oven + drying rack placed for %s" % MILESTONE_CHAIN_CLAN_NAME)
+		var pi = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("log_event"):
+			pi.log_event("milestone_chain_test_pass", _chain_test_brain_snapshot(_milestone_chain_claim))
+		_milestone_chain_test_finish(0)
+		return
+	var elapsed: float = now_sec - _milestone_chain_start_time
+	if _milestone_chain_last_diag_time < 0.0 or (now_sec - _milestone_chain_last_diag_time) >= MILESTONE_CHAIN_DIAG_INTERVAL_SEC:
+		_milestone_chain_last_diag_time = now_sec
+		print("MILESTONE_CHAIN_TEST_DIAG @ %.0fs: %s" % [elapsed, str(_chain_test_brain_snapshot(_milestone_chain_claim))])
+	if elapsed >= MILESTONE_CHAIN_TIMEOUT_SEC:
+		push_error("MILESTONE_CHAIN_TEST_FAIL: timeout oven=%s rack=%s — %s" % [
+			has_oven, has_rack, str(_chain_test_brain_snapshot(_milestone_chain_claim))
+		])
+		_milestone_chain_test_finish(1)
+
+
+func _milestone_chain_test_finish(exit_code: int) -> void:
+	_chain_test_restore_timings(_milestone_chain_timing_backup)
+	_milestone_chain_timing_backup.clear()
+	_chain_test_end_isolation()
+	_milestone_chain_test_active = false
+	_milestone_chain_claim = null
+	get_tree().quit(exit_code)
 
 
 func _spawn_rts_playtest_pack_async() -> void:
@@ -6615,6 +7104,12 @@ func _initialize_minigame() -> void:
 	if _cmdline_has("--repro-harness"):
 		print("REPRO_HARNESS: skipping default minigame NPC spawn (isolated claim at 12000,12000)")
 		return
+	if _cmdline_has("--production-chain-test"):
+		print("PRODUCTION_CHAIN_TEST: skipping default NPC spawn (isolated production harness at 50000,50000)")
+		return
+	if _cmdline_has("--milestone-chain-test"):
+		print("MILESTONE_CHAIN_TEST: skipping default NPC spawn (isolated milestone harness at 51000,50000)")
+		return
 	# Session quickstart: player claim + 2 women + 2 Living Huts (before woman-test / agro / raid)
 	if DebugConfig.enable_session_quickstart:
 		await _setup_session_quickstart_environment()
@@ -7039,7 +7534,8 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 		var entry_edge_x: float = float(corr["entry_edge_x"])
 		var base_y: float = origin.y + rng.randf_range(140.0, ChunkUtils.CHUNK_SIZE - 140.0)
 		if roll < 0.38:
-			var herd_n := rng.randi_range(2, mini(6, BalanceConfig.deer_initial + 3 if BalanceConfig else 7))
+			var deer_cap: int = BalanceConfig.deer_initial if BalanceConfig else 8
+			var herd_n := rng.randi_range(2, mini(12, deer_cap + 3))
 			for hh in herd_n:
 				var sx := entry_edge_x + float(hh) * 30.0 * float(entry_side)
 				var sy := base_y + rng.randf_range(-44.0, 44.0)
@@ -7161,6 +7657,21 @@ func _finalize_migratory_npc(npc: Node, spawn_pos: Vector2, entry_side: int, exi
 			"chunk_cx": cx,
 			"chunk_cy": cy,
 		})
+	call_deferred("_register_migratory_prey_with_nearby_claims", npc)
+
+
+func _register_migratory_prey_with_nearby_claims(npc: Node) -> void:
+	if not npc or not is_instance_valid(npc) or not (npc is Node2D):
+		return
+	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if not NPCConfig or not NPCConfig.is_ai_hunt_prey_type(nt):
+		return
+	for claim_node in get_cached_land_claims():
+		if not is_instance_valid(claim_node) or not claim_node is LandClaim:
+			continue
+		var lc: LandClaim = claim_node as LandClaim
+		if lc.has_method("register_huntable_in_aoh"):
+			lc.register_huntable_in_aoh(npc as Node2D)
 
 
 func _spawn_debug_migratory_deer_f7() -> void:
@@ -7867,6 +8378,30 @@ func _godmode_tools_enabled() -> bool:
 		return true
 	var dc: Node = get_node_or_null("/root/DebugConfig")
 	return dc != null and bool(dc.get("enable_godmode"))
+
+
+func _dev_balance_menu_enabled() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return false
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc == null:
+		return false
+	if bool(dc.get("enable_dev_balance_menu")):
+		return true
+	if bool(dc.get("enable_godmode")) or bool(dc.get("enable_debug_mode")):
+		return true
+	return _godmode_tools_enabled()
+
+
+func _setup_dev_balance_menu() -> void:
+	if not _dev_balance_menu_enabled() or not ui_layer:
+		return
+	dev_balance_menu = DevBalanceMenuScript.new()
+	if not dev_balance_menu:
+		return
+	dev_balance_menu.name = "DevBalanceMenu"
+	ui_layer.add_child(dev_balance_menu)
+	print("✓ Dev balance menu ready (F10) — edit ClanBrainTuningConfig live")
 
 
 func _setup_godmode_ui() -> void:

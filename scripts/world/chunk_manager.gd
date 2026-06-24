@@ -3,8 +3,9 @@ extends Node
 
 const RESOURCE_SCENE := preload("res://scenes/GatherableResource.tscn")
 const _NAMING_SCRIPT: Script = preload("res://scripts/naming_utils.gd")
-const TALLGRASS_HAS_BUGS_META := &"has_bugs"
-const TALLGRASS_BUGS_REMAINING_META := &"bugs_remaining"
+const GrassBatchScript := preload("res://scripts/world/grass_batch.gd")
+const TreeBatchScript := preload("res://scripts/world/tree_batch.gd")
+const GrassBugPatchScript := preload("res://scripts/world/grass_bug_patch.gd")
 
 var _main: Node2D
 var _wgc: Node
@@ -62,6 +63,11 @@ func update_streaming(player_world_pos: Vector2, delta: float) -> void:
 		_wgc = get_node_or_null("/root/WorldGenConfig")
 	if not _wgc or not bool(_wgc.use_chunk_content_streaming):
 		return
+	var interest: Node = get_node_or_null("/root/WorldInterestManager")
+	if interest and interest.has_method("recompute"):
+		interest.call("recompute", _main)
+		if interest.has_method("get_primary_stream_position"):
+			player_world_pos = interest.call("get_primary_stream_position", _main) as Vector2
 	var center := ChunkUtils.get_chunk_coords(player_world_pos)
 	var r: int = int(_wgc.call("get_effective_load_radius")) if _wgc.has_method("get_effective_load_radius") else 1
 	_queue_disk(center, r)
@@ -134,16 +140,29 @@ func _load_chunk(chunk: Vector2i) -> void:
 	if _ms and _wgc:
 		if int(_ms.call("get_clan_deaths_in_chunk", chunk)) >= int(_wgc.clan_max_deaths_per_chunk):
 			data["clans"] = []
-	_spawn_resources(root, chunk, data.get("resources", []))
-	_spawn_tree_groups(root, chunk, data.get("tree_groups", []))
-	_spawn_tallgrass_clusters(root, chunk, data.get("tallgrass_clusters", []))
-	_spawn_ground_items(root, chunk, data.get("ground_items", []))
+	var visual_root := Node2D.new()
+	visual_root.name = "VisualRoot"
+	root.add_child(visual_root)
+	var sim_root := Node2D.new()
+	sim_root.name = "SimRoot"
+	root.add_child(sim_root)
+	_spawn_resources(sim_root, chunk, data.get("resources", []))
+	_spawn_tree_groups(visual_root, sim_root, chunk, data.get("tree_groups", []))
+	_spawn_tallgrass_layers(visual_root, sim_root, chunk, data.get("tallgrass_clusters", []), data.get("grass_bug_patches", []))
+	_spawn_ground_items(sim_root, chunk, data.get("ground_items", []))
 	_spawn_clans(root, chunk, data.get("clans", []))
 	if _main and _main.has_method("_spawn_wildlife_for_loaded_chunk"):
 		_main.call("_spawn_wildlife_for_loaded_chunk", chunk)
+	var sleep_mgr: Node = get_node_or_null("/root/NPCSleepManager")
+	if sleep_mgr and sleep_mgr.has_method("wake_npcs_in_chunk") and _main:
+		var wo_parent: Node2D = _main.get("world_objects") as Node2D
+		sleep_mgr.call("wake_npcs_in_chunk", chunk, wo_parent, _main)
 
 
 func _unload_chunk(chunk: Vector2i) -> void:
+	var sleep_mgr: Node = get_node_or_null("/root/NPCSleepManager")
+	if sleep_mgr and sleep_mgr.has_method("sleep_npcs_in_chunk") and _main:
+		sleep_mgr.call("sleep_npcs_in_chunk", chunk, _main)
 	var root: Node = _loaded.get(chunk) as Node
 	if root and is_instance_valid(root):
 		root.queue_free()
@@ -152,9 +171,44 @@ func _unload_chunk(chunk: Vector2i) -> void:
 	_clan_spawned_chunks.erase(chunk)
 
 
+func rebuild_grass_in_loaded_chunks_near(world_pos: Vector2, radius: float) -> void:
+	if ChunkUtils == null:
+		return
+	var center := ChunkUtils.get_chunk_coords(world_pos)
+	var r_chunks: int = int(ceil(radius / ChunkUtils.CHUNK_SIZE)) + 1
+	for dx in range(-r_chunks, r_chunks + 1):
+		for dy in range(-r_chunks, r_chunks + 1):
+			var c := center + Vector2i(dx, dy)
+			if not _loaded.has(c):
+				continue
+			var root: Node2D = _loaded[c] as Node2D
+			if root == null or not is_instance_valid(root):
+				continue
+			var visual: Node = root.get_node_or_null("VisualRoot")
+			if visual == null:
+				continue
+			var old: Node = visual.get_node_or_null("GrassBatch")
+			if old:
+				old.queue_free()
+			var world_seed_val: int = int(_wgc.world_seed) if _wgc else 0
+			var data: Dictionary = _chunk_generator.call("generate_chunk", world_seed_val, c, _wgc) as Dictionary
+			var all_pts: Array = []
+			for cl in data.get("tallgrass_clusters", []) as Array:
+				if typeof(cl) != TYPE_DICTIONARY:
+					continue
+				for pt in cl.get("points", []) as Array:
+					all_pts.append(pt)
+			if all_pts.is_empty():
+				continue
+			GrassBatchScript.build(visual as Node2D, all_pts, c)
+
+
 func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
 	for desc in list:
 		if typeof(desc) != TYPE_DICTIONARY:
+			continue
+		var sid: String = str(desc.get("stable_id", ""))
+		if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
 			continue
 		var res: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
 		res.resource_type = desc.get("type", ResourceData.ResourceType.STONE) as ResourceData.ResourceType
@@ -181,74 +235,64 @@ func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
 		root.add_child(res)
 
 
-func _spawn_tree_groups(root: Node2D, chunk: Vector2i, groups: Array) -> void:
+func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, groups: Array) -> void:
 	if not AssetRegistry.get_treess_sprite():
 		return
 	var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
+	var visual_all: Array = []
 	for group in groups:
 		if typeof(group) != TYPE_ARRAY:
 			continue
 		for desc in group:
 			if typeof(desc) != TYPE_DICTIONARY:
 				continue
-			var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
-			var tree_idx: int = int(desc.get("tree_idx", 0))
-			var wrapper := Node2D.new()
-			wrapper.global_position = pos + Vector2(0, sort_offset)
-			wrapper.add_to_group("decorative_trees")
-			wrapper.set_meta(&"chunk_coords", chunk)
-			var wood: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
-			wood.resource_type = ResourceData.ResourceType.WOOD
-			wood.tree_sheet_index = tree_idx
-			wood.min_amount = 4
-			wood.max_amount = 6
-			wood.position = Vector2(0, -sort_offset)
-			wrapper.add_child(wood)
-			root.add_child(wrapper)
+			var sid: String = str(desc.get("stable_id", ""))
+			if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
+				continue
+			if bool(desc.get("choppable", false)):
+				var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
+				var tree_idx: int = int(desc.get("tree_idx", 0))
+				var wrapper := Node2D.new()
+				wrapper.global_position = pos + Vector2(0, sort_offset)
+				wrapper.set_meta(&"chunk_coords", chunk)
+				if sid != "":
+					wrapper.set_meta(&"stable_id", sid)
+				var wood: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
+				wood.resource_type = ResourceData.ResourceType.WOOD
+				wood.tree_sheet_index = tree_idx
+				wood.min_amount = 4
+				wood.max_amount = 6
+				wood.position = Vector2(0, -sort_offset)
+				wrapper.add_child(wood)
+				sim_root.add_child(wrapper)
+			else:
+				visual_all.append(desc)
+	if not visual_all.is_empty():
+		TreeBatchScript.build(visual_root, visual_all)
 
 
-func _spawn_tallgrass_clusters(root: Node2D, chunk: Vector2i, clusters: Array) -> void:
-	var texture_paths := [
-		"res://assets/sprites/tallgrass1.png",
-		"res://assets/sprites/tallgrass2.png",
-		"res://assets/sprites/tallgrass3.png",
-		"res://assets/sprites/tallgrass4.png",
-		"res://assets/sprites/tallgrass5.png",
-		"res://assets/sprites/tallgrass6.png"
-	]
-	var textures: Array = []
-	for p in texture_paths:
-		var t := load(p) as Texture2D
-		if t != null:
-			textures.append(t)
-	if textures.is_empty():
-		return
+func _spawn_tallgrass_layers(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, clusters: Array, bug_patches: Array) -> void:
+	var all_pts: Array = []
 	for cl in clusters:
 		if typeof(cl) != TYPE_DICTIONARY:
 			continue
-		var pts: Array = cl.get("points", []) as Array
-		var has_bugs: bool = bool(cl.get("has_bugs", false))
-		for pt in pts:
-			if typeof(pt) != TYPE_VECTOR2:
-				continue
-			var node := Node2D.new()
-			var sprite := Sprite2D.new()
-			var tex: Texture2D = textures[randi() % textures.size()] as Texture2D
-			sprite.texture = tex
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.centered = true
-			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
-			sprite.name = "Sprite"
-			node.add_child(sprite)
-			node.global_position = pt as Vector2
-			node.add_to_group("tallgrass")
-			node.set_meta(&"chunk_coords", chunk)
-			if has_bugs and randf() < 0.35:
-				node.set_meta(TALLGRASS_HAS_BUGS_META, true)
-				node.set_meta(TALLGRASS_BUGS_REMAINING_META, 1)
-			root.add_child(node)
-			sprite.z_as_relative = false
-			YSortUtils.update_draw_order(sprite, node)
+		for pt in cl.get("points", []) as Array:
+			all_pts.append(pt)
+	if not all_pts.is_empty():
+		GrassBatchScript.build(visual_root, all_pts, chunk)
+	for patch in bug_patches:
+		if typeof(patch) != TYPE_DICTIONARY:
+			continue
+		var sid: String = str(patch.get("stable_id", ""))
+		if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
+			continue
+		var pos: Vector2 = patch.get("position", Vector2.ZERO) as Vector2
+		if MutationStore and MutationStore.is_position_grass_cleared(pos):
+			continue
+		var marker: Area2D = GrassBugPatchScript.new() as Area2D
+		sim_root.add_child(marker)
+		if marker.has_method("setup"):
+			marker.call("setup", pos, sid, chunk, int(patch.get("bugs_remaining", 1)))
 
 
 func _spawn_ground_items(root: Node2D, chunk: Vector2i, list: Array) -> void:
@@ -260,6 +304,9 @@ func _spawn_ground_items(root: Node2D, chunk: Vector2i, list: Array) -> void:
 	for desc in list:
 		if typeof(desc) != TYPE_DICTIONARY:
 			continue
+		var sid: String = str(desc.get("stable_id", ""))
+		if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
+			continue
 		var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
 		var gi: GroundItem = GroundItem.new()
 		gi.item_type = types[posmod(int(pos.x + pos.y), types.size())]
@@ -268,6 +315,8 @@ func _spawn_ground_items(root: Node2D, chunk: Vector2i, list: Array) -> void:
 		gi.add_child(sprite)
 		gi.global_position = pos
 		gi.set_meta(&"chunk_coords", chunk)
+		if sid != "":
+			gi.set_meta(&"stable_id", sid)
 		root.add_child(gi)
 
 

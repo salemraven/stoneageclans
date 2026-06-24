@@ -3984,3 +3984,38 @@ func get_combat_target_candidates(center: Vector2, radius: float) -> Array:
 	return out
 
 # NOTE: Removed duplicate _trigger_follow_directly function - using the one defined earlier at line 953
+
+
+func serialize_to_sleep_data() -> Dictionary:
+	var nid: int = EntityRegistry.get_network_id(self) if EntityRegistry else -1
+	var hp: float = 100.0
+	var hunger_pct: float = 1.0
+	var hc: HealthComponent = get_node_or_null("HealthComponent")
+	if hc:
+		hp = float(hc.current_hp)
+	if stats_component and stats_component.has_method("get_hunger_percent"):
+		hunger_pct = float(stats_component.get_hunger_percent())
+	return {
+		"network_id": nid,
+		"npc_name": npc_name,
+		"npc_type": npc_type,
+		"age": age,
+		"quality_tier": quality_tier,
+		"skin_tone": skin_tone,
+		"card_index": card_index,
+		"traits": traits.duplicate(),
+		"clan_name": clan_name,
+		"position": global_position,
+		"hp": hp,
+		"hunger_percent": hunger_pct,
+	}
+
+
+func apply_sleep_data(data: Dictionary) -> void:
+	var hc: HealthComponent = get_node_or_null("HealthComponent")
+	if hc and data.has("hp"):
+		hc.current_hp = int(data.get("hp", hc.current_hp))
+	if stats_component and stats_component.has_method("set_hunger_percent") and data.has("hunger_percent"):
+		stats_component.set_hunger_percent(float(data.get("hunger_percent", 1.0)))
+	elif stats_component and stats_component.has_method("restore_hunger") and data.has("hunger_percent"):
+		stats_component.restore_hunger(float(data.get("hunger_percent", 1.0)))

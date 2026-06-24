@@ -52,6 +52,9 @@ const SURVIVAL_MODE_THRESHOLD: int = 2
 # === Core State ===
 var clan_name: String = ""
 var territory: Node2D = null  # LandClaim or Campfire (group land_claims)
+var is_dormant: bool = false
+var _dormant_eval_timer: float = 0.0
+const DORMANT_EVAL_INTERVAL: float = 45.0
 ## "settled" = full Land Claim AI; "nomadic" = higher herd/search/gather, lower defense (player nomad phase)
 var brain_mode: String = "settled"
 ## When true (AI clans): prioritize herd/gather — scale defender quota down until population reaches PRODUCTIVITY_DEFEND_CAP_POPULATION.
@@ -125,8 +128,11 @@ var _next_build_request_id: int = 1
 
 # === Alert System ===
 enum AlertLevel { NONE, INTRUDER, SKIRMISH, RAID }
+## Single source of truth for herd vs gather/hunt workforce split (logged on territory + JSONL).
+enum WorkforceMode { GROWTH, BALANCED, STARVING }
 var alert_level: AlertLevel = AlertLevel.NONE
 var alert_decay_timer: float = 0.0
+var workforce_mode: WorkforceMode = WorkforceMode.GROWTH
 const ALERT_DECAY_TIME: float = 10.0  # Seconds before alert decays
 
 # === Strategic State ===
@@ -205,6 +211,8 @@ func _is_server_authoritative() -> bool:
 
 func update(delta: float) -> void:
 	"""Called periodically by the land claim or a manager. Updates clan state."""
+	if is_dormant:
+		return
 	if not territory or not is_instance_valid(territory):
 		return
 	if not _is_server_authoritative():
@@ -235,6 +243,41 @@ func update(delta: float) -> void:
 		_threat_cache_timer = 0.0
 		_refresh_nearby_enemies()
 		_refresh_threat_cache()
+
+func set_dormant(value: bool) -> void:
+	is_dormant = value
+	if not value:
+		_dormant_eval_timer = 0.0
+
+
+func dormant_update(delta: float) -> void:
+	"""Slow abstract sim when claim is off-player interest — no spatial queries."""
+	if not is_dormant:
+		return
+	if not territory or not is_instance_valid(territory):
+		return
+	if not _is_server_authoritative():
+		return
+	_dormant_eval_timer += delta
+	if _dormant_eval_timer < DORMANT_EVAL_INTERVAL:
+		return
+	_dormant_eval_timer = 0.0
+	_update_alert_decay(DORMANT_EVAL_INTERVAL)
+	if not territory.inventory:
+		return
+	var pop: int = int(territory.get_meta("dormant_population", 1))
+	if pop <= 0:
+		return
+	var food_types: Array = [
+		ResourceData.ResourceType.BREAD,
+		ResourceData.ResourceType.GRAIN,
+		ResourceData.ResourceType.BERRIES,
+		ResourceData.ResourceType.MEAT,
+	]
+	for ft in food_types:
+		if territory.inventory.get_count(ft) > 0:
+			territory.inventory.remove_item(ft, mini(pop, 1))
+			return
 
 # === State Evaluation ===
 
@@ -287,6 +330,8 @@ func _evaluate_clan_state() -> void:
 				territory.set_meta("searcher_quota", 0)
 				territory.set_meta("defenders_can_search", false)
 			territory._prune_searchers()
+		# Production economy still runs for woman-only / single-fighter clans (harness + early game).
+		_evaluate_resource_allocation()
 		# Log evaluation even for small clans (instrumentation)
 		_log_evaluation_snapshot()
 		_clan_brain_debug_print()
@@ -488,6 +533,7 @@ func _log_evaluation_snapshot() -> void:
 		"work_requests_active": _count_work_requests_by_state("CLAIMED") + _count_work_requests_by_state("IN_PROGRESS"),
 		"build_requests_pending": _count_build_requests_by_state("PENDING"),
 		"build_requests_active": _count_build_requests_by_state("CLAIMED") + _count_build_requests_by_state("IN_PROGRESS"),
+		"workforce_mode": WorkforceMode.keys()[workforce_mode],
 	}
 	pi.clan_brain_eval(clan_name, metrics)
 
@@ -536,15 +582,68 @@ func _food_per_capita_per_sim_day() -> float:
 
 
 func _food_buffer_target_days() -> float:
+	if ClanBrainTuningConfig:
+		return ClanBrainTuningConfig.get_food_buffer_target_days()
 	if BalanceConfig:
 		return maxf(float(BalanceConfig.clan_food_buffer_target_days), 0.25)
 	return 1.0
 
 
 func _food_buffer_critical_days() -> float:
+	if ClanBrainTuningConfig:
+		return ClanBrainTuningConfig.get_food_buffer_critical_days()
 	if BalanceConfig:
 		return maxf(float(BalanceConfig.clan_food_buffer_critical_days), 0.1)
 	return 0.5
+
+
+func _compute_workforce_mode() -> WorkforceMode:
+	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
+	if fdb < _food_buffer_critical_days():
+		return WorkforceMode.STARVING
+	if fdb < _food_buffer_target_days():
+		return WorkforceMode.BALANCED
+	return WorkforceMode.GROWTH
+
+
+func _publish_workforce_mode() -> void:
+	workforce_mode = _compute_workforce_mode()
+	if not territory:
+		return
+	territory.set_meta("workforce_mode", WorkforceMode.keys()[workforce_mode])
+	territory.set_meta("food_buffer_critical", workforce_mode == WorkforceMode.STARVING)
+
+
+func _workforce_searcher_cap(n_fighters: int) -> int:
+	if n_fighters <= 0:
+		return 0
+	match workforce_mode:
+		WorkforceMode.STARVING:
+			var frac: float = 0.34
+			if ClanBrainTuningConfig:
+				frac = float(ClanBrainTuningConfig.starving_max_searcher_fraction)
+			return maxi(1, int(ceil(float(n_fighters) * frac)))
+		WorkforceMode.BALANCED:
+			var frac_b: float = 0.67
+			if ClanBrainTuningConfig:
+				frac_b = float(ClanBrainTuningConfig.balanced_max_searcher_fraction)
+			return maxi(1, int(ceil(float(n_fighters) * frac_b)))
+	return n_fighters
+
+
+func _workforce_herder_cap(base_cap: int, n_fighters: int) -> int:
+	if n_fighters <= 0:
+		return 0
+	var tuning: Node = ClanBrainTuningConfig if ClanBrainTuningConfig else null
+	match workforce_mode:
+		WorkforceMode.STARVING:
+			var frac: float = 0.25
+			if tuning:
+				frac = float(tuning.starving_max_herder_fraction)
+			return mini(base_cap, maxi(1, int(ceil(float(n_fighters) * frac))))
+		WorkforceMode.BALANCED:
+			return mini(base_cap, maxi(2, n_fighters / 3))
+	return base_cap
 
 
 func _refresh_resource_status() -> void:
@@ -641,7 +740,7 @@ func _evaluate_metrics() -> void:
 		territory.set_meta("calories_days_buffer", clan_metrics["calories_days_buffer"])
 		territory.set_meta("calories_in_storage", clan_metrics["calories_in_storage"])
 		territory.set_meta("calories_daily_need", clan_metrics["calories_daily_need"])
-		territory.set_meta("food_buffer_critical", clan_metrics["food_days_buffer"] < _food_buffer_critical_days())
+	_publish_workforce_mode()
 	
 	clan_metrics["building_count"] = 0
 	if territory and territory.get_tree():
@@ -1045,13 +1144,43 @@ func _allow_starving_hunt_in_survival() -> bool:
 	"""One caveman clans in survival mode may still solo-hunt when claim food is critically low."""
 	if not _is_survival_mode:
 		return false
-	if not BalanceConfig or not BalanceConfig.hunt_allow_solo_when_food_critical:
+	return _allow_solo_hunt_when_food_critical()
+
+
+func _allow_solo_hunt_when_food_critical() -> bool:
+	if ClanBrainTuningConfig:
+		if not ClanBrainTuningConfig.get_hunt_allow_solo_when_food_critical():
+			return false
+	elif not BalanceConfig or not BalanceConfig.hunt_allow_solo_when_food_critical:
 		return false
 	var fdb: float = clan_metrics.get("food_days_buffer", 99.0)
-	var ft: int = clan_metrics.get("food_total", 0)
-	var solo_thresh: float = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
-	var bootstrap_min: int = maxi(1, int(BalanceConfig.claim_food_bootstrap_min_items))
+	var ft: int = int(clan_metrics.get("food_total", 0))
+	var solo_thresh: float = 0.15
+	if ClanBrainTuningConfig:
+		solo_thresh = ClanBrainTuningConfig.get_hunt_solo_food_buffer_days()
+	elif BalanceConfig:
+		solo_thresh = maxf(float(BalanceConfig.hunt_solo_food_buffer_days), 0.05)
+	var bootstrap_min: int = 3
+	if BalanceConfig:
+		bootstrap_min = maxi(1, int(BalanceConfig.claim_food_bootstrap_min_items))
 	return fdb < solo_thresh or ft < bootstrap_min
+
+
+func _hunt_party_min_size() -> int:
+	if ClanBrainTuningConfig:
+		return ClanBrainTuningConfig.get_hunt_party_min_size()
+	if NPCConfig:
+		return int(NPCConfig.hunt_party_min_size)
+	return 2
+
+
+func _hunt_effective_party_min() -> int:
+	var min_h: int = _hunt_party_min_size()
+	if cavemen.size() >= min_h:
+		return min_h
+	if _allow_solo_hunt_when_food_critical() and cavemen.size() >= 1:
+		return 1
+	return min_h
 
 
 func _update_land_claim_ratios() -> void:
@@ -1217,7 +1346,13 @@ func _claim_has_minimum_stock_for_defend(claim: Node) -> bool:
 		+ inv.get_count(ResourceData.ResourceType.MEAT)
 		+ inv.get_count(ResourceData.ResourceType.MILK)
 	)
-	return stone >= MIN_STONE_FOR_DEFEND and wood >= MIN_WOOD_FOR_DEFEND and food >= MIN_FOOD_FOR_DEFEND
+	return stone >= MIN_STONE_FOR_DEFEND and wood >= MIN_WOOD_FOR_DEFEND and food >= _min_food_for_defend()
+
+
+func _min_food_for_defend() -> int:
+	if ClanBrainTuningConfig:
+		return maxi(int(ClanBrainTuningConfig.min_food_items_for_defend), 0)
+	return MIN_FOOD_FOR_DEFEND
 
 func _claim_has_building_type(claim: Node, building_type: ResourceData.ResourceType) -> bool:
 	"""True if this clan already has at least one building of the given type."""
@@ -1273,7 +1408,12 @@ func _evaluate_milestone_buildings() -> void:
 		_try_queue_milestone_build(ResourceData.ResourceType.DRYING_RACK, "hide>=%d" % rack_hide)
 	if is_campfire:
 		return
-	# Land claim only below
+	# Land claim only below — skip luxury milestones when starving (system switch, not balance).
+	var block_luxury: bool = false
+	if ClanBrainTuningConfig:
+		block_luxury = bool(ClanBrainTuningConfig.food_critical_block_luxury_milestones)
+	if block_luxury and workforce_mode == WorkforceMode.STARVING:
+		return
 	if sheep_count >= farm_sheep:
 		_try_queue_milestone_build(ResourceData.ResourceType.FARM, "sheep>=%d" % farm_sheep)
 	if goat_count >= dairy_goats:
@@ -2152,6 +2292,25 @@ func _pick_nearest_huntable(candidates: Array) -> Node:
 	return best
 
 ## Pressure > 0 when claim needs meat/hide or overall food buffer is low — drives `_evaluate_hunt_opportunity`.
+func _get_hunt_party_max_size() -> int:
+	"""Scale hunt party with fighter count — more clansmen → larger hunting parties (capped)."""
+	var min_h: int = 2
+	var abs_max: int = 8
+	var frac: float = 0.55
+	if ClanBrainTuningConfig:
+		min_h = ClanBrainTuningConfig.get_hunt_party_min_size()
+		abs_max = ClanBrainTuningConfig.get_hunt_party_max_size()
+		frac = ClanBrainTuningConfig.get_hunt_party_fighter_fraction()
+	elif NPCConfig:
+		min_h = NPCConfig.hunt_party_min_size
+		abs_max = NPCConfig.hunt_party_max_size
+		if "hunt_party_fighter_fraction" in NPCConfig:
+			frac = clampf(float(NPCConfig.hunt_party_fighter_fraction), 0.25, 1.0)
+	var n: int = maxi(cavemen.size(), min_h)
+	var scaled: int = int(ceil(float(n) * frac))
+	return clampi(scaled, min_h, abs_max)
+
+
 func _compute_hunt_need_pressure() -> float:
 	var pressure: float = 0.0
 	var meat_thresh: int = 2
@@ -2189,14 +2348,20 @@ func _evaluate_hunt_opportunity() -> void:
 	if need_pressure <= 0.0:
 		return  # Clan is stocked — do not send hunting parties opportunistically
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
-	var cooldown_sec: float = HUNT_COOLDOWN_SEC
-	if NPCConfig and need_pressure > 0.5:
-		cooldown_sec = NPCConfig.hunt_cooldown_hungry_sec
+	var cooldown_sec: float = 45.0
+	if ClanBrainTuningConfig:
+		cooldown_sec = float(ClanBrainTuningConfig.hunt_cooldown_sec)
+	elif NPCConfig:
+		cooldown_sec = float(NPCConfig.hunt_cooldown_sec) if "hunt_cooldown_sec" in NPCConfig else HUNT_COOLDOWN_SEC
+	if need_pressure > 0.5:
+		if ClanBrainTuningConfig:
+			cooldown_sec = float(ClanBrainTuningConfig.hunt_cooldown_hungry_sec)
+		elif NPCConfig:
+			cooldown_sec = NPCConfig.hunt_cooldown_hungry_sec
 	if now_sec - _last_hunt_time < cooldown_sec:
 		return
-	var min_h: int = NPCConfig.hunt_party_min_size if NPCConfig else 2
-	var max_h: int = NPCConfig.hunt_party_max_size if NPCConfig else 4
-	# Require enough fighters for a full party before starting (no solo caveman hunts).
+	var min_h: int = _hunt_effective_party_min()
+	var max_h: int = _get_hunt_party_max_size()
 	if cavemen.size() < min_h:
 		return
 	var defender_quota: int = get_defender_quota()
@@ -2217,7 +2382,7 @@ func _start_hunt(target: Node, hunter_quota: int, need_pressure: float = 0.0) ->
 		return
 	if is_raiding():
 		return
-	var min_h: int = NPCConfig.hunt_party_min_size if NPCConfig else 2
+	var min_h: int = _hunt_effective_party_min()
 	if hunter_quota < min_h or cavemen.size() < min_h:
 		return
 	_hunt_prey_lost_logged = false
@@ -2838,13 +3003,18 @@ func _update_searcher_assignments() -> void:
 		territory._prune_searchers()
 		return
 
-	# Survival: max search/herd unless under skirmish+
+	# Survival: max search/herd unless under skirmish+ — workforce mode caps herd when starving.
 	if _is_survival_mode and alert_level < AlertLevel.SKIRMISH:
 		var pressure: float = get_reproduction_pressure()
 		territory.set_meta("reproduction_pressure", pressure)
 		territory.set_meta("breeding_females", clan_metrics["breeding_females"])
-		territory.set_meta("searcher_quota", cavemen.size())
-		territory.set_meta("max_active_herders", cavemen.size())
+		var n_surv: int = cavemen.size()
+		if workforce_mode == WorkforceMode.STARVING:
+			territory.set_meta("searcher_quota", _workforce_searcher_cap(n_surv))
+			territory.set_meta("max_active_herders", _workforce_herder_cap(n_surv, n_surv))
+		else:
+			territory.set_meta("searcher_quota", n_surv)
+			territory.set_meta("max_active_herders", n_surv)
 		territory.set_meta("searcher_pressure", search_pressure)
 		territory.set_meta("defenders_can_search", true)
 		territory._prune_searchers()
@@ -2878,6 +3048,11 @@ func _update_searcher_assignments() -> void:
 			target_searchers = maxi(target_searchers, 2)
 		target_searchers = clampi(target_searchers, 1, cavemen.size())
 	target_searchers = mini(target_searchers, max_herders)
+
+	# Workforce mode caps (tunable via ClanBrainTuningConfig + dev menu F10).
+	var n_f: int = cavemen.size()
+	target_searchers = mini(target_searchers, _workforce_searcher_cap(n_f))
+	max_herders = _workforce_herder_cap(max_herders, n_f)
 
 	# Small clan optimization: defenders can also search (no exclusive roles)
 	var defenders_can_search: bool = cavemen.size() <= 3
@@ -2980,9 +3155,13 @@ func get_max_active_herders() -> int:
 	"""Max NPCs allowed in herd_wildnpc at once. Prevents swarm, preserves competition.
 	When breeding_females < 2, allow more herders (2 + pop/4) for faster population growth."""
 	var bf: int = clan_metrics["breeding_females"]
+	var cap: int
 	if bf < 2:
-		return maxi(2, 2 + int(clan_metrics["population"] / 4))
-	return 1 + int(clan_metrics["population"] / 6)
+		cap = maxi(2, 2 + int(clan_metrics["population"] / 4))
+	else:
+		cap = 1 + int(clan_metrics["population"] / 6)
+	var n: int = maxi(1, cavemen.size())
+	return _workforce_herder_cap(cap, n)
 
 func get_clan_strength() -> float:
 	"""Get overall clan strength (0.0 - 1.0) based on fighters, resources, state."""
@@ -3047,6 +3226,7 @@ func get_debug_info() -> Dictionary:
 		"hunter_count": _count_active_hunters(),
 		"huntables_in_aoh": territory.get_huntables_in_aoh().size() if territory and territory.has_method("get_huntables_in_aoh") else 0,
 		"productivity_mode": productivity_mode,
+		"workforce_mode": WorkforceMode.keys()[workforce_mode],
 		"raid_eligibility": raid_eligible,
 		"resource_status": resource_status.duplicate(),
 		"nearby_enemies": nearby_enemy_claims.size()
@@ -3187,28 +3367,7 @@ func _get_daily_need_for_resource(resource_type: int) -> float:
 			return 1.0
 
 
-func _select_production_chains() -> Array:
-	var selected: Array = []
-	if not ProductionChainRegistry:
-		return selected
-	var food_buffer: float = float(clan_metrics.get("food_days_buffer", 0.0))
-	var target_days: float = BalanceConfig.clan_food_buffer_target_days if BalanceConfig else 1.0
-	var threshold: float = BalanceConfig.abundance_threshold if BalanceConfig else 2.5
-	var tier: int = _get_territory_tier()
-	var bread: Resource = ProductionChainRegistry.get_chain("bread")
-	var leather: Resource = ProductionChainRegistry.get_chain("leather")
-	if bread and bread.min_stage <= tier:
-		if food_buffer < target_days:
-			if abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > 1.5 and abundance_ratios.get(ResourceData.ResourceType.WOOD, 0.0) > 1.0:
-				selected.append(bread)
-		elif abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0) > threshold:
-			selected.append(bread)
-	if leather and leather.min_stage <= tier and abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0) > threshold:
-		selected.append(leather)
-	return selected
-
-
-func _can_issue_delivery_request(chain: Resource) -> bool:
+func _chain_inputs_available(chain: Resource) -> bool:
 	if not chain or not territory or not territory.inventory:
 		return false
 	for input in chain.inputs:
@@ -3216,6 +3375,45 @@ func _can_issue_delivery_request(chain: Resource) -> bool:
 		var qty: int = input.get("quantity", 1)
 		if territory.inventory.get_count(input_type) < qty:
 			return false
+	return true
+
+
+func _has_production_building(building_type: ResourceData.ResourceType) -> bool:
+	return _find_available_building(building_type) != null
+
+
+func _select_production_chains() -> Array:
+	var selected: Array = []
+	if not ProductionChainRegistry:
+		return selected
+	var food_buffer: float = float(clan_metrics.get("food_days_buffer", 0.0))
+	var target_days: float = BalanceConfig.clan_food_buffer_target_days if BalanceConfig else 1.0
+	var surplus_threshold: float = BalanceConfig.abundance_threshold if BalanceConfig else 0.85
+	var bread_surplus_grain: float = BalanceConfig.production_bread_surplus_grain_abundance if BalanceConfig else 0.85
+	var leather_min: float = BalanceConfig.production_leather_abundance_min if BalanceConfig else 0.75
+	var tier: int = _get_territory_tier()
+	var bread: Resource = ProductionChainRegistry.get_chain("bread")
+	var leather: Resource = ProductionChainRegistry.get_chain("leather")
+	if bread and bread.min_stage <= tier:
+		if _has_production_building(ResourceData.ResourceType.OVEN) and _chain_inputs_available(bread):
+			var grain_ab: float = abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0)
+			if food_buffer < target_days:
+				selected.append(bread)
+			elif grain_ab >= bread_surplus_grain or grain_ab >= surplus_threshold:
+				selected.append(bread)
+	if leather and leather.min_stage <= tier:
+		if _has_production_building(ResourceData.ResourceType.DRYING_RACK) and _chain_inputs_available(leather):
+			var hide_ab: float = abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0)
+			if food_buffer < target_days or hide_ab >= leather_min or hide_ab >= surplus_threshold:
+				selected.append(leather)
+	return selected
+
+
+func _can_issue_delivery_request(chain: Resource) -> bool:
+	if not chain or not territory or not territory.inventory:
+		return false
+	if not _chain_inputs_available(chain):
+		return false
 	var building: BuildingBase = _find_available_building(chain.building_type)
 	if not building:
 		return false
@@ -3304,9 +3502,25 @@ func has_pending_work_request() -> bool:
 	return false
 
 
+func has_work_request_for_npc(npc: Node) -> bool:
+	if not npc:
+		return false
+	for req in work_requests:
+		if req.get("npc") == npc and req.get("state", "") in ["CLAIMED", "IN_PROGRESS"]:
+			return true
+	return false
+
+
+func has_production_work_available(npc: Node) -> bool:
+	return has_pending_work_request() or has_work_request_for_npc(npc)
+
+
 func claim_work_request(npc: Node) -> Dictionary:
 	if not npc:
 		return {}
+	for req in work_requests:
+		if req.get("npc") == npc and req.get("state", "") in ["CLAIMED", "IN_PROGRESS"]:
+			return req
 	for req in work_requests:
 		if req.get("state", "") == "PENDING":
 			req["state"] = "CLAIMED"

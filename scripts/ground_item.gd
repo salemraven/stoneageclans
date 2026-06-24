@@ -264,6 +264,8 @@ func _finish_collection() -> void:
 	sprite.visible = false
 	if main.active_collection_resource == self:
 		main.active_collection_resource = null
+	if has_meta(&"stable_id") and MutationStore:
+		MutationStore.deplete_stable_id(str(get_meta(&"stable_id")))
 	queue_free()
 	print("Player gathered %s" % ResourceData.get_resource_name(item_type))
 
@@ -295,6 +297,7 @@ func harvest() -> int:
 	# Make sprite disappear and remove from world
 	is_picked_up = true
 	sprite.visible = false
+	if has_meta(&"stable_id") and MutationStore:
+		MutationStore.deplete_stable_id(str(get_meta(&"stable_id")))
 	queue_free()
-	
 	return 1  # Ground items give 1 item

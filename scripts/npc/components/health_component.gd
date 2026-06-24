@@ -495,6 +495,8 @@ func _handle_clan_death(clan_name: String) -> void:
 		var claim_clan_prop = claim.get("clan_name")
 		var claim_clan: String = claim_clan_prop as String if claim_clan_prop != null else ""
 		if claim_clan == clan_name:
+			if MutationStore and claim is Node2D:
+				MutationStore.record_clan_death_at_world_pos((claim as Node2D).global_position)
 			# Hide the area circle
 			if claim.has_method("hide_area_circle"):
 				claim.hide_area_circle()

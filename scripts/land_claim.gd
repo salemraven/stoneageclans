@@ -150,8 +150,18 @@ func get_effective_aoh_radius() -> float:
 	return r
 
 func get_huntables_in_aoh() -> Array:
+	_refresh_huntables_in_aoh_from_overlap()
 	_prune_huntables_in_aoh()
 	return _huntables_in_aoh.duplicate()
+
+func _refresh_huntables_in_aoh_from_overlap() -> void:
+	## Re-scan overlap each query so slow/migrating prey stay on the board until they leave the ring.
+	if not _aoh_authority_ok() or not _aoh_zone or not is_instance_valid(_aoh_zone):
+		return
+	for body in _aoh_zone.get_overlapping_bodies():
+		if body is Node2D and _is_huntable_wild_in_aoh(body):
+			if _huntables_in_aoh.find(body) < 0:
+				_huntables_in_aoh.append(body)
 
 func _prune_huntables_in_aoh() -> void:
 	var valid: Array = []
@@ -182,6 +192,12 @@ func _setup_area_of_hunt() -> void:
 	_aoh_zone.body_exited.connect(_on_aoh_body_exited)
 	add_child(_aoh_zone)
 	call_deferred("_refresh_aoh_collision_radius")
+	call_deferred("_scan_overlapping_huntables_in_aoh")
+
+
+func _scan_overlapping_huntables_in_aoh() -> void:
+	## Godot does not emit body_entered for bodies already overlapping when the area appears or when they spawn inside it.
+	_refresh_huntables_in_aoh_from_overlap()
 
 func _refresh_aoh_collision_radius() -> void:
 	if not _aoh_zone or not is_instance_valid(_aoh_zone):
@@ -211,6 +227,8 @@ func _is_huntable_wild_in_aoh(body: Node) -> bool:
 	if body is Node2D:
 		var dist: float = (body as Node2D).global_position.distance_to(global_position)
 		if dist <= radius:
+			return false
+		if dist > get_effective_aoh_radius():
 			return false
 	return true
 
@@ -661,7 +679,21 @@ func _process(delta: float) -> void:
 	if clan_brain and not is_decaying:
 		var mp: MultiplayerAPI = get_multiplayer()
 		if mp == null or not mp.has_multiplayer_peer() or mp.is_server():
-			clan_brain.update(delta)
+			var interest: Node = get_node_or_null("/root/WorldInterestManager")
+			var claim_active: bool = interest == null or interest.call("is_claim_active", self)
+			if claim_active:
+				if clan_brain.is_dormant and clan_brain.has_method("set_dormant"):
+					clan_brain.set_dormant(false)
+				clan_brain.update(delta)
+			else:
+				if not clan_brain.is_dormant:
+					if clan_brain.has_method("_refresh_clan_members"):
+						clan_brain._refresh_clan_members()
+					set_meta("dormant_population", maxi(1, clan_brain.clan_members.size()))
+					if clan_brain.has_method("set_dormant"):
+						clan_brain.set_dormant(true)
+				if clan_brain.has_method("dormant_update"):
+					clan_brain.dormant_update(delta)
 	
 	if not is_decaying:
 		return

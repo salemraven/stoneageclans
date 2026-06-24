@@ -641,8 +641,7 @@ func _finish_collection() -> void:
 		is_in_cooldown = true
 		cooldown_start_time = Time.get_ticks_msec() / 1000.0
 		_update_cooldown_visual()
-	
-	# Determine what item to give based on resource type
+		_record_chunk_depletion_if_stable()
 	var item_type: ResourceData.ResourceType = resource_type
 	
 	# Wheat nodes give grain items
@@ -763,8 +762,7 @@ func harvest() -> int:
 			is_in_cooldown = true
 			cooldown_start_time = Time.get_ticks_msec() / 1000.0
 			_update_cooldown_visual()
-		
-		# SIMPLIFIED: All resources now yield 1 item per harvest for predictability
+			_record_chunk_depletion_if_stable()
 		# This prevents inventory overflow and makes threshold checks reliable
 		# Previous: Wood/Stone yielded 4-6 items (random), causing overflow issues
 		# Now: All resources yield 1 item - predictable, simple, reliable
@@ -795,6 +793,18 @@ func _update_cooldown_visual() -> void:
 		sprite.modulate = exhausted_color
 	else:
 		sprite.modulate = original_modulate
+
+
+func _record_chunk_depletion_if_stable() -> void:
+	if MutationStore == null:
+		return
+	var sid: String = ""
+	if get_parent() and get_parent().has_meta(&"stable_id"):
+		sid = str(get_parent().get_meta(&"stable_id"))
+	elif has_meta(&"stable_id"):
+		sid = str(get_meta(&"stable_id"))
+	if sid != "":
+		MutationStore.deplete_stable_id(sid)
 
 # RULE 2: Jobs reserve resource slots
 # Reserve a slot on this resource for a worker
