@@ -4,7 +4,6 @@ extends Node
 
 var _elapsed: float = 0.0
 var _prune_elapsed: float = 0.0
-const _MOVEMENT_DEBUG_SCRIPT: GDScript = preload("res://scripts/debug/movement_debug_instrument.gd")
 
 func _process(delta: float) -> void:
 	var dc: Node = get_node_or_null("/root/DebugConfig")
@@ -15,8 +14,7 @@ func _process(delta: float) -> void:
 		_prune_elapsed += delta
 		if _prune_elapsed >= 120.0:
 			_prune_elapsed = 0.0
-			if _MOVEMENT_DEBUG_SCRIPT:
-				_MOVEMENT_DEBUG_SCRIPT.call_static(&"prune_sample_time_cache_if_huge")
+			MovementDebugInstrument.prune_sample_time_cache_if_huge()
 	var snapshots_on: bool = bool(dc.get("enable_npc_productivity_snapshots"))
 	if not snapshots_on and not dc.get("enable_session_instrumentation"):
 		return

@@ -25,8 +25,10 @@ ClanBrain (every ~15s when camp is established, allocation_eval_interval × 5s e
   → issue PENDING WorkRequests (delivery or pickup)
   → scan passive buildings for ready output → pickup requests
 
-ProductionWorkState (women, FSM priority ~9.6–10)
-  → claim_work_request()
+**ProductionWorkState (women, FSM priority ~11.8–12 when work pending)**
+
+- Beats **herd** (11.0) and **reproduction** (8.0); evaluated early in FSM when `has_pending_work_request()`.
+- Uses `npc.get_my_land_claim()` → `get_clan_brain()` (same as other states).
   → building.generate_clanbrain_delivery_job() or pickup_job()
   → TaskRunner (OccupyTask for Oven, deliver-only for Drying Rack)
   → restore_home_living_hut() when done
@@ -84,12 +86,16 @@ abundance[resource] = stock / max(daily_need + safety_buffer, 1)
 
 **Bread:**
 
-- If **food_days_buffer** &lt; target → only when grain &gt; 1.5× need **and** wood &gt; 1.0× need.
-- Else if grain abundance &gt; **abundance_threshold** (default 2.5) → queue bread.
+- Requires **Oven** on territory and **≥1 wood + ≥1 grain** in claim storage (`_chain_inputs_available`).
+- If **food_days_buffer** &lt; target (default 1.0 day) → queue bread whenever inputs + oven exist (critical food — convert stock to bread).
+- Else if **grain abundance** ≥ `production_bread_surplus_grain_abundance` (default 0.85) or ≥ `abundance_threshold` → queue bread.
 
 **Leather:**
 
-- Hide abundance &gt; **abundance_threshold** → queue leather delivery (if rack exists and accepts input).
+- Requires **Drying Rack** and **≥1 hide** in storage.
+- If food buffer &lt; target **or** hide abundance ≥ `production_leather_abundance_min` (default 0.75) or ≥ `abundance_threshold` → queue leather delivery.
+
+**Note:** Abundance = `stock / (daily_need + safety_buffer)`. Large clans keep grain abundance low even with grain in storage — critical-food bread uses raw input counts instead.
 
 **Delivery gate:** claim inventory must hold all chain inputs; building must exist and not already have a pending request for that building + type.
 
@@ -111,7 +117,9 @@ Women are assigned to **their own Living Hut** (pregnancy UI lives on that hut).
 
 | Key | Default | Role |
 |-----|---------|------|
-| `abundance_threshold` | 2.5 | Start luxury chains when stock is this many “days” above need |
+| `abundance_threshold` | 0.85 | Surplus chains when stock is this many “days” above need |
+| `production_bread_surplus_grain_abundance` | 0.85 | Bread when food OK but grain stock is high |
+| `production_leather_abundance_min` | 0.75 | Leather when hide stock is moderately abundant |
 | `safety_buffer_days` | 0.5 | Added to daily need in abundance denominator |
 | `allocation_eval_interval` | 3 | Run allocation every N brain eval ticks (~15s) |
 | `work_request_expire_seconds` | 90 | Drop stale PENDING requests |

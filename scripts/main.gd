@@ -2050,8 +2050,9 @@ func _spawn_ground_items() -> void:
 	
 	if not player:
 		return
-	
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and bool(wgc.use_chunk_content_streaming):
+		return
 	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
 	var spawn_count := int(ceili(40.0 * density_mult))
 	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
@@ -2079,11 +2080,11 @@ func _spawn_ground_items() -> void:
 
 func _spawn_ground_items_around_player() -> void:
 	# Continuously spawn ground items as player explores
-	# Only spawn in new areas (check if already spawned nearby)
 	if not player:
 		return
-	
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and bool(wgc.use_chunk_content_streaming):
+		return
 	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
 	# Spawn occasionally (not every frame); scale chance with density.
 	var spawn_chance: float = clampf(0.01 * density_mult, 0.01, 0.08)

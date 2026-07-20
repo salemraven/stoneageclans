@@ -9,7 +9,7 @@ var chunk_coords: Vector2i = Vector2i.ZERO
 
 
 func setup(world_pos: Vector2, sid: String, chunk: Vector2i, charges: int = 1) -> void:
-	global_position = world_pos
+	position = world_pos
 	stable_id = sid
 	chunk_coords = chunk
 	bugs_remaining = maxi(1, charges)
@@ -29,7 +29,11 @@ func _ready() -> void:
 	circle.radius = 12.0
 	shape.shape = circle
 	add_child(shape)
-	if DecorIndex:
+	call_deferred("_register_decor")
+
+
+func _register_decor() -> void:
+	if DecorIndex and is_inside_tree():
 		DecorIndex.register(self)
 
 

@@ -30,6 +30,10 @@ class_name ProceduralArmConfig
 
 # IK: elbow bends toward shoulder + outward * this distance.
 @export var elbow_hint_outward := 18.0
+@export var weapon_elbow_pole_idle_px := Vector2.ZERO
+@export var weapon_elbow_pole_ready_px := Vector2.ZERO
+@export var support_elbow_pole_idle_px := Vector2.ZERO
+@export var support_elbow_pole_ready_px := Vector2.ZERO
 
 # Idle hand targets relative to body sprite origin (display pixels, pre-flip).
 @export var idle_hand_offset_right := Vector2(12.0, 30.0)

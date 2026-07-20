@@ -20,6 +20,7 @@ var _playtest_2min: bool = false  # When true, 2-min productivity test; shorter 
 var _playtest_4min: bool = false  # When true, 4-min productivity test
 var _playtest_5min: bool = false  # When true, 5-min economy stress test
 var _playtest_10min: bool = false  # When true, 10-min observer / long sim
+var _playtest_15min: bool = false  # When true, 15-min hunt / economy observation
 var _playtest_30min: bool = false  # When true, 30-min stress sim
 var _playtest_duration_sec: float = 120.0  # Auto-quit after this many seconds
 var _combat_started_count: int = 0  # For invariant check
@@ -52,6 +53,13 @@ func _ready() -> void:
 		_playtest_10min = true
 		_playtest_duration_sec = 600.0
 		_snapshot_interval = 2.0
+	if "--playtest-15min" in args:
+		_enabled = true
+		_playtest_15min = true
+		_playtest_duration_sec = 900.0
+		_snapshot_interval = 2.0
+	if "--production-chain-test" in args or "--milestone-chain-test" in args:
+		_enabled = true
 	if "--playtest-30min" in args:
 		_enabled = true
 		_playtest_30min = true
@@ -93,6 +101,8 @@ func _ready() -> void:
 			print("✓ 5-min economy stress test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 		if _playtest_10min:
 			print("✓ 10-min observer test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
+		if _playtest_15min:
+			print("✓ 15-min hunt/economy test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 		if _playtest_30min:
 			print("✓ 30-min stress test (snapshots every %.1fs, auto-quit at %.0fs)" % [_snapshot_interval, _playtest_duration_sec])
 
@@ -154,8 +164,14 @@ func _start() -> void:
 			session["playtest_5min"] = true
 		if _playtest_10min:
 			session["playtest_10min"] = true
+		if _playtest_15min:
+			session["playtest_15min"] = true
 		if _playtest_30min:
 			session["playtest_30min"] = true
+		if "--production-chain-test" in ua:
+			session["production_chain_test"] = true
+		if "--milestone-chain-test" in ua:
+			session["milestone_chain_test"] = true
 		session["playtest_duration_sec"] = _playtest_duration_sec
 		_write(session)
 
@@ -205,14 +221,14 @@ func is_playtest_2min() -> bool:
 	return _playtest_2min
 
 func is_playtest_timed() -> bool:
-	return _playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_30min
+	return _playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_15min or _playtest_30min
 
 func get_playtest_duration_sec() -> float:
 	return _playtest_duration_sec
 
 func end_playtest_2min() -> void:
 	"""Call before quit: write test_run_ended, flush."""
-	if not _enabled or not (_playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_30min):
+	if not _enabled or not (_playtest_2min or _playtest_4min or _playtest_5min or _playtest_10min or _playtest_15min or _playtest_30min):
 		return
 	_write({"evt": "test_run_ended_2min"})
 	if _file and _file.is_open():
@@ -730,6 +746,19 @@ func build_milestone_released(clan_name: String, request_id: int, building_type:
 	}
 	if reason != "":
 		obj["reason"] = reason
+	_write(obj)
+
+
+func build_milestone_aborted(clan_name: String, request_id: int, building_type: int, reason: String, phase: String = "") -> void:
+	var obj := {
+		"evt": "build_milestone_aborted",
+		"clan": clan_name,
+		"request_id": request_id,
+		"building_type": building_type,
+		"reason": reason,
+	}
+	if phase != "":
+		obj["phase"] = phase
 	_write(obj)
 
 

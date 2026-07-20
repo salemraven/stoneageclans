@@ -52,6 +52,8 @@ var enable_performance_monitoring: bool = false
 var enable_debug_ui: bool = false
 ## ClanBrain test tools (clan camera jumper). CLI: `--godmode` or `--npc-only-world` observer runs.
 var enable_godmode: bool = false
+## Live ClanBrain balance panel (F10). CLI: `--dev-balance`; also on with `--debug` / `--godmode`.
+var enable_dev_balance_menu: bool = false
 var enable_verbose_npc_logging: bool = false
 var enable_state_transition_logging: bool = false
 var enable_herd_logging: bool = false
@@ -109,6 +111,7 @@ func _parse_command_line_args() -> void:
 	# Check for --debug or --verbose flags (enable full debug mode)
 	if "--debug" in args or "--verbose" in args:
 		enable_debug_mode = true
+		enable_dev_balance_menu = true
 		enable_file_logging = true
 		enable_console_logging = true
 		enable_performance_monitoring = true
@@ -197,10 +200,10 @@ func _parse_command_line_args() -> void:
 		print("✓ Playtest capture enabled (user://playtest_*.jsonl + worker JSONL instruments)")
 
 	# Timed playtests: disable herd resistance for deterministic transport validation
-	if "--playtest-2min" in args or "--playtest-4min" in args or "--playtest-5min" in args or "--playtest-10min" in args or "--playtest-30min" in args:
+	if "--playtest-2min" in args or "--playtest-4min" in args or "--playtest-5min" in args or "--playtest-10min" in args or "--playtest-15min" in args or "--playtest-30min" in args:
 		test_overrides["herd_resist_disabled"] = true
 		print("✓ Herd resistance disabled for playtest (deterministic transport)")
-	if "--playtest-10min" in args or "--playtest-30min" in args:
+	if "--playtest-10min" in args or "--playtest-15min" in args or "--playtest-30min" in args:
 		npc_productivity_snapshot_interval_sec = 30.0
 
 	for i in range(args.size()):
@@ -227,7 +230,12 @@ func _parse_command_line_args() -> void:
 
 	if "--godmode" in args:
 		enable_godmode = true
+		enable_dev_balance_menu = true
 		print("✓ ClanBrain godmode: clan camera jumper (top-right)")
+
+	if "--dev-balance" in args:
+		enable_dev_balance_menu = true
+		print("✓ Dev balance menu enabled (F10 toggles ClanBrain tuning panel)")
 
 	if "--player-move-debug" in args:
 		print("✓ Player movement debug overlay will auto-enable (F8 to toggle)")

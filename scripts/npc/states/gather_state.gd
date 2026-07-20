@@ -37,6 +37,10 @@ func enter() -> void:
 		var in_hunt: bool = npc.has_meta("hunt_joined") and npc.get_meta("hunt_joined") == true
 		if (nt_g == "caveman" or nt_g == "clansman") and not in_hunt and npc.has_method("equip_work_weapon_club"):
 			npc.equip_work_weapon_club()
+	if is_complete():
+		if fsm and fsm.has_method("change_state"):
+			fsm.change_state("wander")
+		return
 	if _try_pull_gather_job():
 		return
 	_no_job_retry_time = Time.get_ticks_msec() / 1000.0 + NO_JOB_RETRY_SEC
@@ -98,6 +102,10 @@ func update(_delta: float) -> void:
 		if now - _last_target_search_time < SEARCH_THROTTLE:
 			return
 		_last_target_search_time = now
+		if is_complete():
+			if fsm and fsm.has_method("change_state"):
+				fsm.change_state("wander")
+			return
 		if _try_pull_gather_job():
 			return
 		_no_job_retry_time = now + NO_JOB_RETRY_SEC
@@ -243,6 +251,17 @@ func get_priority() -> float:
 			priority = config_priority as float
 		if "caveman_productivity_test" in NPCConfig and (NPCConfig.caveman_productivity_test as float) >= 1.0:
 			priority = NPCConfig.priority_gather_productivity
+	# Starving clan: gather beats far-target herd search (workforce_mode from ClanBrain).
+	if npc.has_method("get_my_land_claim"):
+		var claim: Node = npc.get_my_land_claim()
+		if claim:
+			var starving: bool = str(claim.get_meta("workforce_mode", "")) == "STARVING"
+			if starving or claim.get_meta("food_buffer_critical", false):
+				var boost: float = 0.4
+				if ClanBrainTuningConfig:
+					boost = float(ClanBrainTuningConfig.starving_gather_priority_boost)
+				var food_pri: float = NPCConfig.priority_gather_productivity if NPCConfig else 5.8
+				priority = maxf(priority, food_pri + boost)
 	return priority
 
 # Helper functions
@@ -267,6 +286,8 @@ func _get_used_slots() -> int:
 func _try_pull_gather_job() -> bool:
 	"""Try to pull a gather job from land claim. Returns true if job was pulled."""
 	if not npc:
+		return false
+	if is_complete():
 		return false
 	
 	# Check if NPC has TaskRunner

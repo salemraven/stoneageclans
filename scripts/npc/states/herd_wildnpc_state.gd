@@ -379,6 +379,10 @@ func get_priority() -> float:
 			searching = NPCConfig.priority_herd_wildnpc_searching as float
 		var land_claim_node = _get_land_claim(npc.get_clan_name() if npc.has_method("get_clan_name") else "")
 		if land_claim_node:
+			var starving: bool = str(land_claim_node.get_meta("workforce_mode", "")) == "STARVING"
+			if starving or land_claim_node.get_meta("food_buffer_critical", false):
+				var gather_floor: float = NPCConfig.priority_gather_other if NPCConfig else 5.5
+				return gather_floor - 0.2
 			var pressure: float = land_claim_node.get_meta("reproduction_pressure", 0.5)
 			if pressure >= 0.8:
 				if NPCConfig:

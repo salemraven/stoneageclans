@@ -70,3 +70,17 @@ static func overlay_grip_px_from_global(overlay: Sprite2D, global_pos: Vector2) 
 	if absf(sy) < 0.001:
 		sy = 1.0
 	return Vector2(local_on_overlay.x / sx, local_on_overlay.y / sy)
+
+
+static func auto_elbow_pole_display_from_global(
+	sprite: Sprite2D,
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	outward: float,
+	bend_sign: float
+) -> Vector2:
+	if sprite == null:
+		return Vector2.ZERO
+	var shoulder_px := body_display_from_global(sprite, shoulder_global)
+	var hand_px := body_display_from_global(sprite, hand_global)
+	return WeaponLimbPreset.compute_auto_elbow_pole_px(shoulder_px, hand_px, outward, bend_sign)

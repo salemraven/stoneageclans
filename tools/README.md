@@ -99,15 +99,16 @@ Cli: **`analyze_playtest.py --strict-clanbrain`**, **`--strict-npc-sim`**, **`--
 
 ## Early-game verification (CI-style bundle)
 
-Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **Nomad Mode headless tests**, **reproduction harness** (Player designated-father / two births), and optionally the longer **ClanBrain** Main session.
+Runs smoke, **ChunkUtils** invariants, **territory + ClanBrain JSONL** checks, **Nomad Mode headless tests**, **reproduction harness** (Player designated-father / two births), optional **ClanBrain** Main session, and **isolated production/milestone chain tests** (real WorkRequests + build FSM, no brain cheat-spawn).
 
 ```bash
 bash tools/run_earlygame_verify.sh
 ```
 
-- **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 5 (~15s `Main` + JSONL assertions); steps 1–4 stay.
-- **`SKIP_REPRO_HARNESS=1`** — skip step 4 (`--repro-harness` ~12–15s).
-- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_nomad_mode_test.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, `run_ultimate_npc_clanbrain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
+- **`SKIP_CLAN_BRAIN_TEST=1`** — skip step 6 (~15s `Main` + JSONL assertions).
+- **`SKIP_REPRO_HARNESS=1`** — skip step 5 (`--repro-harness` ~12–15s).
+- **`SKIP_PRODUCTION_CHAIN_TEST=1`** — skip step 7 (~2–3 min bread/leather + milestone harness).
+- Individual steps: `run_instrumented_playtest.sh`, `run_territory_brain_integration_verify.sh`, `run_nomad_mode_test.sh`, `run_repro_harness.sh`, `run_clan_brain_test.sh`, `run_production_chain_tests.sh`, `run_ultimate_npc_clanbrain_test.sh`, or `godot --headless --path . --script res://tools/chunk_utils_verify.gd`.
 
 ## Nomad Mode headless tests
 

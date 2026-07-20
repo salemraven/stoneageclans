@@ -641,7 +641,8 @@ func _finish_collection() -> void:
 		is_in_cooldown = true
 		cooldown_start_time = Time.get_ticks_msec() / 1000.0
 		_update_cooldown_visual()
-		_record_chunk_depletion_if_stable()
+	
+	# Determine what item to give based on resource type
 	var item_type: ResourceData.ResourceType = resource_type
 	
 	# Wheat nodes give grain items
@@ -762,7 +763,6 @@ func harvest() -> int:
 			is_in_cooldown = true
 			cooldown_start_time = Time.get_ticks_msec() / 1000.0
 			_update_cooldown_visual()
-			_record_chunk_depletion_if_stable()
 		# This prevents inventory overflow and makes threshold checks reliable
 		# Previous: Wood/Stone yielded 4-6 items (random), causing overflow issues
 		# Now: All resources yield 1 item - predictable, simple, reliable

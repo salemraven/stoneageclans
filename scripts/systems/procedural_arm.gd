@@ -76,14 +76,18 @@ func update_arm(
 	local_hand: Vector2,
 	config: Resource,
 	bend_sign: float,
-	sprite_scale: Vector2
+	sprite_scale: Vector2,
+	pole_hint_override: Vector2 = Vector2.ZERO,
+	use_pole_override: bool = false
 ) -> void:
 	var cfg := _as_config(config)
 	if _line == null or cfg == null:
 		return
 	var upper_len: float = cfg.upper_arm_length * absf(sprite_scale.x)
 	var lower_len: float = cfg.lower_arm_length * absf(sprite_scale.x)
-	var pole_hint := _elbow_pole_hint(local_shoulder, local_hand, cfg, bend_sign, sprite_scale)
+	var pole_hint := pole_hint_override if use_pole_override else _elbow_pole_hint(
+		local_shoulder, local_hand, cfg, bend_sign, sprite_scale
+	)
 	var elbow := _solve_ik(local_shoulder, local_hand, upper_len, lower_len, pole_hint)
 
 	_points[0] = local_shoulder

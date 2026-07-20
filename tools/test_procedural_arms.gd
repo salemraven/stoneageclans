@@ -12,6 +12,7 @@ func _initialize() -> void:
 	_test_ik_solver()
 	_test_player_scene()
 	_test_grip_directions()
+	_test_pole_override()
 	_report()
 	quit()
 
@@ -61,6 +62,30 @@ func _test_grip_directions() -> void:
 		if not joints.has("elbow"):
 			_fail("IK missing elbow for dir %s" % str(dir))
 		parent.queue_free()
+
+
+func _test_pole_override() -> void:
+	var cfg: Resource = ProceduralArmConfigScript.new()
+	var arm: RefCounted = ProceduralArmScript.new()
+	var parent := Node2D.new()
+	root.add_child(parent)
+	arm.call("setup", parent, "P", cfg)
+
+	var shoulder := Vector2(0.0, 0.0)
+	var hand := Vector2(24.0, 8.0)
+	var scale := Vector2(0.5, 0.5)
+	arm.call("update_arm", shoulder, hand, cfg, 1.0, scale)
+	var auto_joints: Dictionary = arm.call("get_last_joint_positions")
+	var auto_elbow: Vector2 = auto_joints.get("elbow", Vector2.ZERO)
+
+	var pole := Vector2(12.0, -24.0)
+	arm.call("update_arm", shoulder, hand, cfg, 1.0, scale, pole, true)
+	var pole_joints: Dictionary = arm.call("get_last_joint_positions")
+	var pole_elbow: Vector2 = pole_joints.get("elbow", Vector2.ZERO)
+	if pole_elbow.distance_to(auto_elbow) < 0.5:
+		_fail("pole override should flip elbow bend side")
+
+	parent.queue_free()
 
 
 func _test_player_scene() -> void:

@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3 uid="uid://limb_tuner_tool01"]
+[gd_scene load_steps=6 format=3 uid="uid://limb_tuner_tool01"]
 
 [ext_resource type="Script" path="res://scripts/tools/limb_tuner.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/tools/limb_tuner_rig.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/npc/components/combat_component.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/systems/procedural_arm_controller.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/tools/tuner_body_visual.gd" id="5"]
 
 [node name="LimbTuner" type="Control"]
 layout_mode = 3
@@ -37,6 +38,9 @@ script = ExtResource("2")
 [node name="Sprite" type="Sprite2D" parent="World/Stage/TunerRig"]
 texture_filter = 0
 
+[node name="BodyVisual" type="Node2D" parent="World/Stage/TunerRig/Sprite"]
+script = ExtResource("5")
+
 [node name="WeaponOverlay" type="Sprite2D" parent="World/Stage/TunerRig/Sprite"]
 visible = false
 texture_filter = 0
@@ -65,7 +69,7 @@ theme_override_constants/separation = 8
 
 [node name="Title" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
-text = "Procedural Limb Tuner"
+text = "Character Animation Tuner"
 theme_override_font_sizes/font_size = 20
 
 [node name="ModeLabel" type="Label" parent="UI/Panel/VBox"]
@@ -75,7 +79,7 @@ text = "Mode: ASSEMBLE | Pose: IDLE"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "1 = dominant arm | 2 = off arm (idle only for club) | 3 = weapon\nShift = ready preview | Shift+click = attack\nTune Idle + Ready tabs, then Save."
+text = "Mannequin: rounded body + circle head (no card art)\n1 / 1e = dominant arm + elbow | 2 / 2e = off arm | 3 = weapon\n← → = walk preview | Shift = ready | Shift+click = attack\nTune Idle + Ready tabs, then Save."
 
 [node name="PoseTabs" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2

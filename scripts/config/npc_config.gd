@@ -326,7 +326,10 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var aoh_radius_min: float = 500.0
 @export var aoh_radius_max: float = 1200.0
 @export var hunt_party_min_size: int = 2
-@export var hunt_party_max_size: int = 4
+## Absolute cap; actual party size scales with fighter count × hunt_party_fighter_fraction.
+@export var hunt_party_max_size: int = 8
+## Share of cavemen/clansmen that may join one hunt party (ceil(n × fraction), clamped to min/max).
+@export var hunt_party_fighter_fraction: float = 0.55
 ## Start hunts when MEAT stock in claim is below this count (hunters idle if clan is stocked).
 @export var hunt_meat_threshold: int = 2
 ## Start hunts when HIDE stock in claim is below this count.

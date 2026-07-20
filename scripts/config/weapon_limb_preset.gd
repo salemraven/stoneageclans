@@ -35,12 +35,50 @@ class_name WeaponLimbPreset
 @export var lower_arm_length: float = 22.0
 @export var elbow_hint_outward: float = 18.0
 
+## IK pole targets (body display px). Zero = auto elbow_hint_outward.
+@export var weapon_elbow_pole_idle_px: Vector2 = Vector2.ZERO
+@export var weapon_elbow_pole_ready_px: Vector2 = Vector2.ZERO
+@export var support_elbow_pole_idle_px: Vector2 = Vector2.ZERO
+@export var support_elbow_pole_ready_px: Vector2 = Vector2.ZERO
+
 ## Legacy — no longer used; presets are always 1:1 game display px. Kept for old .tres files.
 @export var tuner_stage_scale: float = 1.0
 
 
 static func uses_two_hand_grip(weapon_type: ResourceData.ResourceType) -> bool:
 	return weapon_type == ResourceData.ResourceType.SPEAR
+
+
+func resolve_elbow_pole_px(dominant: bool, ready_pose: bool) -> Vector2:
+	if dominant:
+		return weapon_elbow_pole_ready_px if ready_pose else weapon_elbow_pole_idle_px
+	return support_elbow_pole_ready_px if ready_pose else support_elbow_pole_idle_px
+
+
+func set_elbow_pole_px(dominant: bool, ready_pose: bool, display_px: Vector2) -> void:
+	if dominant:
+		if ready_pose:
+			weapon_elbow_pole_ready_px = display_px
+		else:
+			weapon_elbow_pole_idle_px = display_px
+	else:
+		if ready_pose:
+			support_elbow_pole_ready_px = display_px
+		else:
+			support_elbow_pole_idle_px = display_px
+
+
+static func compute_auto_elbow_pole_px(
+	shoulder_px: Vector2,
+	hand_px: Vector2,
+	outward: float,
+	bend_sign: float
+) -> Vector2:
+	var to_hand := hand_px - shoulder_px
+	if to_hand.length_squared() < 0.01:
+		to_hand = Vector2(0.0, 1.0)
+	var outward_dir := Vector2(-to_hand.y, to_hand.x).normalized() * signf(bend_sign)
+	return shoulder_px + outward_dir * outward
 
 
 func resolve_hand_grip_ready_px() -> Vector2:
@@ -72,6 +110,10 @@ func to_export_dict() -> Dictionary:
 		"upper_arm_length": upper_arm_length,
 		"lower_arm_length": lower_arm_length,
 		"elbow_hint_outward": elbow_hint_outward,
+		"weapon_elbow_pole_idle_px": weapon_elbow_pole_idle_px,
+		"weapon_elbow_pole_ready_px": weapon_elbow_pole_ready_px,
+		"support_elbow_pole_idle_px": support_elbow_pole_idle_px,
+		"support_elbow_pole_ready_px": support_elbow_pole_ready_px,
 		"tuner_stage_scale": tuner_stage_scale,
 	}
 

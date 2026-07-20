@@ -10,7 +10,7 @@ var caveman_spawn_with_boost: bool = false
 var woman_initial: int = 12
 var sheep_initial: int = 3
 var goat_initial: int = 3
-var deer_initial: int = 4
+var deer_initial: int = 8
 
 # Respawn intervals (seconds)
 var woman_respawn_interval_sec: float = 60.0
@@ -20,7 +20,7 @@ var sheep_goat_respawn_interval_sec: float = 60.0
 var women_respawn_cap: int = 12
 var sheep_respawn_cap: int = 15
 var goat_respawn_cap: int = 15
-var deer_respawn_cap: int = 12
+var deer_respawn_cap: int = 24
 
 # Cavemen spawn spread - wide band so clans are not clustered in center
 var caveman_spawn_radius_min: float = 1800.0
@@ -76,8 +76,7 @@ var deposit_food_keep_default: int = 1
 ## Below this claim buffer, deposit ALL food (keep 0 for personal snacking).
 var deposit_zero_food_keep_buffer_days: float = 0.75
 ## Allow 1-fighter hunt parties when food buffer is critical (early clans with one caveman).
-## Default false — hunts need a full party (see NPCConfig.hunt_party_min_size, usually 2+).
-var hunt_allow_solo_when_food_critical: bool = false
+var hunt_allow_solo_when_food_critical: bool = true
 ## Solo hunts also allowed when buffer drops below this (sim-days), before full critical.
 var hunt_solo_food_buffer_days: float = 0.15
 ## AI land claims start with this many berries in storage (bootstrap breeding; player claims unchanged).
@@ -140,7 +139,14 @@ var wool_craft_time: float = 45.0
 var milk_craft_time: float = 45.0
 
 # --- Production economy (ClanBrain allocation) ---
-var abundance_threshold: float = 2.5
+## Surplus-mode: start luxury chains when stock ÷ (daily need + safety) exceeds this.
+## Measured 10-min playtest peaks: grain ~0.11, wood ~2.1, hide ~1.07 (pop scales denominator down).
+var abundance_threshold: float = 0.85
+## When food buffer is below target and an Oven exists with 1+ grain & wood in storage, queue bread.
+## Surplus bread (food OK): grain abundance must exceed this (below old 2.5; above measured grain peak).
+var production_bread_surplus_grain_abundance: float = 0.85
+## Leather delivery when hide abundance exceeds this (rack must exist; peak hide ~1.07 in playtests).
+var production_leather_abundance_min: float = 0.75
 var safety_buffer_days: float = 0.5
 var allocation_eval_interval: int = 3
 var work_request_expire_seconds: float = 90.0

@@ -38,6 +38,7 @@ func _test_save_roundtrip() -> void:
 	preset.body_card_id = "test_roundtrip"
 	preset.shoulder_offset_px = Vector2(5.0, -12.0)
 	preset.hand_grip_offset_px = Vector2(2.0, 80.0)
+	preset.weapon_elbow_pole_idle_px = Vector2(3.0, -5.0)
 	var err: Error = _registry.save_preset(preset)
 	if err != OK:
 		_fail("save_preset failed %s" % str(err))
@@ -47,6 +48,8 @@ func _test_save_roundtrip() -> void:
 		_fail("shoulder round-trip failed got %s" % str(reloaded.shoulder_offset_px))
 	if reloaded.hand_grip_offset_px != Vector2(2.0, 80.0):
 		_fail("hand grip round-trip failed got %s" % str(reloaded.hand_grip_offset_px))
+	if reloaded.weapon_elbow_pole_idle_px != Vector2(3.0, -5.0):
+		_fail("elbow pole round-trip failed got %s" % str(reloaded.weapon_elbow_pole_idle_px))
 
 
 func _test_limb_tuner_scene() -> void:
@@ -61,6 +64,10 @@ func _test_limb_tuner_scene() -> void:
 	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
 	if rig == null:
 		_fail("TunerRig missing")
+	elif rig.get_node_or_null("Sprite/BodyVisual") == null:
+		_fail("BodyVisual mannequin missing")
+	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
+		_fail("expected no card texture on tuner mannequin sprite")
 	if app.get_node_or_null("World/Stage") == null:
 		_fail("Stage missing")
 	var stage: Node2D = app.get_node("World/Stage") as Node2D
@@ -71,6 +78,12 @@ func _test_limb_tuner_scene() -> void:
 		var center := stage.global_position
 		if shoulder.global_position.distance_to(center) < 8.0:
 			_fail("shoulder handle still at stage center after startup")
+	var weapon_elbow: Node2D = stage.get_node_or_null("WeaponElbowHandle") as Node2D
+	if weapon_elbow == null:
+		_fail("WeaponElbowHandle missing")
+	var support_elbow: Node2D = stage.get_node_or_null("SupportElbowHandle") as Node2D
+	if support_elbow == null:
+		_fail("SupportElbowHandle missing")
 	if stage.scale.x < 3.5:
 		_fail("expected stage_scale >= 4.0 for tuner zoom, got %s" % str(stage.scale.x))
 	app.queue_free()

@@ -4,6 +4,7 @@ class_name ProceduralArmController
 const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_config.gd")
 const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
 
 const THRUST_SUPPORT_SHOULDER_FOLLOW := 0.1
 
@@ -93,12 +94,18 @@ func _process(_delta: float) -> void:
 		var counter_motion := _thrust_counter_motion(sprite, thrust_motion)
 		support_shoulder += counter_motion * THRUST_SUPPORT_SHOULDER_FOLLOW
 
+	var ready_poles := is_overlay_hand_tracking_active() or thrust_active
+	var weapon_pole := _resolve_elbow_pole_local(sprite, config.weapon_elbow_pole_ready_px if ready_poles else config.weapon_elbow_pole_idle_px, sprite_scale)
+	var support_pole := _resolve_elbow_pole_local(sprite, config.support_elbow_pole_ready_px if ready_poles else config.support_elbow_pole_idle_px, sprite_scale)
+	var use_weapon_pole := weapon_pole.length_squared() > 0.0001
+	var use_support_pole := support_pole.length_squared() > 0.0001
+
 	if aiming_left:
-		_arm_left.update_arm(shoulder_weapon, hand_grip, config, -1.0, sprite_scale)
-		_arm_right.update_arm(support_shoulder, support_hand, config, 1.0, sprite_scale)
+		_arm_left.update_arm(shoulder_weapon, hand_grip, config, -1.0, sprite_scale, weapon_pole, use_weapon_pole)
+		_arm_right.update_arm(support_shoulder, support_hand, config, 1.0, sprite_scale, support_pole, use_support_pole)
 	else:
-		_arm_right.update_arm(shoulder_weapon, hand_grip, config, 1.0, sprite_scale)
-		_arm_left.update_arm(support_shoulder, support_hand, config, -1.0, sprite_scale)
+		_arm_right.update_arm(shoulder_weapon, hand_grip, config, 1.0, sprite_scale, weapon_pole, use_weapon_pole)
+		_arm_left.update_arm(support_shoulder, support_hand, config, -1.0, sprite_scale, support_pole, use_support_pole)
 
 	_set_arms_visible(true)
 	_apply_debug_state()
@@ -227,7 +234,13 @@ func _set_arms_visible(visible_arms: bool) -> void:
 func _should_show_weapon_arms(overlay: Sprite2D, weapon_type: ResourceData.ResourceType) -> bool:
 	if overlay == null or not overlay.visible:
 		return false
-	return weapon_type == ResourceData.ResourceType.SPEAR
+	return weapon_type == ResourceData.ResourceType.SPEAR or weapon_type == ResourceData.ResourceType.WOOD
+
+
+func _resolve_elbow_pole_local(sprite: Sprite2D, pole_display_px: Vector2, _sprite_scale: Vector2) -> Vector2:
+	if pole_display_px.length_squared() < 0.0001:
+		return Vector2.ZERO
+	return LimbPresetCoords.body_display_to_rig_local(sprite, pole_display_px)
 
 
 func _get_weapon_type() -> ResourceData.ResourceType:

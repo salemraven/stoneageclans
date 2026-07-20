@@ -613,6 +613,13 @@ func _evaluate_states() -> void:
 	var hc: int = int(hc_val) if hc_val != null else 0
 	var is_herd_leader: bool = (hc > 0)
 
+	# Milestone build beats combat so clansmen finish queued oven/rack instead of chasing wildlife.
+	if (npc_type_str == "caveman" or npc_type_str == "clansman") and current_state_name != "build_milestone":
+		var bm_st_early: Node = _get_state("build_milestone")
+		if bm_st_early and bm_st_early.has_method("can_enter") and bm_st_early.can_enter():
+			change_state("build_milestone")
+			return
+
 	# Combat before defend: when intruders present (combat_target + agro), engage first
 	# Otherwise defenders just patrol the border and never fight
 	# Skip when herding: leader must not chase enemies, must move toward claim
@@ -629,6 +636,13 @@ func _evaluate_states() -> void:
 		var defend_state_node: Node = _get_state("defend")
 		if defend_state_node and defend_state_node.has_method("can_enter") and defend_state_node.can_enter():
 			change_state("defend")
+			return
+
+	# ClanBrain production jobs: women take WorkRequests before herd/reproduction when board has work.
+	if npc_type_str == "woman" and current_state_name != "production_work":
+		var prod_st_early: Node = _get_state("production_work")
+		if prod_st_early and prod_st_early.has_method("can_enter") and prod_st_early.can_enter():
+			change_state("production_work")
 			return
 	
 	# Transport lock: when herder has followers, stay in herd_wildnpc until delivery or herded_count=0
@@ -660,6 +674,16 @@ func _evaluate_states() -> void:
 	if in_craft_and_busy:
 		# Will override best_state below so only defend/combat can take over
 		pass
+
+	# Production work lock: finish ClanBrain delivery/pickup before reproduction/herd preempt
+	var in_production_work_and_busy: bool = false
+	if current_state_name == "production_work" and npc:
+		var prod_busy: Node = _get_state("production_work")
+		if prod_busy:
+			var wr: Variant = prod_busy.get("work_request")
+			var has_wr: bool = wr is Dictionary and not (wr as Dictionary).is_empty()
+			var has_job: bool = npc.task_runner and npc.task_runner.has_method("has_job") and npc.task_runner.has_job()
+			in_production_work_and_busy = has_wr or has_job
 
 	# Gather lock: finish the assigned gather job before herd_wildnpc / wander preempt (prevents berry-ring freeze from mid-gather cancel)
 	var in_gather_and_busy: bool = (
@@ -865,6 +889,10 @@ func _evaluate_states() -> void:
 	
 	# Craft lock: only combat may interrupt when actively crafting (defend handled by directive above)
 	if in_craft_and_busy and best_state != "combat":
+		best_state = current_state_name
+
+	# Production work lock: only defend/combat may interrupt an active delivery/pickup job
+	if in_production_work_and_busy and best_state != "combat" and best_state != "defend":
 		best_state = current_state_name
 
 	# Gather lock: only defend/combat may interrupt an active gather job (herd_wildnpc must wait)

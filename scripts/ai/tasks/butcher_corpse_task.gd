@@ -47,6 +47,26 @@ func _corpse_empty() -> bool:
 	return _corpse_yield_total() <= 0
 
 
+func _emit_butcher_complete_if_looted(npc: NPCBase, reason: String) -> void:
+	var units: int = int(npc.get_meta("hunt_butcher_units", 0))
+	if units <= 0:
+		return
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.is_enabled() or not pi.has_method("hunt_butcher_complete"):
+		return
+	var ctype: String = "unknown"
+	if corpse and is_instance_valid(corpse):
+		ctype = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "unknown"
+	pi.hunt_butcher_complete(
+		npc.npc_name,
+		ctype,
+		int(npc.get_meta("hunt_loot_meat", 0)),
+		int(npc.get_meta("hunt_loot_hide", 0)),
+		int(npc.get_meta("hunt_loot_bone", 0)),
+		reason
+	)
+
+
 func _start_impl(actor: Node) -> void:
 	if not actor is NPCBase:
 		status = TaskStatus.FAILED
@@ -73,10 +93,13 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		npc.set("is_gathering", false)
 		if npc.progress_display:
 			npc.progress_display.stop_collection(true)
+		_emit_butcher_complete_if_looted(npc, "corpse_empty")
 		return TaskStatus.SUCCESS
 	if not npc.inventory or not npc.inventory.has_space():
+		_emit_butcher_complete_if_looted(npc, "inventory_full")
 		return TaskStatus.SUCCESS
 	if _used_slots(npc) >= _deposit_threshold(npc):
+		_emit_butcher_complete_if_looted(npc, "deposit_threshold")
 		return TaskStatus.SUCCESS
 
 	var dist_to: float = npc.global_position.distance_to(corpse.global_position)
@@ -171,6 +194,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		corpse.queue_free()
 
 	if _corpse_empty() or not npc.inventory.has_space() or _used_slots(npc) >= _deposit_threshold(npc):
+		_emit_butcher_complete_if_looted(npc, "trip_complete")
 		return TaskStatus.SUCCESS
 	return TaskStatus.RUNNING
 
@@ -178,6 +202,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 func _cancel_impl(actor: Node) -> void:
 	if actor is NPCBase:
 		var npc: NPCBase = actor as NPCBase
+		_emit_butcher_complete_if_looted(npc, "cancelled")
 		npc.set("is_gathering", false)
 		if npc.progress_display:
 			npc.progress_display.stop_collection(true)

@@ -260,12 +260,16 @@ func _can_reproduce() -> bool:
 			return false
 	
 	var min_buffer: float = 0.28
-	if BalanceConfig:
+	if ClanBrainTuningConfig:
+		min_buffer = maxf(float(ClanBrainTuningConfig.reproduction_min_food_buffer_days), 0.0)
+	elif BalanceConfig:
 		min_buffer = maxf(float(BalanceConfig.reproduction_min_food_buffer_days), 0.0)
 	var buf: float = _clan_calorie_days_buffer()
 	if buf < min_buffer:
 		var bypass_min: int = 3
-		if BalanceConfig:
+		if ClanBrainTuningConfig:
+			bypass_min = maxi(1, int(ClanBrainTuningConfig.reproduction_food_items_bypass_min))
+		elif BalanceConfig:
 			bypass_min = maxi(1, int(BalanceConfig.reproduction_food_items_bypass_min))
 		if _clan_food_total() < bypass_min:
 			return false
@@ -854,11 +858,15 @@ func _get_reproduction_block_reason() -> String:
 		return "Blocked — birth cooldown (%.0fs left)" % _get_cooldown_remaining()
 	var buf: float = _clan_calorie_days_buffer()
 	var min_buffer: float = 0.28
-	if BalanceConfig:
+	if ClanBrainTuningConfig:
+		min_buffer = float(ClanBrainTuningConfig.reproduction_min_food_buffer_days)
+	elif BalanceConfig:
 		min_buffer = float(BalanceConfig.reproduction_min_food_buffer_days)
 	if buf < min_buffer:
 		var bypass_min: int = 3
-		if BalanceConfig:
+		if ClanBrainTuningConfig:
+			bypass_min = int(ClanBrainTuningConfig.reproduction_food_items_bypass_min)
+		elif BalanceConfig:
 			bypass_min = int(BalanceConfig.reproduction_food_items_bypass_min)
 		if _clan_food_total() < bypass_min:
 			return "Blocked — low food (%.2f days buffer, need %.2f)" % [buf, min_buffer]

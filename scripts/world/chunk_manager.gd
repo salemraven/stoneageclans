@@ -4,7 +4,7 @@ extends Node
 const RESOURCE_SCENE := preload("res://scenes/GatherableResource.tscn")
 const _NAMING_SCRIPT: Script = preload("res://scripts/naming_utils.gd")
 const GrassBatchScript := preload("res://scripts/world/grass_batch.gd")
-const TreeBatchScript := preload("res://scripts/world/tree_batch.gd")
+const TreeDecorSpriteScript := preload("res://scripts/world/tree_decor_sprite.gd")
 const GrassBugPatchScript := preload("res://scripts/world/grass_bug_patch.gd")
 
 var _main: Node2D
@@ -239,7 +239,6 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 	if not AssetRegistry.get_treess_sprite():
 		return
 	var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
-	var visual_all: Array = []
 	for group in groups:
 		if typeof(group) != TYPE_ARRAY:
 			continue
@@ -266,9 +265,10 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 				wrapper.add_child(wood)
 				sim_root.add_child(wrapper)
 			else:
-				visual_all.append(desc)
-	if not visual_all.is_empty():
-		TreeBatchScript.build(visual_root, visual_all)
+				var decor: Node2D = TreeDecorSpriteScript.new() as Node2D
+				visual_root.add_child(decor)
+				if decor.has_method("setup"):
+					decor.call("setup", desc)
 
 
 func _spawn_tallgrass_layers(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, clusters: Array, bug_patches: Array) -> void:
@@ -290,9 +290,9 @@ func _spawn_tallgrass_layers(visual_root: Node2D, sim_root: Node2D, chunk: Vecto
 		if MutationStore and MutationStore.is_position_grass_cleared(pos):
 			continue
 		var marker: Area2D = GrassBugPatchScript.new() as Area2D
-		sim_root.add_child(marker)
 		if marker.has_method("setup"):
 			marker.call("setup", pos, sid, chunk, int(patch.get("bugs_remaining", 1)))
+		sim_root.add_child(marker)
 
 
 func _spawn_ground_items(root: Node2D, chunk: Vector2i, list: Array) -> void:

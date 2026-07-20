@@ -6,18 +6,24 @@ class_name LimbTunerRig
 const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
+const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
+const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
 
 var aim_dir: Vector2 = Vector2(1.0, 0.0)
 var body_card_index: int = 1
 var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
 
 @onready var sprite: Sprite2D = $Sprite
+@onready var body_visual: Node2D = $Sprite/BodyVisual
 @onready var weapon_overlay: Sprite2D = $Sprite/WeaponOverlay
 @onready var combat_component: CombatComponent = $CombatComponent
 @onready var arm_controller: ProceduralArmController = $ProceduralArmController
 
-var _card_foot_y: float = -64.0
+var _anchor_foot_y: float = -64.0
+var _mannequin_layout
+var _walk := TunerWalkPreview.new()
 var _registry = PlaceholderCardRegistry.new()
+var _last_overlay_base := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -28,8 +34,28 @@ func _ready() -> void:
 		combat_component.recovery_time = 0.22
 	if arm_controller:
 		arm_controller.body_card_id = "clansmen_1"
-	_apply_body_card(body_card_index)
+	_setup_mannequin_anchor()
 	_show_weapon_overlay()
+
+
+func _process(delta: float) -> void:
+	_update_walk_preview(delta)
+
+
+func set_walk_direction(dir: int) -> void:
+	_walk.set_direction(dir)
+
+
+func is_walking() -> bool:
+	return _walk.is_moving()
+
+
+func get_walk_direction() -> int:
+	return _walk.direction
+
+
+func get_walk_phase() -> float:
+	return _walk.walk_phase
 
 
 func refresh_weapon_overlay() -> void:
@@ -48,13 +74,49 @@ func _get_cursor_aim_direction() -> Vector2:
 	return aim_dir
 
 
-func _apply_body_card(card_index: int) -> void:
-	body_card_index = card_index
-	var texture: Texture2D = _registry.get_clansmen_card(card_index)
-	if texture == null or sprite == null:
+func _setup_mannequin_anchor() -> void:
+	if sprite == null:
 		return
-	_card_foot_y = CardVisualController.apply_card_layout(sprite, texture, _registry)
-	set_meta("card_index", card_index)
+	_mannequin_layout = TunerMannequinLayoutScript.from_registry(_registry, body_card_index)
+	sprite.texture = null
+	sprite.region_enabled = false
+	sprite.hframes = 1
+	sprite.vframes = 1
+	sprite.frame = 0
+	sprite.scale = Vector2.ONE * _mannequin_layout.sprite_scale
+	_anchor_foot_y = _mannequin_layout.foot_y
+	sprite.position = Vector2(0.0, _anchor_foot_y)
+	set_meta("card_index", body_card_index)
+	if body_visual and body_visual.has_method("apply_layout"):
+		body_visual.call("apply_layout", _mannequin_layout)
+
+
+func _update_walk_preview(delta: float) -> void:
+	if sprite == null:
+		return
+	_walk.tick(delta)
+	var moving := _walk.is_moving()
+	if moving:
+		sprite.flip_h = _walk.direction < 0
+	_walk.bounce_time = CardVisualController.tick_walk_bounce(
+		sprite, _anchor_foot_y, _walk.bounce_time, moving, delta
+	)
+	if body_visual and body_visual.has_method("set_walk_state"):
+		body_visual.call("set_walk_state", moving, _walk.bounce_time, _walk.direction)
+	_sync_overlay_walk_bounce(moving)
+
+
+func _sync_overlay_walk_bounce(moving: bool) -> void:
+	if weapon_overlay == null or sprite == null or not weapon_overlay.visible:
+		return
+	var base_offset: Vector2 = weapon_overlay.get_meta("card_overlay_offset", _last_overlay_base)
+	if base_offset != Vector2.ZERO:
+		_last_overlay_base = base_offset
+	var bounce_y := 0.0
+	if moving:
+		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
+	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y)
 
 
 func _show_weapon_overlay() -> void:
@@ -116,8 +178,12 @@ func _apply_tuner_overlay_pose(display_px: Vector2, rotation_rad: float, overlay
 	var base_unflipped := Vector2(display_px.x / sx, display_px.y / sx)
 	weapon_overlay.rotation = rotation_rad
 	weapon_overlay.set_meta("card_overlay_offset", base_unflipped)
+	_last_overlay_base = base_unflipped
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex)
+	var bounce_y := 0.0
+	if _walk.is_moving():
+		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y)
 	WeaponOverlayCombat.set_overlay_state(self, overlay_state)
 
 
@@ -200,6 +266,43 @@ func set_hand_grip_from_global(preset: WeaponLimbPreset, global_pos: Vector2, re
 		preset.hand_grip_ready_offset_px = grip_px
 	else:
 		preset.hand_grip_offset_px = grip_px
+
+
+func elbow_pole_global_from_preset(preset: WeaponLimbPreset, dominant: bool, ready_pose: bool) -> Vector2:
+	if preset == null or sprite == null:
+		return global_position
+	var pole_px := preset.resolve_elbow_pole_px(dominant, ready_pose)
+	if pole_px.length_squared() < 0.0001:
+		return global_position
+	return LimbPresetCoords.body_global_from_display(sprite, pole_px)
+
+
+func set_elbow_pole_from_global(preset: WeaponLimbPreset, dominant: bool, ready_pose: bool, global_pos: Vector2) -> void:
+	if preset == null or sprite == null:
+		return
+	preset.set_elbow_pole_px(
+		dominant,
+		ready_pose,
+		LimbPresetCoords.body_display_from_global(sprite, global_pos)
+	)
+
+
+func seed_elbow_pole_if_unset(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	ready_pose: bool,
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	bend_sign: float
+) -> void:
+	if preset == null or sprite == null:
+		return
+	if preset.resolve_elbow_pole_px(dominant, ready_pose).length_squared() > 0.0001:
+		return
+	var auto_px := LimbPresetCoords.auto_elbow_pole_display_from_global(
+		sprite, shoulder_global, hand_global, preset.elbow_hint_outward, bend_sign
+	)
+	preset.set_elbow_pole_px(dominant, ready_pose, auto_px)
 
 
 func sync_combat_overlay(hold_ready: bool) -> void:

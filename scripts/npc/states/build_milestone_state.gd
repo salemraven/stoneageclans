@@ -25,7 +25,11 @@ func _get_clan_brain() -> RefCounted:
 	var claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
 	if not claim:
 		return null
-	return claim.get("brain") as RefCounted
+	if claim.has_method("get_clan_brain"):
+		return claim.get_clan_brain()
+	if "clan_brain" in claim:
+		return claim.clan_brain as RefCounted
+	return null
 
 
 func _sync_from_claimed_request() -> bool:
@@ -58,7 +62,7 @@ func enter() -> void:
 	_phase = _PHASE_APPROACH
 	_load_move_cancel_threshold()
 	if not _sync_from_claimed_request():
-		_fail_and_exit()
+		_fail_and_exit("claim_sync_failed")
 		return
 	_start_approach()
 
@@ -141,7 +145,7 @@ func update(delta: float) -> void:
 		return
 
 	if build_request.is_empty() or build_pos == Vector2.ZERO:
-		_fail_and_exit()
+		_fail_and_exit("empty_build_request")
 		return
 
 	if _phase == _PHASE_APPROACH:
@@ -185,7 +189,7 @@ func _finish_build() -> void:
 	var brain: RefCounted = _get_clan_brain()
 	var claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
 	if not main_node or not main_node.has_method("_place_ai_building_at") or not claim:
-		_fail_and_exit()
+		_fail_and_exit("placement_api_missing")
 		return
 
 	var building_type: Variant = build_request.get("building_type")
@@ -194,7 +198,7 @@ func _finish_build() -> void:
 		print("⚠️ build_milestone_state: placement failed at %s — releasing request" % build_pos)
 		if brain and brain.has_method("release_build_request"):
 			brain.release_build_request(build_request.get("id", -1), "placement_failed")
-		_fail_and_exit()
+		_fail_and_exit("placement_failed")
 		return
 
 	if brain and brain.has_method("complete_build_request"):
@@ -216,8 +220,24 @@ func _release_and_exit(reason: String) -> void:
 	build_pos = Vector2.ZERO
 
 
-func _fail_and_exit() -> void:
+func _fail_and_exit(reason: String = "unknown") -> void:
 	_exit_progress_cancelled = true
+	var brain: RefCounted = _get_clan_brain()
+	var req_id: int = int(build_request.get("id", -1))
+	var btype: int = int(build_request.get("building_type", -1))
+	var clan: String = ""
+	if npc and npc.has_method("get_clan_name"):
+		clan = str(npc.get_clan_name())
+	elif npc:
+		clan = str(npc.get("clan_name"))
+	if brain and req_id >= 0 and build_request.get("state", "") in ["CLAIMED", "IN_PROGRESS"]:
+		if brain.has_method("release_build_request"):
+			brain.release_build_request(req_id, reason)
+	var tree = get_tree() if is_inside_tree() else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("build_milestone_aborted"):
+			pi.build_milestone_aborted(clan, req_id, btype, reason, "build_milestone_state")
 	build_request = {}
 	build_pos = Vector2.ZERO
 	if fsm:

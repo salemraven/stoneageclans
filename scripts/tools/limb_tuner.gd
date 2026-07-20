@@ -28,6 +28,8 @@ var _hand_handle: LimbTunerHandle
 var _support_shoulder_handle: LimbTunerHandle
 var _support_hand_handle: LimbTunerHandle
 var _spear_handle: LimbTunerHandle
+var _weapon_elbow_handle: LimbTunerHandle
+var _support_elbow_handle: LimbTunerHandle
 var _dragging_spear: bool = false
 var _active_drag_handle: LimbTunerHandle = null
 var _spear_grab_offset: Vector2 = Vector2.ZERO
@@ -75,6 +77,7 @@ func _finish_startup() -> void:
 	_refresh_rig_from_preset()
 	if _rig and _rig.arm_controller:
 		_rig.arm_controller.set_show_endpoint_markers(false)
+		_rig.arm_controller.set_debug_draw(true)
 	_update_ui()
 	if _status_label:
 		_status_label.text = "Loaded %s preset. Tune idle + ready tabs, then Save." % _weapon_label()
@@ -136,8 +139,10 @@ func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 	for handle in [
 		_shoulder_handle,
 		_hand_handle,
+		_weapon_elbow_handle,
 		_support_shoulder_handle,
 		_support_hand_handle,
+		_support_elbow_handle,
 		_spear_handle,
 	]:
 		if handle == null or not handle.draggable:
@@ -165,6 +170,12 @@ func _move_active_handle(global_pos: Vector2) -> void:
 	elif _active_drag_handle == _support_hand_handle:
 		_support_hand_handle.global_position = global_pos
 		_on_support_hand_dragged(global_pos)
+	elif _active_drag_handle == _weapon_elbow_handle:
+		_weapon_elbow_handle.global_position = global_pos
+		_on_weapon_elbow_dragged(global_pos)
+	elif _active_drag_handle == _support_elbow_handle:
+		_support_elbow_handle.global_position = global_pos
+		_on_support_elbow_dragged(global_pos)
 	elif _active_drag_handle == _spear_handle:
 		var target_global: Vector2 = global_pos + _spear_grab_offset
 		_on_spear_dragged(target_global)
@@ -214,6 +225,18 @@ func _spawn_handles() -> void:
 	_spear_handle.set_handle_color(Color(0.95, 0.75, 0.15, 1.0))
 	_spear_handle.handle_radius = 5.0
 	_stage.add_child(_spear_handle)
+
+	_weapon_elbow_handle = LimbTunerHandleScript.new()
+	_weapon_elbow_handle.name = "WeaponElbowHandle"
+	_weapon_elbow_handle.set_handle_color(Color(0.95, 0.55, 0.1, 1.0))
+	_weapon_elbow_handle.handle_radius = 4.5
+	_stage.add_child(_weapon_elbow_handle)
+
+	_support_elbow_handle = LimbTunerHandleScript.new()
+	_support_elbow_handle.name = "SupportElbowHandle"
+	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
+	_support_elbow_handle.handle_radius = 4.5
+	_stage.add_child(_support_elbow_handle)
 	_apply_handle_number_labels()
 
 
@@ -223,10 +246,14 @@ func _apply_handle_number_labels() -> void:
 		_shoulder_handle.set_side_label("1")
 	if _hand_handle:
 		_hand_handle.set_side_label("1")
+	if _weapon_elbow_handle:
+		_weapon_elbow_handle.set_side_label("1e")
 	if _support_shoulder_handle:
 		_support_shoulder_handle.set_side_label("2")
 	if _support_hand_handle:
 		_support_hand_handle.set_side_label("2")
+	if _support_elbow_handle:
+		_support_elbow_handle.set_side_label("2e")
 	if _spear_handle:
 		_spear_handle.set_side_label("3")
 
@@ -234,6 +261,7 @@ func _apply_handle_number_labels() -> void:
 func _process(_delta: float) -> void:
 	if _rig == null or _preset == null:
 		return
+	_poll_walk_input()
 	_process_combat_input()
 	_push_preset_to_arms()
 	if _mode == AppMode.ASSEMBLE:
@@ -250,6 +278,20 @@ func _process(_delta: float) -> void:
 		if _is_thrust_animating():
 			_sync_handles_from_live_arms()
 	_update_ui()
+
+
+func _poll_walk_input() -> void:
+	if _rig == null:
+		return
+	if _is_thrust_animating():
+		_rig.set_walk_direction(0)
+		return
+	var dir := 0
+	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
+		dir -= 1
+	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
+		dir += 1
+	_rig.set_walk_direction(dir)
 
 
 func _process_combat_input() -> void:
@@ -360,6 +402,17 @@ func _sync_handle_positions() -> void:
 	_sync_hand_handles_from_spear()
 	if _active_drag_handle != _spear_handle and _rig.weapon_overlay:
 		_spear_handle.global_position = _rig.weapon_overlay.global_position
+	_sync_elbow_handles()
+
+
+func _sync_elbow_handles() -> void:
+	if _rig == null or _preset == null:
+		return
+	var ready_pose := _pose_tab == PoseTab.READY
+	if _active_drag_handle != _weapon_elbow_handle and _weapon_elbow_handle:
+		_weapon_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, true, ready_pose)
+	if _active_drag_handle != _support_elbow_handle and _support_elbow_handle:
+		_support_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, false, ready_pose)
 
 
 func _push_preset_to_arms() -> void:
@@ -456,8 +509,28 @@ func _refresh_rig_from_preset() -> void:
 	else:
 		_rig.apply_preset_overlay_ready(_preset, Vector2(1.0, 0.0))
 	_push_preset_to_arms()
+	_seed_elbow_poles_for_tab(_pose_tab)
 	_sync_handle_positions()
 	_apply_handle_draggable()
+
+
+func _seed_elbow_poles_for_tab(tab: PoseTab) -> void:
+	if _rig == null or _preset == null:
+		return
+	var ready_pose := tab == PoseTab.READY
+	_seed_one_elbow_pole(true, ready_pose)
+	_seed_one_elbow_pole(false, ready_pose)
+
+
+func _seed_one_elbow_pole(dominant: bool, ready_pose: bool) -> void:
+	if _shoulder_handle == null or _hand_handle == null:
+		return
+	if _support_shoulder_handle == null or _support_hand_handle == null:
+		return
+	var shoulder_g := _shoulder_handle.global_position if dominant else _support_shoulder_handle.global_position
+	var hand_g := _hand_handle.global_position if dominant else _support_hand_handle.global_position
+	var bend_sign := -1.0 if dominant else 1.0
+	_rig.seed_elbow_pole_if_unset(_preset, dominant, ready_pose, shoulder_g, hand_g, bend_sign)
 
 
 func _set_pose_tab(tab: PoseTab) -> void:
@@ -486,6 +559,10 @@ func _apply_handle_draggable() -> void:
 	# One-handed weapons: off-hand only tunable in Idle (rest pose), never on weapon in Ready.
 	_support_hand_handle.set_draggable(can_drag and (_pose_tab == PoseTab.IDLE or two_hand))
 	_spear_handle.set_draggable(can_drag)
+	if _weapon_elbow_handle:
+		_weapon_elbow_handle.set_draggable(can_drag)
+	if _support_elbow_handle:
+		_support_elbow_handle.set_draggable(can_drag)
 
 
 func _on_shoulder_dragged(global_pos: Vector2) -> void:
@@ -513,6 +590,18 @@ func _on_support_hand_dragged(global_pos: Vector2) -> void:
 		_rig.set_support_hand_from_global(_preset, global_pos)
 	else:
 		_rig.set_support_hand_idle_from_global(_preset, global_pos)
+
+
+func _on_weapon_elbow_dragged(global_pos: Vector2) -> void:
+	if _mode != AppMode.ASSEMBLE:
+		return
+	_rig.set_elbow_pole_from_global(_preset, true, _pose_tab == PoseTab.READY, global_pos)
+
+
+func _on_support_elbow_dragged(global_pos: Vector2) -> void:
+	if _mode != AppMode.ASSEMBLE:
+		return
+	_rig.set_elbow_pole_from_global(_preset, false, _pose_tab == PoseTab.READY, global_pos)
 
 
 func _on_spear_dragged(global_pos: Vector2) -> void:
@@ -547,6 +636,10 @@ func _commit_pose_tab(tab: PoseTab) -> void:
 			_preset.ready_offset_px = display_px
 		else:
 			_preset.overlay_offset_idle_px = display_px
+	if _weapon_elbow_handle:
+		_rig.set_elbow_pole_from_global(_preset, true, tab == PoseTab.READY, _weapon_elbow_handle.global_position)
+	if _support_elbow_handle:
+		_rig.set_elbow_pole_from_global(_preset, false, tab == PoseTab.READY, _support_elbow_handle.global_position)
 
 
 func _commit_all_poses_to_preset() -> void:
@@ -617,28 +710,69 @@ func _on_copy_pressed() -> void:
 func _update_ui() -> void:
 	if _mode_label:
 		var pose_name := "IDLE" if _pose_tab == PoseTab.IDLE else "READY"
-		_mode_label.text = "Mode: %s | Pose: %s | %s" % [_mode_name(), pose_name, _weapon_label()]
+		var walk_name := ""
+		if _rig and _rig.is_walking():
+			walk_name = " | WALK %s" % ("LEFT" if _rig.get_walk_direction() < 0 else "RIGHT")
+		_mode_label.text = "Mode: %s | Pose: %s | %s%s" % [_mode_name(), pose_name, _weapon_label(), walk_name]
 	if _values_label and _preset:
 		var two_hand := WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type)
 		var off_ready := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: idle only)"
 		_values_label.text = (
-			"1 arm (dominant): shoulder %s | hand %s | ready hand %s\n"
-			+ "2 arm (off): shoulder %s | idle hand %s | ready hand %s\n"
+			"1 arm (dominant): shoulder %s | hand %s | ready hand %s | elbow idle %s | ready %s\n"
+			+ "2 arm (off): shoulder %s | idle hand %s | ready hand %s | elbow idle %s | ready %s\n"
 			+ "3 weapon: idle %s | ready %s\n"
-			+ "Arm length: %.0f / %.0f"
+			+ "Arm length: %.0f / %.0f%s"
 		) % [
 			str(_preset.shoulder_offset_px),
 			str(_preset.hand_grip_offset_px),
 			str(_preset.resolve_hand_grip_ready_px()),
+			str(_preset.weapon_elbow_pole_idle_px),
+			str(_preset.weapon_elbow_pole_ready_px),
 			str(_preset.support_shoulder_offset_px),
 			str(_preset.support_hand_idle_offset_px),
 			off_ready,
+			str(_preset.support_elbow_pole_idle_px),
+			str(_preset.support_elbow_pole_ready_px),
 			str(_preset.overlay_offset_idle_px),
 			str(_preset.ready_offset_px),
 			_preset.upper_arm_length,
 			_preset.lower_arm_length,
+			_reach_warning_suffix(),
 		]
 	_apply_handle_draggable()
+
+
+func _reach_warning_suffix() -> String:
+	var warnings := _collect_reach_warnings()
+	if warnings.is_empty():
+		return ""
+	return "\n⚠ Reach: " + ", ".join(warnings)
+
+
+func _collect_reach_warnings() -> PackedStringArray:
+	var out: PackedStringArray = []
+	if _is_out_of_reach(_shoulder_handle, _hand_handle):
+		out.append("dominant hand")
+	if _is_out_of_reach(_support_shoulder_handle, _support_hand_handle):
+		out.append("off hand")
+	return out
+
+
+func _is_out_of_reach(shoulder_handle: LimbTunerHandle, hand_handle: LimbTunerHandle) -> bool:
+	if _rig == null or _rig.sprite == null or _preset == null:
+		return false
+	if shoulder_handle == null or hand_handle == null:
+		return false
+	var rig := _rig.sprite.get_parent() as Node2D
+	if rig == null:
+		return false
+	var shoulder_rig := rig.to_local(shoulder_handle.global_position)
+	var hand_rig := rig.to_local(hand_handle.global_position)
+	var sx: float = absf(_rig.sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var max_reach: float = (_preset.upper_arm_length + _preset.lower_arm_length) * sx
+	return shoulder_rig.distance_to(hand_rig) > max_reach + 0.5
 
 
 func _mode_name() -> String:

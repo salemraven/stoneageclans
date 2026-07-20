@@ -9,7 +9,7 @@ var chunk_load_radius_base: int = 1
 var chunk_unload_hysteresis: int = 1
 var chunk_unload_delay_sec: float = 0.0
 var single_player_initial_load_radius: int = 2
-var chunks_load_per_frame: int = 2
+var chunks_load_per_frame: int = 6
 var chunks_unload_per_frame: int = 3
 var chunk_unload_no_interest_grace_ms: float = 500.0
 var chunk_defer_unload_if_npcs_active: bool = true
@@ -48,28 +48,28 @@ var clan_density_check_interval_sec: float = 30.0
 var clan_respawn_avoid_player_chunk: bool = true
 
 # --- Resources / trees / decor ---
-## Multiplier for all gatherable resources (trees, bushes, ground items, tallgrass).
-## Does NOT affect NPC spawns (clans, migratory wildlife). Default 2.0 = double density.
-var resource_density_multiplier: float = 2.0
-var resource_spawn_chance: float = 0.55
-var resources_per_chunk: int = 10
-var tree_group_chance: float = 0.35
-var tree_groups_per_chunk: int = 2
-var trees_per_group_min: int = 3
-var trees_per_group_max: int = 6
+## Multiplier for gatherable resources (trees, bushes, ground items, tallgrass).
+## Does NOT affect NPC spawns (clans, migratory wildlife).
+var resource_density_multiplier: float = 2.5
+var resource_spawn_chance: float = 0.85
+var resources_per_chunk: int = 12
+var tree_group_chance: float = 0.92
+var tree_groups_per_chunk: int = 3
+var trees_per_group_min: int = 4
+var trees_per_group_max: int = 8
 var tree_group_spread_radius: float = 280.0
 var tallgrass_clusters_per_chunk: int = 4
 var tallgrass_per_cluster_min: int = 6
 var tallgrass_per_cluster_max: int = 12
-var ground_items_per_chunk: int = 4
+var ground_items_per_chunk: int = 6
 
 # --- Wild migratory NPCs (chunk streaming load) ---
 # Seeded rolls per chunk (world_seed + chunk_coords). NPCs parent to Main.world_objects, not chunk root.
 var wild_migratory_chunk_spawns_enabled: bool = true
 ## Probability [0–1] that this chunk emits at least one migratory herd when loaded.
 var wild_migratory_chunk_pass_chance: float = 0.52
-var wild_migratory_packs_min: int = 1
-var wild_migratory_packs_max: int = 2
+var wild_migratory_packs_min: int = 2
+var wild_migratory_packs_max: int = 4
 
 # --- MP / replication ---
 var server_tick_rate: int = 30

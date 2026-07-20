@@ -1,6 +1,8 @@
 extends Node
 ## Single source of truth for which chunks and claims are simulation-active.
 
+const CLAIM_ACTIVE_WORLD_RADIUS: float = 2400.0
+
 var _active_chunks: Dictionary = {}  # Vector2i -> true
 var _active_claims: Dictionary = {}  # instance_id -> true
 
@@ -16,26 +18,28 @@ func recompute(main: Node) -> void:
 		radius = int(wgc.call("get_effective_load_radius"))
 	if wgc:
 		radius = maxi(radius, int(wgc.get("single_player_initial_load_radius")))
-	var centers: Array[Vector2] = []
+	var player_centers: Array[Vector2] = []
 	var player: Node2D = main.get("player") as Node2D if main.get("player") != null else null
 	if player and is_instance_valid(player):
-		centers.append(player.global_position)
+		player_centers.append(player.global_position)
 	for p in main.get_tree().get_nodes_in_group("player"):
 		if is_instance_valid(p) and p is Node2D and p != player:
-			centers.append((p as Node2D).global_position)
-	for claim in main.get_tree().get_nodes_in_group("land_claims"):
-		if not is_instance_valid(claim):
-			continue
-		if claim is Node2D:
-			centers.append((claim as Node2D).global_position)
-			_active_claims[claim.get_instance_id()] = true
-	for center in centers:
+			player_centers.append((p as Node2D).global_position)
+	for center in player_centers:
 		if ChunkUtils == null:
 			continue
 		var cc := ChunkUtils.get_chunk_coords(center)
 		for dx in range(-radius, radius + 1):
 			for dy in range(-radius, radius + 1):
 				_active_chunks[cc + Vector2i(dx, dy)] = true
+	for claim in main.get_tree().get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim) or not (claim is Node2D):
+			continue
+		var cp: Vector2 = (claim as Node2D).global_position
+		for pc in player_centers:
+			if cp.distance_to(pc) <= CLAIM_ACTIVE_WORLD_RADIUS:
+				_active_claims[claim.get_instance_id()] = true
+				break
 
 
 func is_chunk_active(chunk: Vector2i) -> bool:

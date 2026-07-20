@@ -78,6 +78,10 @@ func apply_to_arm_config(config: ProceduralArmConfig, preset: WeaponLimbPreset) 
 	config.upper_arm_length = preset.upper_arm_length
 	config.lower_arm_length = preset.lower_arm_length
 	config.elbow_hint_outward = preset.elbow_hint_outward
+	config.weapon_elbow_pole_idle_px = preset.weapon_elbow_pole_idle_px
+	config.weapon_elbow_pole_ready_px = preset.weapon_elbow_pole_ready_px
+	config.support_elbow_pole_idle_px = preset.support_elbow_pole_idle_px
+	config.support_elbow_pole_ready_px = preset.support_elbow_pole_ready_px
 	config.shoulder_offset_left = preset.support_shoulder_offset_px
 	config.shoulder_offset_right = Vector2(-preset.support_shoulder_offset_px.x, preset.support_shoulder_offset_px.y)
 

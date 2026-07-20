@@ -48,8 +48,10 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 	var origin := Vector2(float(cx), float(cy)) * ChunkUtils.CHUNK_SIZE
 
 	var rng_res := _rng(world_seed, cx, cy, _SALT_RESOURCES)
-	if rng_res.randf() < res_chance:
-		for i in res_n:
+	var res_roll: float = rng_res.randf()
+	var num_res: int = res_n if res_roll < res_chance else maxi(5, int(res_n * 0.55))
+	num_res = maxi(5, num_res)
+	for i in num_res:
 			var lx := rng_res.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
 			var ly := rng_res.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
 			var pos := origin + Vector2(lx, ly)
@@ -67,8 +69,9 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 			})
 
 	var rng_trees := _rng(world_seed, cx, cy, _SALT_TREES)
-	if rng_trees.randf() < tree_chance:
-		for g in tree_groups:
+	var num_groups: int = tree_groups if rng_trees.randf() < tree_chance else 1
+	num_groups = maxi(1, num_groups)
+	for g in num_groups:
 			var gx := rng_trees.randf_range(200.0, ChunkUtils.CHUNK_SIZE - 200.0)
 			var gy := rng_trees.randf_range(200.0, ChunkUtils.CHUNK_SIZE - 200.0)
 			var gcenter := origin + Vector2(gx, gy)
@@ -76,17 +79,31 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 			var scaled_tmax: int = maxi(scaled_tmin, int(ceili(float(tmax) * density_mult / 2.0)))
 			var cnt := rng_trees.randi_range(scaled_tmin, scaled_tmax)
 			var group: Array = []
+			var placed: Array[Vector2] = []
+			const MIN_TREE_DIST := 88.0
 			for t in cnt:
-				var off := Vector2(
-					rng_trees.randf_range(-spread, spread),
-					rng_trees.randf_range(-spread, spread)
-				)
+				var pos := gcenter
+				for _attempt in 10:
+					var angle := rng_trees.randf() * TAU
+					var dist := rng_trees.randf_range(48.0, spread)
+					var candidate := gcenter + Vector2(cos(angle), sin(angle)) * dist
+					var too_close := false
+					for p in placed:
+						if candidate.distance_to(p) < MIN_TREE_DIST:
+							too_close = true
+							break
+					if not too_close:
+						pos = candidate
+						break
+				placed.append(pos)
 				var sid: String = str(cfg.call("generate_stable_id", chunk, "tree_%d" % g, t))
 				group.append({
-					"position": gcenter + off,
+					"position": pos,
 					"tree_idx": rng_trees.randi_range(0, 14),
 					"stable_id": sid,
-					"choppable": rng_trees.randf() < 0.42,
+					"choppable": rng_trees.randf() < 0.55,
+					"scale_mult": rng_trees.randf_range(1.05, 1.28),
+					"rotation": rng_trees.randf_range(-0.14, 0.14),
 				})
 			out["tree_groups"].append(group)
 
