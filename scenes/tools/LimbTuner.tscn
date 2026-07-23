@@ -79,7 +79,7 @@ text = "Mode: ASSEMBLE | Pose: IDLE"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Layered blank body + head (assets/character_cards/)\n1 / 1e = dominant arm + elbow | 2 / 2e = off arm | 3 = weapon\n← → = walk preview (body + head bob) | Shift = ready | Shift+click = attack\nTune Idle + Ready tabs, then Save."
+text = "Step 1: drag H = head/neck onto body, then Save\n1 / 1e = dominant arm | 2 / 2e = off arm | 3 = weapon\n← → = walk preview | Shift = ready | Shift+click = attack"
 
 [node name="PoseTabs" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2

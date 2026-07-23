@@ -7,6 +7,7 @@ enum PoseTab { IDLE, READY }
 const LimbTunerHandleScript = preload("res://scripts/tools/limb_tuner_handle.gd")
 const LimbTunerRigScript = preload("res://scripts/tools/limb_tuner_rig.gd")
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
+const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
 @onready var _stage: Node2D = $World/Stage
 @onready var _rig: LimbTunerRig = $World/Stage/TunerRig
@@ -30,6 +31,7 @@ var _support_hand_handle: LimbTunerHandle
 var _spear_handle: LimbTunerHandle
 var _weapon_elbow_handle: LimbTunerHandle
 var _support_elbow_handle: LimbTunerHandle
+var _head_handle: LimbTunerHandle
 var _dragging_spear: bool = false
 var _active_drag_handle: LimbTunerHandle = null
 var _spear_grab_offset: Vector2 = Vector2.ZERO
@@ -143,6 +145,7 @@ func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 		_support_shoulder_handle,
 		_support_hand_handle,
 		_support_elbow_handle,
+		_head_handle,
 		_spear_handle,
 	]:
 		if handle == null or not handle.draggable:
@@ -176,6 +179,9 @@ func _move_active_handle(global_pos: Vector2) -> void:
 	elif _active_drag_handle == _support_elbow_handle:
 		_support_elbow_handle.global_position = global_pos
 		_on_support_elbow_dragged(global_pos)
+	elif _active_drag_handle == _head_handle:
+		_head_handle.global_position = global_pos
+		_on_head_dragged(global_pos)
 	elif _active_drag_handle == _spear_handle:
 		var target_global: Vector2 = global_pos + _spear_grab_offset
 		_on_spear_dragged(target_global)
@@ -237,6 +243,12 @@ func _spawn_handles() -> void:
 	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
 	_support_elbow_handle.handle_radius = 4.5
 	_stage.add_child(_support_elbow_handle)
+
+	_head_handle = LimbTunerHandleScript.new()
+	_head_handle.name = "HeadNeckHandle"
+	_head_handle.set_handle_color(Color(0.45, 0.75, 0.95, 1.0))
+	_head_handle.handle_radius = 6.0
+	_stage.add_child(_head_handle)
 	_apply_handle_number_labels()
 
 
@@ -256,6 +268,8 @@ func _apply_handle_number_labels() -> void:
 		_support_elbow_handle.set_side_label("2e")
 	if _spear_handle:
 		_spear_handle.set_side_label("3")
+	if _head_handle:
+		_head_handle.set_side_label("H")
 
 
 func _process(_delta: float) -> void:
@@ -413,6 +427,8 @@ func _sync_elbow_handles() -> void:
 		_weapon_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, true, ready_pose)
 	if _active_drag_handle != _support_elbow_handle and _support_elbow_handle:
 		_support_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, false, ready_pose)
+	if _active_drag_handle != _head_handle and _head_handle:
+		_head_handle.global_position = _rig.neck_socket_global()
 
 
 func _push_preset_to_arms() -> void:
@@ -563,6 +579,8 @@ func _apply_handle_draggable() -> void:
 		_weapon_elbow_handle.set_draggable(can_drag)
 	if _support_elbow_handle:
 		_support_elbow_handle.set_draggable(can_drag)
+	if _head_handle:
+		_head_handle.set_draggable(can_drag)
 
 
 func _on_shoulder_dragged(global_pos: Vector2) -> void:
@@ -602,6 +620,12 @@ func _on_support_elbow_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
 	_rig.set_elbow_pole_from_global(_preset, false, _pose_tab == PoseTab.READY, global_pos)
+
+
+func _on_head_dragged(global_pos: Vector2) -> void:
+	if _mode != AppMode.ASSEMBLE:
+		return
+	_rig.set_neck_socket_from_global(global_pos)
 
 
 func _on_spear_dragged(global_pos: Vector2) -> void:
@@ -645,6 +669,8 @@ func _commit_pose_tab(tab: PoseTab) -> void:
 func _commit_all_poses_to_preset() -> void:
 	## Shared anchors + active tab go live; other tab stays from last tab switch / disk.
 	_commit_pose_tab(_pose_tab)
+	if _head_handle and _rig:
+		_rig.set_neck_socket_from_global(_head_handle.global_position)
 
 
 func _on_assemble_pressed() -> void:
@@ -674,14 +700,23 @@ func _on_save_pressed() -> void:
 		return
 	_commit_all_poses_to_preset()
 	var err := LimbPresetRegistry.save_preset(_preset)
+	var layout := _rig.get_layer_layout() if _rig else null
+	var layout_err := OK
+	if layout == null:
+		layout_err = ERR_CANT_CREATE
+	else:
+		layout_err = CharacterCardPartsRegistry.save_layout(layout)
 	if _status_label:
-		if err == OK:
+		if err == OK and layout_err == OK:
 			_status_label.text = (
-				"Saved idle + ready: %s"
-				% LimbPresetRegistry.preset_path(_preset.weapon_type, _preset.body_card_id)
+				"Saved arms: %s | head layout: %s"
+				% [
+					LimbPresetRegistry.preset_path(_preset.weapon_type, _preset.body_card_id),
+					CharacterCardPartsRegistry.DEFAULT_LAYOUT_PATH,
+				]
 			)
 		else:
-			_status_label.text = "Save failed (%s)" % str(err)
+			_status_label.text = "Save failed (arms=%s, head=%s)" % [str(err), str(layout_err)]
 
 
 func _on_reset_pressed() -> void:
@@ -717,8 +752,17 @@ func _update_ui() -> void:
 	if _values_label and _preset:
 		var two_hand := WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type)
 		var off_ready := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: idle only)"
+		var head_line := ""
+		if _rig:
+			var layer := _rig.get_layer_layout()
+			if layer:
+				head_line = "H head: neck socket %s | head pivot %s\n" % [
+					str(layer.body_neck_socket_px),
+					str(layer.head_pivot_px),
+				]
 		_values_label.text = (
-			"1 arm (dominant): shoulder %s | hand %s | ready hand %s | elbow idle %s | ready %s\n"
+			head_line
+			+ "1 arm (dominant): shoulder %s | hand %s | ready hand %s | elbow idle %s | ready %s\n"
 			+ "2 arm (off): shoulder %s | idle hand %s | ready hand %s | elbow idle %s | ready %s\n"
 			+ "3 weapon: idle %s | ready %s\n"
 			+ "Arm length: %.0f / %.0f%s"

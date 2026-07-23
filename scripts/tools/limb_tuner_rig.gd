@@ -8,6 +8,7 @@ const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
 const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
+const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
 var aim_dir: Vector2 = Vector2(1.0, 0.0)
 var body_card_index: int = 1
@@ -89,6 +90,23 @@ func _setup_mannequin_anchor() -> void:
 	set_meta("card_index", body_card_index)
 	if body_visual and body_visual.has_method("apply_layout"):
 		body_visual.call("apply_layout", _mannequin_layout)
+
+
+func get_layer_layout() -> CharacterCardLayerLayout:
+	if body_visual and body_visual.has_method("get_layer_layout"):
+		return body_visual.call("get_layer_layout") as CharacterCardLayerLayout
+	return CharacterCardPartsRegistry.get_layout()
+
+
+func neck_socket_global() -> Vector2:
+	if body_visual and body_visual.has_method("neck_socket_global"):
+		return body_visual.call("neck_socket_global")
+	return global_position
+
+
+func set_neck_socket_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_neck_socket_from_global"):
+		body_visual.call("set_neck_socket_from_global", global_pos)
 
 
 func _update_walk_preview(delta: float) -> void:
