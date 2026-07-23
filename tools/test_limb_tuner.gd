@@ -66,6 +66,10 @@ func _test_limb_tuner_scene() -> void:
 		_fail("TunerRig missing")
 	elif rig.get_node_or_null("Sprite/BodyVisual") == null:
 		_fail("BodyVisual mannequin missing")
+	elif rig.get_node_or_null("Sprite/BodyVisual/BodySprite") == null:
+		_fail("BodySprite missing on layered body visual")
+	elif rig.get_node_or_null("Sprite/BodyVisual/HeadPivot/HeadSprite") == null:
+		_fail("HeadSprite missing on layered body visual")
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
 	if app.get_node_or_null("World/Stage") == null:

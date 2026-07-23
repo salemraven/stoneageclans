@@ -4,6 +4,7 @@ class_name TunerMannequinLayout
 ## Mannequin sizing in card texture space so limb presets + arms match in-game card scale.
 
 const _Self = preload("res://scripts/tools/tuner_mannequin_layout.gd")
+const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
 const DEFAULT_REF_HEIGHT := 816.0
 const DEFAULT_DISPLAY_HEIGHT := 128.0
@@ -15,7 +16,28 @@ var foot_y := -64.0
 var feet_local_y := 408.0
 
 
+static func from_body_texture(body_tex: Texture2D, registry = null):
+	var layout = _Self.new()
+	if body_tex != null and registry != null:
+		layout.ref_texture_height = float(body_tex.get_height())
+		layout.sprite_scale = registry.get_card_scale(body_tex)
+		layout.foot_y = registry.get_card_foot_y(body_tex)
+	elif body_tex != null:
+		layout.ref_texture_height = float(body_tex.get_height())
+		layout.sprite_scale = layout.display_height / layout.ref_texture_height
+		layout.foot_y = -layout.display_height * 0.5
+	else:
+		layout.ref_texture_height = DEFAULT_REF_HEIGHT
+		layout.sprite_scale = layout.display_height / layout.ref_texture_height
+		layout.foot_y = -layout.display_height * 0.5
+	layout.feet_local_y = layout.ref_texture_height * 0.5
+	return layout
+
+
 static func from_registry(registry, card_index: int = 1):
+	var body_tex: Texture2D = PartsRegistry.load_blank_body()
+	if body_tex != null:
+		return from_body_texture(body_tex, registry)
 	var layout = _Self.new()
 	var tex: Texture2D = registry.get_clansmen_card(card_index) if registry else null
 	if tex != null:
