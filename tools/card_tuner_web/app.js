@@ -27,6 +27,8 @@ const state = {
   viewZoom: 1,
   viewPanX: 0,
   viewPanY: 0,
+  stageCenterX: 360,
+  stageCenterY: 460,
 };
 
 const handleDefs = [
@@ -105,7 +107,67 @@ function bodyScale() {
 }
 
 function stageCenter() {
-  return { x: canvas.width * 0.5, y: canvas.height * 0.58 };
+  return { x: state.stageCenterX, y: state.stageCenterY };
+}
+
+function characterBoundsLocal() {
+  const s = bodyScale();
+  const off = state.layout?.body_offset_px || [0, 0];
+  const neck = state.layout?.body_neck_socket_px || [176, 24];
+  const pivot = state.layout?.head_pivot_px || [153, 345];
+
+  let minX = (-state.bodyW * 0.5 + off[0]) * s;
+  let minY = (-state.bodyH * 0.5 + off[1]) * s;
+  let maxX = minX + state.bodyW * s;
+  let maxY = minY + state.bodyH * s;
+
+  if (state.headImg) {
+    const pivotLocalX = (neck[0] - state.bodyW * 0.5 + off[0]) * s;
+    const pivotLocalY = (neck[1] - state.bodyH * 0.5 + off[1]) * s;
+    const headX = pivotLocalX - pivot[0] * s;
+    const headY = pivotLocalY - pivot[1] * s;
+    minX = Math.min(minX, headX);
+    minY = Math.min(minY, headY);
+    maxX = Math.max(maxX, headX + state.headImg.width * s);
+    maxY = Math.max(maxY, headY + state.headImg.height * s);
+  }
+
+  if (state.preset) {
+    for (const def of handleDefs) {
+      if (def.kind !== "preset") continue;
+      const p = state.preset[def.key];
+      if (!p) continue;
+      minX = Math.min(minX, p[0] * s - 24);
+      minY = Math.min(minY, p[1] * s - 24);
+      maxX = Math.max(maxX, p[0] * s + 24);
+      maxY = Math.max(maxY, p[1] * s + 24);
+    }
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function fitStageToCanvas() {
+  const pad = 56;
+  const bounds = characterBoundsLocal();
+  const charCenterX = (bounds.minX + bounds.maxX) * 0.5;
+  const charCenterY = (bounds.minY + bounds.maxY) * 0.5;
+  const charW = bounds.maxX - bounds.minX;
+  const charH = bounds.maxY - bounds.minY;
+
+  state.stageCenterX = canvas.width * 0.5 - charCenterX;
+  // Bias down so the head stays comfortably inside the canvas.
+  state.stageCenterY = canvas.height * 0.54 - charCenterY;
+
+  const fitZoom = Math.min(
+    (canvas.width - pad * 2) / Math.max(charW, 1),
+    (canvas.height - pad * 2) / Math.max(charH, 1),
+    1.35,
+  );
+  state.viewZoom = clamp(fitZoom, MIN_ZOOM, MAX_ZOOM);
+  state.viewPanX = 0;
+  state.viewPanY = 0;
+  updateZoomLabel();
 }
 
 function textureToCanvas(texX, texY, bobY = 0, tilt = 0) {
@@ -373,6 +435,7 @@ async function loadAll() {
   }
   state.preset = preset;
   state.footY = -DISPLAY_HEIGHT * 0.5;
+  fitStageToCanvas();
   rebuildHandles();
   updateValues();
   updateZoomLabel();
@@ -426,7 +489,8 @@ document.getElementById("zoomOutBtn").addEventListener("click", () => {
 });
 
 document.getElementById("zoomResetBtn").addEventListener("click", () => {
-  resetZoom();
+  fitStageToCanvas();
+  rebuildHandles();
   drawCharacter();
 });
 
