@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stone Age Clans — Card Tuner</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Character Card Tuner (Web)</h1>
+      <button id="saveBtn" type="button">Save</button>
+      <button id="walkBtn" type="button" class="secondary">Toggle walk</button>
+      <button id="reloadBtn" type="button" class="secondary">Reload</button>
+    </header>
+    <main>
+      <div id="stage-wrap">
+        <canvas id="stage" width="720" height="720"></canvas>
+      </div>
+      <aside>
+        <div class="help">
+          Drag handles to position parts. Same files Godot LimbTuner uses.
+        </div>
+        <div class="legend">
+          <div><span style="background:#73bff2"></span><strong>H</strong> head / neck</div>
+          <div><span style="background:#e64d4d"></span><strong>1</strong> dominant shoulder</div>
+          <div><span style="background:#36d95c"></span><strong>1</strong> dominant hand</div>
+          <div><span style="background:#bf2626"></span><strong>2</strong> off shoulder</div>
+          <div><span style="background:#2eb34a"></span><strong>2</strong> off hand (idle)</div>
+          <div><span style="background:#f2bf26"></span><strong>3</strong> weapon</div>
+        </div>
+        <div id="status" class="status">Loading…</div>
+        <div id="values" class="values"></div>
+      </aside>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Local web server for the character card layer + arm tuner."""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+ROOT = Path(__file__).resolve().parent
+WORKSPACE = ROOT.parents[1]
+ASSETS = WORKSPACE / "assets" / "character_cards"
+LAYOUT_TRES = ASSETS / "layered_blank_1.tres"
+PRESET_TRES = WORKSPACE / "assets" / "limb_presets" / "club_clansmen_1.tres"
+HOST = "0.0.0.0"
+PORT = 8765
+
+
+def _read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _vec2_from_tres(text: str, key: str, default: list[float]) -> list[float]:
+    match = re.search(rf"{re.escape(key)}\s*=\s*Vector2\(([^)]+)\)", text)
+    if not match:
+        return default
+    parts = [p.strip() for p in match.group(1).split(",")]
+    if len(parts) != 2:
+        return default
+    return [float(parts[0]), float(parts[1])]
+
+
+def load_layout() -> dict:
+    text = _read_text(LAYOUT_TRES)
+    return {
+        "layout_id": "layered_blank_1",
+        "body_texture_path": "res://assets/character_cards/body1.png",
+        "head_texture_path": "res://assets/character_cards/head1.png",
+        "body_neck_socket_px": _vec2_from_tres(text, "body_neck_socket_px", [176.0, 24.0]),
+        "head_pivot_px": _vec2_from_tres(text, "head_pivot_px", [153.0, 345.0]),
+    }
+
+
+def save_layout(data: dict) -> None:
+    neck = data.get("body_neck_socket_px", [176.0, 24.0])
+    pivot = data.get("head_pivot_px", [153.0, 345.0])
+    text = _read_text(LAYOUT_TRES)
+    if not text:
+        text = """[gd_resource type="Resource" script_class="CharacterCardLayerLayout" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/config/character_card_layer_layout.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+layout_id = "layered_blank_1"
+body_texture_path = "res://assets/character_cards/body1.png"
+head_texture_path = "res://assets/character_cards/head1.png"
+body_neck_socket_px = Vector2(176, 24)
+head_pivot_px = Vector2(153, 345)
+"""
+    text = re.sub(
+        r"body_neck_socket_px\s*=\s*Vector2\([^)]+\)",
+        f"body_neck_socket_px = Vector2({neck[0]}, {neck[1]})",
+        text,
+    )
+    text = re.sub(
+        r"head_pivot_px\s*=\s*Vector2\([^)]+\)",
+        f"head_pivot_px = Vector2({pivot[0]}, {pivot[1]})",
+        text,
+    )
+    LAYOUT_TRES.write_text(text, encoding="utf-8")
+
+
+def load_preset() -> dict:
+    text = _read_text(PRESET_TRES)
+    keys = [
+        "shoulder_offset_px",
+        "hand_grip_offset_px",
+        "support_shoulder_offset_px",
+        "support_hand_idle_offset_px",
+        "overlay_offset_idle_px",
+    ]
+    out: dict = {}
+    for key in keys:
+        out[key] = _vec2_from_tres(text, key, [0.0, 0.0])
+    return out
+
+
+def save_preset(data: dict) -> None:
+    text = _read_text(PRESET_TRES)
+    for key, value in data.items():
+        if not isinstance(value, list) or len(value) != 2:
+            continue
+        text = re.sub(
+            rf"{re.escape(key)}\s*=\s*Vector2\([^)]+\)",
+            f"{key} = Vector2({value[0]}, {value[1]})",
+            text,
+        )
+    PRESET_TRES.write_text(text, encoding="utf-8")
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def log_message(self, fmt: str, *args) -> None:
+        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+
+    def _send_json(self, payload: dict, status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b"{}"
+        return json.loads(raw.decode("utf-8") or "{}")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        path = urlparse(self.path).path
+        if path == "/api/layout":
+            self._send_json(load_layout())
+            return
+        if path == "/api/preset":
+            self._send_json(load_preset())
+            return
+        if path.startswith("/assets/"):
+            rel = path[len("/assets/") :]
+            file_path = WORKSPACE / "assets" / rel
+            if file_path.is_file():
+                data = file_path.read_bytes()
+                ctype = "image/png" if file_path.suffix == ".png" else "application/octet-stream"
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self.send_error(404)
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            payload = self._read_json()
+            if path == "/api/layout":
+                save_layout(payload)
+                self._send_json({"ok": True, "layout": load_layout()})
+                return
+            if path == "/api/preset":
+                save_preset(payload)
+                self._send_json({"ok": True, "preset": load_preset()})
+                return
+            self.send_error(404)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json({"ok": False, "error": str(exc)}, status=500)
+
+
+def main() -> None:
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"Card tuner web UI: http://{HOST}:{PORT}/")
+    print(f"Also try: http://localhost:{PORT}/")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
