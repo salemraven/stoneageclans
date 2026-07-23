@@ -17,6 +17,8 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _values_label: Label = $UI/Panel/VBox/ValuesLabel
 @onready var _export_label: Label = $UI/Panel/VBox/ExportLabel
 @onready var _status_label: Label = $UI/Panel/VBox/StatusLabel
+@onready var _walk_toggle_btn: Button = $UI/Panel/VBox/PreviewButtons/WalkToggleBtn
+@onready var _attack_toggle_btn: Button = $UI/Panel/VBox/PreviewButtons/AttackToggleBtn
 
 @export var stage_scale: float = 4.0
 @export var tuning_weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.WOOD
@@ -37,6 +39,8 @@ const SPEAR_HANDLE_RADIUS_ON_OVERLAY := 18.0
 var _dragging_spear: bool = false
 var _active_drag_handle: LimbTunerHandle = null
 var _spear_grab_offset: Vector2 = Vector2.ZERO
+var _walk_preview_toggle: bool = false
+var _attack_preview_toggle: bool = false
 
 
 func _ready() -> void:
@@ -50,7 +54,11 @@ func _ready() -> void:
 	if _pose_tab_ready:
 		_pose_tab_ready.pressed.connect(func() -> void: _set_pose_tab(PoseTab.READY))
 	if _status_label:
-		_status_label.text = "Assemble: drag handles. Shift = ready | Shift+click = attack swing."
+		_status_label.text = "Assemble: drag handles. Toggle walk/attack or Shift+click for one strike."
+	if _walk_toggle_btn:
+		_walk_toggle_btn.pressed.connect(_on_walk_toggle_pressed)
+	if _attack_toggle_btn:
+		_attack_toggle_btn.pressed.connect(_on_attack_toggle_pressed)
 	var assemble_btn: Button = $UI/Panel/VBox/Buttons/AssembleBtn
 	var lock_btn: Button = $UI/Panel/VBox/Buttons/LockBtn
 	var test_btn: Button = $UI/Panel/VBox/Buttons/TestBtn
@@ -88,6 +96,7 @@ func _finish_startup() -> void:
 			_rig.arm_controller.config.elbow_joint_radius = 8.0
 		_rig.arm_controller.set_debug_draw(false)
 	_update_ui()
+	_update_preview_button_labels()
 	if _status_label:
 		_status_label.text = "Loaded %s preset. Tune idle + ready tabs, then Save." % _weapon_label()
 
@@ -328,6 +337,7 @@ func _process(_delta: float) -> void:
 	if _rig == null or _preset == null:
 		return
 	_poll_walk_input()
+	_poll_attack_preview()
 	_process_combat_input()
 	_push_preset_to_arms()
 	if _mode == AppMode.ASSEMBLE:
@@ -355,11 +365,110 @@ func _poll_walk_input() -> void:
 		_rig.set_walk_direction(0)
 		return
 	var dir := 0
+	if _walk_preview_toggle:
+		dir = 1
 	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
-		dir -= 1
-	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
-		dir += 1
+		dir = -1
+	elif Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
+		dir = 1
 	_rig.set_walk_direction(dir)
+
+
+func _poll_attack_preview() -> void:
+	if not _attack_preview_toggle or _mode != AppMode.ASSEMBLE:
+		return
+	if _rig == null or _rig.combat_component == null or _preset == null:
+		return
+	if _active_drag_handle != null or _dragging_spear:
+		return
+	if _attack_preview_busy():
+		return
+	_prepare_attack_preview_pose()
+	_trigger_assemble_strike()
+
+
+func _attack_preview_busy() -> bool:
+	if _rig == null or _rig.combat_component == null:
+		return true
+	if _is_thrust_animating():
+		return true
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(_rig)
+	if (
+		ostate == WeaponOverlayCombat.OverlayState.STRIKING
+		or ostate == WeaponOverlayCombat.OverlayState.RECOVERING
+	):
+		return true
+	var cstate: int = _rig.combat_component.state
+	return cstate != CombatComponent.CombatState.IDLE
+
+
+func _prepare_attack_preview_pose() -> void:
+	if _rig == null or _preset == null:
+		return
+	if _pose_tab == PoseTab.IDLE:
+		_rig.apply_preset_overlay_idle(_preset)
+		if _rig.uses_weapon_grip_anchor_hand():
+			_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
+		_sync_hand_handles_from_spear()
+		_lock_arm_lines_to_handles()
+
+
+func _trigger_assemble_strike() -> void:
+	if _rig == null or _rig.combat_component == null:
+		return
+	var aim := Vector2(1.0, 0.0)
+	if _rig.aim_dir.length_squared() > 0.0001:
+		aim = _rig.aim_dir.normalized()
+	_rig.aim_dir = aim
+	if _rig.combat_component.state != CombatComponent.CombatState.READY:
+		_enter_assemble_combat_ready_for_attack_preview()
+	var aim_strike := _rig._get_cursor_aim_direction()
+	if aim_strike.length_squared() < 0.0001:
+		aim_strike = aim
+	_rig.combat_component.commit_strike(aim_strike)
+
+
+func _enter_assemble_combat_ready_for_attack_preview() -> void:
+	if _rig == null or _rig.combat_component == null or _preset == null:
+		return
+	var aim := Vector2(1.0, 0.0)
+	_rig.aim_dir = aim
+	_rig.combat_component.aim_dir = aim
+	if _rig.combat_component.state == CombatComponent.CombatState.IDLE:
+		_rig.combat_component.state = CombatComponent.CombatState.READY
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.READY)
+	_rig.apply_preset_overlay_idle(_preset)
+	_sync_spear_grip_handles()
+
+
+func _on_walk_toggle_pressed() -> void:
+	_walk_preview_toggle = not _walk_preview_toggle
+	if not _walk_preview_toggle and _rig:
+		_rig.set_walk_direction(0)
+	_update_preview_button_labels()
+	if _status_label:
+		_status_label.text = "Walk preview %s" % ("ON" if _walk_preview_toggle else "OFF")
+
+
+func _on_attack_toggle_pressed() -> void:
+	_attack_preview_toggle = not _attack_preview_toggle
+	if not _attack_preview_toggle:
+		_exit_assemble_combat_ready()
+		_refresh_rig_from_preset()
+	_update_preview_button_labels()
+	if _status_label:
+		_status_label.text = (
+			"Attack preview ON — club swing loop from saved idle grip"
+			if _attack_preview_toggle
+			else "Attack preview OFF"
+		)
+
+
+func _update_preview_button_labels() -> void:
+	if _walk_toggle_btn:
+		_walk_toggle_btn.text = "Walk: %s" % ("ON" if _walk_preview_toggle else "OFF")
+	if _attack_toggle_btn:
+		_attack_toggle_btn.text = "Attack: %s" % ("ON" if _attack_preview_toggle else "OFF")
 
 
 func _process_combat_input() -> void:
@@ -888,7 +997,12 @@ func _update_ui() -> void:
 		var walk_name := ""
 		if _rig and _rig.is_walking():
 			walk_name = " | WALK %s" % ("LEFT" if _rig.get_walk_direction() < 0 else "RIGHT")
-		_mode_label.text = "Mode: %s | Pose: %s | %s%s" % [_mode_name(), pose_name, _weapon_label(), walk_name]
+		elif _walk_preview_toggle:
+			walk_name = " | WALK preview"
+		var attack_name := " | ATTACK preview" if _attack_preview_toggle else ""
+		_mode_label.text = "Mode: %s | Pose: %s | %s%s%s" % [
+			_mode_name(), pose_name, _weapon_label(), walk_name, attack_name
+		]
 	if _values_label and _preset:
 		var two_hand := WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type)
 		var off_ready := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: idle only)"

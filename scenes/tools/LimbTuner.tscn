@@ -79,7 +79,18 @@ text = "Mode: ASSEMBLE | Pose: IDLE"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Godot desktop tuner (not web). Drag handles, Save, then Refresh if needed.\nH = head/neck | 1 / 1e = dominant arm | 2 / 2e = off arm | 3 = club\n← → = walk | Shift = ready | Shift+click = attack"
+text = "Godot desktop tuner (not web). Drag handles, Save, then Refresh if needed.\nH = head/neck | 1 / 1e = dominant arm | 2 / 2e = off arm | 3 = club\nToggle walk / attack preview club swing from saved idle grip. ← → also walk. Shift = ready | Shift+click = one strike."
+
+[node name="PreviewButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+
+[node name="WalkToggleBtn" type="Button" parent="UI/Panel/VBox/PreviewButtons"]
+layout_mode = 2
+text = "Toggle walk"
+
+[node name="AttackToggleBtn" type="Button" parent="UI/Panel/VBox/PreviewButtons"]
+layout_mode = 2
+text = "Toggle attack"
 
 [node name="PoseTabs" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
