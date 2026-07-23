@@ -23,6 +23,26 @@
       "problemMatcher": []
     },
     {
+      "label": "Godot: Open Character Animation Tuner",
+      "type": "shell",
+      "command": "tools/godot/godot.cmd",
+      "args": [
+        "--editor",
+        "--path",
+        "${workspaceFolder}",
+        "res://scenes/tools/LimbTuner.tscn"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Godot: Headless smoke (3s)",
       "type": "shell",
       "command": "tools/godot/godot.cmd",

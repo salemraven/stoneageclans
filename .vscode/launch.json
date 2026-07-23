@@ -31,6 +31,15 @@
     {
       "type": "godot",
       "request": "launch",
+      "name": "Godot: Character Animation Tuner",
+      "project": "${workspaceFolder}",
+      "scene": "res://scenes/tools/LimbTuner.tscn",
+      "editor_path": "${workspaceFolder}/tools/godot/Godot_v4.6.1-stable_win64.exe",
+      "additional_options": ""
+    },
+    {
+      "type": "godot",
+      "request": "launch",
       "name": "Godot: Play main + playtest + RTS spawn pack",
       "project": "${workspaceFolder}",
       "scene": "main",
