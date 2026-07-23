@@ -4,14 +4,14 @@ class_name CharacterCardPartsRegistry
 ## Layered character-card parts (blank body + head) for the animation tuner and future card pipeline.
 
 const PARTS_DIR := "res://assets/character_cards/"
-const BLANK_BODY_PATH := PARTS_DIR + "blank_body.png"
-const BLANK_HEAD_PATH := PARTS_DIR + "blank_head.png"
+const BLANK_BODY_PATH := PARTS_DIR + "body1.png"
+const BLANK_HEAD_PATH := PARTS_DIR + "head1.png"
 
 ## Neck socket on the body texture (pixels from image top-left). Tune when art changes.
-const BODY_NECK_SOCKET_PX := Vector2(128.0, 52.0)
+const BODY_NECK_SOCKET_PX := Vector2(512.0, 320.0)
 
 ## Head pivot on the head texture (pixels from image top-left). Usually bottom-center of the head.
-const HEAD_PIVOT_PX := Vector2(128.0, 155.0)
+const HEAD_PIVOT_PX := Vector2(522.0, 838.0)
 
 
 static func load_blank_body() -> Texture2D:
