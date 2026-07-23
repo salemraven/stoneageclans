@@ -10,7 +10,7 @@ const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
-## Tuner handle 3 sits on the club/spear overlay at this height (0 = top, 1 = bottom of texture).
+## Tuner handle 3 — center of bottom quarter of overlay texture (normalized Y from top).
 const WEAPON_HANDLE_Y_FRAC := 0.875
 
 var aim_dir: Vector2 = Vector2(1.0, 0.0)
@@ -231,11 +231,29 @@ func move_weapon_overlay_global(global_pos: Vector2) -> Vector2:
 	return move_weapon_handle_anchor_global(global_pos)
 
 
-func weapon_handle_anchor_local() -> Vector2:
+func _ensure_overlay_pivot() -> void:
+	if weapon_overlay == null or sprite == null:
+		return
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
+
+
+func _texture_frac_to_overlay_local(nx: float, ny: float) -> Vector2:
 	if weapon_overlay == null or weapon_overlay.texture == null:
 		return Vector2.ZERO
-	var tex_h: float = float(weapon_overlay.texture.get_height()) * absf(weapon_overlay.scale.y)
-	return Vector2(0.0, (WEAPON_HANDLE_Y_FRAC - 0.5) * tex_h)
+	var tex := weapon_overlay.texture
+	var draw_size := Vector2(tex.get_width(), tex.get_height()) * weapon_overlay.scale.abs()
+	return Vector2(
+		weapon_overlay.offset.x + (nx - 0.5) * draw_size.x,
+		weapon_overlay.offset.y + (ny - 0.5) * draw_size.y
+	)
+
+
+func weapon_handle_anchor_local() -> Vector2:
+	_ensure_overlay_pivot()
+	return _texture_frac_to_overlay_local(0.5, WEAPON_HANDLE_Y_FRAC)
 
 
 func weapon_handle_anchor_global() -> Vector2:
@@ -247,6 +265,7 @@ func weapon_handle_anchor_global() -> Vector2:
 func move_weapon_handle_anchor_global(anchor_global: Vector2) -> Vector2:
 	if weapon_overlay == null or sprite == null:
 		return Vector2.ZERO
+	_ensure_overlay_pivot()
 	var local := weapon_handle_anchor_local()
 	var anchor_offset: Vector2 = weapon_overlay.to_global(local) - weapon_overlay.global_position
 	weapon_overlay.global_position = anchor_global - anchor_offset

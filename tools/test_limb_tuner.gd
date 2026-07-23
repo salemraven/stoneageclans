@@ -77,10 +77,15 @@ func _test_limb_tuner_scene() -> void:
 	elif rig.weapon_overlay.texture == null:
 		_fail("club WeaponOverlay texture missing on startup")
 	else:
-		var anchor := rig.weapon_handle_anchor_global()
-		var origin := rig.weapon_overlay.global_position
-		if anchor.distance_to(origin) < 8.0:
-			_fail("weapon handle 3 should sit below overlay origin (bottom quarter), not at center")
+		var stage: Node2D = app.get_node("World/Stage") as Node2D
+		var club_rect := rig._sprite_rect_on_stage(rig.weapon_overlay, stage)
+		var anchor_stage := stage.to_local(rig.weapon_handle_anchor_global())
+		var club_bottom := club_rect.position.y + club_rect.size.y
+		if anchor_stage.y < club_bottom - club_rect.size.y * 0.35:
+			_fail(
+				"weapon handle 3 should sit on bottom quarter of club (anchor y=%.1f club bottom=%.1f)"
+				% [anchor_stage.y, club_bottom]
+			)
 	if app.get_node_or_null("World/Stage") == null:
 		_fail("Stage missing")
 	var stage: Node2D = app.get_node("World/Stage") as Node2D
