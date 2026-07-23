@@ -400,7 +400,15 @@ function poleCanvasFromPreset(key) {
   return displayToCanvas(p[0], p[1], bobY, tilt);
 }
 
-function syncElbowHandlesOnArms() {
+function resolveElbowOnArm(shoulderPos, handPos, poleKey, bendSign) {
+  if (!shoulderPos || !handPos) {
+    return null;
+  }
+  const pole = poleCanvasFromPreset(poleKey) || autoElbowPole(shoulderPos, handPos, bendSign);
+  return solveIk(shoulderPos, handPos, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+}
+
+function refreshElbowHandlePositions() {
   const shoulder = state.handles.find((h) => h.id === "shoulder");
   const hand = state.handles.find((h) => h.id === "hand");
   const weaponElbow = state.handles.find((h) => h.id === "weapon_elbow");
@@ -408,29 +416,32 @@ function syncElbowHandlesOnArms() {
   const supportHand = state.handles.find((h) => h.id === "support_hand");
   const supportElbow = state.handles.find((h) => h.id === "support_elbow");
 
-  if (shoulder?.pos && hand?.pos && weaponElbow) {
-    if (state.active?.id !== "weapon_elbow") {
-      const pole = poleCanvasFromPreset("weapon_elbow_pole_idle_px") || autoElbowPole(shoulder.pos, hand.pos, -1);
-      weaponElbow.pos = solveIk(shoulder.pos, hand.pos, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  if (weaponElbow && shoulder?.pos && hand?.pos && state.active?.id !== "weapon_elbow") {
+    const elbow = resolveElbowOnArm(shoulder.pos, hand.pos, "weapon_elbow_pole_idle_px", -1);
+    if (elbow) {
+      weaponElbow.pos = elbow;
     }
-  } else if (weaponElbow) {
-    weaponElbow.pos = hand?.pos || shoulder?.pos || weaponGripAnchorCanvas();
   }
-  if (supportShoulder?.pos && supportHand?.pos && supportElbow) {
-    if (state.active?.id !== "support_elbow") {
-      const pole =
-        poleCanvasFromPreset("support_elbow_pole_idle_px") || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
-      supportElbow.pos = solveIk(
-        supportShoulder.pos,
-        supportHand.pos,
-        UPPER_ARM_LEN,
-        LOWER_ARM_LEN,
-        pole,
-      );
+  if (
+    supportElbow &&
+    supportShoulder?.pos &&
+    supportHand?.pos &&
+    state.active?.id !== "support_elbow"
+  ) {
+    const elbow = resolveElbowOnArm(
+      supportShoulder.pos,
+      supportHand.pos,
+      "support_elbow_pole_idle_px",
+      1,
+    );
+    if (elbow) {
+      supportElbow.pos = elbow;
     }
-  } else if (supportElbow) {
-    supportElbow.pos = supportHand?.pos || supportShoulder?.pos || { x: 0, y: 0 };
   }
+}
+
+function syncElbowHandlesOnArms() {
+  refreshElbowHandlePositions();
 }
 
 function handleCanvasPos(def, bobY, tilt) {
@@ -514,6 +525,8 @@ function drawCharacter() {
     drawArmSegments(supportShoulder.pos, supportHand.pos, pole, "#6d4a2a", "#33bfd9");
   }
 
+  refreshElbowHandlePositions();
+
   if (hand?.pos && weapon?.pos) {
     const gripDist = Math.hypot(hand.pos.x - weapon.pos.x, hand.pos.y - weapon.pos.y);
     if (gripDist > 1.5 / state.viewZoom) {
@@ -530,7 +543,7 @@ function drawCharacter() {
   }
 
   for (const handle of state.handles) {
-    if (handle.id === "weapon") {
+    if (handle.id === "weapon" || handle.onArm) {
       continue;
     }
     drawHandle(handle);
@@ -538,6 +551,11 @@ function drawCharacter() {
   const weaponHandle = state.handles.find((h) => h.id === "weapon");
   if (weaponHandle) {
     drawHandle(weaponHandle);
+  }
+  for (const handle of state.handles) {
+    if (handle.onArm) {
+      drawHandle(handle);
+    }
   }
 
   ctx.restore();
@@ -586,7 +604,7 @@ function drawArmSegments(shoulder, hand, pole, color, elbowJointColor) {
 }
 
 function drawHandle(handle) {
-  const r = (handle.onArm ? 13 : 10) / state.viewZoom;
+  const r = (handle.onArm ? 16 : 10) / state.viewZoom;
   ctx.fillStyle = handle.color;
   ctx.strokeStyle = "#111";
   ctx.lineWidth = 2 / state.viewZoom;
@@ -616,11 +634,13 @@ function updateValues() {
 function pickHandle(x, y) {
   const world = screenToWorld(x, y);
   const pickRadius = 18 / state.viewZoom;
+  const elbowPickRadius = 24 / state.viewZoom;
   let best = null;
   let bestDist = Infinity;
   for (const handle of state.handles) {
+    const radius = handle.onArm ? elbowPickRadius : pickRadius;
     const d = Math.hypot(handle.pos.x - world.x, handle.pos.y - world.y);
-    if (d <= pickRadius && d < bestDist) {
+    if (d <= radius && d < bestDist) {
       best = handle;
       bestDist = d;
     }

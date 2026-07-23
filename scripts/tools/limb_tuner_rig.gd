@@ -383,6 +383,71 @@ func elbow_joint_global_from_arms(dominant: bool) -> Vector2:
 	return endpoints.get("elbow", global_position)
 
 
+func elbow_joint_global_from_handles(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	ready_pose: bool,
+	shoulder_global: Vector2,
+	hand_global: Vector2
+) -> Vector2:
+	if preset == null or sprite == null:
+		return global_position
+	var shoulder_local := to_local(shoulder_global)
+	var hand_local := to_local(hand_global)
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var upper_len: float = preset.upper_arm_length * sx
+	var lower_len: float = preset.lower_arm_length * sx
+	var bend_sign: float = -1.0 if dominant else 1.0
+	var pole_px := preset.resolve_elbow_pole_px(dominant, ready_pose)
+	var pole_hint: Vector2
+	if pole_px.length_squared() > 0.0001:
+		pole_hint = LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	else:
+		var to_hand := hand_local - shoulder_local
+		if to_hand.length_squared() < 0.01:
+			to_hand = Vector2(0.0, 1.0)
+		var outward := Vector2(-to_hand.y, to_hand.x).normalized() * signf(bend_sign)
+		pole_hint = shoulder_local + outward * (preset.elbow_hint_outward * sx)
+	var elbow_local := _solve_ik_local(shoulder_local, hand_local, upper_len, lower_len, pole_hint)
+	return to_global(elbow_local)
+
+
+func _solve_ik_local(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	pole_hint: Vector2,
+	fold_min_deg: float = 8.0,
+	fold_max_deg: float = 150.0
+) -> Vector2:
+	var to_hand := hand - shoulder
+	var dist := to_hand.length()
+	if dist < 0.001:
+		return shoulder + Vector2(upper_len, 0.0)
+	var min_fold := deg_to_rad(fold_min_deg)
+	var max_fold := deg_to_rad(fold_max_deg)
+	var max_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
+	) - 0.01
+	var min_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
+	) + 0.01
+	dist = clampf(dist, min_reach, max_reach)
+	var dir := to_hand / dist
+	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
+	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
+	var shoulder_angle := acos(cos_shoulder)
+	var mid := shoulder + dir * (dist * 0.5)
+	var pole_side := signf((pole_hint - mid).cross(dir))
+	if pole_side == 0.0:
+		pole_side = 1.0
+	var elbow_dir := dir.rotated(shoulder_angle * pole_side)
+	return shoulder + elbow_dir * upper_len
+
+
 func set_elbow_joint_from_global(
 	preset: WeaponLimbPreset,
 	dominant: bool,

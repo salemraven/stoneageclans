@@ -474,10 +474,33 @@ func _sync_handle_positions() -> void:
 func _sync_elbow_handles() -> void:
 	if _rig == null or _preset == null:
 		return
-	if _active_drag_handle != _weapon_elbow_handle and _weapon_elbow_handle:
-		_weapon_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(true)
-	if _active_drag_handle != _support_elbow_handle and _support_elbow_handle:
-		_support_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(false)
+	var ready_pose := _pose_tab == PoseTab.READY
+	if (
+		_active_drag_handle != _weapon_elbow_handle
+		and _weapon_elbow_handle
+		and _shoulder_handle
+		and _hand_handle
+	):
+		_weapon_elbow_handle.global_position = _rig.elbow_joint_global_from_handles(
+			_preset,
+			true,
+			ready_pose,
+			_shoulder_handle.global_position,
+			_hand_handle.global_position
+		)
+	if (
+		_active_drag_handle != _support_elbow_handle
+		and _support_elbow_handle
+		and _support_shoulder_handle
+		and _support_hand_handle
+	):
+		_support_elbow_handle.global_position = _rig.elbow_joint_global_from_handles(
+			_preset,
+			false,
+			ready_pose,
+			_support_shoulder_handle.global_position,
+			_support_hand_handle.global_position
+		)
 	if _active_drag_handle != _head_handle and _head_handle:
 		_head_handle.global_position = _rig.neck_socket_global()
 
