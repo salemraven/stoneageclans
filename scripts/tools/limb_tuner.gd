@@ -82,7 +82,10 @@ func _finish_startup() -> void:
 	_reload_all_from_disk()
 	if _rig and _rig.arm_controller:
 		_rig.arm_controller.set_show_endpoint_markers(false)
-		_rig.arm_controller.set_debug_draw(true)
+		_rig.arm_controller.set_show_elbow_joints(true)
+		if _rig.arm_controller.config:
+			_rig.arm_controller.config.elbow_joint_radius = 8.0
+		_rig.arm_controller.set_debug_draw(false)
 	_update_ui()
 	if _status_label:
 		_status_label.text = "Loaded %s preset. Tune idle + ready tabs, then Save." % _weapon_label()

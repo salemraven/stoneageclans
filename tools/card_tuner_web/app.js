@@ -394,11 +394,11 @@ function drawCharacter() {
 
   if (shoulder?.pos && hand?.pos) {
     const pole = weaponElbow?.pos || autoElbowPole(shoulder.pos, hand.pos, -1);
-    drawArmSegments(shoulder.pos, hand.pos, pole, "#8b5a2b");
+    drawArmSegments(shoulder.pos, hand.pos, pole, "#8b5a2b", "#f28c1a");
   }
   if (supportShoulder?.pos && supportHand?.pos) {
     const pole = supportElbow?.pos || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
-    drawArmSegments(supportShoulder.pos, supportHand.pos, pole, "#6d4a2a");
+    drawArmSegments(supportShoulder.pos, supportHand.pos, pole, "#6d4a2a", "#33bfd9");
   }
 
   for (const handle of state.handles) {
@@ -426,7 +426,19 @@ function drawClub(overlayNodePos) {
   ctx.drawImage(state.clubImg, drawX, drawY, drawW, drawH);
 }
 
-function drawArmSegments(shoulder, hand, pole, color) {
+function drawJointMarker(pos, fill, stroke, radiusScale = 0.5) {
+  const width = ARM_LINE_WIDTH / state.viewZoom;
+  const r = width * radiusScale;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(2, width * 0.16);
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawArmSegments(shoulder, hand, pole, color, elbowJointColor) {
   const elbow = solveIk(shoulder, hand, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
   const width = ARM_LINE_WIDTH / state.viewZoom;
   ctx.strokeStyle = color;
@@ -439,16 +451,22 @@ function drawArmSegments(shoulder, hand, pole, color) {
   ctx.lineTo(hand.x, hand.y);
   ctx.stroke();
 
-  ctx.fillStyle = "#e8c89a";
-  ctx.strokeStyle = "#3a2518";
-  ctx.lineWidth = Math.max(2, width * 0.18);
-  const jointR = width * 0.42;
-  for (const pt of [elbow]) {
+  if (pole) {
+    ctx.save();
+    ctx.setLineDash([5 / state.viewZoom, 4 / state.viewZoom]);
+    ctx.strokeStyle = elbowJointColor;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = Math.max(1.5, width * 0.12);
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, jointR, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(pole.x, pole.y);
+    ctx.lineTo(elbow.x, elbow.y);
     ctx.stroke();
+    ctx.restore();
   }
+
+  drawJointMarker(shoulder, "#c9a07a", "#3a2518", 0.34);
+  drawJointMarker(elbow, elbowJointColor, "#2a1a10", 0.62);
+  drawJointMarker(hand, "#9fd4a0", "#1f3a22", 0.38);
 }
 
 function drawHandle(handle) {

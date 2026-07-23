@@ -111,6 +111,16 @@ func _process(_delta: float) -> void:
 	_apply_debug_state()
 
 
+func set_show_elbow_joints(on: bool) -> void:
+	if config:
+		config.show_elbow_joints = on
+	if _arm_left:
+		_arm_left.set_show_elbow_joints(on)
+	if _arm_right:
+		_arm_right.set_show_elbow_joints(on)
+	_apply_debug_state()
+
+
 func set_debug_draw(on: bool) -> void:
 	debug_draw = on
 	_apply_debug_state()
@@ -213,10 +223,13 @@ func _apply_limb_preset(weapon_type: ResourceData.ResourceType) -> void:
 
 func _apply_debug_state() -> void:
 	var show_debug := debug_draw or _debug_config_enabled()
+	var show_elbows := config != null and config.show_elbow_joints
 	if _arm_left:
 		_arm_left.set_debug_enabled(show_debug)
+		_arm_left.set_show_elbow_joints(show_elbows)
 	if _arm_right:
 		_arm_right.set_debug_enabled(show_debug)
+		_arm_right.set_show_elbow_joints(show_elbows)
 
 
 func _debug_config_enabled() -> bool:

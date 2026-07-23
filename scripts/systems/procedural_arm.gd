@@ -47,7 +47,7 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	_debug_root.z_index = cfg.arm_z_index
 	_debug_root.visible = false
 	parent.add_child(_debug_root)
-	_debug_elbow = _make_circle_marker(_debug_root, Color(0.9, 0.8, 0.1, 1.0))
+	_debug_elbow = _make_circle_marker(_debug_root, _elbow_joint_color(side_label))
 
 
 func set_endpoint_markers_visible(visible_markers: bool) -> void:
@@ -68,7 +68,20 @@ func set_visible_arm(visible_arm: bool) -> void:
 func set_debug_enabled(enabled: bool) -> void:
 	if _debug_root:
 		_debug_root.set_meta("debug_enabled", enabled)
-		_debug_root.visible = enabled and _line != null and _line.visible
+		_update_debug_visibility()
+
+
+func set_show_elbow_joints(show_joints: bool) -> void:
+	if _debug_root:
+		_debug_root.set_meta("show_elbow_joints", show_joints)
+		_update_debug_visibility()
+
+
+func _update_debug_visibility() -> void:
+	if _debug_root == null:
+		return
+	var show := bool(_debug_root.get_meta("debug_enabled", false)) or bool(_debug_root.get_meta("show_elbow_joints", false))
+	_debug_root.visible = show and _line != null and _line.visible
 
 
 func update_arm(
@@ -184,7 +197,7 @@ func _update_endpoint_markers(cfg: ProceduralArmConfigScript) -> void:
 
 
 func _update_debug_markers(cfg: ProceduralArmConfigScript) -> void:
-	var r: float = cfg.debug_marker_radius
+	var r: float = cfg.elbow_joint_radius if cfg.show_elbow_joints else cfg.debug_marker_radius
 	_debug_elbow.position = _last_elbow
 	_resize_circle_marker(_debug_elbow, r)
 
@@ -231,6 +244,12 @@ func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:
 
 
 static var _cached_default_texture: Texture2D
+
+static func _elbow_joint_color(side_label: String) -> Color:
+	if side_label == "R":
+		return Color(0.95, 0.55, 0.1, 1.0)
+	return Color(0.2, 0.75, 0.85, 1.0)
+
 
 static func _default_arm_texture() -> Texture2D:
 	if _cached_default_texture != null:

@@ -50,3 +50,5 @@ class_name ProceduralArmConfig
 @export var shoulder_marker_color := Color(0.9, 0.2, 0.2, 1.0)
 @export var hand_marker_color := Color(0.2, 0.8, 0.2, 1.0)
 @export var debug_marker_radius := 4.0
+@export var elbow_joint_radius := 7.0
+@export var show_elbow_joints := false
