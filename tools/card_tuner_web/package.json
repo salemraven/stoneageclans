@@ -1,0 +1,15 @@
+{
+  "name": "card_tuner_web",
+  "version": "1.0.0",
+  "description": "Browser preview of the same `layered_blank_1.tres` + `club_clansmen_1.tres` files the Godot **LimbTuner** edits.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright-core": "^1.61.1"
+  }
+}
