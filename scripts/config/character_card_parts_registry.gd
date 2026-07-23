@@ -8,10 +8,10 @@ const BLANK_BODY_PATH := PARTS_DIR + "body1.png"
 const BLANK_HEAD_PATH := PARTS_DIR + "head1.png"
 
 ## Neck socket on the body texture (pixels from image top-left). Tune when art changes.
-const BODY_NECK_SOCKET_PX := Vector2(512.0, 320.0)
+const BODY_NECK_SOCKET_PX := Vector2(176.0, 22.0)
 
 ## Head pivot on the head texture (pixels from image top-left). Usually bottom-center of the head.
-const HEAD_PIVOT_PX := Vector2(522.0, 838.0)
+const HEAD_PIVOT_PX := Vector2(153.0, 345.0)
 
 
 static func load_blank_body() -> Texture2D:
