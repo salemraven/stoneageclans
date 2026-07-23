@@ -356,6 +356,34 @@ func set_elbow_pole_from_global(preset: WeaponLimbPreset, dominant: bool, ready_
 	)
 
 
+func elbow_joint_global_from_arms(dominant: bool) -> Vector2:
+	if arm_controller == null:
+		return global_position
+	var endpoints: Dictionary = (
+		arm_controller.get_weapon_arm_global_endpoints()
+		if dominant
+		else arm_controller.get_support_arm_global_endpoints()
+	)
+	return endpoints.get("elbow", global_position)
+
+
+func set_elbow_joint_from_global(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	ready_pose: bool,
+	elbow_global: Vector2,
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	bend_sign: float
+) -> void:
+	if preset == null or sprite == null:
+		return
+	var pole_px := LimbPresetCoords.pole_display_from_elbow_global(
+		sprite, shoulder_global, hand_global, elbow_global, preset.elbow_hint_outward, bend_sign
+	)
+	preset.set_elbow_pole_px(dominant, ready_pose, pole_px)
+
+
 func seed_elbow_pole_if_unset(
 	preset: WeaponLimbPreset,
 	dominant: bool,

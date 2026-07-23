@@ -81,6 +81,20 @@ static func compute_auto_elbow_pole_px(
 	return shoulder_px + outward_dir * outward
 
 
+static func compute_pole_px_from_elbow(
+	shoulder_px: Vector2,
+	hand_px: Vector2,
+	elbow_px: Vector2,
+	outward: float,
+	bend_sign: float
+) -> Vector2:
+	var mid := (shoulder_px + hand_px) * 0.5
+	var to_elbow := elbow_px - mid
+	if to_elbow.length_squared() < 0.01:
+		return compute_auto_elbow_pole_px(shoulder_px, hand_px, outward, bend_sign)
+	return mid + to_elbow.normalized() * outward
+
+
 func resolve_hand_grip_ready_px() -> Vector2:
 	if hand_grip_ready_offset_px.length_squared() > 0.0001:
 		return hand_grip_ready_offset_px

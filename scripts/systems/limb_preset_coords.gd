@@ -84,3 +84,19 @@ static func auto_elbow_pole_display_from_global(
 	var shoulder_px := body_display_from_global(sprite, shoulder_global)
 	var hand_px := body_display_from_global(sprite, hand_global)
 	return WeaponLimbPreset.compute_auto_elbow_pole_px(shoulder_px, hand_px, outward, bend_sign)
+
+
+static func pole_display_from_elbow_global(
+	sprite: Sprite2D,
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	elbow_global: Vector2,
+	outward: float,
+	bend_sign: float
+) -> Vector2:
+	if sprite == null:
+		return Vector2.ZERO
+	var shoulder_px := body_display_from_global(sprite, shoulder_global)
+	var hand_px := body_display_from_global(sprite, hand_global)
+	var elbow_px := body_display_from_global(sprite, elbow_global)
+	return WeaponLimbPreset.compute_pole_px_from_elbow(shoulder_px, hand_px, elbow_px, outward, bend_sign)

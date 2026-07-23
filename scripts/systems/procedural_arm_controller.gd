@@ -173,6 +173,7 @@ func get_weapon_arm_global_endpoints() -> Dictionary:
 	var joints: Dictionary = active_arm.get_last_joint_positions()
 	return {
 		"shoulder": to_global(joints.get("shoulder", Vector2.ZERO)),
+		"elbow": to_global(joints.get("elbow", Vector2.ZERO)),
 		"hand": to_global(joints.get("hand", Vector2.ZERO)),
 	}
 
@@ -184,6 +185,7 @@ func get_support_arm_global_endpoints() -> Dictionary:
 	var joints: Dictionary = active_arm.get_last_joint_positions()
 	return {
 		"shoulder": to_global(joints.get("shoulder", Vector2.ZERO)),
+		"elbow": to_global(joints.get("elbow", Vector2.ZERO)),
 		"hand": to_global(joints.get("hand", Vector2.ZERO)),
 	}
 

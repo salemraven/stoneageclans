@@ -265,13 +265,13 @@ func _spawn_handles() -> void:
 	_weapon_elbow_handle = LimbTunerHandleScript.new()
 	_weapon_elbow_handle.name = "WeaponElbowHandle"
 	_weapon_elbow_handle.set_handle_color(Color(0.95, 0.55, 0.1, 1.0))
-	_weapon_elbow_handle.handle_radius = 4.5
+	_weapon_elbow_handle.handle_radius = 6.0
 	_stage.add_child(_weapon_elbow_handle)
 
 	_support_elbow_handle = LimbTunerHandleScript.new()
 	_support_elbow_handle.name = "SupportElbowHandle"
 	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
-	_support_elbow_handle.handle_radius = 4.5
+	_support_elbow_handle.handle_radius = 6.0
 	_stage.add_child(_support_elbow_handle)
 
 	_head_handle = LimbTunerHandleScript.new()
@@ -335,6 +335,7 @@ func _process(_delta: float) -> void:
 			_sync_spear_grip_handles()
 		_lock_arm_lines_to_handles()
 		_sync_spear_handle()
+		call_deferred("_sync_elbow_handles")
 	else:
 		if _rig.arm_controller:
 			_rig.arm_controller.clear_all_endpoint_overrides()
@@ -472,11 +473,10 @@ func _sync_handle_positions() -> void:
 func _sync_elbow_handles() -> void:
 	if _rig == null or _preset == null:
 		return
-	var ready_pose := _pose_tab == PoseTab.READY
 	if _active_drag_handle != _weapon_elbow_handle and _weapon_elbow_handle:
-		_weapon_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, true, ready_pose)
+		_weapon_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(true)
 	if _active_drag_handle != _support_elbow_handle and _support_elbow_handle:
-		_support_elbow_handle.global_position = _rig.elbow_pole_global_from_preset(_preset, false, ready_pose)
+		_support_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(false)
 	if _active_drag_handle != _head_handle and _head_handle:
 		_head_handle.global_position = _rig.neck_socket_global()
 
@@ -661,13 +661,33 @@ func _on_support_hand_dragged(global_pos: Vector2) -> void:
 func _on_weapon_elbow_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	_rig.set_elbow_pole_from_global(_preset, true, _pose_tab == PoseTab.READY, global_pos)
+	if _shoulder_handle == null or _hand_handle == null:
+		return
+	_rig.set_elbow_joint_from_global(
+		_preset,
+		true,
+		_pose_tab == PoseTab.READY,
+		global_pos,
+		_shoulder_handle.global_position,
+		_hand_handle.global_position,
+		-1.0
+	)
 
 
 func _on_support_elbow_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	_rig.set_elbow_pole_from_global(_preset, false, _pose_tab == PoseTab.READY, global_pos)
+	if _support_shoulder_handle == null or _support_hand_handle == null:
+		return
+	_rig.set_elbow_joint_from_global(
+		_preset,
+		false,
+		_pose_tab == PoseTab.READY,
+		global_pos,
+		_support_shoulder_handle.global_position,
+		_support_hand_handle.global_position,
+		1.0
+	)
 
 
 func _on_head_dragged(global_pos: Vector2) -> void:
@@ -708,10 +728,26 @@ func _commit_pose_tab(tab: PoseTab) -> void:
 			_preset.ready_offset_px = display_px
 		else:
 			_preset.overlay_offset_idle_px = display_px
-	if _weapon_elbow_handle:
-		_rig.set_elbow_pole_from_global(_preset, true, tab == PoseTab.READY, _weapon_elbow_handle.global_position)
-	if _support_elbow_handle:
-		_rig.set_elbow_pole_from_global(_preset, false, tab == PoseTab.READY, _support_elbow_handle.global_position)
+	if _weapon_elbow_handle and _shoulder_handle and _hand_handle:
+		_rig.set_elbow_joint_from_global(
+			_preset,
+			true,
+			tab == PoseTab.READY,
+			_weapon_elbow_handle.global_position,
+			_shoulder_handle.global_position,
+			_hand_handle.global_position,
+			-1.0
+		)
+	if _support_elbow_handle and _support_shoulder_handle and _support_hand_handle:
+		_rig.set_elbow_joint_from_global(
+			_preset,
+			false,
+			tab == PoseTab.READY,
+			_support_elbow_handle.global_position,
+			_support_shoulder_handle.global_position,
+			_support_hand_handle.global_position,
+			1.0
+		)
 
 
 func _commit_all_poses_to_preset() -> void:
