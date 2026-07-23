@@ -221,6 +221,7 @@ func _move_active_handle(global_pos: Vector2) -> void:
 		_sync_hands_with_spear()
 	_lock_arm_lines_to_handles()
 	_push_preset_to_arms()
+	_sync_elbow_handles()
 
 
 func _ensure_weapon_ready_action() -> void:
