@@ -16,7 +16,7 @@ const ELBOW_HINT_OUTWARD = 18;
 const ELBOW_FOLD_MIN_DEG = 8;
 const ELBOW_FOLD_MAX_DEG = 150;
 const ARM_LINE_WIDTH = 14;
-const CLUB_REF_HEIGHT = 835;
+const CLUB_PIVOT_Y_FRAC = 0.88;
 
 const state = {
   bodyImg: null,
@@ -402,10 +402,28 @@ function drawCharacter() {
   }
 
   for (const handle of state.handles) {
+    if (handle.id === "weapon") {
+      continue;
+    }
     drawHandle(handle);
+  }
+  const weaponHandle = state.handles.find((h) => h.id === "weapon");
+  if (weaponHandle) {
+    drawHandle(weaponHandle);
   }
 
   ctx.restore();
+}
+
+function drawClub(overlayNodePos) {
+  if (!state.clubImg || !overlayNodePos) return;
+  const s = bodyScale();
+  const drawW = state.clubImg.width * s;
+  const drawH = state.clubImg.height * s;
+  const pivotOffsetY = (0.5 - CLUB_PIVOT_Y_FRAC) * drawH;
+  const drawX = overlayNodePos.x - drawW * 0.5;
+  const drawY = overlayNodePos.y - drawH * 0.5 + pivotOffsetY;
+  ctx.drawImage(state.clubImg, drawX, drawY, drawW, drawH);
 }
 
 function drawArmSegments(shoulder, hand, pole, color) {
@@ -431,16 +449,6 @@ function drawArmSegments(shoulder, hand, pole, color) {
     ctx.fill();
     ctx.stroke();
   }
-}
-
-function drawClub(anchor) {
-  if (!state.clubImg || !anchor) return;
-  const s = bodyScale();
-  const drawW = state.clubImg.width * s;
-  const drawH = state.clubImg.height * s;
-  const x = anchor.x - drawW * 0.5;
-  const y = anchor.y - drawH * 0.12;
-  ctx.drawImage(state.clubImg, x, y, drawW, drawH);
 }
 
 function drawHandle(handle) {
@@ -554,13 +562,27 @@ canvas.addEventListener("pointercancel", () => {
   canvas.classList.remove("dragging");
 });
 
+async function loadBuildInfo() {
+  try {
+    const info = await fetchJson("/api/version");
+    const el = document.getElementById("buildInfo");
+    if (el) {
+      el.textContent = `build ${info.sha} · ${info.branch}`;
+    }
+    return info;
+  } catch (_err) {
+    return null;
+  }
+}
+
 async function loadAll() {
-  const [bodyImg, headImg, clubImg, layout, preset] = await Promise.all([
+  const [bodyImg, headImg, clubImg, layout, preset, build] = await Promise.all([
     loadImage("/assets/character_cards/body1.png"),
     loadImage("/assets/character_cards/head1.png"),
     loadImage("/assets/placeholder_cards/club.png"),
     fetchJson("/api/layout"),
     fetchJson("/api/preset"),
+    loadBuildInfo(),
   ]);
   state.bodyImg = bodyImg;
   state.headImg = headImg;
@@ -580,7 +602,8 @@ async function loadAll() {
   rebuildHandles();
   updateValues();
   updateZoomLabel();
-  setStatus("Drag handles, scroll to zoom, then Save.");
+  const buildLabel = build ? `build ${build.sha}` : "web preview";
+  setStatus(`Loaded (${buildLabel}). Drag handles, scroll to zoom, then Save.`);
 }
 
 async function saveAll() {

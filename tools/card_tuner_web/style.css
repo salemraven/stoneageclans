@@ -23,6 +23,12 @@ h1 {
   font-size: 18px;
 }
 
+.build-info {
+  font-size: 12px;
+  color: #b8a894;
+  font-family: ui-monospace, monospace;
+}
+
 main {
   display: grid;
   grid-template-columns: 1fr 320px;

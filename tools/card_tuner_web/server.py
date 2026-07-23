@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -121,6 +123,29 @@ def save_preset(data: dict) -> None:
     PRESET_TRES.write_text(text, encoding="utf-8")
 
 
+def load_version() -> dict:
+    sha = "unknown"
+    branch = "unknown"
+    try:
+        sha = (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=WORKSPACE, text=True)
+            .strip()
+        )
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=WORKSPACE, text=True)
+            .strip()
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return {
+        "sha": sha,
+        "branch": branch,
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "layout_path": str(LAYOUT_TRES.relative_to(WORKSPACE)),
+        "preset_path": str(PRESET_TRES.relative_to(WORKSPACE)),
+    }
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -156,6 +181,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/preset":
             self._send_json(load_preset())
+            return
+        if path == "/api/version":
+            self._send_json(load_version())
             return
         if path.startswith("/assets/"):
             rel = path[len("/assets/") :]
