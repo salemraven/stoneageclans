@@ -20,6 +20,19 @@ const CLUB_PIVOT_Y_FRAC = 0.88;
 const CLUB_TEX_W = 471;
 const CLUB_TEX_H = 835;
 const OVERLAY_SCALE = 1.0;
+const CLUB_COMBAT_PROFILE = {
+  idle_rotation_deg: 0,
+  ready_rotation_offset_deg: 42,
+  swing_arc_deg: 108,
+  swing_windup_deg: 10,
+  swing_windup_frac: 0.06,
+  swing_strike_frac: 0.58,
+  swing_pull_back_px: 10,
+  swing_pull_up_px: 5,
+  swing_lunge_forward_px: 32,
+  swing_lunge_down_px: 42,
+  strike_duration: 0.19,
+};
 
 const state = {
   bodyImg: null,
@@ -40,6 +53,8 @@ const state = {
   viewPanY: 0,
   stageCenterX: 360,
   stageCenterY: 460,
+  attacking: false,
+  attackPhase: 0,
 };
 
 const handleDefs = [
@@ -328,9 +343,92 @@ function autoElbowPole(shoulder, hand, bendSign) {
   return elbowPoleHint(shoulder, hand, bendSign);
 }
 
+function degToRad(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function easeOutQuad(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+
+function easeInQuad(t) {
+  return t * t;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpPose(a, b, t) {
+  return {
+    displayPx: [lerp(a.displayPx[0], b.displayPx[0], t), lerp(a.displayPx[1], b.displayPx[1], t)],
+    rotationRad: lerp(a.rotationRad, b.rotationRad, t),
+  };
+}
+
+function swingFacingSign() {
+  return 1;
+}
+
+function readyBaseDisplayPx() {
+  const ready = normalizeVec2(state.preset?.ready_offset_px);
+  if (poleLength(ready) > 0.01) {
+    return ready;
+  }
+  return normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
+}
+
+function computeSwingStrikeTargets() {
+  const facing = swingFacingSign();
+  const readyBase = readyBaseDisplayPx();
+  const p = CLUB_COMBAT_PROFILE;
+  const readyRot = degToRad(p.idle_rotation_deg - p.ready_rotation_offset_deg * facing);
+  const windupRot = readyRot - degToRad(p.swing_windup_deg) * facing;
+  const endRot = readyRot + degToRad(p.swing_arc_deg) * facing;
+  const readyPx = [...readyBase];
+  const windupPx = [readyBase[0] - facing * p.swing_pull_back_px, readyBase[1] - p.swing_pull_up_px];
+  const hitPx = [readyBase[0] + facing * p.swing_lunge_forward_px, readyBase[1] + p.swing_lunge_down_px];
+  return {
+    ready: { displayPx: readyPx, rotationRad: readyRot },
+    windup: { displayPx: windupPx, rotationRad: windupRot },
+    hit: { displayPx: hitPx, rotationRad: endRot },
+  };
+}
+
+function sampleSwingPose(phase01) {
+  const targets = computeSwingStrikeTargets();
+  const p = CLUB_COMBAT_PROFILE;
+  const windupEnd = p.swing_windup_frac;
+  const strikeEnd = windupEnd + p.swing_strike_frac;
+  const phase = ((phase01 % 1) + 1) % 1;
+  if (phase < windupEnd) {
+    return lerpPose(targets.ready, targets.windup, easeOutQuad(phase / windupEnd));
+  }
+  if (phase < strikeEnd) {
+    return lerpPose(targets.windup, targets.hit, easeInQuad((phase - windupEnd) / p.swing_strike_frac));
+  }
+  return lerpPose(targets.hit, targets.ready, easeOutQuad((phase - strikeEnd) / (1 - strikeEnd)));
+}
+
+function getWeaponPose(bobY = 0, tilt = 0) {
+  if (!state.attacking) {
+    const idle = normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
+    return {
+      displayPx: idle,
+      rotationRad: 0,
+      canvasGrip: displayToCanvas(idle[0], idle[1], bobY, tilt),
+    };
+  }
+  const pose = sampleSwingPose(state.attackPhase);
+  return {
+    displayPx: pose.displayPx,
+    rotationRad: pose.rotationRad,
+    canvasGrip: displayToCanvas(pose.displayPx[0], pose.displayPx[1], bobY, tilt),
+  };
+}
+
 function overlayOriginCanvas(bobY = 0, tilt = 0) {
-  const p = state.preset?.overlay_offset_idle_px || [22, -34];
-  return displayToCanvas(p[0], p[1], bobY, tilt);
+  return getWeaponPose(bobY, tilt).canvasGrip;
 }
 
 function overlayLocalToCanvas(localX, localY, bobY = 0, tilt = 0) {
@@ -342,6 +440,9 @@ function overlayLocalToCanvas(localX, localY, bobY = 0, tilt = 0) {
 }
 
 function handGripCanvas(bobY = 0, tilt = 0) {
+  if (state.attacking) {
+    return getWeaponPose(bobY, tilt).canvasGrip;
+  }
   const grip = state.preset?.hand_grip_offset_px || [0, 0];
   return overlayLocalToCanvas(grip[0], grip[1], bobY, tilt);
 }
@@ -366,6 +467,7 @@ function migrateCorruptedPreset() {
   state.preset.overlay_offset_idle_px = overlay;
   state.preset.weapon_elbow_pole_idle_px = normalizeVec2(state.preset.weapon_elbow_pole_idle_px);
   state.preset.support_elbow_pole_idle_px = normalizeVec2(state.preset.support_elbow_pole_idle_px);
+  state.preset.ready_offset_px = normalizeVec2(state.preset.ready_offset_px);
   const handLooksLikeBodyDisplay =
     Math.abs(hand[0]) > 120 || Math.abs(hand[1]) > 120 || Math.abs(hand[0] - overlay[0]) < 20;
   if (handLooksLikeBodyDisplay) {
@@ -578,7 +680,8 @@ function drawCharacter() {
   }
   refreshElbowHandlePositions();
   const weapon = state.handles.find((h) => h.id === "weapon");
-  drawClub(weapon?.pos);
+  const weaponPose = getWeaponPose(bobY, tilt);
+  drawClub(weaponPose.canvasGrip, weaponPose.rotationRad);
 
   if (shoulder.pos && hand.pos) {
     const pole = poleCanvasFromPreset("weapon_elbow_pole_idle_px") || autoElbowPole(shoulder.pos, hand.pos, -1);
@@ -626,15 +729,17 @@ function drawCharacter() {
   ctx.restore();
 }
 
-function drawClub(overlayNodePos) {
+function drawClub(overlayNodePos, rotationRad = 0) {
   if (!state.clubImg || !overlayNodePos) return;
   const s = bodyScale() * OVERLAY_SCALE;
   const drawW = CLUB_TEX_W * s;
   const drawH = CLUB_TEX_H * s;
   const pivotOffsetY = (0.5 - CLUB_PIVOT_Y_FRAC) * drawH;
-  const drawX = overlayNodePos.x - drawW * 0.5;
-  const drawY = overlayNodePos.y - drawH * 0.5 + pivotOffsetY;
-  ctx.drawImage(state.clubImg, drawX, drawY, drawW, drawH);
+  ctx.save();
+  ctx.translate(overlayNodePos.x, overlayNodePos.y);
+  ctx.rotate(rotationRad);
+  ctx.drawImage(state.clubImg, -drawW * 0.5, -drawH * 0.5 + pivotOffsetY, drawW, drawH);
+  ctx.restore();
 }
 
 function drawJointMarker(pos, fill, stroke, radiusScale = 0.5) {
@@ -840,6 +945,7 @@ canvas.addEventListener(
 );
 
 canvas.addEventListener("pointerdown", (evt) => {
+  if (state.attacking) return;
   const pos = pointerPos(evt);
   const picked = pickHandle(pos.x, pos.y);
   if (!picked) return;
@@ -926,6 +1032,14 @@ function tick(ts) {
   state.lastTs = ts;
   if (state.walking) {
     state.walkPhase += dt * WALK_SPEED;
+  }
+  if (state.attacking) {
+    state.attackPhase += dt / CLUB_COMBAT_PROFILE.strike_duration;
+    if (state.attackPhase >= 1) {
+      state.attackPhase %= 1;
+    }
+  }
+  if (state.walking || state.attacking) {
     rebuildHandles();
   }
   drawCharacter();
@@ -951,6 +1065,20 @@ document.getElementById("walkBtn").addEventListener("click", () => {
   if (!state.walking) state.walkPhase = 0;
   rebuildHandles();
   setStatus(state.walking ? "Walk preview ON" : "Walk preview OFF");
+});
+
+document.getElementById("attackBtn").addEventListener("click", () => {
+  state.attacking = !state.attacking;
+  state.attackPhase = 0;
+  if (state.attacking) {
+    state.active = null;
+  }
+  rebuildHandles();
+  setStatus(
+    state.attacking
+      ? "Attack preview ON — club swing loop (dominant arm follows club)"
+      : "Attack preview OFF",
+  );
 });
 
 document.getElementById("zoomInBtn").addEventListener("click", () => {

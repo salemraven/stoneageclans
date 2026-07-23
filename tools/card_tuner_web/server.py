@@ -94,6 +94,7 @@ def load_preset() -> dict:
         "support_shoulder_offset_px",
         "support_hand_idle_offset_px",
         "overlay_offset_idle_px",
+        "ready_offset_px",
         "weapon_elbow_pole_idle_px",
         "support_elbow_pole_idle_px",
     ]
