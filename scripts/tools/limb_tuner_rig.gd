@@ -337,6 +337,22 @@ func set_hand_grip_from_global(preset: WeaponLimbPreset, global_pos: Vector2, re
 		preset.hand_grip_offset_px = grip_px
 
 
+func snap_dominant_hand_grip_to_weapon_anchor(preset: WeaponLimbPreset) -> void:
+	if preset == null or weapon_overlay == null:
+		return
+	var anchor_local := weapon_handle_anchor_local()
+	preset.hand_grip_offset_px = LimbPresetCoords.overlay_grip_px_from_global(
+		weapon_overlay, weapon_overlay.to_global(anchor_local)
+	)
+
+
+func uses_weapon_grip_anchor_hand() -> bool:
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	return int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN)) != WeaponOverlayCombat.AttackKind.THRUST
+
+
 func elbow_pole_global_from_preset(preset: WeaponLimbPreset, dominant: bool, ready_pose: bool) -> Vector2:
 	if preset == null or sprite == null:
 		return global_position

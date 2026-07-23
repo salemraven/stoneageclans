@@ -75,6 +75,7 @@ func _ready() -> void:
 
 
 func _finish_startup() -> void:
+	process_priority = -100
 	_stage.scale = Vector2(stage_scale, stage_scale)
 	if _rig:
 		_rig.weapon_type = tuning_weapon_type
@@ -265,13 +266,13 @@ func _spawn_handles() -> void:
 	_weapon_elbow_handle = LimbTunerHandleScript.new()
 	_weapon_elbow_handle.name = "WeaponElbowHandle"
 	_weapon_elbow_handle.set_handle_color(Color(0.95, 0.55, 0.1, 1.0))
-	_weapon_elbow_handle.handle_radius = 6.0
+	_weapon_elbow_handle.handle_radius = 7.0
 	_stage.add_child(_weapon_elbow_handle)
 
 	_support_elbow_handle = LimbTunerHandleScript.new()
 	_support_elbow_handle.name = "SupportElbowHandle"
 	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
-	_support_elbow_handle.handle_radius = 6.0
+	_support_elbow_handle.handle_radius = 7.0
 	_stage.add_child(_support_elbow_handle)
 
 	_head_handle = LimbTunerHandleScript.new()
@@ -335,7 +336,7 @@ func _process(_delta: float) -> void:
 			_sync_spear_grip_handles()
 		_lock_arm_lines_to_handles()
 		_sync_spear_handle()
-		call_deferred("_sync_elbow_handles")
+		_sync_elbow_handles()
 	else:
 		if _rig.arm_controller:
 			_rig.arm_controller.clear_all_endpoint_overrides()
@@ -513,7 +514,10 @@ func _sync_hands_with_spear() -> void:
 		return
 	var ready_hands := _use_ready_support_hand()
 	if _active_drag_handle != _hand_handle:
-		_hand_handle.global_position = _rig.hand_grip_global_from_preset(_preset, ready_hands)
+		if _pose_tab == PoseTab.IDLE and _rig.uses_weapon_grip_anchor_hand():
+			_hand_handle.global_position = _rig.weapon_handle_anchor_global()
+		else:
+			_hand_handle.global_position = _rig.hand_grip_global_from_preset(_preset, ready_hands)
 	if ready_hands:
 		if _active_drag_handle != _support_hand_handle:
 			_support_hand_handle.global_position = _rig.support_hand_global_from_preset(_preset)
@@ -574,6 +578,8 @@ func _refresh_rig_from_preset() -> void:
 		_rig.apply_preset_overlay_ready(_preset, Vector2(1.0, 0.0))
 	_push_preset_to_arms()
 	_seed_elbow_poles_for_tab(_pose_tab)
+	if _pose_tab == PoseTab.IDLE and _rig.uses_weapon_grip_anchor_hand():
+		_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
 	_sync_handle_positions()
 	_apply_handle_draggable()
 
@@ -640,7 +646,11 @@ func _on_shoulder_dragged(global_pos: Vector2) -> void:
 func _on_hand_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	_rig.set_hand_grip_from_global(_preset, global_pos, _pose_tab == PoseTab.READY)
+	if _pose_tab == PoseTab.IDLE and _rig.uses_weapon_grip_anchor_hand():
+		_rig.move_weapon_handle_anchor_global(global_pos)
+		_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
+	else:
+		_rig.set_hand_grip_from_global(_preset, global_pos, _pose_tab == PoseTab.READY)
 
 
 func _on_support_shoulder_dragged(global_pos: Vector2) -> void:
@@ -706,6 +716,8 @@ func _on_spear_dragged(global_pos: Vector2) -> void:
 		_preset.ready_offset_px = display_px
 	else:
 		_preset.overlay_offset_idle_px = display_px
+	if _pose_tab == PoseTab.IDLE and _rig.uses_weapon_grip_anchor_hand():
+		_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
 
 
 func _commit_pose_tab(tab: PoseTab) -> void:

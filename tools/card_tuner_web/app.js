@@ -17,6 +17,9 @@ const ELBOW_FOLD_MIN_DEG = 8;
 const ELBOW_FOLD_MAX_DEG = 150;
 const ARM_LINE_WIDTH = 14;
 const CLUB_PIVOT_Y_FRAC = 0.88;
+const CLUB_TEX_W = 471;
+const CLUB_TEX_H = 835;
+const OVERLAY_SCALE = 1.0;
 
 const state = {
   bodyImg: null,
@@ -303,13 +306,57 @@ function autoElbowPole(shoulder, hand, bendSign) {
   return elbowPoleHint(shoulder, hand, bendSign);
 }
 
+function overlayOriginCanvas(bobY = 0, tilt = 0) {
+  const p = state.preset?.overlay_offset_idle_px || [22, -34];
+  return displayToCanvas(p[0], p[1], bobY, tilt);
+}
+
+function overlayLocalToCanvas(localX, localY, bobY = 0, tilt = 0) {
+  const origin = overlayOriginCanvas(bobY, tilt);
+  const s = bodyScale() * OVERLAY_SCALE;
+  const lx = localX * s;
+  const ly = localY * s;
+  return { x: origin.x + lx, y: origin.y + ly };
+}
+
+function handGripCanvas(bobY = 0, tilt = 0) {
+  const grip = state.preset?.hand_grip_offset_px || [0, 0];
+  return overlayLocalToCanvas(grip[0], grip[1], bobY, tilt);
+}
+
+function weaponGripAnchorCanvas(bobY = 0, tilt = 0) {
+  // Swing club pivot sits on the overlay node — grip anchor = overlay origin.
+  return overlayOriginCanvas(bobY, tilt);
+}
+
+function moveWeaponGripToCanvas(canvasX, canvasY) {
+  const { bobY, tilt } = getMotion();
+  const display = canvasToDisplay(canvasX, canvasY, bobY, tilt);
+  state.preset.overlay_offset_idle_px = [round(display.x, 2), round(display.y, 2)];
+  state.preset.hand_grip_offset_px = [0, 0];
+}
+
+function migrateCorruptedPreset() {
+  if (!state.preset) return;
+  const hand = state.preset.hand_grip_offset_px;
+  const overlay = state.preset.overlay_offset_idle_px;
+  const handLooksLikeBodyDisplay =
+    hand && (Math.abs(hand[0]) > 120 || Math.abs(hand[1]) > 120 || Math.abs(hand[0] - overlay?.[0]) < 20);
+  if (handLooksLikeBodyDisplay) {
+    state.preset.hand_grip_offset_px = [0, 0];
+    if (!overlay || Math.abs(overlay[0]) > 120) {
+      state.preset.overlay_offset_idle_px = [22, -34];
+    }
+  }
+}
+
 function seedElbowPoles() {
   if (!state.preset) return;
   const shoulder = displayToCanvas(
     state.preset.shoulder_offset_px[0],
     state.preset.shoulder_offset_px[1],
   );
-  const hand = displayToCanvas(state.preset.hand_grip_offset_px[0], state.preset.hand_grip_offset_px[1]);
+  const hand = handGripCanvas();
   const supportShoulder = displayToCanvas(
     state.preset.support_shoulder_offset_px[0],
     state.preset.support_shoulder_offset_px[1],
@@ -361,21 +408,48 @@ function syncElbowHandlesOnArms() {
   const supportHand = state.handles.find((h) => h.id === "support_hand");
   const supportElbow = state.handles.find((h) => h.id === "support_elbow");
 
-  if (shoulder?.pos && hand?.pos && weaponElbow && state.active?.id !== "weapon_elbow") {
-    const pole = poleCanvasFromPreset("weapon_elbow_pole_idle_px") || autoElbowPole(shoulder.pos, hand.pos, -1);
-    weaponElbow.pos = solveIk(shoulder.pos, hand.pos, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  if (shoulder?.pos && hand?.pos && weaponElbow) {
+    if (state.active?.id !== "weapon_elbow") {
+      const pole = poleCanvasFromPreset("weapon_elbow_pole_idle_px") || autoElbowPole(shoulder.pos, hand.pos, -1);
+      weaponElbow.pos = solveIk(shoulder.pos, hand.pos, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+    }
+  } else if (weaponElbow) {
+    weaponElbow.pos = hand?.pos || shoulder?.pos || weaponGripAnchorCanvas();
   }
-  if (supportShoulder?.pos && supportHand?.pos && supportElbow && state.active?.id !== "support_elbow") {
-    const pole =
-      poleCanvasFromPreset("support_elbow_pole_idle_px") || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
-    supportElbow.pos = solveIk(
-      supportShoulder.pos,
-      supportHand.pos,
-      UPPER_ARM_LEN,
-      LOWER_ARM_LEN,
-      pole,
-    );
+  if (supportShoulder?.pos && supportHand?.pos && supportElbow) {
+    if (state.active?.id !== "support_elbow") {
+      const pole =
+        poleCanvasFromPreset("support_elbow_pole_idle_px") || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
+      supportElbow.pos = solveIk(
+        supportShoulder.pos,
+        supportHand.pos,
+        UPPER_ARM_LEN,
+        LOWER_ARM_LEN,
+        pole,
+      );
+    }
+  } else if (supportElbow) {
+    supportElbow.pos = supportHand?.pos || supportShoulder?.pos || { x: 0, y: 0 };
   }
+}
+
+function handleCanvasPos(def, bobY, tilt) {
+  if (def.id === "hand") {
+    return handGripCanvas(bobY, tilt);
+  }
+  if (def.id === "weapon") {
+    return weaponGripAnchorCanvas(bobY, tilt);
+  }
+  let tex = null;
+  let display = null;
+  if (def.kind === "layout") {
+    tex = state.layout[def.key];
+  } else {
+    display = state.preset[def.key];
+  }
+  return tex
+    ? textureToCanvas(tex[0], tex[1], bobY, tilt)
+    : displayToCanvas(display[0], display[1], bobY, tilt);
 }
 
 function rebuildHandles() {
@@ -384,17 +458,7 @@ function rebuildHandles() {
     if (def.onArm) {
       return { ...def, pos: { x: 0, y: 0 } };
     }
-    let tex = null;
-    let display = null;
-    if (def.kind === "layout") {
-      tex = state.layout[def.key];
-    } else {
-      display = state.preset[def.key];
-    }
-    const pos = tex
-      ? textureToCanvas(tex[0], tex[1], bobY, tilt)
-      : displayToCanvas(display[0], display[1], bobY, tilt);
-    return { ...def, pos };
+    return { ...def, pos: handleCanvasPos(def, bobY, tilt) };
   });
   syncElbowHandlesOnArms();
 }
@@ -438,7 +502,6 @@ function drawCharacter() {
   const supportHand = state.handles.find((h) => h.id === "support_hand");
   const supportElbow = state.handles.find((h) => h.id === "support_elbow");
   const weapon = state.handles.find((h) => h.id === "weapon");
-
   drawClub(weapon?.pos);
 
   if (shoulder?.pos && hand?.pos) {
@@ -449,6 +512,21 @@ function drawCharacter() {
     const pole =
       poleCanvasFromPreset("support_elbow_pole_idle_px") || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
     drawArmSegments(supportShoulder.pos, supportHand.pos, pole, "#6d4a2a", "#33bfd9");
+  }
+
+  if (hand?.pos && weapon?.pos) {
+    const gripDist = Math.hypot(hand.pos.x - weapon.pos.x, hand.pos.y - weapon.pos.y);
+    if (gripDist > 1.5 / state.viewZoom) {
+      const width = 3 / state.viewZoom;
+      ctx.strokeStyle = "rgba(242, 191, 38, 0.85)";
+      ctx.lineWidth = width;
+      ctx.setLineDash([4 / state.viewZoom, 3 / state.viewZoom]);
+      ctx.beginPath();
+      ctx.moveTo(hand.pos.x, hand.pos.y);
+      ctx.lineTo(weapon.pos.x, weapon.pos.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   for (const handle of state.handles) {
@@ -467,9 +545,9 @@ function drawCharacter() {
 
 function drawClub(overlayNodePos) {
   if (!state.clubImg || !overlayNodePos) return;
-  const s = bodyScale();
-  const drawW = state.clubImg.width * s;
-  const drawH = state.clubImg.height * s;
+  const s = bodyScale() * OVERLAY_SCALE;
+  const drawW = CLUB_TEX_W * s;
+  const drawH = CLUB_TEX_H * s;
   const pivotOffsetY = (0.5 - CLUB_PIVOT_Y_FRAC) * drawH;
   const drawX = overlayNodePos.x - drawW * 0.5;
   const drawY = overlayNodePos.y - drawH * 0.5 + pivotOffsetY;
@@ -599,6 +677,12 @@ function moveActiveHandle(screenX, screenY) {
     updateValues();
     return;
   }
+  if (state.active.id === "hand" || state.active.id === "weapon") {
+    moveWeaponGripToCanvas(world.x, world.y);
+    rebuildHandles();
+    updateValues();
+    return;
+  }
   const { bobY, tilt } = getMotion();
   if (state.active.kind === "layout") {
     const tex = canvasToTexture(world.x, world.y, bobY, tilt);
@@ -689,6 +773,7 @@ async function loadAll() {
     state.layout.body_offset_px = [0, 0];
   }
   state.preset = preset;
+  migrateCorruptedPreset();
   if (!state.preset.weapon_elbow_pole_idle_px) state.preset.weapon_elbow_pole_idle_px = [0, 0];
   if (!state.preset.support_elbow_pole_idle_px) state.preset.support_elbow_pole_idle_px = [0, 0];
   state.footY = -DISPLAY_HEIGHT * 0.5;
