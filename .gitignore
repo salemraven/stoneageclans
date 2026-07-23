@@ -29,6 +29,7 @@ Tests/_godot*.txt
 # Local test artifacts
 test_output/
 tools/card_tuner_web/.run/
+tools/card_tuner_web/node_modules/
 
 # Godot temp locked native libs (Windows)
 **/addons/**/~*.dll

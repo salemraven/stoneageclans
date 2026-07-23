@@ -7,6 +7,6 @@ script = ExtResource("1")
 layout_id = "layered_blank_1"
 body_texture_path = "res://assets/character_cards/body1.png"
 head_texture_path = "res://assets/character_cards/head1.png"
-body_neck_socket_px = Vector2(189, 76)
+body_neck_socket_px = Vector2(180, 76)
 head_pivot_px = Vector2(153, 345)
 body_offset_px = Vector2(0, 0)
