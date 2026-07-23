@@ -370,24 +370,30 @@ function swingFacingSign() {
   return 1;
 }
 
-function readyBaseDisplayPx() {
-  const ready = normalizeVec2(state.preset?.ready_offset_px);
-  if (poleLength(ready) > 0.01) {
-    return ready;
-  }
+function swingBaseDisplayPx() {
+  // Attack swings from the saved idle club grip (handle 3), not a separate ready tab offset.
   return normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
+}
+
+function idleWeaponRotationRad() {
+  const idleDeg = Number(state.preset?.idle_rotation_deg);
+  if (Number.isFinite(idleDeg)) {
+    return degToRad(idleDeg);
+  }
+  return degToRad(CLUB_COMBAT_PROFILE.idle_rotation_deg);
 }
 
 function computeSwingStrikeTargets() {
   const facing = swingFacingSign();
-  const readyBase = readyBaseDisplayPx();
+  const swingBase = swingBaseDisplayPx();
   const p = CLUB_COMBAT_PROFILE;
-  const readyRot = degToRad(p.idle_rotation_deg - p.ready_rotation_offset_deg * facing);
+  const idleRot = idleWeaponRotationRad();
+  const readyRot = idleRot - degToRad(p.ready_rotation_offset_deg * facing);
   const windupRot = readyRot - degToRad(p.swing_windup_deg) * facing;
   const endRot = readyRot + degToRad(p.swing_arc_deg) * facing;
-  const readyPx = [...readyBase];
-  const windupPx = [readyBase[0] - facing * p.swing_pull_back_px, readyBase[1] - p.swing_pull_up_px];
-  const hitPx = [readyBase[0] + facing * p.swing_lunge_forward_px, readyBase[1] + p.swing_lunge_down_px];
+  const readyPx = [...swingBase];
+  const windupPx = [swingBase[0] - facing * p.swing_pull_back_px, swingBase[1] - p.swing_pull_up_px];
+  const hitPx = [swingBase[0] + facing * p.swing_lunge_forward_px, swingBase[1] + p.swing_lunge_down_px];
   return {
     ready: { displayPx: readyPx, rotationRad: readyRot },
     windup: { displayPx: windupPx, rotationRad: windupRot },
@@ -411,11 +417,11 @@ function sampleSwingPose(phase01) {
 }
 
 function getWeaponPose(bobY = 0, tilt = 0) {
+  const idle = swingBaseDisplayPx();
   if (!state.attacking) {
-    const idle = normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
     return {
       displayPx: idle,
-      rotationRad: 0,
+      rotationRad: idleWeaponRotationRad(),
       canvasGrip: displayToCanvas(idle[0], idle[1], bobY, tilt),
     };
   }
@@ -1021,6 +1027,8 @@ async function loadAll() {
 
 async function saveAll() {
   setStatus("Saving…");
+  const idle = normalizeVec2(state.preset.overlay_offset_idle_px);
+  state.preset.ready_offset_px = [...idle];
   await postJson("/api/layout", state.layout);
   await postJson("/api/preset", state.preset);
   setStatus("Saved to assets/character_cards/layered_blank_1.tres and club_clansmen_1.tres");
