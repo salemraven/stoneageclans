@@ -92,6 +92,8 @@ def load_preset() -> dict:
         "support_shoulder_offset_px",
         "support_hand_idle_offset_px",
         "overlay_offset_idle_px",
+        "weapon_elbow_pole_idle_px",
+        "support_elbow_pole_idle_px",
     ]
     out: dict = {}
     for key in keys:
@@ -99,16 +101,23 @@ def load_preset() -> dict:
     return out
 
 
+def _upsert_vec2(text: str, key: str, value: list[float]) -> str:
+    line = f"{key} = Vector2({value[0]}, {value[1]})"
+    if re.search(rf"{re.escape(key)}\s*=\s*Vector2\([^)]+\)", text):
+        return re.sub(
+            rf"{re.escape(key)}\s*=\s*Vector2\([^)]+\)",
+            line,
+            text,
+        )
+    return text.rstrip() + f"\n{line}\n"
+
+
 def save_preset(data: dict) -> None:
     text = _read_text(PRESET_TRES)
     for key, value in data.items():
         if not isinstance(value, list) or len(value) != 2:
             continue
-        text = re.sub(
-            rf"{re.escape(key)}\s*=\s*Vector2\([^)]+\)",
-            f"{key} = Vector2({value[0]}, {value[1]})",
-            text,
-        )
+        text = _upsert_vec2(text, key, value)
     PRESET_TRES.write_text(text, encoding="utf-8")
 
 

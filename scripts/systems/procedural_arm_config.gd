@@ -21,9 +21,13 @@ class_name ProceduralArmConfig
 @export var upper_arm_length := 24.0
 @export var lower_arm_length := 22.0
 
+## How far the elbow can straighten (min) and curl (max), in degrees of fold from a straight arm.
+@export_range(0.0, 45.0) var elbow_fold_min_deg := 8.0
+@export_range(60.0, 170.0) var elbow_fold_max_deg := 150.0
+
 # Line2D appearance.
-@export var arm_width := 8.0
-@export var hand_width := 6.0
+@export var arm_width := 14.0
+@export var hand_width := 10.0
 @export_range(0.5, 2.0) var width_genetics_mult := 1.0
 @export var arm_color := Color(0.55, 0.42, 0.35, 1.0)
 @export var arm_texture: Texture2D

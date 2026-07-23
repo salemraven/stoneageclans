@@ -88,7 +88,7 @@ func update_arm(
 	var pole_hint := pole_hint_override if use_pole_override else _elbow_pole_hint(
 		local_shoulder, local_hand, cfg, bend_sign, sprite_scale
 	)
-	var elbow := _solve_ik(local_shoulder, local_hand, upper_len, lower_len, pole_hint)
+	var elbow := _solve_ik(local_shoulder, local_hand, upper_len, lower_len, pole_hint, cfg)
 
 	_points[0] = local_shoulder
 	_points[1] = elbow
@@ -146,13 +146,19 @@ func _elbow_pole_hint(
 	return shoulder + outward * outward_dist
 
 
-func _solve_ik(shoulder: Vector2, hand: Vector2, upper_len: float, lower_len: float, pole_hint: Vector2) -> Vector2:
+func _solve_ik(shoulder: Vector2, hand: Vector2, upper_len: float, lower_len: float, pole_hint: Vector2, cfg: ProceduralArmConfigScript) -> Vector2:
 	var to_hand := hand - shoulder
 	var dist := to_hand.length()
 	if dist < 0.001:
 		return shoulder + Vector2(upper_len, 0.0)
-	var max_reach := upper_len + lower_len - 0.01
-	var min_reach := absf(upper_len - lower_len) + 0.01
+	var min_fold := deg_to_rad(cfg.elbow_fold_min_deg)
+	var max_fold := deg_to_rad(cfg.elbow_fold_max_deg)
+	var max_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
+	) - 0.01
+	var min_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
+	) + 0.01
 	dist = clampf(dist, min_reach, max_reach)
 	var dir := to_hand / dist
 

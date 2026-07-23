@@ -10,10 +10,18 @@ const WALK_SPEED = 8;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
+const UPPER_ARM_LEN = 24;
+const LOWER_ARM_LEN = 22;
+const ELBOW_HINT_OUTWARD = 18;
+const ELBOW_FOLD_MIN_DEG = 8;
+const ELBOW_FOLD_MAX_DEG = 150;
+const ARM_LINE_WIDTH = 14;
+const CLUB_REF_HEIGHT = 835;
 
 const state = {
   bodyImg: null,
   headImg: null,
+  clubImg: null,
   layout: null,
   preset: null,
   handles: [],
@@ -34,8 +42,10 @@ const state = {
 const handleDefs = [
   { id: "neck", label: "H", color: "#73bff2", kind: "layout", key: "body_neck_socket_px", texture: "body" },
   { id: "shoulder", label: "1", color: "#e64d4d", kind: "preset", key: "shoulder_offset_px" },
+  { id: "weapon_elbow", label: "1e", color: "#f28c1a", kind: "preset", key: "weapon_elbow_pole_idle_px" },
   { id: "hand", label: "1", color: "#36d95c", kind: "preset", key: "hand_grip_offset_px" },
   { id: "support_shoulder", label: "2", color: "#bf2626", kind: "preset", key: "support_shoulder_offset_px" },
+  { id: "support_elbow", label: "2e", color: "#33bfd9", kind: "preset", key: "support_elbow_pole_idle_px" },
   { id: "support_hand", label: "2", color: "#2eb34a", kind: "preset", key: "support_hand_idle_offset_px" },
   { id: "weapon", label: "3", color: "#f2bf26", kind: "preset", key: "overlay_offset_idle_px" },
 ];
@@ -232,6 +242,97 @@ function getMotion() {
   return { bobY, tilt, headBob };
 }
 
+function reachLimits(upperLen, lowerLen) {
+  const minFold = (ELBOW_FOLD_MIN_DEG * Math.PI) / 180;
+  const maxFold = (ELBOW_FOLD_MAX_DEG * Math.PI) / 180;
+  const maxReach =
+    Math.sqrt(upperLen * upperLen + lowerLen * lowerLen - 2 * upperLen * lowerLen * Math.cos(Math.PI - minFold)) -
+    0.01;
+  const minReach =
+    Math.sqrt(upperLen * upperLen + lowerLen * lowerLen - 2 * upperLen * lowerLen * Math.cos(Math.PI - maxFold)) +
+    0.01;
+  return { minReach, maxReach };
+}
+
+function elbowPoleHint(shoulder, hand, bendSign) {
+  const toHand = { x: hand.x - shoulder.x, y: hand.y - shoulder.y };
+  const len = Math.hypot(toHand.x, toHand.y);
+  if (len < 0.01) {
+    toHand.y = 1;
+    toHand.x = 0;
+  } else {
+    toHand.x /= len;
+    toHand.y /= len;
+  }
+  const outward = { x: -toHand.y * bendSign, y: toHand.x * bendSign };
+  const dist = ELBOW_HINT_OUTWARD * bodyScale();
+  return {
+    x: shoulder.x + outward.x * dist,
+    y: shoulder.y + outward.y * dist,
+  };
+}
+
+function solveIk(shoulder, hand, upperLen, lowerLen, poleHint) {
+  const scale = bodyScale();
+  const upper = upperLen * scale;
+  const lower = lowerLen * scale;
+  let dx = hand.x - shoulder.x;
+  let dy = hand.y - shoulder.y;
+  let dist = Math.hypot(dx, dy);
+  if (dist < 0.001) {
+    return { x: shoulder.x + upper, y: shoulder.y };
+  }
+  const limits = reachLimits(upper, lower);
+  dist = clamp(dist, limits.minReach, limits.maxReach);
+  const dir = { x: dx / dist, y: dy / dist };
+
+  let cosShoulder = (upper * upper + dist * dist - lower * lower) / (2 * upper * dist);
+  cosShoulder = clamp(cosShoulder, -1, 1);
+  const shoulderAngle = Math.acos(cosShoulder);
+
+  const mid = { x: shoulder.x + dir.x * (dist * 0.5), y: shoulder.y + dir.y * (dist * 0.5) };
+  let poleSide = (poleHint.x - mid.x) * dir.y - (poleHint.y - mid.y) * dir.x;
+  poleSide = poleSide === 0 ? 1 : Math.sign(poleSide);
+
+  const elbowDirX = dir.x * Math.cos(shoulderAngle * poleSide) - dir.y * Math.sin(shoulderAngle * poleSide);
+  const elbowDirY = dir.x * Math.sin(shoulderAngle * poleSide) + dir.y * Math.cos(shoulderAngle * poleSide);
+  return { x: shoulder.x + elbowDirX * upper, y: shoulder.y + elbowDirY * upper };
+}
+
+function autoElbowPole(shoulder, hand, bendSign) {
+  return elbowPoleHint(shoulder, hand, bendSign);
+}
+
+function seedElbowPoles() {
+  if (!state.preset) return;
+  const shoulder = displayToCanvas(
+    state.preset.shoulder_offset_px[0],
+    state.preset.shoulder_offset_px[1],
+  );
+  const hand = displayToCanvas(state.preset.hand_grip_offset_px[0], state.preset.hand_grip_offset_px[1]);
+  const supportShoulder = displayToCanvas(
+    state.preset.support_shoulder_offset_px[0],
+    state.preset.support_shoulder_offset_px[1],
+  );
+  const supportHand = displayToCanvas(
+    state.preset.support_hand_idle_offset_px[0],
+    state.preset.support_hand_idle_offset_px[1],
+  );
+
+  if (!state.preset.weapon_elbow_pole_idle_px || poleLength(state.preset.weapon_elbow_pole_idle_px) < 0.01) {
+    const pole = autoElbowPole(shoulder, hand, -1);
+    state.preset.weapon_elbow_pole_idle_px = canvasToDisplay(pole.x, pole.y);
+  }
+  if (!state.preset.support_elbow_pole_idle_px || poleLength(state.preset.support_elbow_pole_idle_px) < 0.01) {
+    const pole = autoElbowPole(supportShoulder, supportHand, 1);
+    state.preset.support_elbow_pole_idle_px = canvasToDisplay(pole.x, pole.y);
+  }
+}
+
+function poleLength(p) {
+  return Math.hypot(p[0], p[1]);
+}
+
 function rebuildHandles() {
   const { bobY, tilt } = getMotion();
   state.handles = handleDefs.map((def) => {
@@ -283,11 +384,22 @@ function drawCharacter() {
 
   const shoulder = state.handles.find((h) => h.id === "shoulder");
   const hand = state.handles.find((h) => h.id === "hand");
+  const weaponElbow = state.handles.find((h) => h.id === "weapon_elbow");
   const supportShoulder = state.handles.find((h) => h.id === "support_shoulder");
   const supportHand = state.handles.find((h) => h.id === "support_hand");
+  const supportElbow = state.handles.find((h) => h.id === "support_elbow");
+  const weapon = state.handles.find((h) => h.id === "weapon");
 
-  drawArmLine(shoulder?.pos, hand?.pos, "#8b5a2b");
-  drawArmLine(supportShoulder?.pos, supportHand?.pos, "#6d4a2a");
+  drawClub(weapon?.pos);
+
+  if (shoulder?.pos && hand?.pos) {
+    const pole = weaponElbow?.pos || autoElbowPole(shoulder.pos, hand.pos, -1);
+    drawArmSegments(shoulder.pos, hand.pos, pole, "#8b5a2b");
+  }
+  if (supportShoulder?.pos && supportHand?.pos) {
+    const pole = supportElbow?.pos || autoElbowPole(supportShoulder.pos, supportHand.pos, 1);
+    drawArmSegments(supportShoulder.pos, supportHand.pos, pole, "#6d4a2a");
+  }
 
   for (const handle of state.handles) {
     drawHandle(handle);
@@ -296,15 +408,39 @@ function drawCharacter() {
   ctx.restore();
 }
 
-function drawArmLine(a, b, color) {
-  if (!a || !b) return;
+function drawArmSegments(shoulder, hand, pole, color) {
+  const elbow = solveIk(shoulder, hand, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  const width = ARM_LINE_WIDTH / state.viewZoom;
   ctx.strokeStyle = color;
-  ctx.lineWidth = 4 / state.viewZoom;
+  ctx.lineWidth = width;
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
+  ctx.moveTo(shoulder.x, shoulder.y);
+  ctx.lineTo(elbow.x, elbow.y);
+  ctx.lineTo(hand.x, hand.y);
   ctx.stroke();
+
+  ctx.fillStyle = "#e8c89a";
+  ctx.strokeStyle = "#3a2518";
+  ctx.lineWidth = Math.max(2, width * 0.18);
+  const jointR = width * 0.42;
+  for (const pt of [elbow]) {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, jointR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+function drawClub(anchor) {
+  if (!state.clubImg || !anchor) return;
+  const s = bodyScale();
+  const drawW = state.clubImg.width * s;
+  const drawH = state.clubImg.height * s;
+  const x = anchor.x - drawW * 0.5;
+  const y = anchor.y - drawH * 0.12;
+  ctx.drawImage(state.clubImg, x, y, drawW, drawH);
 }
 
 function drawHandle(handle) {
@@ -419,14 +555,16 @@ canvas.addEventListener("pointercancel", () => {
 });
 
 async function loadAll() {
-  const [bodyImg, headImg, layout, preset] = await Promise.all([
+  const [bodyImg, headImg, clubImg, layout, preset] = await Promise.all([
     loadImage("/assets/character_cards/body1.png"),
     loadImage("/assets/character_cards/head1.png"),
+    loadImage("/assets/placeholder_cards/club.png"),
     fetchJson("/api/layout"),
     fetchJson("/api/preset"),
   ]);
   state.bodyImg = bodyImg;
   state.headImg = headImg;
+  state.clubImg = clubImg;
   state.bodyW = bodyImg.width;
   state.bodyH = bodyImg.height;
   state.layout = layout;
@@ -434,8 +572,11 @@ async function loadAll() {
     state.layout.body_offset_px = [0, 0];
   }
   state.preset = preset;
+  if (!state.preset.weapon_elbow_pole_idle_px) state.preset.weapon_elbow_pole_idle_px = [0, 0];
+  if (!state.preset.support_elbow_pole_idle_px) state.preset.support_elbow_pole_idle_px = [0, 0];
   state.footY = -DISPLAY_HEIGHT * 0.5;
   fitStageToCanvas();
+  seedElbowPoles();
   rebuildHandles();
   updateValues();
   updateZoomLabel();
@@ -467,7 +608,11 @@ document.getElementById("saveBtn").addEventListener("click", () => {
 
 document.getElementById("reloadBtn").addEventListener("click", () => {
   loadAll()
-    .then(() => setStatus("Reloaded from disk."))
+    .then(() => {
+      fitStageToCanvas();
+      rebuildHandles();
+      setStatus("Reloaded from disk.");
+    })
     .catch((err) => setStatus(String(err)));
 });
 
