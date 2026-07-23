@@ -72,6 +72,10 @@ func _test_limb_tuner_scene() -> void:
 		_fail("HeadSprite missing on layered body visual")
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
+	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
+		_fail("club WeaponOverlay should be visible on startup")
+	elif rig.weapon_overlay.texture == null:
+		_fail("club WeaponOverlay texture missing on startup")
 	if app.get_node_or_null("World/Stage") == null:
 		_fail("Stage missing")
 	var stage: Node2D = app.get_node("World/Stage") as Node2D

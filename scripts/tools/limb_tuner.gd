@@ -53,6 +53,7 @@ func _ready() -> void:
 	var lock_btn: Button = $UI/Panel/VBox/Buttons/LockBtn
 	var test_btn: Button = $UI/Panel/VBox/Buttons/TestBtn
 	var save_btn: Button = $UI/Panel/VBox/Buttons/SaveBtn
+	var refresh_btn: Button = $UI/Panel/VBox/Buttons/RefreshBtn
 	var reset_btn: Button = $UI/Panel/VBox/Buttons/ResetBtn
 	var copy_btn: Button = $UI/Panel/VBox/Buttons/CopyBtn
 	if assemble_btn:
@@ -63,6 +64,8 @@ func _ready() -> void:
 		test_btn.pressed.connect(_on_test_pressed)
 	if save_btn:
 		save_btn.pressed.connect(_on_save_pressed)
+	if refresh_btn:
+		refresh_btn.pressed.connect(_on_refresh_pressed)
 	if reset_btn:
 		reset_btn.pressed.connect(_on_reset_pressed)
 	if copy_btn:
@@ -75,8 +78,7 @@ func _finish_startup() -> void:
 	if _rig:
 		_rig.weapon_type = tuning_weapon_type
 		_rig.refresh_weapon_overlay()
-	_preset = LimbPresetRegistry.reload_preset(tuning_weapon_type, "clansmen_1")
-	_refresh_rig_from_preset()
+	_reload_all_from_disk()
 	if _rig and _rig.arm_controller:
 		_rig.arm_controller.set_show_endpoint_markers(false)
 		_rig.arm_controller.set_debug_draw(true)
@@ -706,10 +708,12 @@ func _on_save_pressed() -> void:
 		layout_err = ERR_CANT_CREATE
 	else:
 		layout_err = CharacterCardPartsRegistry.save_layout(layout)
+	if err == OK and layout_err == OK:
+		_reload_all_from_disk()
 	if _status_label:
 		if err == OK and layout_err == OK:
 			_status_label.text = (
-				"Saved arms: %s | head layout: %s"
+				"Saved + refreshed. Club preset: %s | head layout: %s"
 				% [
 					LimbPresetRegistry.preset_path(_preset.weapon_type, _preset.body_card_id),
 					CharacterCardPartsRegistry.DEFAULT_LAYOUT_PATH,
@@ -719,8 +723,25 @@ func _on_save_pressed() -> void:
 			_status_label.text = "Save failed (arms=%s, head=%s)" % [str(err), str(layout_err)]
 
 
-func _on_reset_pressed() -> void:
+func _on_refresh_pressed() -> void:
+	_reload_all_from_disk()
+	if _status_label:
+		_status_label.text = "Reloaded club preset + head layout from disk."
+
+
+func _reload_all_from_disk() -> void:
 	_preset = LimbPresetRegistry.reload_preset(tuning_weapon_type, "clansmen_1")
+	var layout := CharacterCardPartsRegistry.reload_layout()
+	if _rig:
+		_rig.refresh_weapon_overlay()
+		if _rig.body_visual and _rig.body_visual.has_method("apply_layer_layout"):
+			_rig.body_visual.apply_layer_layout(layout)
+	_refresh_rig_from_preset()
+	_update_ui()
+
+
+func _on_reset_pressed() -> void:
+	_reload_all_from_disk()
 	_mode = AppMode.ASSEMBLE
 	_pose_tab = PoseTab.IDLE
 	_refresh_rig_from_preset()
