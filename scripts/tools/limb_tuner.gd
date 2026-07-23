@@ -122,7 +122,7 @@ func _input(event: InputEvent) -> void:
 			_active_drag_handle = _pick_handle_at(get_global_mouse_position())
 			if _active_drag_handle != null:
 				if _active_drag_handle == _spear_handle and _rig.weapon_overlay:
-					_spear_grab_offset = _rig.weapon_overlay.global_position - get_global_mouse_position()
+					_spear_grab_offset = _rig.weapon_handle_anchor_global() - get_global_mouse_position()
 					_dragging_spear = true
 				get_viewport().set_input_as_handled()
 		else:
@@ -188,7 +188,7 @@ func _move_active_handle(global_pos: Vector2) -> void:
 		var target_global: Vector2 = global_pos + _spear_grab_offset
 		_on_spear_dragged(target_global)
 		if _rig.weapon_overlay:
-			_spear_handle.global_position = _rig.weapon_overlay.global_position
+			_spear_handle.global_position = _rig.weapon_handle_anchor_global()
 		_sync_hands_with_spear()
 	_lock_arm_lines_to_handles()
 	_push_preset_to_arms()
@@ -417,7 +417,7 @@ func _sync_handle_positions() -> void:
 		_support_shoulder_handle.global_position = _rig.support_shoulder_global_from_preset(_preset)
 	_sync_hand_handles_from_spear()
 	if _active_drag_handle != _spear_handle and _rig.weapon_overlay:
-		_spear_handle.global_position = _rig.weapon_overlay.global_position
+		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
 	_sync_elbow_handles()
 
 
@@ -496,7 +496,7 @@ func _sync_spear_grip_handles() -> void:
 	## Ready/attack: yellow spear moves, both green grips follow.
 	_sync_hands_with_spear()
 	if _rig and _rig.weapon_overlay and _spear_handle:
-		_spear_handle.global_position = _rig.weapon_overlay.global_position
+		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
 
 
 func _is_thrust_animating() -> bool:
@@ -516,7 +516,7 @@ func _sync_handles_from_live_arms() -> void:
 		_support_shoulder_handle.global_position = support.get("shoulder", _support_shoulder_handle.global_position)
 	_sync_hand_handles_from_spear()
 	if _rig.weapon_overlay and _spear_handle:
-		_spear_handle.global_position = _rig.weapon_overlay.global_position
+		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
 
 
 func _refresh_rig_from_preset() -> void:

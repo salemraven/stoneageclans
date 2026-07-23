@@ -10,6 +10,9 @@ const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
+## Tuner handle 3 sits on the club/spear overlay at this height (0 = top, 1 = bottom of texture).
+const WEAPON_HANDLE_Y_FRAC := 0.875
+
 var aim_dir: Vector2 = Vector2(1.0, 0.0)
 var body_card_index: int = 1
 var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
@@ -225,9 +228,28 @@ func set_overlay_from_display_px(display_px: Vector2) -> void:
 
 
 func move_weapon_overlay_global(global_pos: Vector2) -> Vector2:
+	return move_weapon_handle_anchor_global(global_pos)
+
+
+func weapon_handle_anchor_local() -> Vector2:
+	if weapon_overlay == null or weapon_overlay.texture == null:
+		return Vector2.ZERO
+	var tex_h: float = float(weapon_overlay.texture.get_height()) * absf(weapon_overlay.scale.y)
+	return Vector2(0.0, (WEAPON_HANDLE_Y_FRAC - 0.5) * tex_h)
+
+
+func weapon_handle_anchor_global() -> Vector2:
+	if weapon_overlay == null:
+		return global_position
+	return weapon_overlay.to_global(weapon_handle_anchor_local())
+
+
+func move_weapon_handle_anchor_global(anchor_global: Vector2) -> Vector2:
 	if weapon_overlay == null or sprite == null:
 		return Vector2.ZERO
-	weapon_overlay.global_position = global_pos
+	var local := weapon_handle_anchor_local()
+	var anchor_offset: Vector2 = weapon_overlay.to_global(local) - weapon_overlay.global_position
+	weapon_overlay.global_position = anchor_global - anchor_offset
 	return display_px_from_overlay_position()
 
 
