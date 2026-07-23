@@ -66,6 +66,18 @@ func refresh_weapon_overlay() -> void:
 	_show_weapon_overlay()
 
 
+func reload_mannequin_from_layout() -> void:
+	if sprite == null:
+		return
+	_mannequin_layout = TunerMannequinLayoutScript.from_registry(_registry, body_card_index)
+	sprite.scale = Vector2.ONE * _mannequin_layout.sprite_scale
+	_anchor_foot_y = _mannequin_layout.foot_y
+	sprite.position = Vector2(0.0, _anchor_foot_y)
+	var layout := CharacterCardPartsRegistry.reload_layout()
+	if body_visual and body_visual.has_method("apply_layer_layout"):
+		body_visual.call("apply_layer_layout", layout)
+
+
 func get_equipped_weapon_type() -> ResourceData.ResourceType:
 	return weapon_type
 
@@ -143,7 +155,13 @@ func _sync_overlay_walk_bounce(moving: bool) -> void:
 func _show_weapon_overlay() -> void:
 	if weapon_overlay == null or sprite == null:
 		return
-	var tex: Texture2D = _registry.get_tool_overlay(weapon_type)
+	var tex: Texture2D = null
+	if _registry.TOOL_OVERLAY_PATHS.has(weapon_type):
+		var path: String = _registry.TOOL_OVERLAY_PATHS[weapon_type]
+		if ResourceLoader.exists(path):
+			tex = ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as Texture2D
+	if tex == null:
+		tex = _registry.get_tool_overlay(weapon_type)
 	if tex == null:
 		return
 	weapon_overlay.texture = tex

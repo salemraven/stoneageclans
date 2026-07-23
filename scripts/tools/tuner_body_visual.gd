@@ -34,8 +34,15 @@ func apply_layout(layout) -> void:
 func apply_layer_layout(layer_layout: CharacterCardLayerLayout) -> void:
 	if layer_layout == null:
 		return
+	var paths_changed := (
+		_layer_layout == null
+		or layer_layout.body_texture_path != body_texture_path
+		or layer_layout.head_texture_path != head_texture_path
+	)
 	_layer_layout = layer_layout
-	if _body_tex != null:
+	if paths_changed or _body_sprite == null or _head_sprite == null:
+		_build_layers()
+	else:
 		_apply_head_attachment()
 
 
@@ -120,4 +127,4 @@ func _apply_head_attachment() -> void:
 func _load_texture(path: String) -> Texture2D:
 	if path.is_empty() or not ResourceLoader.exists(path):
 		return null
-	return load(path) as Texture2D
+	return ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as Texture2D

@@ -958,11 +958,9 @@ func _on_refresh_pressed() -> void:
 
 func _reload_all_from_disk() -> void:
 	_preset = LimbPresetRegistry.reload_preset(tuning_weapon_type, "clansmen_1")
-	var layout := CharacterCardPartsRegistry.reload_layout()
 	if _rig:
+		_rig.reload_mannequin_from_layout()
 		_rig.refresh_weapon_overlay()
-		if _rig.body_visual and _rig.body_visual.has_method("apply_layer_layout"):
-			_rig.body_visual.apply_layer_layout(layout)
 	_refresh_rig_from_preset()
 	_center_view()
 	_update_ui()
