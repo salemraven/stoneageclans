@@ -73,7 +73,6 @@ func _ready() -> void:
 
 
 func _finish_startup() -> void:
-	_center_stage()
 	_stage.scale = Vector2(stage_scale, stage_scale)
 	if _rig:
 		_rig.weapon_type = tuning_weapon_type
@@ -94,7 +93,32 @@ func _notification(what: int) -> void:
 
 func _center_stage() -> void:
 	if _stage:
-		_stage.position = size * 0.5
+		_stage.position = _workspace_center_screen()
+
+
+func _workspace_center_screen() -> Vector2:
+	var panel := get_node_or_null("UI/Panel") as Control
+	var left_margin := 0.0
+	if panel:
+		left_margin = panel.position.x + panel.size.x + 24.0
+	var workspace_w: float = maxf(size.x - left_margin, 1.0)
+	return Vector2(left_margin + workspace_w * 0.5, size.y * 0.5)
+
+
+func _center_character_on_stage() -> void:
+	if _rig == null:
+		return
+	_rig.position = Vector2.ZERO
+	var center := _rig.get_visual_center_on_stage()
+	if center.length_squared() < 0.01:
+		return
+	_rig.position = -center
+
+
+func _center_view() -> void:
+	_center_character_on_stage()
+	_sync_handle_positions()
+	_center_stage()
 
 
 func _apply_ui_theme() -> void:
@@ -737,6 +761,7 @@ func _reload_all_from_disk() -> void:
 		if _rig.body_visual and _rig.body_visual.has_method("apply_layer_layout"):
 			_rig.body_visual.apply_layer_layout(layout)
 	_refresh_rig_from_preset()
+	_center_view()
 	_update_ui()
 
 

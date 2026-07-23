@@ -345,6 +345,61 @@ func seed_elbow_pole_if_unset(
 	preset.set_elbow_pole_px(dominant, ready_pose, auto_px)
 
 
+func get_visual_bounds_on_stage() -> Rect2:
+	var stage := get_parent() as Node2D
+	if stage == null:
+		return Rect2()
+	var rects: Array[Rect2] = []
+	_collect_sprite_rects(self, stage, rects)
+	if rects.is_empty():
+		return Rect2()
+	var merged: Rect2 = rects[0]
+	for i in range(1, rects.size()):
+		merged = merged.merge(rects[i])
+	return merged
+
+
+func get_visual_center_on_stage() -> Vector2:
+	var bounds := get_visual_bounds_on_stage()
+	if bounds.size.length_squared() < 1.0:
+		return Vector2.ZERO
+	return bounds.get_center()
+
+
+func _collect_sprite_rects(node: Node, stage: Node2D, rects: Array[Rect2]) -> void:
+	if node is Sprite2D:
+		var sprite := node as Sprite2D
+		if sprite.visible and sprite.texture != null:
+			var rect := _sprite_rect_on_stage(sprite, stage)
+			if rect.size.length_squared() > 0.01:
+				rects.append(rect)
+	for child in node.get_children():
+		_collect_sprite_rects(child, stage, rects)
+
+
+func _sprite_rect_on_stage(sprite: Sprite2D, stage: Node2D) -> Rect2:
+	var tex := sprite.texture
+	if tex == null:
+		return Rect2()
+	var draw_size := Vector2(tex.get_width(), tex.get_height()) * sprite.scale.abs()
+	var half := draw_size * 0.5 if sprite.centered else Vector2.ZERO
+	var corners := [
+		Vector2(-half.x, -half.y) + sprite.offset,
+		Vector2(half.x, -half.y) + sprite.offset,
+		Vector2(half.x, half.y) + sprite.offset,
+		Vector2(-half.x, half.y) + sprite.offset,
+	]
+	var xf := sprite.global_transform
+	var rect := Rect2()
+	for i in corners.size():
+		var stage_pt := stage.to_local(xf * corners[i])
+		if i == 0:
+			rect = Rect2(stage_pt, Vector2.ZERO)
+		else:
+			rect = rect.expand(stage_pt)
+	return rect
+
+
 func sync_combat_overlay(hold_ready: bool) -> void:
 	if weapon_overlay == null or not weapon_overlay.visible:
 		return
