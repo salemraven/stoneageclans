@@ -267,13 +267,13 @@ func _spawn_handles() -> void:
 	_weapon_elbow_handle = LimbTunerHandleScript.new()
 	_weapon_elbow_handle.name = "WeaponElbowHandle"
 	_weapon_elbow_handle.set_handle_color(Color(0.95, 0.55, 0.1, 1.0))
-	_weapon_elbow_handle.handle_radius = 7.0
+	_weapon_elbow_handle.handle_radius = 9.0
 	_stage.add_child(_weapon_elbow_handle)
 
 	_support_elbow_handle = LimbTunerHandleScript.new()
 	_support_elbow_handle.name = "SupportElbowHandle"
 	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
-	_support_elbow_handle.handle_radius = 7.0
+	_support_elbow_handle.handle_radius = 9.0
 	_stage.add_child(_support_elbow_handle)
 
 	_head_handle = LimbTunerHandleScript.new()
