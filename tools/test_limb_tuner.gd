@@ -72,13 +72,30 @@ func _test_limb_tuner_scene() -> void:
 		_fail("HeadSprite missing on layered body visual")
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
-	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
+	var stage: Node2D = app.get_node("World/Stage") as Node2D
+	if stage == null:
+		_fail("Stage missing")
+	elif rig.weapon_overlay == null or not rig.weapon_overlay.visible:
 		_fail("club WeaponOverlay should be visible on startup")
 	elif rig.weapon_overlay.texture == null:
 		_fail("club WeaponOverlay texture missing on startup")
 	else:
-		var stage: Node2D = app.get_node("World/Stage") as Node2D
 		var club_rect := rig._sprite_rect_on_stage(rig.weapon_overlay, stage)
+		var spear: Node2D = rig.weapon_overlay.get_node_or_null("SpearHandle") as Node2D
+		if spear == null:
+			_fail("SpearHandle should be parented under club WeaponOverlay")
+		elif spear.get_parent() != rig.weapon_overlay:
+			_fail("SpearHandle parent should be WeaponOverlay")
+		else:
+			var anchor_local := rig.weapon_handle_anchor_local()
+			if spear.position.distance_to(anchor_local) > 1.0:
+				_fail(
+					"SpearHandle local offset wrong got %s expected ~%s"
+					% [str(spear.position), str(anchor_local)]
+				)
+			var anchor_global := rig.weapon_handle_anchor_global()
+			if spear.global_position.distance_to(anchor_global) > 2.0:
+				_fail("SpearHandle global should match club grip anchor")
 		var anchor_stage := stage.to_local(rig.weapon_handle_anchor_global())
 		var club_bottom := club_rect.position.y + club_rect.size.y
 		if anchor_stage.y < club_bottom - club_rect.size.y * 0.35:
@@ -86,9 +103,6 @@ func _test_limb_tuner_scene() -> void:
 				"weapon handle 3 should sit on bottom quarter of club (anchor y=%.1f club bottom=%.1f)"
 				% [anchor_stage.y, club_bottom]
 			)
-	if app.get_node_or_null("World/Stage") == null:
-		_fail("Stage missing")
-	var stage: Node2D = app.get_node("World/Stage") as Node2D
 	var shoulder: Node2D = stage.get_node_or_null("ShoulderHandle") as Node2D
 	if shoulder == null:
 		_fail("ShoulderHandle missing")

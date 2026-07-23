@@ -253,7 +253,17 @@ func _texture_frac_to_overlay_local(nx: float, ny: float) -> Vector2:
 
 func weapon_handle_anchor_local() -> Vector2:
 	_ensure_overlay_pivot()
-	return _texture_frac_to_overlay_local(0.5, WEAPON_HANDLE_Y_FRAC)
+	return _texture_frac_to_overlay_local(0.5, _weapon_handle_y_frac())
+
+
+func _weapon_handle_y_frac() -> float:
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	var kind: int = int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN))
+	if kind != WeaponOverlayCombat.AttackKind.THRUST:
+		return float(profile.get("pivot_y_frac", WEAPON_HANDLE_Y_FRAC))
+	return WEAPON_HANDLE_Y_FRAC
 
 
 func weapon_handle_anchor_global() -> Vector2:

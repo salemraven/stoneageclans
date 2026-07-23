@@ -32,6 +32,8 @@ var _spear_handle: LimbTunerHandle
 var _weapon_elbow_handle: LimbTunerHandle
 var _support_elbow_handle: LimbTunerHandle
 var _head_handle: LimbTunerHandle
+const SPEAR_HANDLE_RADIUS_ON_OVERLAY := 18.0
+
 var _dragging_spear: bool = false
 var _active_drag_handle: LimbTunerHandle = null
 var _spear_grab_offset: Vector2 = Vector2.ZERO
@@ -211,8 +213,7 @@ func _move_active_handle(global_pos: Vector2) -> void:
 	elif _active_drag_handle == _spear_handle:
 		var target_global: Vector2 = global_pos + _spear_grab_offset
 		_on_spear_dragged(target_global)
-		if _rig.weapon_overlay:
-			_spear_handle.global_position = _rig.weapon_handle_anchor_global()
+		_sync_spear_handle()
 		_sync_hands_with_spear()
 	_lock_arm_lines_to_handles()
 	_push_preset_to_arms()
@@ -298,6 +299,26 @@ func _apply_handle_number_labels() -> void:
 		_head_handle.set_side_label("H")
 
 
+func _attach_spear_handle_to_overlay() -> void:
+	if _rig == null or _rig.weapon_overlay == null or _spear_handle == null:
+		return
+	if _spear_handle.get_parent() != _rig.weapon_overlay:
+		_spear_handle.reparent(_rig.weapon_overlay)
+	_spear_handle.z_as_relative = false
+	_spear_handle.z_index = 8
+	var sx: float = absf(_rig.sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	_spear_handle.set_handle_radius(SPEAR_HANDLE_RADIUS_ON_OVERLAY / sx)
+
+
+func _sync_spear_handle() -> void:
+	if _rig == null or _rig.weapon_overlay == null or _spear_handle == null:
+		return
+	_attach_spear_handle_to_overlay()
+	_spear_handle.position = _rig.weapon_handle_anchor_local()
+
+
 func _process(_delta: float) -> void:
 	if _rig == null or _preset == null:
 		return
@@ -310,6 +331,7 @@ func _process(_delta: float) -> void:
 		elif _is_thrust_animating():
 			_sync_spear_grip_handles()
 		_lock_arm_lines_to_handles()
+		_sync_spear_handle()
 	else:
 		if _rig.arm_controller:
 			_rig.arm_controller.clear_all_endpoint_overrides()
@@ -440,8 +462,7 @@ func _sync_handle_positions() -> void:
 	if _active_drag_handle != _support_shoulder_handle:
 		_support_shoulder_handle.global_position = _rig.support_shoulder_global_from_preset(_preset)
 	_sync_hand_handles_from_spear()
-	if _active_drag_handle != _spear_handle and _rig.weapon_overlay:
-		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
+	_sync_spear_handle()
 	_sync_elbow_handles()
 
 
@@ -519,8 +540,7 @@ func _use_ready_support_hand() -> bool:
 func _sync_spear_grip_handles() -> void:
 	## Ready/attack: yellow spear moves, both green grips follow.
 	_sync_hands_with_spear()
-	if _rig and _rig.weapon_overlay and _spear_handle:
-		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
+	_sync_spear_handle()
 
 
 func _is_thrust_animating() -> bool:
@@ -539,8 +559,7 @@ func _sync_handles_from_live_arms() -> void:
 	if _support_shoulder_handle:
 		_support_shoulder_handle.global_position = support.get("shoulder", _support_shoulder_handle.global_position)
 	_sync_hand_handles_from_spear()
-	if _rig.weapon_overlay and _spear_handle:
-		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
+	_sync_spear_handle()
 
 
 func _refresh_rig_from_preset() -> void:
