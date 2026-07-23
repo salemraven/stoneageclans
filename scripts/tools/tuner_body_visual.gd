@@ -50,7 +50,7 @@ func set_neck_socket_from_global(global_pos: Vector2) -> void:
 		return
 	var local_pos := to_local(global_pos)
 	var center := Vector2(_body_tex.get_width(), _body_tex.get_height()) * 0.5
-	_layer_layout.body_neck_socket_px = local_pos + center
+	_layer_layout.body_neck_socket_px = local_pos + center - _layer_layout.body_offset_px
 	_apply_head_attachment()
 
 
@@ -88,7 +88,7 @@ func _build_layers() -> void:
 	_body_sprite.texture = _body_tex
 	_body_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_body_sprite.centered = true
-	_body_sprite.position = Vector2.ZERO
+	_body_sprite.position = _layer_layout.body_offset_px
 	add_child(_body_sprite)
 
 	if head_tex == null:

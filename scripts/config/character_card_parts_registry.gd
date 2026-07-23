@@ -54,7 +54,7 @@ static func head_pivot_on_body_local(body_tex: Texture2D, layout: CharacterCardL
 	var active := layout if layout else get_layout()
 	var size := Vector2(body_tex.get_width(), body_tex.get_height())
 	var center := size * 0.5
-	return active.body_neck_socket_px - center
+	return active.body_neck_socket_px - center + active.body_offset_px
 
 
 static func head_sprite_offset_local(head_tex: Texture2D, layout: CharacterCardLayerLayout = null) -> Vector2:

@@ -2,10 +2,14 @@ const canvas = document.getElementById("stage");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
 const valuesEl = document.getElementById("values");
+const zoomResetBtn = document.getElementById("zoomResetBtn");
 
 const DISPLAY_HEIGHT = 128;
 const WALK_AMP = 2.5;
 const WALK_SPEED = 8;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 6;
+const ZOOM_STEP = 1.15;
 
 const state = {
   bodyImg: null,
@@ -17,10 +21,12 @@ const state = {
   walking: false,
   walkPhase: 0,
   lastTs: 0,
-  scale: 1,
   footY: 0,
   bodyW: 352,
   bodyH: 470,
+  viewZoom: 1,
+  viewPanX: 0,
+  viewPanY: 0,
 };
 
 const handleDefs = [
@@ -34,6 +40,38 @@ const handleDefs = [
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function updateZoomLabel() {
+  if (zoomResetBtn) {
+    zoomResetBtn.textContent = `${Math.round(state.viewZoom * 100)}%`;
+  }
+}
+
+function screenToWorld(x, y) {
+  return {
+    x: (x - state.viewPanX) / state.viewZoom,
+    y: (y - state.viewPanY) / state.viewZoom,
+  };
+}
+
+function zoomAt(screenX, screenY, factor) {
+  const before = screenToWorld(screenX, screenY);
+  state.viewZoom = clamp(state.viewZoom * factor, MIN_ZOOM, MAX_ZOOM);
+  state.viewPanX = screenX - before.x * state.viewZoom;
+  state.viewPanY = screenY - before.y * state.viewZoom;
+  updateZoomLabel();
+}
+
+function resetZoom() {
+  state.viewZoom = 1;
+  state.viewPanX = 0;
+  state.viewPanY = 0;
+  updateZoomLabel();
 }
 
 function loadImage(url) {
@@ -70,17 +108,12 @@ function stageCenter() {
   return { x: canvas.width * 0.5, y: canvas.height * 0.58 };
 }
 
-function footAnchor() {
-  const center = stageCenter();
-  const s = bodyScale();
-  return { x: center.x, y: center.y + state.footY * s };
-}
-
 function textureToCanvas(texX, texY, bobY = 0, tilt = 0) {
   const center = stageCenter();
   const s = bodyScale();
-  const localX = (texX - state.bodyW * 0.5) * s;
-  const localY = (texY - state.bodyH * 0.5) * s + bobY;
+  const off = state.layout?.body_offset_px || [0, 0];
+  const localX = (texX - state.bodyW * 0.5) * s + off[0] * s;
+  const localY = (texY - state.bodyH * 0.5) * s + off[1] * s + bobY;
   const cos = Math.cos(tilt);
   const sin = Math.sin(tilt);
   return {
@@ -92,6 +125,7 @@ function textureToCanvas(texX, texY, bobY = 0, tilt = 0) {
 function canvasToTexture(x, y, bobY = 0, tilt = 0) {
   const center = stageCenter();
   const s = bodyScale();
+  const off = state.layout?.body_offset_px || [0, 0];
   const dx = x - center.x;
   const dy = y - center.y - bobY;
   const cos = Math.cos(-tilt);
@@ -99,8 +133,8 @@ function canvasToTexture(x, y, bobY = 0, tilt = 0) {
   const localX = dx * cos - dy * sin;
   const localY = dx * sin + dy * cos;
   return {
-    x: localX / s + state.bodyW * 0.5,
-    y: localY / s + state.bodyH * 0.5,
+    x: localX / s + state.bodyW * 0.5 - off[0],
+    y: localY / s + state.bodyH * 0.5 - off[1],
   };
 }
 
@@ -136,11 +170,6 @@ function getMotion() {
   return { bobY, tilt, headBob };
 }
 
-function headPivotTexture() {
-  const neck = state.layout.body_neck_socket_px;
-  return { x: neck[0], y: neck[1] };
-}
-
 function rebuildHandles() {
   const { bobY, tilt } = getMotion();
   state.handles = handleDefs.map((def) => {
@@ -162,23 +191,28 @@ function drawCharacter() {
   const { bobY, tilt, headBob } = getMotion();
   const center = stageCenter();
   const s = bodyScale();
+  const off = state.layout?.body_offset_px || [0, 0];
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(state.viewPanX, state.viewPanY);
+  ctx.scale(state.viewZoom, state.viewZoom);
 
   ctx.save();
   ctx.translate(center.x, center.y + bobY);
   ctx.rotate(tilt);
 
-  const bodyDrawX = -state.bodyW * 0.5 * s;
-  const bodyDrawY = -state.bodyH * 0.5 * s;
+  const bodyDrawX = (-state.bodyW * 0.5 + off[0]) * s;
+  const bodyDrawY = (-state.bodyH * 0.5 + off[1]) * s;
   ctx.drawImage(state.bodyImg, bodyDrawX, bodyDrawY, state.bodyW * s, state.bodyH * s);
 
   const neck = state.layout.body_neck_socket_px;
   const pivot = state.layout.head_pivot_px;
   const headW = state.headImg.width;
   const headH = state.headImg.height;
-  const pivotLocalX = (neck[0] - state.bodyW * 0.5) * s;
-  const pivotLocalY = (neck[1] - state.bodyH * 0.5) * s + headBob;
+  const pivotLocalX = (neck[0] - state.bodyW * 0.5 + off[0]) * s;
+  const pivotLocalY = (neck[1] - state.bodyH * 0.5 + off[1]) * s + headBob;
   const headX = pivotLocalX - pivot[0] * s;
   const headY = pivotLocalY - pivot[1] * s;
   ctx.drawImage(state.headImg, headX, headY, headW * s, headH * s);
@@ -196,12 +230,14 @@ function drawCharacter() {
   for (const handle of state.handles) {
     drawHandle(handle);
   }
+
+  ctx.restore();
 }
 
 function drawArmLine(a, b, color) {
   if (!a || !b) return;
   ctx.strokeStyle = color;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 4 / state.viewZoom;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
@@ -210,16 +246,16 @@ function drawArmLine(a, b, color) {
 }
 
 function drawHandle(handle) {
-  const r = 10;
+  const r = 10 / state.viewZoom;
   ctx.fillStyle = handle.color;
   ctx.strokeStyle = "#111";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2 / state.viewZoom;
   ctx.beginPath();
   ctx.arc(handle.pos.x, handle.pos.y, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 11px system-ui";
+  ctx.font = `bold ${11 / state.viewZoom}px system-ui`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(handle.label, handle.pos.x, handle.pos.y);
@@ -230,6 +266,7 @@ function updateValues() {
     {
       layout: state.layout,
       preset: state.preset,
+      view: { zoom: state.viewZoom, pan: [state.viewPanX, state.viewPanY] },
     },
     null,
     2,
@@ -237,11 +274,13 @@ function updateValues() {
 }
 
 function pickHandle(x, y) {
+  const world = screenToWorld(x, y);
+  const pickRadius = 18 / state.viewZoom;
   let best = null;
   let bestDist = Infinity;
   for (const handle of state.handles) {
-    const d = Math.hypot(handle.pos.x - x, handle.pos.y - y);
-    if (d <= 18 && d < bestDist) {
+    const d = Math.hypot(handle.pos.x - world.x, handle.pos.y - world.y);
+    if (d <= pickRadius && d < bestDist) {
       best = handle;
       bestDist = d;
     }
@@ -259,14 +298,15 @@ function pointerPos(evt) {
   };
 }
 
-function moveActiveHandle(x, y) {
+function moveActiveHandle(screenX, screenY) {
   if (!state.active) return;
+  const world = screenToWorld(screenX, screenY);
   const { bobY, tilt } = getMotion();
   if (state.active.kind === "layout") {
-    const tex = canvasToTexture(x, y, bobY, tilt);
+    const tex = canvasToTexture(world.x, world.y, bobY, tilt);
     state.layout[state.active.key] = [round(tex.x), round(tex.y)];
   } else {
-    const display = canvasToDisplay(x, y, bobY, tilt);
+    const display = canvasToDisplay(world.x, world.y, bobY, tilt);
     state.preset[state.active.key] = [round(display.x, 2), round(display.y, 2)];
   }
   rebuildHandles();
@@ -277,6 +317,18 @@ function round(v, places = 0) {
   const m = 10 ** places;
   return Math.round(v * m) / m;
 }
+
+canvas.addEventListener(
+  "wheel",
+  (evt) => {
+    evt.preventDefault();
+    const pos = pointerPos(evt);
+    const factor = evt.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+    zoomAt(pos.x, pos.y, factor);
+    drawCharacter();
+  },
+  { passive: false },
+);
 
 canvas.addEventListener("pointerdown", (evt) => {
   const pos = pointerPos(evt);
@@ -316,11 +368,15 @@ async function loadAll() {
   state.bodyW = bodyImg.width;
   state.bodyH = bodyImg.height;
   state.layout = layout;
+  if (!state.layout.body_offset_px) {
+    state.layout.body_offset_px = [0, 0];
+  }
   state.preset = preset;
   state.footY = -DISPLAY_HEIGHT * 0.5;
   rebuildHandles();
   updateValues();
-  setStatus("Drag handles, then click Save.");
+  updateZoomLabel();
+  setStatus("Drag handles, scroll to zoom, then Save.");
 }
 
 async function saveAll() {
@@ -356,7 +412,22 @@ document.getElementById("walkBtn").addEventListener("click", () => {
   state.walking = !state.walking;
   if (!state.walking) state.walkPhase = 0;
   rebuildHandles();
-  setStatus(state.walking ? "Walk preview ON (← → style bob)" : "Walk preview OFF");
+  setStatus(state.walking ? "Walk preview ON" : "Walk preview OFF");
+});
+
+document.getElementById("zoomInBtn").addEventListener("click", () => {
+  zoomAt(canvas.width * 0.5, canvas.height * 0.5, ZOOM_STEP);
+  drawCharacter();
+});
+
+document.getElementById("zoomOutBtn").addEventListener("click", () => {
+  zoomAt(canvas.width * 0.5, canvas.height * 0.5, 1 / ZOOM_STEP);
+  drawCharacter();
+});
+
+document.getElementById("zoomResetBtn").addEventListener("click", () => {
+  resetZoom();
+  drawCharacter();
 });
 
 loadAll()

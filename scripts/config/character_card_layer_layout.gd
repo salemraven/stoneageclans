@@ -12,3 +12,6 @@ class_name CharacterCardLayerLayout
 
 ## Head pivot on the head texture (pixels from image top-left). Usually bottom-center of the head.
 @export var head_pivot_px: Vector2 = Vector2(153.0, 345.0)
+
+## Nudge body layer in card texture pixels (from centered origin).
+@export var body_offset_px: Vector2 = Vector2.ZERO

@@ -41,12 +41,14 @@ def load_layout() -> dict:
         "head_texture_path": "res://assets/character_cards/head1.png",
         "body_neck_socket_px": _vec2_from_tres(text, "body_neck_socket_px", [176.0, 24.0]),
         "head_pivot_px": _vec2_from_tres(text, "head_pivot_px", [153.0, 345.0]),
+        "body_offset_px": _vec2_from_tres(text, "body_offset_px", [0.0, 0.0]),
     }
 
 
 def save_layout(data: dict) -> None:
     neck = data.get("body_neck_socket_px", [176.0, 24.0])
     pivot = data.get("head_pivot_px", [153.0, 345.0])
+    body_off = data.get("body_offset_px", [0.0, 0.0])
     text = _read_text(LAYOUT_TRES)
     if not text:
         text = """[gd_resource type="Resource" script_class="CharacterCardLayerLayout" load_steps=2 format=3]
@@ -71,6 +73,14 @@ head_pivot_px = Vector2(153, 345)
         f"head_pivot_px = Vector2({pivot[0]}, {pivot[1]})",
         text,
     )
+    if "body_offset_px" in text:
+        text = re.sub(
+            r"body_offset_px\s*=\s*Vector2\([^)]+\)",
+            f"body_offset_px = Vector2({body_off[0]}, {body_off[1]})",
+            text,
+        )
+    else:
+        text = text.rstrip() + f"\nbody_offset_px = Vector2({body_off[0]}, {body_off[1]})\n"
     LAYOUT_TRES.write_text(text, encoding="utf-8")
 
 
