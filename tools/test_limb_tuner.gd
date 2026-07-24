@@ -129,8 +129,10 @@ func _test_limb_tuner_scene() -> void:
 		_fail("ValuesScroll missing")
 	if legend == null:
 		_fail("CanvasLegend missing")
-	if rig.weapon_overlay != null and rig.weapon_overlay.visible:
-		_fail("default weapon None should hide overlay")
+	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
+		_fail("club WeaponOverlay should be visible on startup (default weapon)")
+	elif rig.weapon_overlay.texture == null:
+		_fail("club WeaponOverlay texture missing on startup")
 	var handle_stage: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage") as Node2D
 	if handle_stage == null:
 		_fail("HandleStage missing")
@@ -138,16 +140,9 @@ func _test_limb_tuner_scene() -> void:
 	if shoulder == null:
 		_fail("ShoulderHandle missing on HandleStage")
 	elif shoulder.global_position.distance_to(handle_stage.global_position) < 8.0:
-		_fail("shoulder handle still at stage center after startup")
-	if weapon_option:
-		weapon_option.select(1)
-		weapon_option.item_selected.emit(1)
-	for _i in range(6):
-		await process_frame
-	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
-		_fail("club WeaponOverlay should be visible after selecting Club")
-	elif rig.weapon_overlay.texture == null:
-		_fail("club WeaponOverlay texture missing after selecting Club")
+		_fail("shoulder handle still at stage center after startup (expected club preset)")
+	if weapon_option and weapon_option.selected != 1:
+		_fail("weapon dropdown should default to Club (index 1), got %d" % weapon_option.selected)
 	var stage: Node2D = app.get_node("World/Stage") as Node2D
 	if stage.scale.x < 3.5:
 		_fail("expected stage_scale >= 4.0 for tuner zoom, got %s" % str(stage.scale.x))

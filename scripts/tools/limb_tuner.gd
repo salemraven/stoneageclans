@@ -32,10 +32,12 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _card_preview_check: CheckBox = $UI/Panel/VBox/UtilityRow/CardPreviewCheck
 
 @export var stage_scale: float = 4.0
+## Weapon loaded on open (uses matching .tres under assets/limb_presets/).
+@export var default_weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.WOOD
 
 var _mode: AppMode = AppMode.ASSEMBLE
 var _anim_mode: AnimMode = AnimMode.IDLE
-var _selected_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+var _selected_weapon: ResourceData.ResourceType = ResourceData.ResourceType.WOOD
 var _preset: WeaponLimbPreset
 var _shoulder_handle: LimbTunerHandle
 var _hand_handle: LimbTunerHandle
@@ -66,6 +68,7 @@ const SNAP_GRID_PX := 4.0
 
 
 func _ready() -> void:
+	_selected_weapon = default_weapon_type
 	_ensure_weapon_ready_action()
 	process_priority = 1
 	_apply_ui_theme()
@@ -151,7 +154,7 @@ func _setup_dropdowns() -> void:
 		_weapon_option.clear()
 		for i in WEAPON_MENU.size():
 			_weapon_option.add_item(WEAPON_MENU[i]["label"] as String, i)
-		_weapon_option.select(0)
+		_sync_weapon_dropdown()
 		_weapon_option.item_selected.connect(_on_weapon_selected)
 
 

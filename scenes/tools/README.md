@@ -31,6 +31,8 @@ SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_limb_
 
 UI title on disk: **Character Animation Tuner**
 
+**Startup:** opens on **Club** + **Idle**, loading `assets/limb_presets/club_clansmen_1.tres` so handles are not piled at the origin. Change **default_weapon_type** on the scene root if you want a different preset on open.
+
 ## Saves
 
 - **Limb presets** → `assets/limb_presets/*.tres` (`WeaponLimbPreset`, via `LimbPresetRegistry`)
