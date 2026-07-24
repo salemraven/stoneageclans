@@ -38,6 +38,23 @@ UI title on disk: **Character Animation Tuner**
 - **Limb presets** → `assets/limb_presets/*.tres` (`WeaponLimbPreset`, via `LimbPresetRegistry`)
 - **Body/head placement** → `assets/character_cards/layered_blank_1.tres` (`CharacterCardLayerLayout`)
 
+### Club idle baseline (2026-07-24)
+
+Tuned in web card tuner, saved to `assets/limb_presets/club_clansmen_1.tres`. **Animation: Idle · Weapon: Club.**
+
+| Field | Value |
+|-------|-------|
+| `shoulder_offset_px` | (129.46, -163.65) |
+| `support_shoulder_offset_px` | (-89.88, -167.77) |
+| `overlay_offset_idle_px` / club grip | (282.21, -140.25) |
+| `hand_grip_offset_px` | (0, 0) — grip anchored to overlay |
+| `support_hand_idle_offset_px` | (-36.89, 66.31) |
+| `weapon_elbow_pole_idle_px` | (215.05, -177.01) |
+| `support_elbow_pole_idle_px` | (-124.93, -51.6) |
+| `upper_arm_length` / `lower_arm_length` | 120 / 120 |
+
+Godot LimbTuner and the game load this file at runtime for club + idle.
+
 Scale/coordinate space matches in-game card display height (128px); the tuner uses a **mannequin** (layered body + head sprites), not `clansmen_card*.png` art.
 
 ## Controls (summary)

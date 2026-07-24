@@ -5,14 +5,14 @@
 [resource]
 script = ExtResource("1_club")
 weapon_type = 1
-shoulder_offset_px = Vector2(148.00996, -168.06)
-hand_grip_offset_px = Vector2(-769.12134, 41.480286)
-hand_grip_ready_offset_px = Vector2(0, 82)
-support_shoulder_offset_px = Vector2(-92.150024, -180.41997)
-support_hand_idle_offset_px = Vector2(-129.03075, 43.56396)
-overlay_offset_idle_px = Vector2(287.38, -7.9999995)
-ready_offset_px = Vector2(287.38, -8)
+shoulder_offset_px = Vector2(129.46, -163.65)
+hand_grip_offset_px = Vector2(0, 0)
+hand_grip_ready_offset_px = Vector2(282.21, -140.25)
+support_shoulder_offset_px = Vector2(-89.88, -167.77)
+support_hand_idle_offset_px = Vector2(-36.89, 66.31)
+overlay_offset_idle_px = Vector2(282.21, -140.25)
+ready_offset_px = Vector2(282.21, -140.25)
 upper_arm_length = 120.0
 lower_arm_length = 120.0
-weapon_elbow_pole_idle_px = Vector2(234.65732, -74.20975)
-support_elbow_pole_idle_px = Vector2(-124.338524, -56.809536)
+weapon_elbow_pole_idle_px = Vector2(215.05, -177.01)
+support_elbow_pole_idle_px = Vector2(-124.93, -51.6)
