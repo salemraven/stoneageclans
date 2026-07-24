@@ -110,6 +110,8 @@ func get_overlay_offset_idle_px(weapon_type: ResourceData.ResourceType) -> Vecto
 
 func _weapon_slug(weapon_type: ResourceData.ResourceType) -> String:
 	match weapon_type:
+		ResourceData.ResourceType.NONE:
+			return "none"
 		ResourceData.ResourceType.SPEAR:
 			return "spear"
 		ResourceData.ResourceType.WOOD:

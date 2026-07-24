@@ -3,6 +3,8 @@ class_name WeaponLimbPreset
 
 ## Saved limb + weapon placement for one body card + weapon combo (display pixels, pre-scale).
 
+enum TunerAnimMode { IDLE, WALK, ATTACK }
+
 @export var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
 @export var body_card_id: String = "clansmen_1"
 @export var body_card_index: int = 1
@@ -25,6 +27,13 @@ class_name WeaponLimbPreset
 ## Spear overlay idle placement (offset from body sprite origin, pre-flip display px).
 @export var overlay_offset_idle_px: Vector2 = Vector2(22.0, -34.0)
 @export var idle_rotation_deg: float = 0.0
+
+## Walk animation arm + overlay snapshot (tuner). Zero = fall back to idle fields on load.
+@export var walk_hand_grip_offset_px: Vector2 = Vector2.ZERO
+@export var walk_support_hand_offset_px: Vector2 = Vector2.ZERO
+@export var walk_overlay_offset_px: Vector2 = Vector2.ZERO
+@export var walk_weapon_elbow_pole_px: Vector2 = Vector2.ZERO
+@export var walk_support_elbow_pole_px: Vector2 = Vector2.ZERO
 
 ## Spear overlay ready placement (combat profile overrides).
 @export var ready_offset_px: Vector2 = Vector2(8.0, 6.0)
@@ -54,6 +63,14 @@ const SUPPORT_ELBOW_BEND_SIGN := 1.0
 @export var support_elbow_pole_idle_px: Vector2 = Vector2.ZERO
 @export var support_elbow_pole_ready_px: Vector2 = Vector2.ZERO
 
+## Tuner: 0 = elbow follows facing. ±1 = forced bend side (click 1e/2e to flip).
+@export var weapon_elbow_bend_sign_override: float = 0.0
+@export var support_elbow_bend_sign_override: float = 0.0
+@export var walk_weapon_elbow_bend_sign_override: float = 0.0
+@export var walk_support_elbow_bend_sign_override: float = 0.0
+@export var weapon_elbow_bend_sign_ready_override: float = 0.0
+@export var support_elbow_bend_sign_ready_override: float = 0.0
+
 ## Legacy — no longer used; presets are always 1:1 game display px. Kept for old .tres files.
 @export var tuner_stage_scale: float = 1.0
 
@@ -68,6 +85,15 @@ func resolve_elbow_pole_px(dominant: bool, ready_pose: bool) -> Vector2:
 	return support_elbow_pole_ready_px if ready_pose else support_elbow_pole_idle_px
 
 
+func resolve_elbow_pole_for_mode(dominant: bool, mode: TunerAnimMode) -> Vector2:
+	if mode == TunerAnimMode.WALK:
+		var walk_pole := walk_weapon_elbow_pole_px if dominant else walk_support_elbow_pole_px
+		if walk_pole.length_squared() > 0.0001:
+			return walk_pole
+		return resolve_elbow_pole_px(dominant, false)
+	return resolve_elbow_pole_px(dominant, mode == TunerAnimMode.ATTACK)
+
+
 func set_elbow_pole_px(dominant: bool, ready_pose: bool, display_px: Vector2) -> void:
 	if dominant:
 		if ready_pose:
@@ -79,6 +105,143 @@ func set_elbow_pole_px(dominant: bool, ready_pose: bool, display_px: Vector2) ->
 			support_elbow_pole_ready_px = display_px
 		else:
 			support_elbow_pole_idle_px = display_px
+
+
+func set_elbow_pole_for_mode(dominant: bool, mode: TunerAnimMode, display_px: Vector2) -> void:
+	if mode == TunerAnimMode.WALK:
+		if dominant:
+			walk_weapon_elbow_pole_px = display_px
+		else:
+			walk_support_elbow_pole_px = display_px
+		return
+	set_elbow_pole_px(dominant, mode == TunerAnimMode.ATTACK, display_px)
+
+
+func resolve_elbow_bend_sign_override(dominant: bool, mode: TunerAnimMode) -> float:
+	if mode == TunerAnimMode.WALK:
+		return walk_weapon_elbow_bend_sign_override if dominant else walk_support_elbow_bend_sign_override
+	if mode == TunerAnimMode.ATTACK:
+		return weapon_elbow_bend_sign_ready_override if dominant else support_elbow_bend_sign_ready_override
+	return weapon_elbow_bend_sign_override if dominant else support_elbow_bend_sign_override
+
+
+func set_elbow_bend_sign_override(dominant: bool, mode: TunerAnimMode, sign: float) -> void:
+	var forced := 0.0 if absf(sign) < 0.001 else signf(sign)
+	if mode == TunerAnimMode.WALK:
+		if dominant:
+			walk_weapon_elbow_bend_sign_override = forced
+		else:
+			walk_support_elbow_bend_sign_override = forced
+	elif mode == TunerAnimMode.ATTACK:
+		if dominant:
+			weapon_elbow_bend_sign_ready_override = forced
+		else:
+			support_elbow_bend_sign_ready_override = forced
+	elif dominant:
+		weapon_elbow_bend_sign_override = forced
+	else:
+		support_elbow_bend_sign_override = forced
+
+
+func resolve_elbow_bend_sign(dominant: bool, mode: TunerAnimMode, auto_from_facing: float) -> float:
+	var override := resolve_elbow_bend_sign_override(dominant, mode)
+	if absf(override) > 0.001:
+		return signf(override)
+	return auto_from_facing
+
+
+func toggle_elbow_bend_sign(dominant: bool, mode: TunerAnimMode, auto_from_facing: float) -> float:
+	var current := resolve_elbow_bend_sign(dominant, mode, auto_from_facing)
+	var flipped := -current
+	set_elbow_bend_sign_override(dominant, mode, flipped)
+	return flipped
+
+
+func resolve_hand_grip_for_mode(mode: TunerAnimMode) -> Vector2:
+	match mode:
+		TunerAnimMode.WALK:
+			if walk_hand_grip_offset_px.length_squared() > 0.0001:
+				return walk_hand_grip_offset_px
+			return hand_grip_offset_px
+		TunerAnimMode.ATTACK:
+			return resolve_hand_grip_ready_px()
+		_:
+			return hand_grip_offset_px
+
+
+func set_hand_grip_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
+	match mode:
+		TunerAnimMode.WALK:
+			walk_hand_grip_offset_px = display_px
+		TunerAnimMode.ATTACK:
+			hand_grip_ready_offset_px = display_px
+		_:
+			hand_grip_offset_px = display_px
+
+
+func resolve_support_hand_for_mode(mode: TunerAnimMode) -> Vector2:
+	if mode == TunerAnimMode.ATTACK and uses_two_hand_grip(weapon_type):
+		return support_hand_offset_px
+	if mode == TunerAnimMode.WALK:
+		if walk_support_hand_offset_px.length_squared() > 0.0001:
+			return walk_support_hand_offset_px
+		return support_hand_idle_offset_px
+	return support_hand_idle_offset_px
+
+
+func set_support_hand_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
+	if mode == TunerAnimMode.ATTACK and uses_two_hand_grip(weapon_type):
+		support_hand_offset_px = display_px
+	elif mode == TunerAnimMode.WALK:
+		walk_support_hand_offset_px = display_px
+	else:
+		support_hand_idle_offset_px = display_px
+
+
+func resolve_overlay_for_mode(mode: TunerAnimMode) -> Vector2:
+	match mode:
+		TunerAnimMode.WALK:
+			if walk_overlay_offset_px.length_squared() > 0.0001:
+				return walk_overlay_offset_px
+			return overlay_offset_idle_px
+		TunerAnimMode.ATTACK:
+			return ready_offset_px
+		_:
+			return overlay_offset_idle_px
+
+
+func set_overlay_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
+	match mode:
+		TunerAnimMode.WALK:
+			walk_overlay_offset_px = display_px
+		TunerAnimMode.ATTACK:
+			ready_offset_px = display_px
+		_:
+			overlay_offset_idle_px = display_px
+
+
+func seed_walk_from_idle_if_unset() -> void:
+	if walk_hand_grip_offset_px.length_squared() < 0.0001:
+		walk_hand_grip_offset_px = hand_grip_offset_px
+	if walk_support_hand_offset_px.length_squared() < 0.0001:
+		walk_support_hand_offset_px = support_hand_idle_offset_px
+	if walk_overlay_offset_px.length_squared() < 0.0001:
+		walk_overlay_offset_px = overlay_offset_idle_px
+	if walk_weapon_elbow_pole_px.length_squared() < 0.0001:
+		walk_weapon_elbow_pole_px = weapon_elbow_pole_idle_px
+	if walk_support_elbow_pole_px.length_squared() < 0.0001:
+		walk_support_elbow_pole_px = support_elbow_pole_idle_px
+
+
+func seed_attack_from_idle_if_unset() -> void:
+	if hand_grip_ready_offset_px.length_squared() < 0.0001:
+		hand_grip_ready_offset_px = Vector2(0.0, 95.0)
+	if weapon_elbow_pole_ready_px.length_squared() < 0.0001:
+		weapon_elbow_pole_ready_px = weapon_elbow_pole_idle_px
+	if support_elbow_pole_ready_px.length_squared() < 0.0001:
+		support_elbow_pole_ready_px = support_elbow_pole_idle_px
+	if ready_offset_px.length_squared() < 0.0001:
+		ready_offset_px = overlay_offset_idle_px
 
 
 static func compute_auto_elbow_pole_px(
@@ -186,6 +349,11 @@ func to_export_dict() -> Dictionary:
 		"support_hand_offset_px": support_hand_offset_px,
 		"overlay_offset_idle_px": overlay_offset_idle_px,
 		"idle_rotation_deg": idle_rotation_deg,
+		"walk_hand_grip_offset_px": walk_hand_grip_offset_px,
+		"walk_support_hand_offset_px": walk_support_hand_offset_px,
+		"walk_overlay_offset_px": walk_overlay_offset_px,
+		"walk_weapon_elbow_pole_px": walk_weapon_elbow_pole_px,
+		"walk_support_elbow_pole_px": walk_support_elbow_pole_px,
 		"ready_offset_px": ready_offset_px,
 		"ready_forward_px": ready_forward_px,
 		"upper_arm_length": upper_arm_length,
@@ -199,6 +367,12 @@ func to_export_dict() -> Dictionary:
 		"weapon_elbow_pole_ready_px": weapon_elbow_pole_ready_px,
 		"support_elbow_pole_idle_px": support_elbow_pole_idle_px,
 		"support_elbow_pole_ready_px": support_elbow_pole_ready_px,
+		"weapon_elbow_bend_sign_override": weapon_elbow_bend_sign_override,
+		"support_elbow_bend_sign_override": support_elbow_bend_sign_override,
+		"walk_weapon_elbow_bend_sign_override": walk_weapon_elbow_bend_sign_override,
+		"walk_support_elbow_bend_sign_override": walk_support_elbow_bend_sign_override,
+		"weapon_elbow_bend_sign_ready_override": weapon_elbow_bend_sign_ready_override,
+		"support_elbow_bend_sign_ready_override": support_elbow_bend_sign_ready_override,
 		"tuner_stage_scale": tuner_stage_scale,
 	}
 
@@ -209,7 +383,10 @@ static func defaults_for(weapon_type: ResourceData.ResourceType, body_index: int
 	p.body_card_id = "clansmen_%d" % body_index
 	p.body_card_index = body_index
 	var registry = PlaceholderCardRegistry.new()
-	if registry.TOOL_OVERLAY_OFFSET_PX.has(weapon_type):
+	if weapon_type == ResourceData.ResourceType.NONE:
+		p.hand_grip_offset_px = Vector2(24.0, 8.0)
+		p.support_hand_idle_offset_px = Vector2(-12.0, 30.0)
+	elif registry.TOOL_OVERLAY_OFFSET_PX.has(weapon_type):
 		p.overlay_offset_idle_px = registry.get_tool_overlay_offset_px(weapon_type)
 	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
 	if profile.has("ready_offset_px"):

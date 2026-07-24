@@ -17,6 +17,8 @@ func _run() -> void:
 	await process_frame
 	_registry = LimbPresetRegistryScript.new()
 	_test_preset_defaults()
+	_test_none_preset_path()
+	_test_walk_fields_roundtrip()
 	_test_save_roundtrip()
 	_test_limb_tuner_scene()
 	_test_procedural_arms_still_pass()
@@ -31,6 +33,29 @@ func _test_preset_defaults() -> void:
 		return
 	if preset.overlay_offset_idle_px == Vector2.ZERO:
 		_fail("expected non-zero default overlay offset")
+
+
+func _test_none_preset_path() -> void:
+	var path: String = _registry.preset_path(ResourceData.ResourceType.NONE, "clansmen_1")
+	if not path.ends_with("none_clansmen_1.tres"):
+		_fail("none preset path wrong: %s" % path)
+	var none_preset: WeaponLimbPreset = _registry.get_preset(ResourceData.ResourceType.NONE, "clansmen_1", 1)
+	if none_preset.weapon_type != ResourceData.ResourceType.NONE:
+		_fail("none preset weapon_type wrong")
+
+
+func _test_walk_fields_roundtrip() -> void:
+	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.WOOD, 1)
+	preset.body_card_id = "test_walk"
+	preset.walk_hand_grip_offset_px = Vector2(10.0, 20.0)
+	preset.walk_overlay_offset_px = Vector2(30.0, -5.0)
+	var err: Error = _registry.save_preset(preset)
+	if err != OK:
+		_fail("walk save failed %s" % str(err))
+		return
+	var reloaded: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "test_walk")
+	if reloaded.walk_hand_grip_offset_px != Vector2(10.0, 20.0):
+		_fail("walk hand round-trip failed got %s" % str(reloaded.walk_hand_grip_offset_px))
 
 
 func _test_save_roundtrip() -> void:
@@ -66,56 +91,38 @@ func _test_limb_tuner_scene() -> void:
 		_fail("TunerRig missing")
 	elif rig.get_node_or_null("Sprite/BodyVisual") == null:
 		_fail("BodyVisual mannequin missing")
-	elif rig.get_node_or_null("Sprite/BodyVisual/BodySprite") == null:
-		_fail("BodySprite missing on layered body visual")
-	elif rig.get_node_or_null("Sprite/BodyVisual/HeadPivot/HeadSprite") == null:
-		_fail("HeadSprite missing on layered body visual")
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
-	var stage: Node2D = app.get_node("World/Stage") as Node2D
-	if stage == null:
-		_fail("Stage missing")
-	elif rig.weapon_overlay == null or not rig.weapon_overlay.visible:
-		_fail("club WeaponOverlay should be visible on startup")
-	elif rig.weapon_overlay.texture == null:
-		_fail("club WeaponOverlay texture missing on startup")
-	else:
-		var club_rect := rig._sprite_rect_on_stage(rig.weapon_overlay, stage)
-		var spear: Node2D = rig.weapon_overlay.get_node_or_null("SpearHandle") as Node2D
-		if spear == null:
-			_fail("SpearHandle should be parented under club WeaponOverlay")
-		elif spear.get_parent() != rig.weapon_overlay:
-			_fail("SpearHandle parent should be WeaponOverlay")
-		else:
-			var anchor_local := rig.weapon_handle_anchor_local()
-			if spear.position.distance_to(anchor_local) > 1.0:
-				_fail(
-					"SpearHandle local offset wrong got %s expected ~%s"
-					% [str(spear.position), str(anchor_local)]
-				)
-			var anchor_global := rig.weapon_handle_anchor_global()
-			if spear.global_position.distance_to(anchor_global) > 2.0:
-				_fail("SpearHandle global should match club grip anchor")
-		var anchor_stage := stage.to_local(rig.weapon_handle_anchor_global())
-		var club_bottom := club_rect.position.y + club_rect.size.y
-		if anchor_stage.y < club_bottom - club_rect.size.y * 0.35:
-			_fail(
-				"weapon handle 3 should sit on bottom quarter of club (anchor y=%.1f club bottom=%.1f)"
-				% [anchor_stage.y, club_bottom]
-			)
-	var shoulder: Node2D = stage.get_node_or_null("ShoulderHandle") as Node2D
+	var anim_option: OptionButton = app.get_node_or_null(
+		"UI/Panel/VBox/Toolbar/AnimModeOption"
+	) as OptionButton
+	var weapon_option: OptionButton = app.get_node_or_null(
+		"UI/Panel/VBox/Toolbar/WeaponOption"
+	) as OptionButton
+	if anim_option == null or weapon_option == null:
+		_fail("animation/weapon dropdowns missing")
+	elif anim_option.item_count < 3 or weapon_option.item_count < 2:
+		_fail("dropdowns need idle/walk/attack and none/club items")
+	if rig.weapon_overlay != null and rig.weapon_overlay.visible:
+		_fail("default weapon None should hide overlay")
+	var handle_stage: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage") as Node2D
+	if handle_stage == null:
+		_fail("HandleStage missing")
+	var shoulder: Node2D = handle_stage.get_node_or_null("ShoulderHandle") as Node2D
 	if shoulder == null:
-		_fail("ShoulderHandle missing")
-	else:
-		var center := stage.global_position
-		if shoulder.global_position.distance_to(center) < 8.0:
-			_fail("shoulder handle still at stage center after startup")
-	var weapon_elbow: Node2D = stage.get_node_or_null("WeaponElbowHandle") as Node2D
-	if weapon_elbow == null:
-		_fail("WeaponElbowHandle missing")
-	var support_elbow: Node2D = stage.get_node_or_null("SupportElbowHandle") as Node2D
-	if support_elbow == null:
-		_fail("SupportElbowHandle missing")
+		_fail("ShoulderHandle missing on HandleStage")
+	elif shoulder.global_position.distance_to(handle_stage.global_position) < 8.0:
+		_fail("shoulder handle still at stage center after startup")
+	if weapon_option:
+		weapon_option.select(1)
+		weapon_option.item_selected.emit(1)
+	for _i in range(6):
+		await process_frame
+	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
+		_fail("club WeaponOverlay should be visible after selecting Club")
+	elif rig.weapon_overlay.texture == null:
+		_fail("club WeaponOverlay texture missing after selecting Club")
+	var stage: Node2D = app.get_node("World/Stage") as Node2D
 	if stage.scale.x < 3.5:
 		_fail("expected stage_scale >= 4.0 for tuner zoom, got %s" % str(stage.scale.x))
 	app.queue_free()

@@ -85,29 +85,27 @@ text = "Mode: ASSEMBLE | Pose: IDLE"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Layered body1 + head1 art. Drag handles, Save, Refresh after art swaps.\nH = head | 1 = shoulder | 1h + 3 = hand/grip (stacked on club) | 1e = elbow | 2 / 2h / 2e = off arm\nToggle walk / attack. Shift = ready | Shift+click = strike."
+text = "Pick animation + weapon at top. Each combo saves its own arm pose.\nH = head | 1 = shoulder | 1h + 3 = hand/grip | 1e / 2e = elbow (click to flip bend side) | 2 / 2h = off arm\nWalk: arrow keys change direction. Attack: auto swing. Shift = ready preview."
 
-[node name="PreviewButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
+[node name="Toolbar" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="AnimLabel" type="Label" parent="UI/Panel/VBox/Toolbar"]
+layout_mode = 2
+text = "Animation:"
+
+[node name="AnimModeOption" type="OptionButton" parent="UI/Panel/VBox/Toolbar"]
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 
-[node name="WalkToggleBtn" type="Button" parent="UI/Panel/VBox/PreviewButtons"]
+[node name="WeaponLabel" type="Label" parent="UI/Panel/VBox/Toolbar"]
 layout_mode = 2
-text = "Toggle walk"
+text = "Weapon:"
 
-[node name="AttackToggleBtn" type="Button" parent="UI/Panel/VBox/PreviewButtons"]
+[node name="WeaponOption" type="OptionButton" parent="UI/Panel/VBox/Toolbar"]
+custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
-text = "Toggle attack"
-
-[node name="PoseTabs" type="HBoxContainer" parent="UI/Panel/VBox"]
-layout_mode = 2
-
-[node name="IdleTab" type="Button" parent="UI/Panel/VBox/PoseTabs"]
-layout_mode = 2
-text = "Idle tab"
-
-[node name="ReadyTab" type="Button" parent="UI/Panel/VBox/PoseTabs"]
-layout_mode = 2
-text = "Ready tab"
 
 [node name="Buttons" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2

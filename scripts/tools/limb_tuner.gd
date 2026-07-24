@@ -2,7 +2,12 @@ extends Control
 class_name LimbTunerApp
 
 enum AppMode { ASSEMBLE, LOCKED, TEST }
-enum PoseTab { IDLE, READY }
+
+const AnimMode = WeaponLimbPreset.TunerAnimMode
+const WEAPON_MENU: Array[Dictionary] = [
+	{"label": "None", "type": ResourceData.ResourceType.NONE},
+	{"label": "Club", "type": ResourceData.ResourceType.WOOD},
+]
 
 const LimbTunerHandleScript = preload("res://scripts/tools/limb_tuner_handle.gd")
 const LimbTunerRigScript = preload("res://scripts/tools/limb_tuner_rig.gd")
@@ -13,21 +18,19 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _rig: LimbTunerRig = $World/Stage/TunerRig
 @onready var _handle_stage: Node2D = $World/HandleLayer/HandleStage
 @onready var _mode_label: Label = $UI/Panel/VBox/ModeLabel
-@onready var _pose_tab_idle: Button = $UI/Panel/VBox/PoseTabs/IdleTab
-@onready var _pose_tab_ready: Button = $UI/Panel/VBox/PoseTabs/ReadyTab
+@onready var _anim_mode_option: OptionButton = $UI/Panel/VBox/Toolbar/AnimModeOption
+@onready var _weapon_option: OptionButton = $UI/Panel/VBox/Toolbar/WeaponOption
 @onready var _values_label: Label = $UI/Panel/VBox/ValuesLabel
 @onready var _export_label: Label = $UI/Panel/VBox/ExportLabel
 @onready var _status_label: Label = $UI/Panel/VBox/StatusLabel
-@onready var _walk_toggle_btn: Button = $UI/Panel/VBox/PreviewButtons/WalkToggleBtn
-@onready var _attack_toggle_btn: Button = $UI/Panel/VBox/PreviewButtons/AttackToggleBtn
 @onready var _upper_arm_length_spin: SpinBox = $UI/Panel/VBox/ArmLengthRow/UpperArmLengthSpin
 @onready var _lower_arm_length_spin: SpinBox = $UI/Panel/VBox/ArmLengthRow/LowerArmLengthSpin
 
 @export var stage_scale: float = 4.0
-@export var tuning_weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.WOOD
 
 var _mode: AppMode = AppMode.ASSEMBLE
-var _pose_tab: PoseTab = PoseTab.IDLE
+var _anim_mode: AnimMode = AnimMode.IDLE
+var _selected_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 var _preset: WeaponLimbPreset
 var _shoulder_handle: LimbTunerHandle
 var _hand_handle: LimbTunerHandle
@@ -40,33 +43,27 @@ var _head_handle: LimbTunerHandle
 const HANDLE_RADIUS := 6.0
 const HAND_HANDLE_RADIUS := 9.0
 const HAND_PICK_EXTRA := 16.0
+const ELBOW_CLICK_MAX_PX := 12.0
 const HANDLE_Z_INDEX := 64
 
 var _dragging_spear: bool = false
 var _active_drag_handle: LimbTunerHandle = null
+var _drag_start_global: Vector2 = Vector2.ZERO
 var _spear_grab_offset: Vector2 = Vector2.ZERO
-var _walk_preview_toggle: bool = false
-var _attack_preview_toggle: bool = false
 var _syncing_arm_length_ui: bool = false
+var _syncing_dropdown_ui: bool = false
 
 
 func _ready() -> void:
 	_ensure_weapon_ready_action()
 	process_priority = 1
 	_apply_ui_theme()
+	_setup_dropdowns()
 	_setup_arm_length_fields()
 	_spawn_handles()
 	call_deferred("_finish_startup")
-	if _pose_tab_idle:
-		_pose_tab_idle.pressed.connect(func() -> void: _set_pose_tab(PoseTab.IDLE))
-	if _pose_tab_ready:
-		_pose_tab_ready.pressed.connect(func() -> void: _set_pose_tab(PoseTab.READY))
 	if _status_label:
-		_status_label.text = "Assemble: drag handles. Toggle walk/attack or Shift+click for one strike."
-	if _walk_toggle_btn:
-		_walk_toggle_btn.pressed.connect(_on_walk_toggle_pressed)
-	if _attack_toggle_btn:
-		_attack_toggle_btn.pressed.connect(_on_attack_toggle_pressed)
+		_status_label.text = "Pick animation + weapon, drag handles, Save."
 	var assemble_btn: Button = $UI/Panel/VBox/Buttons/AssembleBtn
 	var lock_btn: Button = $UI/Panel/VBox/Buttons/LockBtn
 	var test_btn: Button = $UI/Panel/VBox/Buttons/TestBtn
@@ -96,7 +93,7 @@ func _finish_startup() -> void:
 	_sync_handle_stage_transform()
 	_refresh_all_handle_radii()
 	if _rig:
-		_rig.weapon_type = tuning_weapon_type
+		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
 	_reload_all_from_disk()
 	if _rig and _rig.arm_controller:
@@ -104,9 +101,105 @@ func _finish_startup() -> void:
 		_rig.arm_controller.set_show_elbow_joints(false)
 		_rig.arm_controller.set_debug_draw(false)
 	_update_ui()
-	_update_preview_button_labels()
 	if _status_label:
-		_status_label.text = "Loaded %s preset. Tune idle + ready tabs, then Save." % _weapon_label()
+		_status_label.text = "Loaded %s / %s. Tune each combo, then Save." % [
+			_anim_mode_label(),
+			_weapon_label(),
+		]
+
+
+func _setup_dropdowns() -> void:
+	if _anim_mode_option:
+		_anim_mode_option.clear()
+		_anim_mode_option.add_item("Idle", AnimMode.IDLE)
+		_anim_mode_option.add_item("Walk", AnimMode.WALK)
+		_anim_mode_option.add_item("Attack", AnimMode.ATTACK)
+		_anim_mode_option.select(AnimMode.IDLE)
+		_anim_mode_option.item_selected.connect(_on_anim_mode_selected)
+	if _weapon_option:
+		_weapon_option.clear()
+		for i in WEAPON_MENU.size():
+			_weapon_option.add_item(WEAPON_MENU[i]["label"] as String, i)
+		_weapon_option.select(0)
+		_weapon_option.item_selected.connect(_on_weapon_selected)
+
+
+func _on_anim_mode_selected(index: int) -> void:
+	if _syncing_dropdown_ui:
+		return
+	_set_anim_mode(index as AnimMode)
+
+
+func _on_weapon_selected(index: int) -> void:
+	if _syncing_dropdown_ui or index < 0 or index >= WEAPON_MENU.size():
+		return
+	_set_weapon(WEAPON_MENU[index]["type"] as ResourceData.ResourceType)
+
+
+func _set_weapon(weapon_type: ResourceData.ResourceType) -> void:
+	if weapon_type == _selected_weapon:
+		return
+	if _mode == AppMode.ASSEMBLE and _preset != null:
+		_commit_anim_mode(_anim_mode)
+		LimbPresetRegistry.stage_preset(_preset)
+	_selected_weapon = weapon_type
+	_preset = LimbPresetRegistry.get_preset(_selected_weapon, "clansmen_1", 1)
+	if _rig:
+		_rig.weapon_type = _selected_weapon
+		_rig.refresh_weapon_overlay()
+	_refresh_rig_from_preset()
+	_sync_weapon_dropdown()
+	_update_weapon_handle_visibility()
+	if _status_label:
+		_status_label.text = "Weapon: %s — tuning %s pose." % [_weapon_label(), _anim_mode_label()]
+
+
+func _sync_anim_mode_dropdown() -> void:
+	if _anim_mode_option == null:
+		return
+	_syncing_dropdown_ui = true
+	_anim_mode_option.select(_anim_mode)
+	_syncing_dropdown_ui = false
+
+
+func _sync_weapon_dropdown() -> void:
+	if _weapon_option == null:
+		return
+	_syncing_dropdown_ui = true
+	for i in WEAPON_MENU.size():
+		if WEAPON_MENU[i]["type"] == _selected_weapon:
+			_weapon_option.select(i)
+			break
+	_syncing_dropdown_ui = false
+
+
+func _update_weapon_handle_visibility() -> void:
+	if _spear_handle == null:
+		return
+	var show_weapon := _rig != null and _rig.has_weapon_overlay()
+	_spear_handle.visible = show_weapon
+	if not show_weapon:
+		_spear_handle.set_draggable(false)
+	else:
+		_apply_handle_draggable()
+
+
+func _anim_mode_label() -> String:
+	match _anim_mode:
+		AnimMode.WALK:
+			return "Walk"
+		AnimMode.ATTACK:
+			return "Attack"
+		_:
+			return "Idle"
+
+
+func _is_walk_preview_active() -> bool:
+	return _anim_mode == AnimMode.WALK
+
+
+func _is_attack_preview_active() -> bool:
+	return _anim_mode == AnimMode.ATTACK
 
 
 func _notification(what: int) -> void:
@@ -175,6 +268,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
+			_drag_start_global = get_global_mouse_position()
 			_active_drag_handle = _pick_handle_at(get_global_mouse_position())
 			if _active_drag_handle != null:
 				if _active_drag_handle == _spear_handle and _rig.weapon_overlay:
@@ -183,12 +277,20 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 		else:
 			if _active_drag_handle != null:
-				_commit_all_poses_to_preset()
+				var elbow_click := (
+					_is_elbow_handle(_active_drag_handle)
+					and _drag_start_global.distance_to(get_global_mouse_position()) <= ELBOW_CLICK_MAX_PX
+				)
+				if elbow_click:
+					_flip_elbow_bend(_active_drag_handle == _weapon_elbow_handle)
+				else:
+					_commit_all_poses_to_preset()
 				_clear_elbow_drag_overrides()
 				get_viewport().set_input_as_handled()
 			_active_drag_handle = null
 			_dragging_spear = false
 			_spear_grab_offset = Vector2.ZERO
+			_drag_start_global = Vector2.ZERO
 	elif event is InputEventMouseMotion and _active_drag_handle != null:
 		_move_active_handle(get_global_mouse_position())
 		get_viewport().set_input_as_handled()
@@ -221,6 +323,41 @@ func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 
 func _is_hand_handle(handle: LimbTunerHandle) -> bool:
 	return handle == _hand_handle or handle == _support_hand_handle
+
+
+func _is_elbow_handle(handle: LimbTunerHandle) -> bool:
+	return handle == _weapon_elbow_handle or handle == _support_elbow_handle
+
+
+func _flip_elbow_bend(dominant: bool) -> void:
+	if _rig == null or _preset == null:
+		return
+	var auto_sign := _rig.elbow_bend_sign_auto_for_facing(dominant)
+	var new_sign := _preset.toggle_elbow_bend_sign(dominant, _anim_mode, auto_sign)
+	_preset.set_elbow_pole_for_mode(dominant, _anim_mode, Vector2.ZERO)
+	_sync_active_bend_signs_to_config()
+	_seed_one_elbow_pole(dominant, _anim_mode)
+	_lock_arm_lines_to_handles()
+	call_deferred("_sync_elbow_handles_from_arm_lines")
+	if _status_label:
+		var label := "1e" if dominant else "2e"
+		var side := "outward +" if new_sign > 0.0 else "outward -"
+		_status_label.text = "%s elbow flipped (%s) — saved with %s / %s." % [
+			label,
+			side,
+			_anim_mode_label(),
+			_weapon_label(),
+		]
+
+
+func _sync_active_bend_signs_to_config() -> void:
+	if _preset == null or _rig == null or _rig.arm_controller == null:
+		return
+	var cfg := _rig.arm_controller.config
+	if cfg == null:
+		return
+	cfg.weapon_elbow_bend_sign_active = _rig.resolve_elbow_bend_sign(_preset, true, _anim_mode)
+	cfg.support_elbow_bend_sign_active = _rig.resolve_elbow_bend_sign(_preset, false, _anim_mode)
 
 
 func _handle_pick_center_global(handle: LimbTunerHandle) -> Vector2:
@@ -435,18 +572,18 @@ func _sync_spear_handle() -> void:
 		_spear_handle.global_position = _rig.weapon_handle_anchor_global()
 
 
-func _sync_dominant_grip_stack(ready_grip: bool) -> void:
+func _sync_dominant_grip_stack(mode: AnimMode) -> void:
 	if _rig == null or _preset == null or not _rig.uses_weapon_grip_anchor_hand():
 		return
 	if _active_drag_handle == _hand_handle or _active_drag_handle == _spear_handle:
 		return
-	_rig.snap_hand_grip_to_weapon_anchor(_preset, ready_grip)
-	var grip_global := _rig.dominant_grip_global_from_preset(_preset, ready_grip)
+	_rig.snap_hand_grip_to_weapon_anchor(_preset, mode == AnimMode.ATTACK)
+	var grip_global := _rig.dominant_grip_global_from_preset(_preset, mode)
 	grip_global = _rig.clamp_hand_global_to_arm_reach(
 		_preset, _shoulder_handle.global_position, grip_global
 	)
-	_rig.align_weapon_overlay_to_hand_grip_global(_preset, grip_global, ready_grip)
-	grip_global = _rig.dominant_grip_global_from_preset(_preset, ready_grip)
+	_rig.align_weapon_overlay_to_hand_grip_global(_preset, grip_global, mode)
+	grip_global = _rig.dominant_grip_global_from_preset(_preset, mode)
 	_set_hand_handle_position(_hand_handle, grip_global)
 	_set_hand_handle_position(_spear_handle, grip_global)
 
@@ -472,6 +609,21 @@ func _process(_delta: float) -> void:
 		if _is_thrust_animating():
 			_sync_handles_from_live_arms()
 	_update_ui()
+	if _mode == AppMode.ASSEMBLE and _active_drag_handle == null:
+		call_deferred("_sync_elbow_handles_from_arm_lines")
+
+
+func _sync_elbow_handles_from_arm_lines() -> void:
+	if _rig == null or _rig.arm_controller == null or _active_drag_handle != null:
+		return
+	if _weapon_elbow_handle and _active_drag_handle != _weapon_elbow_handle:
+		_weapon_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(true)
+	if (
+		_support_elbow_handle
+		and _active_drag_handle != _support_elbow_handle
+		and _active_drag_handle != _weapon_elbow_handle
+	):
+		_support_elbow_handle.global_position = _rig.elbow_joint_global_from_arms(false)
 
 
 func _poll_walk_input() -> void:
@@ -481,7 +633,7 @@ func _poll_walk_input() -> void:
 		_rig.set_walk_direction(0)
 		return
 	var dir := 0
-	if _walk_preview_toggle:
+	if _is_walk_preview_active():
 		dir = 1
 	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
 		dir = -1
@@ -491,7 +643,7 @@ func _poll_walk_input() -> void:
 
 
 func _poll_attack_preview() -> void:
-	if not _attack_preview_toggle or _mode != AppMode.ASSEMBLE:
+	if not _is_attack_preview_active() or _mode != AppMode.ASSEMBLE:
 		return
 	if _rig == null or _rig.combat_component == null or _preset == null:
 		return
@@ -521,7 +673,7 @@ func _attack_preview_busy() -> bool:
 func _prepare_attack_preview_pose() -> void:
 	if _rig == null or _preset == null:
 		return
-	if _pose_tab == PoseTab.IDLE:
+	if _anim_mode == AnimMode.IDLE:
 		_rig.apply_preset_overlay_idle(_preset)
 		if _rig.uses_weapon_grip_anchor_hand():
 			_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
@@ -555,36 +707,6 @@ func _enter_assemble_combat_ready_for_attack_preview() -> void:
 	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.READY)
 	_rig.apply_preset_overlay_idle(_preset)
 	_sync_spear_grip_handles()
-
-
-func _on_walk_toggle_pressed() -> void:
-	_walk_preview_toggle = not _walk_preview_toggle
-	if not _walk_preview_toggle and _rig:
-		_rig.set_walk_direction(0)
-	_update_preview_button_labels()
-	if _status_label:
-		_status_label.text = "Walk preview %s" % ("ON" if _walk_preview_toggle else "OFF")
-
-
-func _on_attack_toggle_pressed() -> void:
-	_attack_preview_toggle = not _attack_preview_toggle
-	if not _attack_preview_toggle:
-		_exit_assemble_combat_ready()
-		_refresh_rig_from_preset()
-	_update_preview_button_labels()
-	if _status_label:
-		_status_label.text = (
-			"Attack preview ON — club swing loop from saved idle grip"
-			if _attack_preview_toggle
-			else "Attack preview OFF"
-		)
-
-
-func _update_preview_button_labels() -> void:
-	if _walk_toggle_btn:
-		_walk_toggle_btn.text = "Walk: %s" % ("ON" if _walk_preview_toggle else "OFF")
-	if _attack_toggle_btn:
-		_attack_toggle_btn.text = "Attack: %s" % ("ON" if _attack_preview_toggle else "OFF")
 
 
 func _process_combat_input() -> void:
@@ -655,7 +777,9 @@ func _exit_assemble_combat_ready() -> void:
 
 
 func _weapon_label() -> String:
-	match tuning_weapon_type:
+	match _selected_weapon:
+		ResourceData.ResourceType.NONE:
+			return "none"
 		ResourceData.ResourceType.WOOD:
 			return "club"
 		ResourceData.ResourceType.SPEAR:
@@ -664,6 +788,12 @@ func _weapon_label() -> String:
 			return "axe"
 		_:
 			return "weapon"
+
+
+func _hand_sync_mode() -> AnimMode:
+	if _rig and _rig.arm_controller and _rig.arm_controller.is_combat_pose_active():
+		return AnimMode.ATTACK
+	return _anim_mode
 
 
 func _is_shift_ready_preview() -> bool:
@@ -718,25 +848,29 @@ func _sync_handle_positions() -> void:
 func _sync_elbow_handles() -> void:
 	if _rig == null or _preset == null:
 		return
-	var ready_pose := _pose_tab == PoseTab.READY
+	var mode := _hand_sync_mode()
 	if _active_drag_handle != _weapon_elbow_handle:
-		_sync_one_elbow_from_ik(true, ready_pose)
+		_sync_one_elbow_from_ik(true, mode)
 	if _active_drag_handle != _support_elbow_handle and _active_drag_handle != _weapon_elbow_handle:
-		_sync_one_elbow_from_ik(false, ready_pose)
+		_sync_one_elbow_from_ik(false, mode)
 	if _active_drag_handle != _head_handle and _head_handle:
 		_head_handle.global_position = _rig.neck_socket_global()
 
 
-func _sync_one_elbow_from_ik(dominant: bool, ready_pose: bool) -> void:
+func _sync_one_elbow_from_ik(dominant: bool, mode: AnimMode) -> void:
 	var elbow_handle: LimbTunerHandle = _weapon_elbow_handle if dominant else _support_elbow_handle
 	var shoulder_handle: LimbTunerHandle = _shoulder_handle if dominant else _support_shoulder_handle
 	var hand_handle: LimbTunerHandle = _hand_handle if dominant else _support_hand_handle
 	if elbow_handle == null or shoulder_handle == null or hand_handle == null:
 		return
+	if _rig.arm_controller:
+		var live := _rig.elbow_joint_global_from_arms(dominant)
+		elbow_handle.global_position = live
+		return
 	elbow_handle.global_position = _rig.elbow_joint_global_from_handles(
 		_preset,
 		dominant,
-		ready_pose,
+		mode,
 		shoulder_handle.global_position,
 		hand_handle.global_position
 	)
@@ -748,6 +882,7 @@ func _push_preset_to_arms() -> void:
 	LimbPresetRegistry.stage_preset(_preset)
 	if _rig and _rig.arm_controller and _rig.arm_controller.config:
 		LimbPresetRegistry.apply_to_arm_config(_rig.arm_controller.config, _preset)
+		_sync_active_bend_signs_to_config()
 
 
 func _lock_arm_lines_to_handles() -> void:
@@ -794,27 +929,25 @@ func _set_hand_handle_position(handle: LimbTunerHandle, global_pos: Vector2) -> 
 func _sync_hands_with_spear() -> void:
 	if _rig == null or _preset == null:
 		return
+	var mode := _hand_sync_mode()
 	var ready_hands := _use_ready_support_hand()
-	var ready_grip := _pose_tab == PoseTab.READY
-	if _rig.arm_controller and _rig.arm_controller.is_combat_pose_active():
-		ready_grip = true
-	if _rig.uses_weapon_grip_anchor_hand():
-		_sync_dominant_grip_stack(ready_grip)
+	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay():
+		_sync_dominant_grip_stack(mode)
 	elif _active_drag_handle != _hand_handle:
-		var hand_global := _rig.hand_grip_global_from_preset(_preset, ready_grip)
+		var hand_global := _rig.hand_grip_global_from_preset(_preset, mode)
 		hand_global = _rig.clamp_hand_global_to_arm_reach(
 			_preset, _shoulder_handle.global_position, hand_global
 		)
 		_set_hand_handle_position(_hand_handle, hand_global)
 	if ready_hands:
 		if _active_drag_handle != _support_hand_handle:
-			var support_global := _rig.support_hand_global_from_preset(_preset)
+			var support_global := _rig.support_hand_global_for_mode(_preset, mode)
 			support_global = _rig.clamp_hand_global_to_arm_reach(
 				_preset, _support_shoulder_handle.global_position, support_global
 			)
 			_set_hand_handle_position(_support_hand_handle, support_global)
 	elif _active_drag_handle != _support_hand_handle:
-		var idle_global := _rig.support_hand_idle_global_from_preset(_preset)
+		var idle_global := _rig.support_hand_global_for_mode(_preset, mode)
 		idle_global = _rig.clamp_hand_global_to_arm_reach(
 			_preset, _support_shoulder_handle.global_position, idle_global
 		)
@@ -822,11 +955,11 @@ func _sync_hands_with_spear() -> void:
 
 
 func _use_ready_support_hand() -> bool:
-	if not WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type):
+	if not WeaponLimbPreset.uses_two_hand_grip(_selected_weapon):
 		return false
 	if _rig and _rig.arm_controller and _rig.arm_controller.is_combat_pose_active():
 		return true
-	return _pose_tab == PoseTab.READY
+	return _anim_mode == AnimMode.ATTACK
 
 
 func _sync_spear_grip_handles() -> void:
@@ -857,79 +990,80 @@ func _sync_handles_from_live_arms() -> void:
 func _refresh_rig_from_preset() -> void:
 	if _rig == null or _preset == null:
 		return
-	if _pose_tab == PoseTab.IDLE:
-		_rig.apply_preset_overlay_idle(_preset)
-	else:
-		_rig.apply_preset_overlay_ready(_preset, Vector2(1.0, 0.0))
+	_rig.apply_preset_overlay_for_mode(_preset, _anim_mode)
 	_push_preset_to_arms()
 	_maybe_seed_hand_grip_at_weapon_anchor()
-	if _rig and _rig.uses_weapon_grip_anchor_hand():
-		_rig.snap_hand_grip_to_weapon_anchor(_preset, _pose_tab == PoseTab.READY)
+	if _rig and _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay():
+		_rig.snap_hand_grip_to_weapon_anchor(_preset, _anim_mode == AnimMode.ATTACK)
 	_preset.set_shared_arm_lengths(_preset.upper_arm_length, _preset.lower_arm_length)
-	_seed_elbow_poles_for_tab(_pose_tab)
+	_seed_elbow_poles_for_mode(_anim_mode)
 	_sync_handle_positions()
 	_apply_handle_draggable()
+	_update_weapon_handle_visibility()
 
 
 func _maybe_seed_hand_grip_at_weapon_anchor() -> void:
 	if _rig == null or _preset == null:
 		return
-	if not _rig.uses_weapon_grip_anchor_hand():
+	if not _rig.uses_weapon_grip_anchor_hand() or not _rig.has_weapon_overlay():
 		return
-	if _preset.hand_grip_offset_px.length_squared() > 0.01:
+	if _preset.resolve_hand_grip_for_mode(AnimMode.IDLE).length_squared() > 0.01:
 		return
 	_rig.snap_dominant_hand_grip_to_weapon_anchor(_preset)
 
 
-func _seed_elbow_poles_for_tab(tab: PoseTab) -> void:
+func _seed_elbow_poles_for_mode(mode: AnimMode) -> void:
 	if _rig == null or _preset == null:
 		return
-	var ready_pose := tab == PoseTab.READY
-	_seed_one_elbow_pole(true, ready_pose)
-	_seed_one_elbow_pole(false, ready_pose)
+	_seed_one_elbow_pole(true, mode)
+	_seed_one_elbow_pole(false, mode)
 
 
-func _seed_one_elbow_pole(dominant: bool, ready_pose: bool) -> void:
+func _seed_one_elbow_pole(dominant: bool, mode: AnimMode) -> void:
 	if _shoulder_handle == null or _hand_handle == null:
 		return
 	if _support_shoulder_handle == null or _support_hand_handle == null:
 		return
 	var shoulder_g := _shoulder_handle.global_position if dominant else _support_shoulder_handle.global_position
 	var hand_g := _hand_handle.global_position if dominant else _support_hand_handle.global_position
-	var bend_sign := (
-		WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
-		if dominant
-		else WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
-	)
-	_rig.seed_elbow_pole_if_unset(_preset, dominant, ready_pose, shoulder_g, hand_g, bend_sign)
+	_rig.seed_elbow_pole_if_unset(_preset, dominant, mode, shoulder_g, hand_g)
 
 
-func _set_pose_tab(tab: PoseTab) -> void:
+func _set_anim_mode(mode: AnimMode) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	if tab != _pose_tab:
-		_commit_pose_tab(_pose_tab)
-	_pose_tab = tab
-	if tab == PoseTab.READY and _preset.hand_grip_ready_offset_px.length_squared() < 0.0001:
-		# Seed upper-shaft grip so dominant + off hands don't start stacked in Ready tab.
-		_preset.hand_grip_ready_offset_px = Vector2(0.0, 95.0)
+	if mode != _anim_mode:
+		_commit_anim_mode(_anim_mode)
+	_anim_mode = mode
+	if mode == AnimMode.WALK:
+		_preset.seed_walk_from_idle_if_unset()
+	elif mode == AnimMode.ATTACK:
+		_preset.seed_attack_from_idle_if_unset()
+	if mode != AnimMode.WALK and _rig:
+		_rig.set_walk_direction(0)
+	if mode != AnimMode.ATTACK:
+		_exit_assemble_combat_ready()
 	_refresh_rig_from_preset()
+	_sync_anim_mode_dropdown()
 	if _status_label:
-		_status_label.text = "Loaded %s pose from memory (shoulders shared; off-hand has idle + ready slots)." % (
-			"IDLE" if tab == PoseTab.IDLE else "READY"
-		)
+		_status_label.text = "Tuning %s — %s (shoulders shared across modes)." % [
+			_anim_mode_label(),
+			_weapon_label(),
+		]
 	_update_ui()
 
 
 func _apply_handle_draggable() -> void:
 	var can_drag := _mode == AppMode.ASSEMBLE
-	var two_hand := WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type)
+	var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
 	_shoulder_handle.set_draggable(can_drag)
 	_hand_handle.set_draggable(can_drag)
 	_support_shoulder_handle.set_draggable(can_drag)
-	# One-handed weapons: off-hand only tunable in Idle (rest pose), never on weapon in Ready.
-	_support_hand_handle.set_draggable(can_drag and (_pose_tab == PoseTab.IDLE or two_hand))
-	_spear_handle.set_draggable(can_drag)
+	_support_hand_handle.set_draggable(
+		can_drag and (_anim_mode != AnimMode.ATTACK or two_hand)
+	)
+	var weapon_drag := can_drag and _rig != null and _rig.has_weapon_overlay()
+	_spear_handle.set_draggable(weapon_drag)
 	if _weapon_elbow_handle:
 		_weapon_elbow_handle.set_draggable(can_drag)
 	if _support_elbow_handle:
@@ -948,18 +1082,18 @@ func _on_shoulder_dragged(global_pos: Vector2) -> void:
 func _clamp_dominant_hand_to_reach() -> void:
 	if _rig == null or _preset == null or _shoulder_handle == null or _hand_handle == null:
 		return
-	var ready := _pose_tab == PoseTab.READY
+	var mode := _anim_mode
 	var clamped := _rig.clamp_hand_global_to_arm_reach(
 		_preset, _shoulder_handle.global_position, _hand_handle.global_position
 	)
 	_set_hand_handle_position(_hand_handle, clamped)
-	if _rig.uses_weapon_grip_anchor_hand():
-		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, ready)
-		var stacked := _rig.dominant_grip_global_from_preset(_preset, ready)
+	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay():
+		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
+		var stacked := _rig.dominant_grip_global_from_preset(_preset, mode)
 		_set_hand_handle_position(_hand_handle, stacked)
 		_set_hand_handle_position(_spear_handle, stacked)
 	else:
-		_rig.set_hand_grip_from_global(_preset, clamped, ready)
+		_rig.set_hand_grip_from_global(_preset, clamped, mode)
 
 
 func _clamp_support_hand_to_reach() -> void:
@@ -969,28 +1103,25 @@ func _clamp_support_hand_to_reach() -> void:
 		_preset, _support_shoulder_handle.global_position, _support_hand_handle.global_position
 	)
 	_set_hand_handle_position(_support_hand_handle, clamped)
-	if _pose_tab == PoseTab.READY and WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type):
-		_rig.set_support_hand_from_global(_preset, clamped)
-	else:
-		_rig.set_support_hand_idle_from_global(_preset, clamped)
+	_rig.set_support_hand_for_mode(_preset, _anim_mode, clamped)
 
 
 func _on_hand_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	var ready := _pose_tab == PoseTab.READY
+	var mode := _anim_mode
 	var clamped := _rig.clamp_hand_global_to_arm_reach(
 		_preset, _shoulder_handle.global_position, global_pos
 	)
-	if _rig.uses_weapon_grip_anchor_hand():
-		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, ready)
-		var stacked := _rig.dominant_grip_global_from_preset(_preset, ready)
+	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay():
+		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
+		var stacked := _rig.dominant_grip_global_from_preset(_preset, mode)
 		_set_hand_handle_position(_hand_handle, stacked)
 		_set_hand_handle_position(_spear_handle, stacked)
 	else:
-		var adjusted := _rig.project_hand_grip_drag_global(clamped, _preset, ready)
-		_rig.set_hand_grip_from_global(_preset, adjusted, ready)
-		_set_hand_handle_position(_hand_handle, _rig.hand_grip_global_from_preset(_preset, ready))
+		var adjusted := _rig.project_hand_grip_drag_global(clamped, _preset, mode)
+		_rig.set_hand_grip_from_global(_preset, adjusted, mode)
+		_set_hand_handle_position(_hand_handle, _rig.hand_grip_global_from_preset(_preset, mode))
 
 
 func _on_support_shoulder_dragged(global_pos: Vector2) -> void:
@@ -1006,12 +1137,14 @@ func _on_support_hand_dragged(global_pos: Vector2) -> void:
 	var clamped := _rig.clamp_hand_global_to_arm_reach(
 		_preset, _support_shoulder_handle.global_position, global_pos
 	)
-	if _pose_tab == PoseTab.READY and WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type):
+	if _anim_mode == AnimMode.ATTACK and WeaponLimbPreset.uses_two_hand_grip(_selected_weapon):
 		var adjusted := _rig.project_support_hand_grip_drag_global(clamped, _preset)
 		_rig.set_support_hand_from_global(_preset, adjusted)
-		_set_hand_handle_position(_support_hand_handle, _rig.support_hand_global_from_preset(_preset))
+		_set_hand_handle_position(
+			_support_hand_handle, _rig.support_hand_global_from_preset(_preset)
+		)
 	else:
-		_rig.set_support_hand_idle_from_global(_preset, clamped)
+		_rig.set_support_hand_for_mode(_preset, _anim_mode, clamped)
 		_set_hand_handle_position(_support_hand_handle, clamped)
 
 
@@ -1020,21 +1153,13 @@ func _on_weapon_elbow_dragged(global_pos: Vector2) -> void:
 		return
 	if _shoulder_handle == null or _hand_handle == null:
 		return
-	_rig.set_arm_lengths_from_elbow_global(
-		_preset,
-		true,
-		_shoulder_handle.global_position,
-		global_pos,
-		_hand_handle.global_position
-	)
 	_rig.set_elbow_joint_from_global(
 		_preset,
 		true,
-		_pose_tab == PoseTab.READY,
+		_anim_mode,
 		global_pos,
 		_shoulder_handle.global_position,
-		_hand_handle.global_position,
-		WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
+		_hand_handle.global_position
 	)
 
 
@@ -1043,21 +1168,13 @@ func _on_support_elbow_dragged(global_pos: Vector2) -> void:
 		return
 	if _support_shoulder_handle == null or _support_hand_handle == null:
 		return
-	_rig.set_arm_lengths_from_elbow_global(
-		_preset,
-		false,
-		_support_shoulder_handle.global_position,
-		global_pos,
-		_support_hand_handle.global_position
-	)
 	_rig.set_elbow_joint_from_global(
 		_preset,
 		false,
-		_pose_tab == PoseTab.READY,
+		_anim_mode,
 		global_pos,
 		_support_shoulder_handle.global_position,
-		_support_hand_handle.global_position,
-		WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
+		_support_hand_handle.global_position
 	)
 
 
@@ -1070,26 +1187,23 @@ func _on_head_dragged(global_pos: Vector2) -> void:
 func _on_spear_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
-	if _rig.weapon_overlay == null:
+	if _rig.weapon_overlay == null or not _rig.has_weapon_overlay():
 		return
 	if _rig.uses_weapon_grip_anchor_hand():
-		var ready := _pose_tab == PoseTab.READY
+		var mode := _anim_mode
 		var clamped := _rig.clamp_hand_global_to_arm_reach(
 			_preset, _shoulder_handle.global_position, global_pos
 		)
-		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, ready)
-		var stacked := _rig.dominant_grip_global_from_preset(_preset, ready)
+		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
+		var stacked := _rig.dominant_grip_global_from_preset(_preset, mode)
 		_set_hand_handle_position(_hand_handle, stacked)
 		_set_hand_handle_position(_spear_handle, stacked)
 		return
 	var display_px := _rig.move_weapon_overlay_global(global_pos)
-	if _use_ready_support_hand():
-		_preset.ready_offset_px = display_px
-	else:
-		_preset.overlay_offset_idle_px = display_px
+	_preset.set_overlay_for_mode(_anim_mode, display_px)
 
 
-func _commit_pose_tab(tab: PoseTab) -> void:
+func _commit_anim_mode(mode: AnimMode) -> void:
 	if _rig == null or _preset == null:
 		return
 	if _shoulder_handle:
@@ -1097,43 +1211,38 @@ func _commit_pose_tab(tab: PoseTab) -> void:
 	if _support_shoulder_handle:
 		_rig.set_support_shoulder_from_global(_preset, _support_shoulder_handle.global_position)
 	if _hand_handle:
-		_rig.set_hand_grip_from_global(_preset, _hand_handle.global_position, tab == PoseTab.READY)
+		_rig.set_hand_grip_from_global(_preset, _hand_handle.global_position, mode)
 	if _support_hand_handle:
-		if tab == PoseTab.READY and WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type):
+		if mode == AnimMode.ATTACK and WeaponLimbPreset.uses_two_hand_grip(_selected_weapon):
 			_rig.set_support_hand_from_global(_preset, _support_hand_handle.global_position)
 		else:
-			_rig.set_support_hand_idle_from_global(_preset, _support_hand_handle.global_position)
-	if _rig.weapon_overlay:
+			_rig.set_support_hand_for_mode(_preset, mode, _support_hand_handle.global_position)
+	if _rig.has_weapon_overlay():
 		var display_px := _rig.display_px_from_overlay_position()
-		if tab == PoseTab.READY:
-			_preset.ready_offset_px = display_px
-		else:
-			_preset.overlay_offset_idle_px = display_px
+		_preset.set_overlay_for_mode(mode, display_px)
 	if _weapon_elbow_handle and _shoulder_handle and _hand_handle:
 		_rig.set_elbow_joint_from_global(
 			_preset,
 			true,
-			tab == PoseTab.READY,
+			mode,
 			_weapon_elbow_handle.global_position,
 			_shoulder_handle.global_position,
-			_hand_handle.global_position,
-			WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
+			_hand_handle.global_position
 		)
 	if _support_elbow_handle and _support_shoulder_handle and _support_hand_handle:
 		_rig.set_elbow_joint_from_global(
 			_preset,
 			false,
-			tab == PoseTab.READY,
+			mode,
 			_support_elbow_handle.global_position,
 			_support_shoulder_handle.global_position,
-			_support_hand_handle.global_position,
-			WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
+			_support_hand_handle.global_position
 		)
 
 
 func _commit_all_poses_to_preset() -> void:
-	## Shared anchors + active tab go live; other tab stays from last tab switch / disk.
-	_commit_pose_tab(_pose_tab)
+	## Shared anchors + active animation mode; other modes stay from last switch / disk.
+	_commit_anim_mode(_anim_mode)
 	if _head_handle and _rig:
 		_rig.set_neck_socket_from_global(_head_handle.global_position)
 
@@ -1176,7 +1285,7 @@ func _on_save_pressed() -> void:
 	if _status_label:
 		if err == OK and layout_err == OK:
 			_status_label.text = (
-				"Saved + refreshed. Club preset: %s | head layout: %s"
+				"Saved + refreshed. Preset: %s | head layout: %s"
 				% [
 					LimbPresetRegistry.preset_path(_preset.weapon_type, _preset.body_card_id),
 					CharacterCardPartsRegistry.DEFAULT_LAYOUT_PATH,
@@ -1189,11 +1298,11 @@ func _on_save_pressed() -> void:
 func _on_refresh_pressed() -> void:
 	_reload_all_from_disk()
 	if _status_label:
-		_status_label.text = "Reloaded club preset + head layout from disk."
+		_status_label.text = "Reloaded presets + head layout from disk."
 
 
 func _reload_all_from_disk() -> void:
-	_preset = LimbPresetRegistry.reload_preset(tuning_weapon_type, "clansmen_1")
+	_preset = LimbPresetRegistry.reload_preset(_selected_weapon, "clansmen_1")
 	if _rig:
 		_rig.reload_mannequin_from_layout()
 		_rig.refresh_weapon_overlay()
@@ -1205,12 +1314,13 @@ func _reload_all_from_disk() -> void:
 func _on_reset_pressed() -> void:
 	_reload_all_from_disk()
 	_mode = AppMode.ASSEMBLE
-	_pose_tab = PoseTab.IDLE
+	_anim_mode = AnimMode.IDLE
+	_sync_anim_mode_dropdown()
 	_refresh_rig_from_preset()
 	if _status_label:
 		_status_label.text = "Reloaded %s preset from disk: %s" % [
 			_weapon_label(),
-			LimbPresetRegistry.preset_path(tuning_weapon_type, "clansmen_1"),
+			LimbPresetRegistry.preset_path(_selected_weapon, "clansmen_1"),
 		]
 
 
@@ -1227,19 +1337,15 @@ func _on_copy_pressed() -> void:
 
 func _update_ui() -> void:
 	if _mode_label:
-		var pose_name := "IDLE" if _pose_tab == PoseTab.IDLE else "READY"
 		var walk_name := ""
 		if _rig and _rig.is_walking():
-			walk_name = " | WALK %s" % ("LEFT" if _rig.get_walk_direction() < 0 else "RIGHT")
-		elif _walk_preview_toggle:
-			walk_name = " | WALK preview"
-		var attack_name := " | ATTACK preview" if _attack_preview_toggle else ""
-		_mode_label.text = "Mode: %s | Pose: %s | %s%s%s" % [
-			_mode_name(), pose_name, _weapon_label(), walk_name, attack_name
+			walk_name = " | walking %s" % ("left" if _rig.get_walk_direction() < 0 else "right")
+		_mode_label.text = "Mode: %s | Animation: %s | Weapon: %s%s" % [
+			_mode_name(), _anim_mode_label(), _weapon_label(), walk_name
 		]
 	if _values_label and _preset:
-		var two_hand := WeaponLimbPreset.uses_two_hand_grip(tuning_weapon_type)
-		var off_ready := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: idle only)"
+		var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
+		var off_attack := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: body only)"
 		var head_line := ""
 		if _rig:
 			var layer := _rig.get_layer_layout()
@@ -1250,23 +1356,23 @@ func _update_ui() -> void:
 				]
 		_values_label.text = (
 			head_line
-			+ "1 arm (dominant): shoulder %s | hand %s | ready hand %s | elbow idle %s | ready %s\n"
-			+ "2 arm (off): shoulder %s | idle hand %s | ready hand %s | elbow idle %s | ready %s\n"
-			+ "3 weapon: idle %s | ready %s\n"
+			+ "Idle — hand %s | elbow %s | overlay %s\n"
+			+ "Walk — hand %s | elbow %s | overlay %s\n"
+			+ "Attack — hand %s | elbow %s | overlay %s\n"
+			+ "Off arm idle/walk %s | attack %s\n"
 			+ "Arm length (shared, cap %.0f/%.0f): %.0f / %.0f%s"
 		) % [
-			str(_preset.shoulder_offset_px),
 			str(_preset.hand_grip_offset_px),
-			str(_preset.resolve_hand_grip_ready_px()),
 			str(_preset.weapon_elbow_pole_idle_px),
-			str(_preset.weapon_elbow_pole_ready_px),
-			str(_preset.support_shoulder_offset_px),
-			str(_preset.support_hand_idle_offset_px),
-			off_ready,
-			str(_preset.support_elbow_pole_idle_px),
-			str(_preset.support_elbow_pole_ready_px),
 			str(_preset.overlay_offset_idle_px),
+			str(_preset.resolve_hand_grip_for_mode(AnimMode.WALK)),
+			str(_preset.walk_weapon_elbow_pole_px),
+			str(_preset.resolve_overlay_for_mode(AnimMode.WALK)),
+			str(_preset.resolve_hand_grip_ready_px()),
+			str(_preset.weapon_elbow_pole_ready_px),
 			str(_preset.ready_offset_px),
+			str(_preset.support_hand_idle_offset_px),
+			off_attack,
 			WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX,
 			WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX,
 			_preset.upper_arm_length,
@@ -1274,7 +1380,10 @@ func _update_ui() -> void:
 			_reach_warning_suffix(),
 		]
 	_sync_arm_length_fields_from_preset()
+	_sync_anim_mode_dropdown()
+	_sync_weapon_dropdown()
 	_apply_handle_draggable()
+	_update_weapon_handle_visibility()
 
 
 func _reach_warning_suffix() -> String:

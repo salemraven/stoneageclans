@@ -43,6 +43,10 @@ class_name ProceduralArmConfig
 @export var support_elbow_pole_idle_px := Vector2.ZERO
 @export var support_elbow_pole_ready_px := Vector2.ZERO
 
+## Runtime (LimbTuner sets from active animation mode). 0 = auto from facing.
+var weapon_elbow_bend_sign_active: float = 0.0
+var support_elbow_bend_sign_active: float = 0.0
+
 # Idle hand targets relative to body sprite origin (display pixels, pre-flip).
 @export var idle_hand_offset_right := Vector2(12.0, 30.0)
 @export var idle_hand_offset_left := Vector2(-12.0, 30.0)

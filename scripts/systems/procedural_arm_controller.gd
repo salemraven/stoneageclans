@@ -11,6 +11,7 @@ const THRUST_SUPPORT_SHOULDER_FOLLOW := 0.1
 @export var config: ProceduralArmConfigScript
 @export var enabled: bool = true
 @export var debug_draw: bool = false
+@export var force_show_arms: bool = false
 @export var body_card_id: String = "clansmen_1"
 
 var _player: CharacterBody2D
@@ -103,29 +104,31 @@ func _process(_delta: float) -> void:
 	var support_pole := _resolve_elbow_pole_local(sprite, config.support_elbow_pole_ready_px if ready_poles else config.support_elbow_pole_idle_px, sprite_scale)
 	var use_weapon_pole := weapon_pole.length_squared() > 0.0001
 	var use_support_pole := support_pole.length_squared() > 0.0001
+	var weapon_bend := _resolve_weapon_bend_sign()
+	var support_bend := _resolve_support_bend_sign()
 
 	if aiming_left:
 		_arm_left.update_arm(
-			shoulder_weapon, hand_grip, config, WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN, sprite_scale,
+			shoulder_weapon, hand_grip, config, weapon_bend, sprite_scale,
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override
 		)
 		_arm_right.update_arm(
-			support_shoulder, support_hand, config, 1.0, sprite_scale,
+			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override
 		)
 	else:
 		_arm_right.update_arm(
-			shoulder_weapon, hand_grip, config, -WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN, sprite_scale,
+			shoulder_weapon, hand_grip, config, weapon_bend, sprite_scale,
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override
 		)
 		_arm_left.update_arm(
-			support_shoulder, support_hand, config, -1.0, sprite_scale,
+			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override
@@ -294,9 +297,27 @@ func _set_arms_visible(visible_arms: bool) -> void:
 
 
 func _should_show_weapon_arms(overlay: Sprite2D, weapon_type: ResourceData.ResourceType) -> bool:
+	if force_show_arms or _weapon_endpoints_override or _support_endpoints_override:
+		return true
 	if overlay == null or not overlay.visible:
 		return false
 	return weapon_type == ResourceData.ResourceType.SPEAR or weapon_type == ResourceData.ResourceType.WOOD
+
+
+func _resolve_weapon_bend_sign() -> float:
+	if config and absf(config.weapon_elbow_bend_sign_active) > 0.001:
+		return config.weapon_elbow_bend_sign_active
+	if _is_aiming_left():
+		return WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
+	return -WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
+
+
+func _resolve_support_bend_sign() -> float:
+	if config and absf(config.support_elbow_bend_sign_active) > 0.001:
+		return config.support_elbow_bend_sign_active
+	if _is_aiming_left():
+		return WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
+	return -WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
 
 
 func _resolve_elbow_pole_local(sprite: Sprite2D, pole_display_px: Vector2, _sprite_scale: Vector2) -> Vector2:
