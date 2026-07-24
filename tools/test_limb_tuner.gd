@@ -4,6 +4,7 @@ extends SceneTree
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
+const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 
 var _failures: Array[String] = []
 var _registry: Node
@@ -19,6 +20,7 @@ func _run() -> void:
 	_test_preset_defaults()
 	_test_none_preset_path()
 	_test_walk_fields_roundtrip()
+	_test_walk_arm_sway()
 	_test_save_roundtrip()
 	_test_club_preset_sane()
 	_test_limb_tuner_scene()
@@ -57,6 +59,21 @@ func _test_walk_fields_roundtrip() -> void:
 	var reloaded: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "test_walk")
 	if reloaded.walk_hand_grip_offset_px != Vector2(10.0, 20.0):
 		_fail("walk hand round-trip failed got %s" % str(reloaded.walk_hand_grip_offset_px))
+
+
+func _test_walk_arm_sway() -> void:
+	var t := PI * 0.5
+	var dom := CardVisualController.walk_arm_sway_display_px(t, true, false, true)
+	var sup := CardVisualController.walk_arm_sway_display_px(t, true, false, false)
+	if dom.x <= 0.0:
+		_fail("expected dominant forward sway at sin peak got %s" % str(dom))
+	if sup.x >= 0.0:
+		_fail("expected support opposite sway at sin peak got %s" % str(sup))
+	if not is_zero_approx(dom.x + sup.x):
+		_fail("arms should swing opposite: %s %s" % [str(dom), str(sup)])
+	var idle := CardVisualController.walk_arm_sway_display_px(t, false, false, true)
+	if idle != Vector2.ZERO:
+		_fail("sway should be zero when not moving got %s" % str(idle))
 
 
 func _test_save_roundtrip() -> void:

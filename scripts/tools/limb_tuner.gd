@@ -661,7 +661,10 @@ func _process(_delta: float) -> void:
 		if _rig.arm_controller:
 			_rig.arm_controller.clear_all_endpoint_overrides()
 		if _active_drag_handle == null and not _is_thrust_animating():
-			_sync_handle_positions()
+			if _rig.is_walking():
+				call_deferred("_sync_handles_from_live_arms")
+			else:
+				_sync_handle_positions()
 		if _is_thrust_animating():
 			_sync_handles_from_live_arms()
 	_update_ui()
@@ -1039,8 +1042,14 @@ func _sync_handles_from_live_arms() -> void:
 		_shoulder_handle.global_position = weapon.get("shoulder", _shoulder_handle.global_position)
 	if _support_shoulder_handle:
 		_support_shoulder_handle.global_position = support.get("shoulder", _support_shoulder_handle.global_position)
-	_sync_hands_with_spear()
+	if _hand_handle and _active_drag_handle != _hand_handle:
+		_set_hand_handle_position(_hand_handle, weapon.get("hand", _hand_handle.global_position))
+	if _support_hand_handle and _active_drag_handle != _support_hand_handle:
+		_set_hand_handle_position(
+			_support_hand_handle, support.get("hand", _support_hand_handle.global_position)
+		)
 	_sync_spear_handle()
+	_sync_elbow_handles()
 
 
 func _refresh_rig_from_preset() -> void:

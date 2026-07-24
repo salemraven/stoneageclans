@@ -123,10 +123,12 @@ func sync_weapon_overlay_flip(entity: Node) -> void:
 		if wt != ResourceData.ResourceType.NONE:
 			mirror_tex = WeaponOverlayCombat.uses_overlay_texture_mirror(registry, wt)
 	var bounce_y: float = 0.0
+	var bounce_x: float = 0.0
 	if entity.get("_card_bounce_moving") == true:
 		var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(bounce_time, true)
-	CardVisualController.sync_weapon_overlay_flip(sprite, overlay, base_offset, mirror_tex, bounce_y)
+		bounce_x = CardVisualController.walk_weapon_overlay_sway_offset_x(bounce_time, true, sprite.flip_h)
+	CardVisualController.sync_weapon_overlay_flip(sprite, overlay, base_offset, mirror_tex, bounce_y, bounce_x)
 
 
 ## Show/hide the WeaponOverlay child on card entities (body card stays unchanged).

@@ -172,6 +172,8 @@ func _update_walk_preview(delta: float) -> void:
 	_walk.bounce_time = CardVisualController.tick_walk_bounce(
 		sprite, _anchor_foot_y, _walk.bounce_time, moving, delta
 	)
+	set("_card_bounce_time", _walk.bounce_time)
+	set("_card_bounce_moving", moving)
 	if body_visual and body_visual.has_method("set_walk_state"):
 		body_visual.call("set_walk_state", moving, _walk.bounce_time, _walk.direction)
 	_sync_overlay_walk_bounce(moving)
@@ -184,10 +186,12 @@ func _sync_overlay_walk_bounce(moving: bool) -> void:
 	if base_offset != Vector2.ZERO:
 		_last_overlay_base = base_offset
 	var bounce_y := 0.0
+	var bounce_x := 0.0
 	if moving:
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
+		bounce_x = CardVisualController.walk_weapon_overlay_sway_offset_x(_walk.bounce_time, true, sprite.flip_h)
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y, bounce_x)
 
 
 func _show_weapon_overlay() -> void:
@@ -296,9 +300,11 @@ func _apply_tuner_overlay_pose(display_px: Vector2, rotation_rad: float, overlay
 	_last_overlay_base = base_unflipped
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
 	var bounce_y := 0.0
+	var bounce_x := 0.0
 	if _walk.is_moving():
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y)
+		bounce_x = CardVisualController.walk_weapon_overlay_sway_offset_x(_walk.bounce_time, true, sprite.flip_h)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y, bounce_x)
 	WeaponOverlayCombat.set_overlay_state(self, overlay_state)
 
 

@@ -51,11 +51,47 @@ static func weapon_overlay_walk_bounce_offset_y(bounce_time: float, moving: bool
 	return overlay_y - body_y
 
 
-static func sync_weapon_overlay_flip(body_sprite: Sprite2D, overlay: Sprite2D, base_offset: Vector2, mirror_texture: bool = true, bounce_y_extra: float = 0.0) -> void:
+static func walk_arm_sway_phase(bounce_time: float, moving: bool, is_dominant_arm: bool) -> float:
+	if not moving:
+		return 0.0
+	var phase := sin(bounce_time)
+	return phase if is_dominant_arm else -phase
+
+
+static func walk_arm_sway_display_px(
+	bounce_time: float,
+	moving: bool,
+	facing_left: bool,
+	is_dominant_arm: bool
+) -> Vector2:
+	var phase := walk_arm_sway_phase(bounce_time, moving, is_dominant_arm)
+	if absf(phase) < 0.0001:
+		return Vector2.ZERO
+	var forward_sign := -1.0 if facing_left else 1.0
+	return Vector2(
+		phase * Registry.WALK_ARM_SWAY_FORWARD_PX * forward_sign,
+		absf(phase) * Registry.WALK_ARM_SWAY_DROP_PX
+	)
+
+
+static func walk_weapon_overlay_sway_offset_x(bounce_time: float, moving: bool, facing_left: bool) -> float:
+	return walk_arm_sway_display_px(bounce_time, moving, facing_left, true).x
+
+
+static func sync_weapon_overlay_flip(
+	body_sprite: Sprite2D,
+	overlay: Sprite2D,
+	base_offset: Vector2,
+	mirror_texture: bool = true,
+	bounce_y_extra: float = 0.0,
+	bounce_x_extra: float = 0.0
+) -> void:
 	if body_sprite == null or overlay == null:
 		return
 	overlay.flip_h = body_sprite.flip_h if mirror_texture else false
 	var x := base_offset.x
 	if body_sprite.flip_h:
-		x = -base_offset.x
+		x = -base_offset.x - bounce_x_extra
+	else:
+		x = base_offset.x + bounce_x_extra
 	overlay.position = Vector2(x, base_offset.y + bounce_y_extra)

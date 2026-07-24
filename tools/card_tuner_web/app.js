@@ -7,6 +7,8 @@ const zoomResetBtn = document.getElementById("zoomResetBtn");
 const DISPLAY_HEIGHT = 128;
 const WALK_AMP = 2.5;
 const WALK_SPEED = 8;
+const WALK_ARM_SWAY_FORWARD_PX = 14;
+const WALK_ARM_SWAY_DROP_PX = 4;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
@@ -404,6 +406,32 @@ function getMotion() {
   return { bobY, tilt, headBob };
 }
 
+function walkArmSwayDisplayPx(isDominant) {
+  if (!state.walking || state.attacking) {
+    return { x: 0, y: 0 };
+  }
+  let phase = Math.sin(state.walkPhase);
+  if (!isDominant) {
+    phase = -phase;
+  }
+  if (Math.abs(phase) < 0.0001) {
+    return { x: 0, y: 0 };
+  }
+  const forwardSign = swingFacingSign();
+  return {
+    x: phase * WALK_ARM_SWAY_FORWARD_PX * forwardSign,
+    y: Math.abs(phase) * WALK_ARM_SWAY_DROP_PX,
+  };
+}
+
+function applyWalkSwayToDisplay(display, isDominant) {
+  const sway = walkArmSwayDisplayPx(isDominant);
+  return {
+    x: display.x + sway.x,
+    y: display.y + sway.y,
+  };
+}
+
 function reachLimits(upperLen, lowerLen) {
   const minFold = (ELBOW_FOLD_MIN_DEG * Math.PI) / 180;
   const maxFold = (ELBOW_FOLD_MAX_DEG * Math.PI) / 180;
@@ -541,7 +569,12 @@ function swingFacingSign() {
 
 function swingBaseDisplayPx() {
   // Attack swings from the saved idle club grip (handle 3), not a separate ready tab offset.
-  return normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
+  const base = normalizeVec2(state.preset?.overlay_offset_idle_px, [22, -34]);
+  if (!state.walking || state.attacking) {
+    return base;
+  }
+  const swayed = applyWalkSwayToDisplay({ x: base[0], y: base[1] }, true);
+  return [swayed.x, swayed.y];
 }
 
 function idleWeaponRotationRad() {
@@ -781,12 +814,29 @@ function computeArmAnchors(bobY = 0, tilt = 0) {
     bobY,
     tilt,
   );
-  const supportHand = displayToCanvas(
-    state.preset.support_hand_idle_offset_px[0],
-    state.preset.support_hand_idle_offset_px[1],
-    bobY,
-    tilt,
-  );
+  let supportDisplay = {
+    x: state.preset.support_hand_idle_offset_px[0],
+    y: state.preset.support_hand_idle_offset_px[1],
+  };
+  if (state.walking && !state.attacking) {
+    supportDisplay = applyWalkSwayToDisplay(supportDisplay, false);
+  }
+  const supportHand = displayToCanvas(supportDisplay.x, supportDisplay.y, bobY, tilt);
+  if (!isClubMode() && state.walking && !state.attacking) {
+    const weaponDisplay = applyWalkSwayToDisplay(
+      {
+        x: state.preset.hand_grip_offset_px[0],
+        y: state.preset.hand_grip_offset_px[1],
+      },
+      true,
+    );
+    return {
+      shoulder,
+      hand: displayToCanvas(weaponDisplay.x, weaponDisplay.y, bobY, tilt),
+      supportShoulder,
+      supportHand,
+    };
+  }
   return { shoulder, hand, supportShoulder, supportHand };
 }
 
