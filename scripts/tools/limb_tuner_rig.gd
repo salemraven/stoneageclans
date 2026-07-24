@@ -186,12 +186,17 @@ func _sync_overlay_walk_bounce(moving: bool) -> void:
 	if base_offset != Vector2.ZERO:
 		_last_overlay_base = base_offset
 	var bounce_y := 0.0
-	var bounce_x := 0.0
+	var swing_delta := Vector2.ZERO
 	if moving:
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
-		bounce_x = CardVisualController.walk_weapon_overlay_sway_offset_x(_walk.bounce_time, true, sprite.flip_h)
+		var shoulder := Vector2.ZERO
+		if arm_controller != null and arm_controller.config != null:
+			shoulder = arm_controller.config.weapon_shoulder_offset_px
+		swing_delta = CardVisualController.walk_weapon_overlay_sway_delta_display(
+			sprite, base_offset, shoulder, _walk.bounce_time, true
+		)
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y, bounce_x)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y, swing_delta)
 
 
 func _show_weapon_overlay() -> void:
@@ -300,11 +305,16 @@ func _apply_tuner_overlay_pose(display_px: Vector2, rotation_rad: float, overlay
 	_last_overlay_base = base_unflipped
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
 	var bounce_y := 0.0
-	var bounce_x := 0.0
+	var swing_delta := Vector2.ZERO
 	if _walk.is_moving():
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
-		bounce_x = CardVisualController.walk_weapon_overlay_sway_offset_x(_walk.bounce_time, true, sprite.flip_h)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y, bounce_x)
+		var shoulder := Vector2.ZERO
+		if arm_controller != null and arm_controller.config != null:
+			shoulder = arm_controller.config.weapon_shoulder_offset_px
+		swing_delta = CardVisualController.walk_weapon_overlay_sway_delta_display(
+			sprite, base_unflipped, shoulder, _walk.bounce_time, true
+		)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y, swing_delta)
 	WeaponOverlayCombat.set_overlay_state(self, overlay_state)
 
 

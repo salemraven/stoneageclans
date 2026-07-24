@@ -62,16 +62,20 @@ func _test_walk_fields_roundtrip() -> void:
 
 
 func _test_walk_arm_sway() -> void:
+	var shoulder := Vector2(0.0, 0.0)
+	var hand := Vector2(48.0, 56.0)
+	var support_shoulder := Vector2(-24.0, 0.0)
+	var support_hand := Vector2(-36.0, 52.0)
 	var t := PI * 0.5
-	var dom := CardVisualController.walk_arm_sway_display_px(t, true, false, true)
-	var sup := CardVisualController.walk_arm_sway_display_px(t, true, false, false)
-	if dom.x <= 0.0:
-		_fail("expected dominant forward sway at sin peak got %s" % str(dom))
-	if sup.x >= 0.0:
-		_fail("expected support opposite sway at sin peak got %s" % str(sup))
-	if not is_zero_approx(dom.x + sup.x):
-		_fail("arms should swing opposite: %s %s" % [str(dom), str(sup)])
-	var idle := CardVisualController.walk_arm_sway_display_px(t, false, false, true)
+	var dom := CardVisualController.swing_hand_delta_display_px(shoulder, hand, t, true, false, true)
+	var sup := CardVisualController.swing_hand_delta_display_px(support_shoulder, support_hand, t, true, false, false)
+	if dom.length_squared() < 0.01:
+		_fail("expected dominant shoulder swing delta at sin peak got %s" % str(dom))
+	if sup.length_squared() < 0.01:
+		_fail("expected support shoulder swing delta at sin peak got %s" % str(sup))
+	if dom.dot(sup) > 0.0:
+		_fail("arms should swing opposite got dom %s sup %s" % [str(dom), str(sup)])
+	var idle := CardVisualController.swing_hand_delta_display_px(shoulder, hand, t, false, false, true)
 	if idle != Vector2.ZERO:
 		_fail("sway should be zero when not moving got %s" % str(idle))
 

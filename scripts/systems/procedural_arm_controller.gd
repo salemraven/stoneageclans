@@ -411,17 +411,27 @@ func _flip_offset_x(offset_px: Vector2, flip_h: bool) -> Vector2:
 
 func _walk_arm_sway_offsets(sprite: Sprite2D, overlay: Sprite2D, sprite_scale: Vector2) -> Dictionary:
 	var zero := {"weapon": Vector2.ZERO, "support": Vector2.ZERO}
-	if sprite == null or is_combat_pose_active():
+	if sprite == null or config == null or is_combat_pose_active():
 		return zero
 	if _player.get("_card_bounce_moving") != true:
 		return zero
 	var bounce_time: float = float(_player.get("_card_bounce_time")) if _player.get("_card_bounce_time") != null else 0.0
 	var facing_left := sprite.flip_h
-	var weapon_sway_px := CardVisualController.walk_arm_sway_display_px(bounce_time, true, facing_left, true)
-	var support_sway_px := CardVisualController.walk_arm_sway_display_px(bounce_time, true, facing_left, false)
+	var weapon_shoulder_disp: Vector2 = _weapon_shoulder_offset_px()
+	var support_shoulder_disp: Vector2 = config.shoulder_offset_left
+	var weapon_hand_disp: Vector2 = config.hand_grip_offset_px
+	if overlay != null and overlay.visible:
+		var base_offset: Vector2 = overlay.get_meta("card_overlay_offset", Vector2.ZERO)
+		weapon_hand_disp = CardVisualController.overlay_display_from_base_offset(sprite, base_offset)
+	var support_hand_disp: Vector2 = config.support_hand_idle_offset_px
+	var weapon_sway_px := CardVisualController.swing_hand_delta_display_px(
+		weapon_shoulder_disp, weapon_hand_disp, bounce_time, true, facing_left, true
+	)
+	var support_sway_px := CardVisualController.swing_hand_delta_display_px(
+		support_shoulder_disp, support_hand_disp, bounce_time, true, facing_left, false
+	)
 	var weapon_sway := Vector2(weapon_sway_px.x * sprite_scale.x, weapon_sway_px.y * sprite_scale.y)
 	var support_sway := Vector2(support_sway_px.x * sprite_scale.x, support_sway_px.y * sprite_scale.y)
-	# Club/spear grip follows the overlay; horizontal overlay sway is applied in sync_weapon_overlay_flip.
 	if overlay != null and overlay.visible:
 		weapon_sway = Vector2.ZERO
 	return {"weapon": weapon_sway, "support": support_sway}
