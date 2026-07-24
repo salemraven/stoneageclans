@@ -1359,6 +1359,11 @@ document.getElementById("zoomResetBtn").addEventListener("click", () => {
   drawCharacter();
 });
 
+const urlWeapon = new URLSearchParams(window.location.search).get("weapon");
+if (urlWeapon === "none" || urlWeapon === "club") {
+  state.weapon = urlWeapon;
+}
+
 loadAll()
   .then(() => requestAnimationFrame(tick))
   .catch((err) => setStatus(`Load failed: ${err}`));
