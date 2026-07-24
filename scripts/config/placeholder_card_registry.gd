@@ -38,9 +38,11 @@ const TOOL_OVERLAY_SCALE := {
 
 const WALK_BOUNCE_AMPLITUDE := 2.5
 const WALK_BOUNCE_SPEED := 8.0
-## Arm swing while walking (display px). Synced to walk bounce via sin(bounce_time).
-const WALK_ARM_SWAY_FORWARD_PX := 14.0
-const WALK_ARM_SWAY_DROP_PX := 4.0
+## Arm swing while walking — pendulum arc from shoulder (display px), synced to sin(bounce_time).
+const WALK_ARM_SWING_ANGLE_DEG := 32.0
+const WALK_ARM_PENDULUM_RADIUS_PX := 26.0
+## Vertical arc strength: 0 = flat swing, 1 = full (1 - cos(theta)) sag along the arc.
+const WALK_ARM_PENDULUM_SAG_SCALE := 0.62
 ## Weapon overlay lags the card body bounce (radians) so the tool follows slightly behind.
 const WEAPON_OVERLAY_BOUNCE_PHASE_LAG_RAD := 0.55
 const WEAPON_OVERLAY_BOUNCE_AMP_SCALE := 0.9

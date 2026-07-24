@@ -7,8 +7,9 @@ const zoomResetBtn = document.getElementById("zoomResetBtn");
 const DISPLAY_HEIGHT = 128;
 const WALK_AMP = 2.5;
 const WALK_SPEED = 8;
-const WALK_ARM_SWAY_FORWARD_PX = 14;
-const WALK_ARM_SWAY_DROP_PX = 4;
+const WALK_ARM_SWING_ANGLE_DEG = 32;
+const WALK_ARM_PENDULUM_RADIUS_PX = 26;
+const WALK_ARM_PENDULUM_SAG_SCALE = 0.62;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
@@ -430,18 +431,18 @@ function walkArmSwayDisplayPx(isDominant) {
   if (!state.walking || state.attacking) {
     return { x: 0, y: 0 };
   }
-  let phase = Math.sin(state.walkPhase);
+  let swing = Math.sin(state.walkPhase);
   if (!isDominant) {
-    phase = -phase;
+    swing = -swing;
   }
-  if (Math.abs(phase) < 0.0001) {
+  if (Math.abs(swing) < 0.0001) {
     return { x: 0, y: 0 };
   }
+  const theta = swing * degToRad(WALK_ARM_SWING_ANGLE_DEG);
   const forwardSign = swingFacingSign();
-  return {
-    x: phase * WALK_ARM_SWAY_FORWARD_PX * forwardSign,
-    y: Math.abs(phase) * WALK_ARM_SWAY_DROP_PX,
-  };
+  const forward = Math.sin(theta) * WALK_ARM_PENDULUM_RADIUS_PX * forwardSign;
+  const arcDrop = (1 - Math.cos(theta)) * WALK_ARM_PENDULUM_RADIUS_PX * WALK_ARM_PENDULUM_SAG_SCALE;
+  return { x: forward, y: arcDrop };
 }
 
 function applyWalkSwayToDisplay(display, isDominant) {

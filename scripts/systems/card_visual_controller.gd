@@ -54,8 +54,8 @@ static func weapon_overlay_walk_bounce_offset_y(bounce_time: float, moving: bool
 static func walk_arm_sway_phase(bounce_time: float, moving: bool, is_dominant_arm: bool) -> float:
 	if not moving:
 		return 0.0
-	var phase := sin(bounce_time)
-	return phase if is_dominant_arm else -phase
+	var swing := sin(bounce_time)
+	return swing if is_dominant_arm else -swing
 
 
 static func walk_arm_sway_display_px(
@@ -64,14 +64,15 @@ static func walk_arm_sway_display_px(
 	facing_left: bool,
 	is_dominant_arm: bool
 ) -> Vector2:
-	var phase := walk_arm_sway_phase(bounce_time, moving, is_dominant_arm)
-	if absf(phase) < 0.0001:
+	var swing := walk_arm_sway_phase(bounce_time, moving, is_dominant_arm)
+	if absf(swing) < 0.0001:
 		return Vector2.ZERO
+	var theta: float = swing * deg_to_rad(Registry.WALK_ARM_SWING_ANGLE_DEG)
+	var radius: float = Registry.WALK_ARM_PENDULUM_RADIUS_PX
 	var forward_sign := -1.0 if facing_left else 1.0
-	return Vector2(
-		phase * Registry.WALK_ARM_SWAY_FORWARD_PX * forward_sign,
-		absf(phase) * Registry.WALK_ARM_SWAY_DROP_PX
-	)
+	var forward: float = sin(theta) * radius * forward_sign
+	var arc_drop: float = (1.0 - cos(theta)) * radius * Registry.WALK_ARM_PENDULUM_SAG_SCALE
+	return Vector2(forward, arc_drop)
 
 
 static func walk_weapon_overlay_sway_offset_x(bounce_time: float, moving: bool, facing_left: bool) -> float:
