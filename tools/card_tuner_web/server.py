@@ -10,15 +10,31 @@ import sys
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parents[1]
 ASSETS = WORKSPACE / "assets" / "character_cards"
 LAYOUT_TRES = ASSETS / "layered_blank_1.tres"
-PRESET_TRES = WORKSPACE / "assets" / "limb_presets" / "club_clansmen_1.tres"
+PRESETS_DIR = WORKSPACE / "assets" / "limb_presets"
+WEAPON_PRESET_FILES: dict[str, Path] = {
+    "club": PRESETS_DIR / "club_clansmen_1.tres",
+    "none": PRESETS_DIR / "none_clansmen_1.tres",
+}
+DEFAULT_WEAPON = "club"
 HOST = "0.0.0.0"
 PORT = 8765
+
+
+def _normalize_weapon(weapon: str | None) -> str:
+    key = (weapon or DEFAULT_WEAPON).strip().lower()
+    if key not in WEAPON_PRESET_FILES:
+        return DEFAULT_WEAPON
+    return key
+
+
+def _preset_path(weapon: str | None = None) -> Path:
+    return WEAPON_PRESET_FILES[_normalize_weapon(weapon)]
 
 
 def _read_text(path: Path) -> str:
@@ -86,8 +102,9 @@ head_pivot_px = Vector2(153, 345)
     LAYOUT_TRES.write_text(text, encoding="utf-8")
 
 
-def load_preset() -> dict:
-    text = _read_text(PRESET_TRES)
+def load_preset(weapon: str | None = None) -> dict:
+    path = _preset_path(weapon)
+    text = _read_text(path)
     keys = [
         "shoulder_offset_px",
         "hand_grip_offset_px",
@@ -98,7 +115,7 @@ def load_preset() -> dict:
         "weapon_elbow_pole_idle_px",
         "support_elbow_pole_idle_px",
     ]
-    out: dict = {}
+    out: dict = {"weapon": _normalize_weapon(weapon)}
     for key in keys:
         out[key] = _vec2_from_tres(text, key, [0.0, 0.0])
     return out
@@ -115,13 +132,17 @@ def _upsert_vec2(text: str, key: str, value: list[float]) -> str:
     return text.rstrip() + f"\n{line}\n"
 
 
-def save_preset(data: dict) -> None:
-    text = _read_text(PRESET_TRES)
+def save_preset(data: dict, weapon: str | None = None) -> None:
+    path = _preset_path(weapon)
+    text = _read_text(path)
     for key, value in data.items():
+        if key == "weapon":
+            continue
         if not isinstance(value, list) or len(value) != 2:
             continue
         text = _upsert_vec2(text, key, value)
-    PRESET_TRES.write_text(text, encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def load_version() -> dict:
@@ -143,7 +164,11 @@ def load_version() -> dict:
         "branch": branch,
         "built_at": datetime.now(timezone.utc).isoformat(),
         "layout_path": str(LAYOUT_TRES.relative_to(WORKSPACE)),
-        "preset_path": str(PRESET_TRES.relative_to(WORKSPACE)),
+        "preset_path": str(_preset_path(DEFAULT_WEAPON).relative_to(WORKSPACE)),
+        "weapons": {
+            key: str(path.relative_to(WORKSPACE))
+            for key, path in WEAPON_PRESET_FILES.items()
+        },
     }
 
 
@@ -182,13 +207,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def _query_weapon(self) -> str:
+        query = parse_qs(urlparse(self.path).query)
+        values = query.get("weapon", [])
+        return _normalize_weapon(values[0] if values else None)
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/layout":
             self._send_json(load_layout())
             return
         if path == "/api/preset":
-            self._send_json(load_preset())
+            self._send_json(load_preset(self._query_weapon()))
             return
         if path == "/api/version":
             self._send_json(load_version())
@@ -218,8 +248,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True, "layout": load_layout()})
                 return
             if path == "/api/preset":
-                save_preset(payload)
-                self._send_json({"ok": True, "preset": load_preset()})
+                save_preset(payload, self._query_weapon())
+                self._send_json({"ok": True, "preset": load_preset(self._query_weapon())})
                 return
             self.send_error(404)
         except Exception as exc:  # noqa: BLE001

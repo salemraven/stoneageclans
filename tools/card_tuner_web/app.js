@@ -40,6 +40,11 @@ const state = {
   clubImg: null,
   layout: null,
   preset: null,
+  weapon: "club",
+  presetPaths: {
+    club: "assets/limb_presets/club_clansmen_1.tres",
+    none: "assets/limb_presets/none_clansmen_1.tres",
+  },
   handles: [],
   active: null,
   walking: false,
@@ -65,8 +70,20 @@ const handleDefs = [
   { id: "support_shoulder", label: "2", color: "#bf2626", kind: "preset", key: "support_shoulder_offset_px" },
   { id: "support_elbow", label: "2e", color: "#33bfd9", kind: "preset", key: "support_elbow_pole_idle_px", onArm: true },
   { id: "support_hand", label: "2", color: "#2eb34a", kind: "preset", key: "support_hand_idle_offset_px" },
-  { id: "weapon", label: "3", color: "#f2bf26", kind: "preset", key: "overlay_offset_idle_px" },
+  { id: "weapon", label: "3", color: "#f2bf26", kind: "preset", key: "overlay_offset_idle_px", clubOnly: true },
 ];
+
+function isClubMode() {
+  return state.weapon === "club";
+}
+
+function activeHandleDefs() {
+  return handleDefs.filter((def) => !def.clubOnly || isClubMode());
+}
+
+function weaponPresetPath() {
+  return state.presetPaths[state.weapon] || state.presetPaths.club;
+}
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -161,7 +178,7 @@ function characterBoundsLocal() {
   }
 
   if (state.preset) {
-    for (const def of handleDefs) {
+    for (const def of activeHandleDefs()) {
       if (def.kind !== "preset") continue;
       const p = state.preset[def.key];
       if (!p) continue;
@@ -446,11 +463,15 @@ function overlayLocalToCanvas(localX, localY, bobY = 0, tilt = 0) {
 }
 
 function handGripCanvas(bobY = 0, tilt = 0) {
-  if (state.attacking) {
+  if (state.attacking && isClubMode()) {
     return getWeaponPose(bobY, tilt).canvasGrip;
   }
-  const grip = state.preset?.hand_grip_offset_px || [0, 0];
-  return overlayLocalToCanvas(grip[0], grip[1], bobY, tilt);
+  if (isClubMode()) {
+    const grip = state.preset?.hand_grip_offset_px || [0, 0];
+    return overlayLocalToCanvas(grip[0], grip[1], bobY, tilt);
+  }
+  const grip = state.preset?.hand_grip_offset_px || [24, 8];
+  return displayToCanvas(grip[0], grip[1], bobY, tilt);
 }
 
 function weaponGripAnchorCanvas(bobY = 0, tilt = 0) {
@@ -466,7 +487,7 @@ function moveWeaponGripToCanvas(canvasX, canvasY) {
 }
 
 function migrateCorruptedPreset() {
-  if (!state.preset) return;
+  if (!state.preset || !isClubMode()) return;
   const hand = normalizeVec2(state.preset.hand_grip_offset_px);
   const overlay = normalizeVec2(state.preset.overlay_offset_idle_px);
   state.preset.hand_grip_offset_px = hand;
@@ -627,7 +648,7 @@ function handleCanvasPos(def, bobY, tilt) {
 function rebuildHandles() {
   const { bobY, tilt } = getMotion();
   const elbows = computeElbowPositions(bobY, tilt);
-  state.handles = handleDefs.map((def) => {
+  state.handles = activeHandleDefs().map((def) => {
     if (def.id === "weapon_elbow") {
       return { ...def, pos: elbows.weapon || elbows.shoulder };
     }
@@ -685,9 +706,11 @@ function drawCharacter() {
     supportElbowPos = state.active.pos;
   }
   refreshElbowHandlePositions();
-  const weapon = state.handles.find((h) => h.id === "weapon");
-  const weaponPose = getWeaponPose(bobY, tilt);
-  drawClub(weaponPose.canvasGrip, weaponPose.rotationRad);
+  const weapon = isClubMode() ? state.handles.find((h) => h.id === "weapon") : null;
+  const weaponPose = isClubMode() ? getWeaponPose(bobY, tilt) : null;
+  if (weaponPose) {
+    drawClub(weaponPose.canvasGrip, weaponPose.rotationRad);
+  }
 
   if (shoulder.pos && hand.pos) {
     const pole = poleCanvasFromPreset("weapon_elbow_pole_idle_px") || autoElbowPole(shoulder.pos, hand.pos, -1);
@@ -706,7 +729,7 @@ function drawCharacter() {
     drawElbowHandle(supportElbowPos, "2e", "#33bfd9");
   }
 
-  if (hand.pos && weapon?.pos) {
+  if (isClubMode() && hand.pos && weapon?.pos) {
     const gripDist = Math.hypot(hand.pos.x - weapon.pos.x, hand.pos.y - weapon.pos.y);
     if (gripDist > 1.5 / state.viewZoom) {
       const width = 3 / state.viewZoom;
@@ -727,7 +750,7 @@ function drawCharacter() {
     }
     drawHandle(handle);
   }
-  const weaponHandle = state.handles.find((h) => h.id === "weapon");
+  const weaponHandle = isClubMode() ? state.handles.find((h) => h.id === "weapon") : null;
   if (weaponHandle) {
     drawHandle(weaponHandle);
   }
@@ -824,12 +847,54 @@ function drawHandle(handle) {
 function updateValues() {
   valuesEl.textContent = JSON.stringify(
     {
+      weapon: state.weapon,
       layout: state.layout,
       preset: state.preset,
       view: { zoom: state.viewZoom, pan: [state.viewPanX, state.viewPanY] },
     },
     null,
     2,
+  );
+}
+
+async function fetchPreset(weapon = state.weapon) {
+  return fetchJson(`/api/preset?weapon=${encodeURIComponent(weapon)}`);
+}
+
+async function savePreset(weapon = state.weapon) {
+  return postJson(`/api/preset?weapon=${encodeURIComponent(weapon)}`, state.preset);
+}
+
+async function applyLoadedPreset(preset, weapon = state.weapon) {
+  state.weapon = weapon;
+  state.preset = preset;
+  const weaponSelect = document.getElementById("weaponSelect");
+  if (weaponSelect && weaponSelect.value !== weapon) {
+    weaponSelect.value = weapon;
+  }
+  if (!isClubMode() && state.attacking) {
+    state.attacking = false;
+    state.attackPhase = 0;
+  }
+  migrateCorruptedPreset();
+  if (!state.preset.weapon_elbow_pole_idle_px) state.preset.weapon_elbow_pole_idle_px = [0, 0];
+  if (!state.preset.support_elbow_pole_idle_px) state.preset.support_elbow_pole_idle_px = [0, 0];
+  seedElbowPoles();
+  rebuildHandles();
+  updateValues();
+}
+
+async function switchWeapon(weapon) {
+  const next = weapon === "none" ? "none" : "club";
+  if (next === state.weapon) return;
+  state.weapon = next;
+  const preset = await fetchPreset(next);
+  await applyLoadedPreset(preset, next);
+  fitStageToCanvas();
+  setStatus(
+    next === "none"
+      ? "None — tune empty-hand idle arms. Handle 3 hidden."
+      : "Club — tune club grip + idle arms. Handles 1 and 3 move together.",
   );
 }
 
@@ -910,18 +975,23 @@ function moveElbowHandle(handle, worldX, worldY) {
 function moveActiveHandle(screenX, screenY) {
   if (!state.active) return;
   const world = screenToWorld(screenX, screenY);
+  const { bobY, tilt } = getMotion();
   if (state.active.onArm) {
     moveElbowHandle(state.active, world.x, world.y);
     updateValues();
     return;
   }
-  if (state.active.id === "hand" || state.active.id === "weapon") {
-    moveWeaponGripToCanvas(world.x, world.y);
+  if (state.active.id === "hand" || (isClubMode() && state.active.id === "weapon")) {
+    if (isClubMode()) {
+      moveWeaponGripToCanvas(world.x, world.y);
+    } else {
+      const display = canvasToDisplay(world.x, world.y, bobY, tilt);
+      state.preset.hand_grip_offset_px = [round(display.x, 2), round(display.y, 2)];
+    }
     rebuildHandles();
     updateValues();
     return;
   }
-  const { bobY, tilt } = getMotion();
   if (state.active.kind === "layout") {
     const tex = canvasToTexture(world.x, world.y, bobY, tilt);
     state.layout[state.active.key] = [round(tex.x), round(tex.y)];
@@ -994,12 +1064,13 @@ async function loadBuildInfo() {
 }
 
 async function loadAll() {
+  const weapon = state.weapon;
   const [bodyImg, headImg, clubImg, layout, preset, build] = await Promise.all([
     loadImage("/assets/character_cards/body1.png"),
     loadImage("/assets/character_cards/head1.png"),
     loadImage("/assets/placeholder_cards/club.png"),
     fetchJson("/api/layout"),
-    fetchJson("/api/preset"),
+    fetchPreset(weapon),
     loadBuildInfo(),
   ]);
   state.bodyImg = bodyImg;
@@ -1011,27 +1082,26 @@ async function loadAll() {
   if (!state.layout.body_offset_px) {
     state.layout.body_offset_px = [0, 0];
   }
-  state.preset = preset;
-  migrateCorruptedPreset();
-  if (!state.preset.weapon_elbow_pole_idle_px) state.preset.weapon_elbow_pole_idle_px = [0, 0];
-  if (!state.preset.support_elbow_pole_idle_px) state.preset.support_elbow_pole_idle_px = [0, 0];
+  if (build?.weapons) {
+    state.presetPaths = build.weapons;
+  }
+  await applyLoadedPreset(preset, weapon);
   state.footY = -DISPLAY_HEIGHT * 0.5;
   fitStageToCanvas();
-  seedElbowPoles();
-  rebuildHandles();
-  updateValues();
   updateZoomLabel();
   const buildLabel = build ? `build ${build.sha}` : "web preview";
-  setStatus(`Loaded (${buildLabel}). Drag handles, scroll to zoom, then Save.`);
+  setStatus(`Loaded ${weapon} (${buildLabel}). Drag handles, scroll to zoom, then Save.`);
 }
 
 async function saveAll() {
   setStatus("Saving…");
-  const idle = normalizeVec2(state.preset.overlay_offset_idle_px);
-  state.preset.ready_offset_px = [...idle];
+  if (isClubMode()) {
+    const idle = normalizeVec2(state.preset.overlay_offset_idle_px);
+    state.preset.ready_offset_px = [...idle];
+  }
   await postJson("/api/layout", state.layout);
-  await postJson("/api/preset", state.preset);
-  setStatus("Saved to assets/character_cards/layered_blank_1.tres and club_clansmen_1.tres");
+  await savePreset(state.weapon);
+  setStatus(`Saved to assets/character_cards/layered_blank_1.tres and ${weaponPresetPath()}`);
 }
 
 function tick(ts) {
@@ -1061,11 +1131,13 @@ document.getElementById("saveBtn").addEventListener("click", () => {
 document.getElementById("reloadBtn").addEventListener("click", () => {
   loadAll()
     .then(() => {
-      fitStageToCanvas();
-      rebuildHandles();
-      setStatus("Reloaded from disk.");
+      setStatus(`Reloaded ${state.weapon} preset from disk.`);
     })
     .catch((err) => setStatus(String(err)));
+});
+
+document.getElementById("weaponSelect").addEventListener("change", (evt) => {
+  switchWeapon(evt.target.value).catch((err) => setStatus(String(err)));
 });
 
 document.getElementById("walkBtn").addEventListener("click", () => {
@@ -1076,6 +1148,10 @@ document.getElementById("walkBtn").addEventListener("click", () => {
 });
 
 document.getElementById("attackBtn").addEventListener("click", () => {
+  if (!isClubMode()) {
+    setStatus("Attack preview is Club only. Switch weapon to Club to preview swings.");
+    return;
+  }
   state.attacking = !state.attacking;
   state.attackPhase = 0;
   if (state.attacking) {

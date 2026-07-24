@@ -80,6 +80,25 @@ button.secondary {
   background: #3a3028;
 }
 
+select,
+.weapon-label {
+  font-size: 14px;
+  color: #f2e8dc;
+}
+
+select {
+  background: #3a3028;
+  border: 1px solid #5a4a3d;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.weapon-label {
+  margin-left: 4px;
+}
+
 .help,
 .status,
 .values {
