@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="WeaponLimbPreset" format=3]
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_d4ehs"]
 
@@ -17,8 +17,12 @@ overlay_offset_idle_px = Vector2(22, -34)
 idle_rotation_deg = 0.0
 ready_offset_px = Vector2(8, 6)
 ready_forward_px = 24.0
-upper_arm_length = 24.0
-lower_arm_length = 22.0
+upper_arm_length = 120.0
+lower_arm_length = 120.0
+weapon_upper_arm_length = -1.0
+weapon_lower_arm_length = -1.0
+support_upper_arm_length = -1.0
+support_lower_arm_length = -1.0
 elbow_hint_outward = 18.0
 weapon_elbow_pole_idle_px = Vector2(3, -5)
 weapon_elbow_pole_ready_px = Vector2(0, 0)

@@ -22,6 +22,10 @@ var _weapon_hand_override := Vector2.ZERO
 var _support_endpoints_override: bool = false
 var _support_shoulder_override := Vector2.ZERO
 var _support_hand_override := Vector2.ZERO
+var _weapon_elbow_override: bool = false
+var _weapon_elbow_override_local := Vector2.ZERO
+var _support_elbow_override: bool = false
+var _support_elbow_override_local := Vector2.ZERO
 var _overlay_rest_local := Vector2.ZERO
 var _overlay_motion_active: bool = false
 
@@ -101,11 +105,31 @@ func _process(_delta: float) -> void:
 	var use_support_pole := support_pole.length_squared() > 0.0001
 
 	if aiming_left:
-		_arm_left.update_arm(shoulder_weapon, hand_grip, config, -1.0, sprite_scale, weapon_pole, use_weapon_pole)
-		_arm_right.update_arm(support_shoulder, support_hand, config, 1.0, sprite_scale, support_pole, use_support_pole)
+		_arm_left.update_arm(
+			shoulder_weapon, hand_grip, config, WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN, sprite_scale,
+			weapon_pole, use_weapon_pole,
+			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
+			_weapon_elbow_override_local, _weapon_elbow_override
+		)
+		_arm_right.update_arm(
+			support_shoulder, support_hand, config, 1.0, sprite_scale,
+			support_pole, use_support_pole,
+			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
+			_support_elbow_override_local, _support_elbow_override
+		)
 	else:
-		_arm_right.update_arm(shoulder_weapon, hand_grip, config, 1.0, sprite_scale, weapon_pole, use_weapon_pole)
-		_arm_left.update_arm(support_shoulder, support_hand, config, -1.0, sprite_scale, support_pole, use_support_pole)
+		_arm_right.update_arm(
+			shoulder_weapon, hand_grip, config, -WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN, sprite_scale,
+			weapon_pole, use_weapon_pole,
+			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
+			_weapon_elbow_override_local, _weapon_elbow_override
+		)
+		_arm_left.update_arm(
+			support_shoulder, support_hand, config, -1.0, sprite_scale,
+			support_pole, use_support_pole,
+			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
+			_support_elbow_override_local, _support_elbow_override
+		)
 
 	_set_arms_visible(true)
 	_apply_debug_state()
@@ -164,6 +188,29 @@ func clear_support_endpoint_override() -> void:
 func clear_all_endpoint_overrides() -> void:
 	clear_weapon_endpoint_override()
 	clear_support_endpoint_override()
+
+
+func set_weapon_elbow_override_from_global(elbow_global: Vector2) -> void:
+	_weapon_elbow_override = true
+	_weapon_elbow_override_local = to_local(elbow_global)
+
+
+func set_support_elbow_override_from_global(elbow_global: Vector2) -> void:
+	_support_elbow_override = true
+	_support_elbow_override_local = to_local(elbow_global)
+
+
+func clear_weapon_elbow_override() -> void:
+	_weapon_elbow_override = false
+
+
+func clear_support_elbow_override() -> void:
+	_support_elbow_override = false
+
+
+func clear_all_elbow_overrides() -> void:
+	clear_weapon_elbow_override()
+	clear_support_elbow_override()
 
 
 func get_weapon_arm_global_endpoints() -> Dictionary:

@@ -8,18 +8,20 @@ The player uses **2D spritesheets** (`scripts/player.gd`, `WalkAnimation`, asset
 godot --path . res://scenes/MovementVisualTest.tscn
 ```
 
-## Procedural limb tuner (windowed)
+## Character Animation Tuner (windowed)
 
-Tune shoulder, hand grip, and spear placement on clansmen card 1. Saves to `assets/limb_presets/spear_clansmen_1.tres` (loaded by game at runtime).
+Tune procedural arms, weapon overlay, and layered mannequin (body + head) — **not** the old clansmen-card sprite. Saves limb presets to `assets/limb_presets/` and body/head layout to `assets/character_cards/layered_blank_1.tres` (game reads via `LimbPresetRegistry`).
 
 ```bash
 godot --path . res://scenes/tools/LimbTuner.tscn
 ```
 
-- **Assemble** — drag red shoulder, green hand, yellow spear anchor; use Idle/Ready tabs.
-- **Lock** — freeze anchors.
-- **Test** — **Shift** = weapon ready + aim; **Shift + click** = thrust (same as main game).
-- **Save** — writes preset `.tres` the game reads via `LimbPresetRegistry`.
+See **`scenes/tools/README.md`** for file map and controls.
+
+- **Assemble** — drag handles (H, 1/1e, 2/2e, 3); **Idle / Ready** tabs.
+- **Toggle walk / attack** — preview animation without leaving Assemble.
+- **Shift** — ready preview; **Shift + click** — one strike.
+- **Save** — writes preset `.tres` + layer layout.
 
 Headless smoke:
 

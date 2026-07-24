@@ -19,7 +19,7 @@ var _side_label: Label
 
 func _ready() -> void:
 	z_as_relative = false
-	z_index = 4094
+	z_index = 64
 	_poly = Polygon2D.new()
 	_poly.antialiased = false
 	add_child(_poly)

@@ -31,9 +31,22 @@ class_name WeaponLimbPreset
 @export var ready_forward_px: float = 24.0
 
 ## IK segment lengths (display px).
-@export var upper_arm_length: float = 24.0
-@export var lower_arm_length: float = 22.0
+@export var upper_arm_length: float = 120.0
+@export var lower_arm_length: float = 120.0
+## Per-arm overrides (display px). <= 0 uses shared upper_arm_length / lower_arm_length above.
+@export var weapon_upper_arm_length: float = -1.0
+@export var weapon_lower_arm_length: float = -1.0
+@export var support_upper_arm_length: float = -1.0
+@export var support_lower_arm_length: float = -1.0
 @export var elbow_hint_outward: float = 18.0
+
+## Tuner hard caps (display px) — both arms share upper_arm_length / lower_arm_length below.
+const TUNER_MAX_UPPER_ARM_PX := 120.0
+const TUNER_MAX_LOWER_ARM_PX := 120.0
+const TUNER_MIN_SEGMENT_PX := 4.0
+## Fixed IK bend direction per arm in tuner + game arms (no pole flip).
+const DOMINANT_ELBOW_BEND_SIGN := 1.0
+const SUPPORT_ELBOW_BEND_SIGN := 1.0
 
 ## IK pole targets (body display px). Zero = auto elbow_hint_outward.
 @export var weapon_elbow_pole_idle_px: Vector2 = Vector2.ZERO
@@ -101,6 +114,60 @@ func resolve_hand_grip_ready_px() -> Vector2:
 	return hand_grip_offset_px
 
 
+func resolve_weapon_upper_arm_length() -> float:
+	return upper_arm_length
+
+
+func resolve_weapon_lower_arm_length() -> float:
+	return lower_arm_length
+
+
+func resolve_support_upper_arm_length() -> float:
+	return upper_arm_length
+
+
+func resolve_support_lower_arm_length() -> float:
+	return lower_arm_length
+
+
+func resolve_upper_arm_length(dominant: bool) -> float:
+	return resolve_weapon_upper_arm_length() if dominant else resolve_support_upper_arm_length()
+
+
+func resolve_lower_arm_length(dominant: bool) -> float:
+	return resolve_weapon_lower_arm_length() if dominant else resolve_support_lower_arm_length()
+
+
+func tuner_max_reach_px() -> float:
+	return upper_arm_length + lower_arm_length
+
+
+func set_shared_arm_lengths(upper: float, lower: float) -> void:
+	var capped := cap_arm_segment_lengths(upper, lower)
+	apply_tuner_arm_lengths(capped.x, capped.y)
+
+
+func apply_tuner_arm_lengths(upper: float, lower: float) -> void:
+	upper_arm_length = maxf(upper, TUNER_MIN_SEGMENT_PX)
+	lower_arm_length = maxf(lower, TUNER_MIN_SEGMENT_PX)
+	weapon_upper_arm_length = -1.0
+	weapon_lower_arm_length = -1.0
+	support_upper_arm_length = -1.0
+	support_lower_arm_length = -1.0
+
+
+static func cap_arm_segment_lengths(upper: float, lower: float) -> Vector2:
+	upper = clampf(upper, TUNER_MIN_SEGMENT_PX, TUNER_MAX_UPPER_ARM_PX)
+	lower = clampf(lower, TUNER_MIN_SEGMENT_PX, TUNER_MAX_LOWER_ARM_PX)
+	var max_total := TUNER_MAX_UPPER_ARM_PX + TUNER_MAX_LOWER_ARM_PX
+	var total := upper + lower
+	if total > max_total:
+		var scale := max_total / total
+		upper *= scale
+		lower *= scale
+	return Vector2(upper, lower)
+
+
 func duplicate_preset() -> WeaponLimbPreset:
 	var copy: WeaponLimbPreset = duplicate(true) as WeaponLimbPreset
 	return copy
@@ -123,6 +190,10 @@ func to_export_dict() -> Dictionary:
 		"ready_forward_px": ready_forward_px,
 		"upper_arm_length": upper_arm_length,
 		"lower_arm_length": lower_arm_length,
+		"weapon_upper_arm_length": weapon_upper_arm_length,
+		"weapon_lower_arm_length": weapon_lower_arm_length,
+		"support_upper_arm_length": support_upper_arm_length,
+		"support_lower_arm_length": support_lower_arm_length,
 		"elbow_hint_outward": elbow_hint_outward,
 		"weapon_elbow_pole_idle_px": weapon_elbow_pole_idle_px,
 		"weapon_elbow_pole_ready_px": weapon_elbow_pole_ready_px,

@@ -32,6 +32,12 @@ layer = 0
 [node name="Stage" type="Node2D" parent="World"]
 position = Vector2(960, 540)
 
+[node name="HandleLayer" type="CanvasLayer" parent="World"]
+layer = 1
+
+[node name="HandleStage" type="Node2D" parent="World/HandleLayer"]
+position = Vector2(960, 540)
+
 [node name="TunerRig" type="CharacterBody2D" parent="World/Stage"]
 script = ExtResource("2")
 
@@ -61,7 +67,7 @@ layer = 10
 offset_left = 16.0
 offset_top = 16.0
 offset_right = 416.0
-offset_bottom = 520.0
+offset_bottom = 560.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/Panel"]
 layout_mode = 2
@@ -79,7 +85,7 @@ text = "Mode: ASSEMBLE | Pose: IDLE"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Layered body1 + head1 art and club_clansmen_1 preset. Drag handles, Save, Refresh after art swaps.\nH = head/neck | 1 / 1e = dominant arm | 2 / 2e = off arm | 3 = club\nToggle walk / attack to preview. Shift = ready | Shift+click = one strike."
+text = "Layered body1 + head1 art. Drag handles, Save, Refresh after art swaps.\nH = head | 1 = shoulder | 1h + 3 = hand/grip (stacked on club) | 1e = elbow | 2 / 2h / 2e = off arm\nToggle walk / attack. Shift = ready | Shift+click = strike."
 
 [node name="PreviewButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
@@ -133,6 +139,30 @@ text = "Reset"
 [node name="CopyBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
 layout_mode = 2
 text = "Copy JSON"
+
+[node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ArmLengthLabel" type="Label" parent="UI/Panel/VBox/ArmLengthRow"]
+layout_mode = 2
+text = "Arm px upper / lower:"
+
+[node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/VBox/ArmLengthRow"]
+custom_minimum_size = Vector2(72, 0)
+layout_mode = 2
+min_value = 4.0
+max_value = 400.0
+value = 120.0
+rounded = true
+
+[node name="LowerArmLengthSpin" type="SpinBox" parent="UI/Panel/VBox/ArmLengthRow"]
+custom_minimum_size = Vector2(72, 0)
+layout_mode = 2
+min_value = 4.0
+max_value = 400.0
+value = 120.0
+rounded = true
 
 [node name="ValuesLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2

@@ -355,13 +355,90 @@ func set_hand_grip_from_global(preset: WeaponLimbPreset, global_pos: Vector2, re
 		preset.hand_grip_offset_px = grip_px
 
 
-func snap_dominant_hand_grip_to_weapon_anchor(preset: WeaponLimbPreset) -> void:
+## Club/swing weapons: move weapon so grip anchor sits on the hand (handles 1h + 3 stack).
+func align_weapon_overlay_to_hand_grip_global(
+	preset: WeaponLimbPreset,
+	hand_global: Vector2,
+	ready_pose: bool = false
+) -> void:
+	if preset == null or weapon_overlay == null or sprite == null:
+		return
+	if uses_weapon_grip_anchor_hand():
+		move_weapon_handle_anchor_global(hand_global)
+		snap_hand_grip_to_weapon_anchor(preset, ready_pose)
+		var display_px := display_px_from_overlay_position()
+		if ready_pose:
+			preset.ready_offset_px = display_px
+		else:
+			preset.overlay_offset_idle_px = display_px
+		return
+	_ensure_overlay_pivot()
+	var grip_px := preset.resolve_hand_grip_ready_px() if ready_pose else preset.hand_grip_offset_px
+	if grip_px.length_squared() < 0.0001:
+		snap_hand_grip_to_weapon_anchor(preset, ready_pose)
+		grip_px = preset.resolve_hand_grip_ready_px() if ready_pose else preset.hand_grip_offset_px
+	var grip_local := Vector2(grip_px.x * weapon_overlay.scale.x, grip_px.y * weapon_overlay.scale.y)
+	var grip_global := weapon_overlay.to_global(grip_local)
+	weapon_overlay.global_position += hand_global - grip_global
+	var display_px := display_px_from_overlay_position()
+	if ready_pose:
+		preset.ready_offset_px = display_px
+	else:
+		preset.overlay_offset_idle_px = display_px
+
+
+func project_hand_grip_drag_global(
+	global_pos: Vector2,
+	preset: WeaponLimbPreset,
+	ready_pose: bool = false
+) -> Vector2:
+	if weapon_overlay == null or not weapon_overlay.visible:
+		return global_pos
+	if uses_weapon_grip_anchor_hand():
+		return _project_grip_slide_along_weapon_shaft(global_pos, hand_grip_global_from_preset(preset, ready_pose))
+	return global_pos
+
+
+func project_support_hand_grip_drag_global(global_pos: Vector2, preset: WeaponLimbPreset) -> Vector2:
+	if weapon_overlay == null or not weapon_overlay.visible:
+		return global_pos
+	if uses_weapon_grip_anchor_hand():
+		return _project_grip_slide_along_weapon_shaft(global_pos, support_hand_global_from_preset(preset))
+	return global_pos
+
+
+func _project_grip_slide_along_weapon_shaft(global_pos: Vector2, current_grip_global: Vector2) -> Vector2:
+	## Club/swing weapons: slide grip along overlay Y (shaft), keep X fixed.
+	var current_local := weapon_overlay.to_local(current_grip_global)
+	var proposed_local := weapon_overlay.to_local(global_pos)
+	proposed_local.x = current_local.x
+	return weapon_overlay.to_global(proposed_local)
+
+
+func snap_hand_grip_to_weapon_anchor(preset: WeaponLimbPreset, ready_pose: bool = false) -> void:
 	if preset == null or weapon_overlay == null:
 		return
+	_ensure_overlay_pivot()
 	var anchor_local := weapon_handle_anchor_local()
-	preset.hand_grip_offset_px = LimbPresetCoords.overlay_grip_px_from_global(
+	var grip_px := LimbPresetCoords.overlay_grip_px_from_global(
 		weapon_overlay, weapon_overlay.to_global(anchor_local)
 	)
+	if ready_pose:
+		preset.hand_grip_ready_offset_px = grip_px
+	else:
+		preset.hand_grip_offset_px = grip_px
+
+
+func snap_dominant_hand_grip_to_weapon_anchor(preset: WeaponLimbPreset) -> void:
+	snap_hand_grip_to_weapon_anchor(preset, false)
+
+
+func dominant_grip_global_from_preset(preset: WeaponLimbPreset, ready_pose: bool = false) -> Vector2:
+	if preset == null or weapon_overlay == null:
+		return global_position
+	if uses_weapon_grip_anchor_hand():
+		return weapon_handle_anchor_global()
+	return hand_grip_global_from_preset(preset, ready_pose)
 
 
 func uses_weapon_grip_anchor_hand() -> bool:
@@ -415,20 +492,16 @@ func elbow_joint_global_from_handles(
 	var sx: float = absf(sprite.scale.x)
 	if sx < 0.001:
 		sx = 1.0
-	var upper_len: float = preset.upper_arm_length * sx
-	var lower_len: float = preset.lower_arm_length * sx
-	var bend_sign: float = -1.0 if dominant else 1.0
-	var pole_px := preset.resolve_elbow_pole_px(dominant, ready_pose)
-	var pole_hint: Vector2
-	if pole_px.length_squared() > 0.0001:
-		pole_hint = LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
-	else:
-		var to_hand := hand_local - shoulder_local
-		if to_hand.length_squared() < 0.01:
-			to_hand = Vector2(0.0, 1.0)
-		var outward := Vector2(-to_hand.y, to_hand.x).normalized() * signf(bend_sign)
-		pole_hint = shoulder_local + outward * (preset.elbow_hint_outward * sx)
-	var elbow_local := _solve_ik_local(shoulder_local, hand_local, upper_len, lower_len, pole_hint)
+	var upper_len: float = preset.resolve_upper_arm_length(dominant) * sx
+	var lower_len: float = preset.resolve_lower_arm_length(dominant) * sx
+	var bend_sign: float = (
+		WeaponLimbPreset.DOMINANT_ELBOW_BEND_SIGN
+		if dominant
+		else WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
+	)
+	var elbow_local := _solve_ik_local(
+		shoulder_local, hand_local, upper_len, lower_len, bend_sign
+	)
 	return to_global(elbow_local)
 
 
@@ -437,7 +510,7 @@ func _solve_ik_local(
 	hand: Vector2,
 	upper_len: float,
 	lower_len: float,
-	pole_hint: Vector2,
+	bend_sign: float,
 	fold_min_deg: float = 8.0,
 	fold_max_deg: float = 150.0
 ) -> Vector2:
@@ -458,12 +531,52 @@ func _solve_ik_local(
 	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
 	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
 	var shoulder_angle := acos(cos_shoulder)
-	var mid := shoulder + dir * (dist * 0.5)
-	var pole_side := signf((pole_hint - mid).cross(dir))
+	var pole_side := signf(bend_sign)
 	if pole_side == 0.0:
 		pole_side = 1.0
 	var elbow_dir := dir.rotated(shoulder_angle * pole_side)
 	return shoulder + elbow_dir * upper_len
+
+
+func set_arm_lengths_from_elbow_global(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	shoulder_global: Vector2,
+	elbow_global: Vector2,
+	hand_global: Vector2
+) -> void:
+	if preset == null or sprite == null:
+		return
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_local := to_local(shoulder_global)
+	var elbow_local := to_local(elbow_global)
+	var hand_local := to_local(hand_global)
+	var upper := maxf(shoulder_local.distance_to(elbow_local) / sx, WeaponLimbPreset.TUNER_MIN_SEGMENT_PX)
+	var lower := maxf(elbow_local.distance_to(hand_local) / sx, WeaponLimbPreset.TUNER_MIN_SEGMENT_PX)
+	var capped := WeaponLimbPreset.cap_arm_segment_lengths(upper, lower)
+	preset.set_shared_arm_lengths(capped.x, capped.y)
+
+
+func clamp_hand_global_to_arm_reach(
+	preset: WeaponLimbPreset,
+	shoulder_global: Vector2,
+	hand_global: Vector2
+) -> Vector2:
+	if preset == null or sprite == null:
+		return hand_global
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var max_reach: float = preset.tuner_max_reach_px() * sx
+	var shoulder_local := to_local(shoulder_global)
+	var hand_local := to_local(hand_global)
+	var delta := hand_local - shoulder_local
+	var dist := delta.length()
+	if dist <= max_reach or dist < 0.001:
+		return hand_global
+	return to_global(shoulder_local + delta * (max_reach / dist))
 
 
 func set_elbow_joint_from_global(

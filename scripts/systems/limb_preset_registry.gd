@@ -77,6 +77,10 @@ func apply_to_arm_config(config: ProceduralArmConfig, preset: WeaponLimbPreset) 
 	config.support_hand_idle_offset_px = preset.support_hand_idle_offset_px
 	config.upper_arm_length = preset.upper_arm_length
 	config.lower_arm_length = preset.lower_arm_length
+	config.weapon_upper_arm_length = preset.weapon_upper_arm_length
+	config.weapon_lower_arm_length = preset.weapon_lower_arm_length
+	config.support_upper_arm_length = preset.support_upper_arm_length
+	config.support_lower_arm_length = preset.support_lower_arm_length
 	config.elbow_hint_outward = preset.elbow_hint_outward
 	config.weapon_elbow_pole_idle_px = preset.weapon_elbow_pole_idle_px
 	config.weapon_elbow_pole_ready_px = preset.weapon_elbow_pole_ready_px

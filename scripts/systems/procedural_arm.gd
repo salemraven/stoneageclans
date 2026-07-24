@@ -91,27 +91,47 @@ func update_arm(
 	bend_sign: float,
 	sprite_scale: Vector2,
 	pole_hint_override: Vector2 = Vector2.ZERO,
-	use_pole_override: bool = false
+	use_pole_override: bool = false,
+	segment_upper_px: float = -1.0,
+	segment_lower_px: float = -1.0,
+	forced_elbow: Vector2 = Vector2.ZERO,
+	use_forced_elbow: bool = false
 ) -> void:
 	var cfg := _as_config(config)
 	if _line == null or cfg == null:
 		return
-	var upper_len: float = cfg.upper_arm_length * absf(sprite_scale.x)
-	var lower_len: float = cfg.lower_arm_length * absf(sprite_scale.x)
-	var pole_hint := pole_hint_override if use_pole_override else _elbow_pole_hint(
-		local_shoulder, local_hand, cfg, bend_sign, sprite_scale
+	var upper_len: float = (
+		segment_upper_px if segment_upper_px > 0.0 else cfg.upper_arm_length
+	) * absf(sprite_scale.x)
+	var lower_len: float = (
+		segment_lower_px if segment_lower_px > 0.0 else cfg.lower_arm_length
+	) * absf(sprite_scale.x)
+	var solved_hand := local_hand
+	var to_hand := local_hand - local_shoulder
+	var max_chain := upper_len + lower_len
+	if to_hand.length() > max_chain and to_hand.length_squared() > 0.0001:
+		solved_hand = local_shoulder + to_hand.normalized() * max_chain
+	var elbow := forced_elbow if use_forced_elbow else _solve_ik(
+		local_shoulder,
+		solved_hand,
+		upper_len,
+		lower_len,
+		pole_hint_override if use_pole_override else _elbow_pole_hint(
+			local_shoulder, solved_hand, cfg, bend_sign, sprite_scale
+		),
+		cfg,
+		bend_sign
 	)
-	var elbow := _solve_ik(local_shoulder, local_hand, upper_len, lower_len, pole_hint, cfg)
 
 	_points[0] = local_shoulder
 	_points[1] = elbow
-	_points[2] = local_hand
+	_points[2] = solved_hand
 	_trim_line_endpoints(cfg, sprite_scale)
 	_line.points = _points
 
 	_last_shoulder = local_shoulder
 	_last_elbow = elbow
-	_last_hand = local_hand
+	_last_hand = solved_hand
 	_update_endpoint_markers(cfg)
 	_update_debug_markers(cfg)
 
@@ -159,7 +179,15 @@ func _elbow_pole_hint(
 	return shoulder + outward * outward_dist
 
 
-func _solve_ik(shoulder: Vector2, hand: Vector2, upper_len: float, lower_len: float, pole_hint: Vector2, cfg: ProceduralArmConfigScript) -> Vector2:
+func _solve_ik(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	_pole_hint: Vector2,
+	cfg: ProceduralArmConfigScript,
+	bend_sign: float
+) -> Vector2:
 	var to_hand := hand - shoulder
 	var dist := to_hand.length()
 	if dist < 0.001:
@@ -179,8 +207,7 @@ func _solve_ik(shoulder: Vector2, hand: Vector2, upper_len: float, lower_len: fl
 	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
 	var shoulder_angle := acos(cos_shoulder)
 
-	var mid := shoulder + dir * (dist * 0.5)
-	var pole_side := signf((pole_hint - mid).cross(dir))
+	var pole_side := signf(bend_sign)
 	if pole_side == 0.0:
 		pole_side = 1.0
 

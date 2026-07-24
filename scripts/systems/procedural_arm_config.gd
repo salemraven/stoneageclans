@@ -18,8 +18,12 @@ class_name ProceduralArmConfig
 @export var shoulder_offset_left := Vector2(-18.0, -20.0)
 
 # Segment lengths in display pixels (scaled by sprite.scale).
-@export var upper_arm_length := 24.0
-@export var lower_arm_length := 22.0
+@export var upper_arm_length := 120.0
+@export var lower_arm_length := 120.0
+@export var weapon_upper_arm_length := -1.0
+@export var weapon_lower_arm_length := -1.0
+@export var support_upper_arm_length := -1.0
+@export var support_lower_arm_length := -1.0
 
 ## How far the elbow can straighten (min) and curl (max), in degrees of fold from a straight arm.
 @export_range(0.0, 45.0) var elbow_fold_min_deg := 8.0
@@ -52,3 +56,19 @@ class_name ProceduralArmConfig
 @export var debug_marker_radius := 4.0
 @export var elbow_joint_radius := 7.0
 @export var show_elbow_joints := false
+
+
+func resolve_weapon_upper_arm_length() -> float:
+	return upper_arm_length
+
+
+func resolve_weapon_lower_arm_length() -> float:
+	return lower_arm_length
+
+
+func resolve_support_upper_arm_length() -> float:
+	return upper_arm_length
+
+
+func resolve_support_lower_arm_length() -> float:
+	return lower_arm_length
