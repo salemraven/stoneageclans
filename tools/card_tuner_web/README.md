@@ -1,6 +1,9 @@
-# Web Card Tuner (shareable preview)
+# Web Card Tuner (optional preview only)
 
-Browser preview of the same `layered_blank_1.tres` + `club_clansmen_1.tres` files the Godot **LimbTuner** edits.
+> **Source of truth:** Godot `scenes/tools/LimbTuner.tscn` (Character Animation Tuner).  
+> Use the web tuner only for quick browser previews. It does not support walk/attack mode fields, elbow bend overrides, or the full preset schema. **Save from Godot** when tuning for the game.
+
+Browser preview of overlapping `layered_blank_1.tres` + `club_clansmen_1.tres` files.
 
 ## Quick start (local)
 

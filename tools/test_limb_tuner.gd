@@ -20,6 +20,7 @@ func _run() -> void:
 	_test_none_preset_path()
 	_test_walk_fields_roundtrip()
 	_test_save_roundtrip()
+	_test_club_preset_sane()
 	_test_limb_tuner_scene()
 	_test_procedural_arms_still_pass()
 	_report()
@@ -77,6 +78,19 @@ func _test_save_roundtrip() -> void:
 		_fail("elbow pole round-trip failed got %s" % str(reloaded.weapon_elbow_pole_idle_px))
 
 
+func _test_club_preset_sane() -> void:
+	var preset: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
+	if preset == null:
+		_fail("club preset missing")
+		return
+	if preset.upper_arm_length > WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX + 0.01:
+		_fail("club upper arm exceeds tuner cap")
+	if preset.lower_arm_length > WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX + 0.01:
+		_fail("club lower arm exceeds tuner cap")
+	if preset.overlay_offset_idle_px.length_squared() < 1.0:
+		_fail("club overlay offset looks unset")
+
+
 func _test_limb_tuner_scene() -> void:
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
 	if packed == null:
@@ -103,6 +117,18 @@ func _test_limb_tuner_scene() -> void:
 		_fail("animation/weapon dropdowns missing")
 	elif anim_option.item_count < 3 or weapon_option.item_count < 2:
 		_fail("dropdowns need idle/walk/attack and none/club items")
+	var save_btn: Button = app.get_node_or_null("UI/Panel/VBox/PrimaryButtons/SaveBtn") as Button
+	var reach_banner: Label = app.get_node_or_null("UI/Panel/VBox/ReachBanner") as Label
+	var values_scroll: ScrollContainer = app.get_node_or_null("UI/Panel/VBox/ValuesScroll") as ScrollContainer
+	var legend: Label = app.get_node_or_null("UI/CanvasLegend") as Label
+	if save_btn == null:
+		_fail("primary SaveBtn missing")
+	if reach_banner == null:
+		_fail("ReachBanner missing")
+	if values_scroll == null:
+		_fail("ValuesScroll missing")
+	if legend == null:
+		_fail("CanvasLegend missing")
 	if rig.weapon_overlay != null and rig.weapon_overlay.visible:
 		_fail("default weapon None should hide overlay")
 	var handle_stage: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage") as Node2D

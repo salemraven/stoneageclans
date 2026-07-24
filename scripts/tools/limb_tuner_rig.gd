@@ -28,6 +28,7 @@ var _mannequin_layout
 var _walk := TunerWalkPreview.new()
 var _registry = PlaceholderCardRegistry.new()
 var _last_overlay_base := Vector2.ZERO
+var _card_preview_enabled := false
 
 
 func _ready() -> void:
@@ -70,6 +71,9 @@ func refresh_weapon_overlay() -> void:
 func reload_mannequin_from_layout() -> void:
 	if sprite == null:
 		return
+	if _card_preview_enabled:
+		_apply_card_preview()
+		return
 	_mannequin_layout = TunerMannequinLayoutScript.from_registry(_registry, body_card_index)
 	sprite.scale = Vector2.ONE * _mannequin_layout.sprite_scale
 	_anchor_foot_y = _mannequin_layout.foot_y
@@ -77,6 +81,39 @@ func reload_mannequin_from_layout() -> void:
 	var layout := CharacterCardPartsRegistry.reload_layout()
 	if body_visual and body_visual.has_method("apply_layer_layout"):
 		body_visual.call("apply_layer_layout", layout)
+	if body_visual:
+		body_visual.visible = true
+
+
+func set_card_preview_enabled(on: bool) -> void:
+	_card_preview_enabled = on
+	if on:
+		_apply_card_preview()
+	else:
+		if sprite:
+			sprite.texture = null
+		if body_visual:
+			body_visual.visible = true
+		reload_mannequin_from_layout()
+
+
+func is_card_preview_enabled() -> bool:
+	return _card_preview_enabled
+
+
+func _apply_card_preview() -> void:
+	if sprite == null:
+		return
+	var tex: Texture2D = _registry.get_clansmen_card(body_card_index)
+	if tex == null:
+		return
+	sprite.texture = tex
+	sprite.region_enabled = false
+	sprite.scale = Vector2.ONE * _registry.get_card_scale(tex)
+	_anchor_foot_y = _registry.get_card_foot_y(tex)
+	sprite.position = Vector2(0.0, _anchor_foot_y)
+	if body_visual:
+		body_visual.visible = false
 
 
 func get_equipped_weapon_type() -> ResourceData.ResourceType:

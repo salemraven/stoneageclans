@@ -20,11 +20,16 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _mode_label: Label = $UI/Panel/VBox/ModeLabel
 @onready var _anim_mode_option: OptionButton = $UI/Panel/VBox/Toolbar/AnimModeOption
 @onready var _weapon_option: OptionButton = $UI/Panel/VBox/Toolbar/WeaponOption
-@onready var _values_label: Label = $UI/Panel/VBox/ValuesLabel
+@onready var _values_label: RichTextLabel = $UI/Panel/VBox/ValuesScroll/ValuesLabel
 @onready var _export_label: Label = $UI/Panel/VBox/ExportLabel
 @onready var _status_label: Label = $UI/Panel/VBox/StatusLabel
+@onready var _title_label: Label = $UI/Panel/VBox/Title
+@onready var _reach_banner: Label = $UI/Panel/VBox/ReachBanner
 @onready var _upper_arm_length_spin: SpinBox = $UI/Panel/VBox/ArmLengthRow/UpperArmLengthSpin
 @onready var _lower_arm_length_spin: SpinBox = $UI/Panel/VBox/ArmLengthRow/LowerArmLengthSpin
+@onready var _unsaved_dialog: ConfirmationDialog = $UnsavedDialog
+@onready var _show_all_modes_check: CheckBox = $UI/Panel/VBox/UtilityRow/ShowAllModesCheck
+@onready var _card_preview_check: CheckBox = $UI/Panel/VBox/UtilityRow/CardPreviewCheck
 
 @export var stage_scale: float = 4.0
 
@@ -52,6 +57,12 @@ var _drag_start_global: Vector2 = Vector2.ZERO
 var _spear_grab_offset: Vector2 = Vector2.ZERO
 var _syncing_arm_length_ui: bool = false
 var _syncing_dropdown_ui: bool = false
+var _dirty: bool = false
+var _show_all_mode_values: bool = true
+var _pending_anim_mode: int = -1
+var _pending_weapon_index: int = -1
+var _undo_snapshot: Dictionary = {}
+const SNAP_GRID_PX := 4.0
 
 
 func _ready() -> void:
@@ -64,13 +75,33 @@ func _ready() -> void:
 	call_deferred("_finish_startup")
 	if _status_label:
 		_status_label.text = "Pick animation + weapon, drag handles, Save."
-	var assemble_btn: Button = $UI/Panel/VBox/Buttons/AssembleBtn
-	var lock_btn: Button = $UI/Panel/VBox/Buttons/LockBtn
-	var test_btn: Button = $UI/Panel/VBox/Buttons/TestBtn
-	var save_btn: Button = $UI/Panel/VBox/Buttons/SaveBtn
-	var refresh_btn: Button = $UI/Panel/VBox/Buttons/RefreshBtn
-	var reset_btn: Button = $UI/Panel/VBox/Buttons/ResetBtn
-	var copy_btn: Button = $UI/Panel/VBox/Buttons/CopyBtn
+	if _unsaved_dialog:
+		_unsaved_dialog.confirmed.connect(_on_unsaved_dialog_save)
+		_unsaved_dialog.canceled.connect(_on_unsaved_dialog_discard)
+		_unsaved_dialog.close_requested.connect(_on_unsaved_dialog_stay)
+	if _show_all_modes_check:
+		_show_all_modes_check.toggled.connect(func(on: bool) -> void:
+			_show_all_mode_values = on
+			_update_ui()
+		)
+	if _card_preview_check:
+		_card_preview_check.toggled.connect(_on_card_preview_toggled)
+	var mirror_btn: Button = $UI/Panel/VBox/UtilityRow/MirrorShoulderBtn
+	var copy_walk_btn: Button = $UI/Panel/VBox/ToolButtons/CopyWalkBtn
+	var copy_attack_btn: Button = $UI/Panel/VBox/ToolButtons/CopyAttackBtn
+	if mirror_btn:
+		mirror_btn.pressed.connect(_on_mirror_shoulder_pressed)
+	if copy_walk_btn:
+		copy_walk_btn.pressed.connect(func() -> void: _copy_idle_to_mode(AnimMode.WALK))
+	if copy_attack_btn:
+		copy_attack_btn.pressed.connect(func() -> void: _copy_idle_to_mode(AnimMode.ATTACK))
+	var assemble_btn: Button = $UI/Panel/VBox/AdvancedButtons/AssembleBtn
+	var lock_btn: Button = $UI/Panel/VBox/AdvancedButtons/LockBtn
+	var test_btn: Button = $UI/Panel/VBox/AdvancedButtons/TestBtn
+	var save_btn: Button = $UI/Panel/VBox/PrimaryButtons/SaveBtn
+	var refresh_btn: Button = $UI/Panel/VBox/ToolButtons/RefreshBtn
+	var reset_btn: Button = $UI/Panel/VBox/ToolButtons/ResetBtn
+	var copy_btn: Button = $UI/Panel/VBox/AdvancedButtons/CopyBtn
 	if assemble_btn:
 		assemble_btn.pressed.connect(_on_assemble_pressed)
 	if lock_btn:
@@ -127,11 +158,23 @@ func _setup_dropdowns() -> void:
 func _on_anim_mode_selected(index: int) -> void:
 	if _syncing_dropdown_ui:
 		return
+	if _dirty:
+		_pending_anim_mode = index
+		_pending_weapon_index = -1
+		_show_unsaved_switch_dialog()
+		_sync_anim_mode_dropdown()
+		return
 	_set_anim_mode(index as AnimMode)
 
 
 func _on_weapon_selected(index: int) -> void:
 	if _syncing_dropdown_ui or index < 0 or index >= WEAPON_MENU.size():
+		return
+	if _dirty:
+		_pending_weapon_index = index
+		_pending_anim_mode = -1
+		_show_unsaved_switch_dialog()
+		_sync_weapon_dropdown()
 		return
 	_set_weapon(WEAPON_MENU[index]["type"] as ResourceData.ResourceType)
 
@@ -254,9 +297,9 @@ func _apply_ui_theme() -> void:
 		"UI/Panel/VBox/ModeLabel",
 		"UI/Panel/VBox/HelpLabel",
 		"UI/Panel/VBox/ArmLengthRow/ArmLengthLabel",
-		"UI/Panel/VBox/ValuesLabel",
 		"UI/Panel/VBox/StatusLabel",
-		"UI/Panel/VBox/ExportLabel",
+		"UI/Panel/VBox/ReachBanner",
+		"UI/CanvasLegend",
 	]:
 		var label: Label = get_node_or_null(label_path) as Label
 		if label and UITheme:
@@ -264,6 +307,10 @@ func _apply_ui_theme() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_Z and event.ctrl_pressed:
+		if _undo_last_drag():
+			get_viewport().set_input_as_handled()
+		return
 	if _mode != AppMode.ASSEMBLE:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -271,6 +318,7 @@ func _input(event: InputEvent) -> void:
 			_drag_start_global = get_global_mouse_position()
 			_active_drag_handle = _pick_handle_at(get_global_mouse_position())
 			if _active_drag_handle != null:
+				_capture_undo_snapshot()
 				if _active_drag_handle == _spear_handle and _rig.weapon_overlay:
 					_spear_grab_offset = _rig.weapon_handle_anchor_global() - get_global_mouse_position()
 					_dragging_spear = true
@@ -285,6 +333,7 @@ func _input(event: InputEvent) -> void:
 					_flip_elbow_bend(_active_drag_handle == _weapon_elbow_handle)
 				else:
 					_commit_all_poses_to_preset()
+					_mark_dirty()
 				_clear_elbow_drag_overrides()
 				get_viewport().set_input_as_handled()
 			_active_drag_handle = null
@@ -293,6 +342,7 @@ func _input(event: InputEvent) -> void:
 			_drag_start_global = Vector2.ZERO
 	elif event is InputEventMouseMotion and _active_drag_handle != null:
 		_move_active_handle(get_global_mouse_position())
+		_mark_dirty()
 		get_viewport().set_input_as_handled()
 
 
@@ -339,6 +389,7 @@ func _flip_elbow_bend(dominant: bool) -> void:
 	_seed_one_elbow_pole(dominant, _anim_mode)
 	_lock_arm_lines_to_handles()
 	call_deferred("_sync_elbow_handles_from_arm_lines")
+	_mark_dirty()
 	if _status_label:
 		var label := "1e" if dominant else "2e"
 		var side := "outward +" if new_sign > 0.0 else "outward -"
@@ -367,6 +418,7 @@ func _handle_pick_center_global(handle: LimbTunerHandle) -> Vector2:
 func _move_active_handle(global_pos: Vector2) -> void:
 	if _active_drag_handle == null:
 		return
+	global_pos = _maybe_snap_global(global_pos)
 	if _active_drag_handle == _shoulder_handle:
 		_shoulder_handle.global_position = global_pos
 		_on_shoulder_dragged(global_pos)
@@ -403,13 +455,13 @@ func _move_active_handle(global_pos: Vector2) -> void:
 func _setup_arm_length_fields() -> void:
 	if _upper_arm_length_spin:
 		_upper_arm_length_spin.min_value = WeaponLimbPreset.TUNER_MIN_SEGMENT_PX
-		_upper_arm_length_spin.max_value = 400.0
+		_upper_arm_length_spin.max_value = WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX
 		_upper_arm_length_spin.step = 1.0
 		_upper_arm_length_spin.rounded = true
 		_upper_arm_length_spin.value_changed.connect(_on_arm_length_field_changed)
 	if _lower_arm_length_spin:
 		_lower_arm_length_spin.min_value = WeaponLimbPreset.TUNER_MIN_SEGMENT_PX
-		_lower_arm_length_spin.max_value = 400.0
+		_lower_arm_length_spin.max_value = WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX
 		_lower_arm_length_spin.step = 1.0
 		_lower_arm_length_spin.rounded = true
 		_lower_arm_length_spin.value_changed.connect(_on_arm_length_field_changed)
@@ -438,6 +490,7 @@ func _apply_arm_length_from_fields() -> void:
 			_preset.upper_arm_length,
 			_preset.lower_arm_length,
 		]
+	_mark_dirty()
 
 
 func _sync_arm_length_fields_from_preset() -> void:
@@ -1282,6 +1335,7 @@ func _on_save_pressed() -> void:
 		layout_err = CharacterCardPartsRegistry.save_layout(layout)
 	if err == OK and layout_err == OK:
 		_reload_all_from_disk()
+		_clear_dirty()
 	if _status_label:
 		if err == OK and layout_err == OK:
 			_status_label.text = (
@@ -1297,6 +1351,7 @@ func _on_save_pressed() -> void:
 
 func _on_refresh_pressed() -> void:
 	_reload_all_from_disk()
+	_clear_dirty()
 	if _status_label:
 		_status_label.text = "Reloaded presets + head layout from disk."
 
@@ -1322,6 +1377,7 @@ func _on_reset_pressed() -> void:
 			_weapon_label(),
 			LimbPresetRegistry.preset_path(_selected_weapon, "clansmen_1"),
 		]
+	_clear_dirty()
 
 
 func _on_copy_pressed() -> void:
@@ -1343,9 +1399,15 @@ func _update_ui() -> void:
 		_mode_label.text = "Mode: %s | Animation: %s | Weapon: %s%s" % [
 			_mode_name(), _anim_mode_label(), _weapon_label(), walk_name
 		]
+	if _title_label:
+		_title_label.text = (
+			"Character Animation Tuner *"
+			if _dirty
+			else "Character Animation Tuner"
+		)
+	_update_reach_banner()
+	_update_elbow_hover_status()
 	if _values_label and _preset:
-		var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
-		var off_attack := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: body only)"
 		var head_line := ""
 		if _rig:
 			var layer := _rig.get_layer_layout()
@@ -1354,31 +1416,72 @@ func _update_ui() -> void:
 					str(layer.body_neck_socket_px),
 					str(layer.head_pivot_px),
 				]
-		_values_label.text = (
-			head_line
-			+ "Idle — hand %s | elbow %s | overlay %s\n"
-			+ "Walk — hand %s | elbow %s | overlay %s\n"
-			+ "Attack — hand %s | elbow %s | overlay %s\n"
-			+ "Off arm idle/walk %s | attack %s\n"
-			+ "Arm length (shared, cap %.0f/%.0f): %.0f / %.0f%s"
-		) % [
-			str(_preset.hand_grip_offset_px),
-			str(_preset.weapon_elbow_pole_idle_px),
-			str(_preset.overlay_offset_idle_px),
-			str(_preset.resolve_hand_grip_for_mode(AnimMode.WALK)),
-			str(_preset.walk_weapon_elbow_pole_px),
-			str(_preset.resolve_overlay_for_mode(AnimMode.WALK)),
-			str(_preset.resolve_hand_grip_ready_px()),
-			str(_preset.weapon_elbow_pole_ready_px),
-			str(_preset.ready_offset_px),
+		var club_anchor := _rig != null and _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay()
+		var idle_hand := (
+			"club %s (grip anchored)" % str(_preset.overlay_offset_idle_px)
+			if club_anchor
+			else str(_preset.hand_grip_offset_px)
+		)
+		var walk_hand := (
+			"club %s" % str(_preset.resolve_overlay_for_mode(AnimMode.WALK))
+			if club_anchor
+			else str(_preset.resolve_hand_grip_for_mode(AnimMode.WALK))
+		)
+		var attack_hand := (
+			"club %s" % str(_preset.ready_offset_px)
+			if club_anchor
+			else str(_preset.resolve_hand_grip_ready_px())
+		)
+		var lines: PackedStringArray = PackedStringArray()
+		if head_line.length() > 0:
+			lines.append(head_line.strip_edges())
+		if _show_all_mode_values or _anim_mode == AnimMode.IDLE:
+			lines.append(
+				_mode_value_line(
+					"Idle",
+					AnimMode.IDLE,
+					idle_hand,
+					str(_preset.weapon_elbow_pole_idle_px),
+					str(_preset.overlay_offset_idle_px),
+				)
+			)
+		if _show_all_mode_values or _anim_mode == AnimMode.WALK:
+			lines.append(
+				_mode_value_line(
+					"Walk",
+					AnimMode.WALK,
+					walk_hand,
+					str(_preset.walk_weapon_elbow_pole_px),
+					str(_preset.resolve_overlay_for_mode(AnimMode.WALK)),
+				)
+			)
+		if _show_all_mode_values or _anim_mode == AnimMode.ATTACK:
+			lines.append(
+				_mode_value_line(
+					"Attack",
+					AnimMode.ATTACK,
+					attack_hand,
+					str(_preset.weapon_elbow_pole_ready_px),
+					str(_preset.ready_offset_px),
+				)
+			)
+		var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
+		var off_attack := str(_preset.support_hand_offset_px) if two_hand else "(one-hand: body only)"
+		lines.append("Off arm idle/walk %s | attack %s" % [
 			str(_preset.support_hand_idle_offset_px),
 			off_attack,
-			WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX,
-			WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX,
-			_preset.upper_arm_length,
-			_preset.lower_arm_length,
-			_reach_warning_suffix(),
-		]
+		])
+		lines.append(
+			"Arm length (shared, max %.0f/%.0f): %.0f / %.0f%s"
+			% [
+				WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX,
+				WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX,
+				_preset.upper_arm_length,
+				_preset.lower_arm_length,
+				_reach_warning_suffix(),
+			]
+		)
+		_values_label.text = "\n".join(lines)
 	_sync_arm_length_fields_from_preset()
 	_sync_anim_mode_dropdown()
 	_sync_weapon_dropdown()
@@ -1417,6 +1520,226 @@ func _is_out_of_reach(shoulder_handle: LimbTunerHandle, hand_handle: LimbTunerHa
 		sx = 1.0
 	var max_reach: float = _preset.tuner_max_reach_px() * sx
 	return shoulder_rig.distance_to(hand_rig) > max_reach + 0.5
+
+
+func _mark_dirty() -> void:
+	if not _dirty:
+		_dirty = true
+		if _title_label:
+			_title_label.text = "Character Animation Tuner *"
+
+
+func _clear_dirty() -> void:
+	_dirty = false
+	if _title_label:
+		_title_label.text = "Character Animation Tuner"
+
+
+func _mode_value_line(
+	label: String,
+	mode: AnimMode,
+	hand_text: String,
+	elbow_text: String = "",
+	overlay_text: String = ""
+) -> String:
+	var elbow_part := elbow_text if elbow_text.length() > 0 else "—"
+	var overlay_part := overlay_text if overlay_text.length() > 0 else "—"
+	var body := "%s — hand %s | elbow %s | overlay %s" % [label, hand_text, elbow_part, overlay_part]
+	if mode == _anim_mode:
+		return "[b]%s[/b]" % body
+	return body
+
+
+func _update_reach_banner() -> void:
+	if _reach_banner == null:
+		return
+	var warnings := _collect_reach_warnings()
+	if warnings.is_empty():
+		_reach_banner.visible = false
+		_reach_banner.text = ""
+		if _upper_arm_length_spin:
+			_upper_arm_length_spin.remove_theme_color_override("font_color")
+		if _lower_arm_length_spin:
+			_lower_arm_length_spin.remove_theme_color_override("font_color")
+		return
+	_reach_banner.visible = true
+	_reach_banner.text = "⚠ Reach: %s — move shoulder closer or shorten arm length." % ", ".join(warnings)
+	var warn_color := Color(1.0, 0.45, 0.4)
+	if _upper_arm_length_spin:
+		_upper_arm_length_spin.add_theme_color_override("font_color", warn_color)
+	if _lower_arm_length_spin:
+		_lower_arm_length_spin.add_theme_color_override("font_color", warn_color)
+
+
+func _update_elbow_hover_status() -> void:
+	if _active_drag_handle != null or _status_label == null or _mode != AppMode.ASSEMBLE:
+		return
+	var hovered := _pick_handle_at(get_global_mouse_position())
+	if hovered == null or not _is_elbow_handle(hovered):
+		return
+	var dominant := hovered == _weapon_elbow_handle
+	if _rig == null or _preset == null:
+		return
+	var auto_sign := _rig.elbow_bend_sign_auto_for_facing(dominant)
+	var sign := _preset.resolve_elbow_bend_sign(dominant, _anim_mode, auto_sign)
+	var side := "outward +" if sign > 0.0 else "outward -"
+	_status_label.text = "%s — click to flip elbow (%s)" % ["1e" if dominant else "2e", side]
+
+
+func _show_unsaved_switch_dialog() -> void:
+	if _unsaved_dialog == null:
+		return
+	_unsaved_dialog.dialog_text = (
+		"Save changes to %s / %s before switching?"
+		% [_weapon_label(), _anim_mode_label()]
+	)
+	_unsaved_dialog.popup_centered()
+
+
+func _on_unsaved_dialog_save() -> void:
+	_on_save_pressed()
+	_apply_pending_switch()
+
+
+func _on_unsaved_dialog_discard() -> void:
+	_clear_dirty()
+	_apply_pending_switch()
+
+
+func _on_unsaved_dialog_stay() -> void:
+	_pending_anim_mode = -1
+	_pending_weapon_index = -1
+	_sync_anim_mode_dropdown()
+	_sync_weapon_dropdown()
+
+
+func _apply_pending_switch() -> void:
+	if _pending_anim_mode >= 0:
+		var mode := _pending_anim_mode
+		_pending_anim_mode = -1
+		_set_anim_mode(mode as AnimMode)
+	elif _pending_weapon_index >= 0:
+		var index := _pending_weapon_index
+		_pending_weapon_index = -1
+		_set_weapon(WEAPON_MENU[index]["type"] as ResourceData.ResourceType)
+
+
+func _copy_idle_to_mode(target: AnimMode) -> void:
+	if _preset == null:
+		return
+	if target == AnimMode.WALK:
+		_preset.walk_hand_grip_offset_px = _preset.hand_grip_offset_px
+		_preset.walk_support_hand_offset_px = _preset.support_hand_idle_offset_px
+		_preset.walk_overlay_offset_px = _preset.overlay_offset_idle_px
+		_preset.walk_weapon_elbow_pole_px = _preset.weapon_elbow_pole_idle_px
+		_preset.walk_support_elbow_pole_px = _preset.support_elbow_pole_idle_px
+	elif target == AnimMode.ATTACK:
+		_preset.hand_grip_ready_offset_px = _preset.hand_grip_offset_px
+		_preset.ready_offset_px = _preset.overlay_offset_idle_px
+		_preset.weapon_elbow_pole_ready_px = _preset.weapon_elbow_pole_idle_px
+		_preset.support_elbow_pole_ready_px = _preset.support_elbow_pole_idle_px
+	_set_anim_mode(target)
+	_mark_dirty()
+	if _status_label:
+		_status_label.text = "Copied Idle → %s for %s." % [_anim_mode_label(), _weapon_label()]
+
+
+func _on_mirror_shoulder_pressed() -> void:
+	if _preset == null or _rig == null:
+		return
+	_preset.support_shoulder_offset_px = Vector2(
+		-_preset.shoulder_offset_px.x,
+		_preset.support_shoulder_offset_px.y
+	)
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
+	_mark_dirty()
+	if _status_label:
+		_status_label.text = "Mirrored dominant shoulder X onto off shoulder."
+
+
+func _on_card_preview_toggled(on: bool) -> void:
+	if _rig:
+		_rig.set_card_preview_enabled(on)
+		_center_view()
+
+
+func _maybe_snap_global(global_pos: Vector2) -> Vector2:
+	if not Input.is_key_pressed(KEY_ALT) or _rig == null or _rig.sprite == null:
+		return global_pos
+	var rig := _rig.sprite.get_parent() as Node2D
+	if rig == null:
+		return global_pos
+	var local := rig.to_local(global_pos)
+	var sx: float = absf(_rig.sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var display := Vector2(local.x * sx, local.y * sx)
+	display = display.snapped(Vector2(SNAP_GRID_PX, SNAP_GRID_PX))
+	return rig.to_global(Vector2(display.x / sx, display.y / sx))
+
+
+func _capture_undo_snapshot() -> void:
+	_undo_snapshot = _snapshot_handle_positions()
+
+
+func _snapshot_handle_positions() -> Dictionary:
+	var out := {}
+	for key in ["shoulder", "hand", "support_shoulder", "support_hand", "spear", "weapon_elbow", "support_elbow", "head"]:
+		out[key] = Vector2.ZERO
+	if _shoulder_handle:
+		out["shoulder"] = _shoulder_handle.global_position
+	if _hand_handle:
+		out["hand"] = _hand_handle.global_position
+	if _support_shoulder_handle:
+		out["support_shoulder"] = _support_shoulder_handle.global_position
+	if _support_hand_handle:
+		out["support_hand"] = _support_hand_handle.global_position
+	if _spear_handle:
+		out["spear"] = _spear_handle.global_position
+	if _weapon_elbow_handle:
+		out["weapon_elbow"] = _weapon_elbow_handle.global_position
+	if _support_elbow_handle:
+		out["support_elbow"] = _support_elbow_handle.global_position
+	if _head_handle:
+		out["head"] = _head_handle.global_position
+	return out
+
+
+func _undo_last_drag() -> bool:
+	if _undo_snapshot.is_empty():
+		return false
+	if _shoulder_handle:
+		_shoulder_handle.global_position = _undo_snapshot.get("shoulder", _shoulder_handle.global_position)
+	if _hand_handle:
+		_hand_handle.global_position = _undo_snapshot.get("hand", _hand_handle.global_position)
+	if _support_shoulder_handle:
+		_support_shoulder_handle.global_position = _undo_snapshot.get(
+			"support_shoulder", _support_shoulder_handle.global_position
+		)
+	if _support_hand_handle:
+		_support_hand_handle.global_position = _undo_snapshot.get(
+			"support_hand", _support_hand_handle.global_position
+		)
+	if _spear_handle:
+		_spear_handle.global_position = _undo_snapshot.get("spear", _spear_handle.global_position)
+	if _weapon_elbow_handle:
+		_weapon_elbow_handle.global_position = _undo_snapshot.get(
+			"weapon_elbow", _weapon_elbow_handle.global_position
+		)
+	if _support_elbow_handle:
+		_support_elbow_handle.global_position = _undo_snapshot.get(
+			"support_elbow", _support_elbow_handle.global_position
+		)
+	if _head_handle:
+		_head_handle.global_position = _undo_snapshot.get("head", _head_handle.global_position)
+	_commit_all_poses_to_preset()
+	_lock_arm_lines_to_handles()
+	_sync_elbow_handles()
+	_mark_dirty()
+	if _status_label:
+		_status_label.text = "Undid last handle drag (Ctrl+Z)."
+	return true
 
 
 func _mode_name() -> String:

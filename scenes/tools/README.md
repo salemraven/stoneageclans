@@ -40,7 +40,7 @@ Scale/coordinate space matches in-game card display height (128px); the tuner us
 
 ## Controls (summary)
 
-See **HelpLabel** in the scene for the live list. Typical handles:
+See **HelpLabel** and the on-screen **legend** (top-right). Typical handles:
 
 - **H** — head / neck socket  
 - **1 / 1e** — dominant shoulder, hand, elbow pole  
