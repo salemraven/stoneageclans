@@ -29,9 +29,19 @@
       </div>
       <aside>
         <div class="help">
-          Preview the same layout files as the Godot LimbTuner. Pick <strong>None</strong> to tune empty-hand idle arms, or <strong>Club</strong> for the club grip pose. Drag handles, Save, Reload.
+          Preview the same layout files as the Godot LimbTuner. Pick <strong>None</strong> or <strong>Club</strong>.
+          Drag handles for pose; change <strong>arm length only</strong> with the number boxes below (not by dragging).
           Use <strong>Toggle walk</strong> and <strong>Toggle attack</strong> to preview motion and arm IK.
           Attack swings from your saved club grip (handle 3 / yellow), not a separate ready pose.
+        </div>
+        <div class="arm-length-row">
+          <span class="arm-length-label">Arm px (max 120/120):</span>
+          <label class="arm-length-field">Upper
+            <input id="upperArmLen" type="number" min="4" max="120" step="1" value="120" />
+          </label>
+          <label class="arm-length-field">Lower
+            <input id="lowerArmLen" type="number" min="4" max="120" step="1" value="120" />
+          </label>
         </div>
         <div class="legend">
           <div><span style="background:#73bff2"></span><strong>H</strong> head / neck</div>

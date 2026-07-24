@@ -102,22 +102,44 @@ head_pivot_px = Vector2(153, 345)
     LAYOUT_TRES.write_text(text, encoding="utf-8")
 
 
+def _float_from_tres(text: str, key: str, default: float) -> float:
+    match = re.search(rf"{re.escape(key)}\s*=\s*([-\d.]+)", text)
+    if not match:
+        return default
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return default
+
+
+def _upsert_float(text: str, key: str, value: float) -> str:
+    line = f"{key} = {value}"
+    if re.search(rf"{re.escape(key)}\s*=\s*[-\d.]+", text):
+        return re.sub(rf"{re.escape(key)}\s*=\s*[-\d.]+", line, text)
+    return text.rstrip() + f"\n{line}\n"
+
+
+PRESET_VEC2_KEYS = [
+    "shoulder_offset_px",
+    "hand_grip_offset_px",
+    "support_shoulder_offset_px",
+    "support_hand_idle_offset_px",
+    "overlay_offset_idle_px",
+    "ready_offset_px",
+    "weapon_elbow_pole_idle_px",
+    "support_elbow_pole_idle_px",
+]
+PRESET_FLOAT_KEYS = ["upper_arm_length", "lower_arm_length"]
+
+
 def load_preset(weapon: str | None = None) -> dict:
     path = _preset_path(weapon)
     text = _read_text(path)
-    keys = [
-        "shoulder_offset_px",
-        "hand_grip_offset_px",
-        "support_shoulder_offset_px",
-        "support_hand_idle_offset_px",
-        "overlay_offset_idle_px",
-        "ready_offset_px",
-        "weapon_elbow_pole_idle_px",
-        "support_elbow_pole_idle_px",
-    ]
     out: dict = {"weapon": _normalize_weapon(weapon)}
-    for key in keys:
+    for key in PRESET_VEC2_KEYS:
         out[key] = _vec2_from_tres(text, key, [0.0, 0.0])
+    for key in PRESET_FLOAT_KEYS:
+        out[key] = _float_from_tres(text, key, 120.0)
     return out
 
 
@@ -138,9 +160,10 @@ def save_preset(data: dict, weapon: str | None = None) -> None:
     for key, value in data.items():
         if key == "weapon":
             continue
-        if not isinstance(value, list) or len(value) != 2:
-            continue
-        text = _upsert_vec2(text, key, value)
+        if isinstance(value, list) and len(value) == 2:
+            text = _upsert_vec2(text, key, value)
+        elif key in PRESET_FLOAT_KEYS and isinstance(value, (int, float)):
+            text = _upsert_float(text, key, float(value))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 

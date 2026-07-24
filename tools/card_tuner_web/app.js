@@ -10,8 +10,10 @@ const WALK_SPEED = 8;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
-const UPPER_ARM_LEN = 24;
-const LOWER_ARM_LEN = 22;
+const ARM_MIN_PX = 4;
+const ARM_MAX_UPPER_PX = 120;
+const ARM_MAX_LOWER_PX = 120;
+const ARM_MAX_TOTAL_PX = ARM_MAX_UPPER_PX + ARM_MAX_LOWER_PX;
 const ELBOW_HINT_OUTWARD = 18;
 const HANDLE_RADIUS_PX = 12;
 const HANDLE_PICK_RADIUS_PX = 20;
@@ -294,6 +296,105 @@ function canvasToDisplay(x, y, bobY = 0, tilt = 0) {
   return { x: localX / s, y: localY / s };
 }
 
+function upperArmLenCanvas() {
+  const display = Number(state.preset?.upper_arm_length ?? 120);
+  return display * bodyScale();
+}
+
+function lowerArmLenCanvas() {
+  const display = Number(state.preset?.lower_arm_length ?? 120);
+  return display * bodyScale();
+}
+
+function capArmSegmentLengths(upper, lower) {
+  let u = clamp(Number(upper), ARM_MIN_PX, ARM_MAX_UPPER_PX);
+  let l = clamp(Number(lower), ARM_MIN_PX, ARM_MAX_LOWER_PX);
+  const total = u + l;
+  if (total > ARM_MAX_TOTAL_PX) {
+    const scale = ARM_MAX_TOTAL_PX / total;
+    u *= scale;
+    l *= scale;
+  }
+  return [Math.round(u), Math.round(l)];
+}
+
+function maxArmReachDisplayPx() {
+  const upper = Number(state.preset?.upper_arm_length ?? 120);
+  const lower = Number(state.preset?.lower_arm_length ?? 120);
+  return upper + lower;
+}
+
+function clampHandDisplayToReach(shoulderPair, handDisplay) {
+  const shoulder = normalizeVec2(shoulderPair);
+  const maxReach = maxArmReachDisplayPx();
+  const dx = handDisplay.x - shoulder[0];
+  const dy = handDisplay.y - shoulder[1];
+  const dist = Math.hypot(dx, dy);
+  if (dist <= maxReach || dist < 0.001) {
+    return handDisplay;
+  }
+  const scale = maxReach / dist;
+  return {
+    x: shoulder[0] + dx * scale,
+    y: shoulder[1] + dy * scale,
+  };
+}
+
+function syncArmLengthInputsFromPreset() {
+  const upperInput = document.getElementById("upperArmLen");
+  const lowerInput = document.getElementById("lowerArmLen");
+  if (!state.preset || !upperInput || !lowerInput) {
+    return;
+  }
+  const [upper, lower] = capArmSegmentLengths(
+    state.preset.upper_arm_length ?? 120,
+    state.preset.lower_arm_length ?? 120,
+  );
+  state.preset.upper_arm_length = upper;
+  state.preset.lower_arm_length = lower;
+  upperInput.value = String(upper);
+  lowerInput.value = String(lower);
+}
+
+function applyArmLengthFromInputs() {
+  if (!state.preset) return;
+  const upperInput = document.getElementById("upperArmLen");
+  const lowerInput = document.getElementById("lowerArmLen");
+  if (!upperInput || !lowerInput) return;
+  const [upper, lower] = capArmSegmentLengths(upperInput.value, lowerInput.value);
+  state.preset.upper_arm_length = upper;
+  state.preset.lower_arm_length = lower;
+  upperInput.value = String(upper);
+  lowerInput.value = String(lower);
+  rebuildHandles();
+  updateValues();
+}
+
+function clampPresetHandsToReach() {
+  if (!state.preset) return;
+  const shoulder = state.preset.shoulder_offset_px;
+  const supportShoulder = state.preset.support_shoulder_offset_px;
+  if (isClubMode()) {
+    const overlay = normalizeVec2(state.preset.overlay_offset_idle_px, [22, -34]);
+    const clampedOverlay = clampHandDisplayToReach(shoulder, { x: overlay[0], y: overlay[1] });
+    state.preset.overlay_offset_idle_px = [round(clampedOverlay.x, 2), round(clampedOverlay.y, 2)];
+    state.preset.hand_grip_offset_px = [0, 0];
+  } else {
+    const hand = normalizeVec2(state.preset.hand_grip_offset_px, [24, 8]);
+    const clampedHand = clampHandDisplayToReach(shoulder, { x: hand[0], y: hand[1] });
+    state.preset.hand_grip_offset_px = [round(clampedHand.x, 2), round(clampedHand.y, 2)];
+  }
+  const supportHand = normalizeVec2(state.preset.support_hand_idle_offset_px, [-12, 30]);
+  const clampedSupport = clampHandDisplayToReach(supportShoulder, {
+    x: supportHand[0],
+    y: supportHand[1],
+  });
+  state.preset.support_hand_idle_offset_px = [
+    round(clampedSupport.x, 2),
+    round(clampedSupport.y, 2),
+  ];
+}
+
 function getMotion() {
   const bobY = state.walking ? Math.sin(state.walkPhase) * WALK_AMP : 0;
   const tilt = state.walking ? Math.sin(state.walkPhase) * 0.06 : 0;
@@ -483,7 +584,8 @@ function weaponGripAnchorCanvas(bobY = 0, tilt = 0) {
 
 function moveWeaponGripToCanvas(canvasX, canvasY) {
   const { bobY, tilt } = getMotion();
-  const display = canvasToDisplay(canvasX, canvasY, bobY, tilt);
+  let display = canvasToDisplay(canvasX, canvasY, bobY, tilt);
+  display = clampHandDisplayToReach(state.preset.shoulder_offset_px, display);
   state.preset.overlay_offset_idle_px = [round(display.x, 2), round(display.y, 2)];
   state.preset.hand_grip_offset_px = [0, 0];
 }
@@ -608,7 +710,7 @@ function resolveElbowOnArm(shoulderPos, handPos, poleKey, bendSign) {
     return null;
   }
   const pole = poleCanvasFromPreset(poleKey) || autoElbowPole(shoulderPos, handPos, bendSign);
-  return solveIk(shoulderPos, handPos, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  return solveIk(shoulderPos, handPos, upperArmLenCanvas(), lowerArmLenCanvas(), pole);
 }
 
 function computeArmAnchors(bobY = 0, tilt = 0) {
@@ -813,7 +915,7 @@ function drawJointMarker(pos, fill, stroke, radiusScale = 0.5) {
 }
 
 function drawArmSegments(shoulder, hand, pole, color, elbowJointColor) {
-  const elbow = solveIk(shoulder, hand, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  const elbow = solveIk(shoulder, hand, upperArmLenCanvas(), lowerArmLenCanvas(), pole);
   const width = ARM_LINE_WIDTH / state.viewZoom;
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -883,8 +985,12 @@ async function applyLoadedPreset(preset, weapon = state.weapon) {
     state.attackPhase = 0;
   }
   migrateCorruptedPreset();
+  if (!state.preset.upper_arm_length) state.preset.upper_arm_length = 120;
+  if (!state.preset.lower_arm_length) state.preset.lower_arm_length = 120;
   if (!state.preset.weapon_elbow_pole_idle_px) state.preset.weapon_elbow_pole_idle_px = [0, 0];
   if (!state.preset.support_elbow_pole_idle_px) state.preset.support_elbow_pole_idle_px = [0, 0];
+  syncArmLengthInputsFromPreset();
+  clampPresetHandsToReach();
   seedElbowPoles();
   rebuildHandles();
   updateValues();
@@ -958,7 +1064,7 @@ function moveElbowHandle(handle, worldX, worldY) {
     return;
   }
   const pole = poleHintFromDrag(shoulder, hand, worldX, worldY, ctx.poleKey);
-  const elbow = solveIk(shoulder, hand, UPPER_ARM_LEN, LOWER_ARM_LEN, pole);
+  const elbow = solveIk(shoulder, hand, upperArmLenCanvas(), lowerArmLenCanvas(), pole);
   handle.pos = elbow;
   const display = canvasToDisplay(pole.x, pole.y, bobY, tilt);
   state.preset[ctx.poleKey] = [round(display.x, 2), round(display.y, 2)];
@@ -977,7 +1083,8 @@ function moveActiveHandle(screenX, screenY) {
     if (isClubMode()) {
       moveWeaponGripToCanvas(world.x, world.y);
     } else {
-      const display = canvasToDisplay(world.x, world.y, bobY, tilt);
+      let display = canvasToDisplay(world.x, world.y, bobY, tilt);
+      display = clampHandDisplayToReach(state.preset.shoulder_offset_px, display);
       state.preset.hand_grip_offset_px = [round(display.x, 2), round(display.y, 2)];
     }
     rebuildHandles();
@@ -988,7 +1095,12 @@ function moveActiveHandle(screenX, screenY) {
     const tex = canvasToTexture(world.x, world.y, bobY, tilt);
     state.layout[state.active.key] = [round(tex.x), round(tex.y)];
   } else {
-    const display = canvasToDisplay(world.x, world.y, bobY, tilt);
+    let display = canvasToDisplay(world.x, world.y, bobY, tilt);
+    if (state.active.key === "hand_grip_offset_px") {
+      display = clampHandDisplayToReach(state.preset.shoulder_offset_px, display);
+    } else if (state.active.key === "support_hand_idle_offset_px") {
+      display = clampHandDisplayToReach(state.preset.support_shoulder_offset_px, display);
+    }
     state.preset[state.active.key] = [round(display.x, 2), round(display.y, 2)];
   }
   rebuildHandles();
@@ -1130,6 +1242,20 @@ document.getElementById("reloadBtn").addEventListener("click", () => {
 
 document.getElementById("weaponSelect").addEventListener("change", (evt) => {
   switchWeapon(evt.target.value).catch((err) => setStatus(String(err)));
+});
+
+document.getElementById("upperArmLen").addEventListener("change", () => {
+  applyArmLengthFromInputs();
+  clampPresetHandsToReach();
+  rebuildHandles();
+  setStatus("Arm length updated — use spinboxes only (hands clamp to reach).");
+});
+
+document.getElementById("lowerArmLen").addEventListener("change", () => {
+  applyArmLengthFromInputs();
+  clampPresetHandsToReach();
+  rebuildHandles();
+  setStatus("Arm length updated — use spinboxes only (hands clamp to reach).");
 });
 
 document.getElementById("walkBtn").addEventListener("click", () => {

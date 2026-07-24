@@ -108,7 +108,7 @@ text = "Reach warning"
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Pick animation + weapon. Save writes .tres files. Ctrl+Z = undo last drag."
+text = "Pick animation + weapon. Arm length: spinboxes only (not drag). Save writes .tres. Ctrl+Z = undo."
 
 [node name="Toolbar" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
