@@ -55,6 +55,22 @@ Tuned in web card tuner, saved to `assets/limb_presets/club_clansmen_1.tres`. **
 
 Godot LimbTuner and the game load this file at runtime for club + idle.
 
+### None idle baseline (2026-07-24)
+
+Tuned in web card tuner, saved to `assets/limb_presets/none_clansmen_1.tres`. **Animation: Idle · Weapon: None** (empty hands, no club).
+
+| Field | Value |
+|-------|-------|
+| `shoulder_offset_px` | (129.46, -163.65) |
+| `support_shoulder_offset_px` | (-89.88, -167.77) |
+| `hand_grip_offset_px` | (180.33, 58.45) |
+| `support_hand_idle_offset_px` | (-112.12, 61.76) |
+| `weapon_elbow_pole_idle_px` | (215.05, -177.01) |
+| `support_elbow_pole_idle_px` | (-80.94, -46.76) |
+| `upper_arm_length` / `lower_arm_length` | 120 / 120 |
+
+Shoulders match the club idle preset; hands/elbows are the unarmed idle pose.
+
 Scale/coordinate space matches in-game card display height (128px); the tuner uses a **mannequin** (layered body + head sprites), not `clansmen_card*.png` art.
 
 ## Controls (summary)
