@@ -68,6 +68,7 @@ const state = {
   attackPhase: 0,
   weaponElbowBendSign: -1,
   supportElbowBendSign: 1,
+  dirty: false,
 };
 
 const handleDefs = [
@@ -95,6 +96,25 @@ function weaponPresetPath() {
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function markDirty() {
+  state.dirty = true;
+}
+
+function formatVec2(pair) {
+  const [x, y] = normalizeVec2(pair);
+  return `(${x}, ${y})`;
+}
+
+function presetSummaryLine() {
+  if (!state.preset) {
+    return "";
+  }
+  if (isClubMode()) {
+    return `club grip ${formatVec2(state.preset.overlay_offset_idle_px)}`;
+  }
+  return `hand ${formatVec2(state.preset.hand_grip_offset_px)} · off ${formatVec2(state.preset.support_hand_idle_offset_px)}`;
 }
 
 function clamp(v, lo, hi) {
@@ -681,6 +701,10 @@ function migrateCorruptedPreset() {
   state.preset.weapon_elbow_pole_idle_px = normalizeVec2(state.preset.weapon_elbow_pole_idle_px);
   state.preset.support_elbow_pole_idle_px = normalizeVec2(state.preset.support_elbow_pole_idle_px);
   state.preset.ready_offset_px = normalizeVec2(state.preset.ready_offset_px);
+  const clubAnchorGrip = Math.abs(hand[0]) < 0.01 && Math.abs(hand[1]) < 0.01;
+  if (clubAnchorGrip) {
+    return;
+  }
   const handLooksLikeBodyDisplay =
     Math.abs(hand[0]) > 120 || Math.abs(hand[1]) > 120 || Math.abs(hand[0] - overlay[0]) < 20;
   if (handLooksLikeBodyDisplay) {
@@ -1065,7 +1089,8 @@ async function fetchPreset(weapon = state.weapon) {
 }
 
 async function savePreset(weapon = state.weapon) {
-  return postJson(`/api/preset?weapon=${encodeURIComponent(weapon)}`, state.preset);
+  const result = await postJson(`/api/preset?weapon=${encodeURIComponent(weapon)}`, state.preset);
+  return result;
 }
 
 async function applyLoadedPreset(preset, weapon = state.weapon) {
@@ -1090,6 +1115,7 @@ async function applyLoadedPreset(preset, weapon = state.weapon) {
   syncBendSignsFromPreset();
   rebuildHandles();
   updateValues();
+  state.dirty = false;
 }
 
 async function switchWeapon(weapon) {
@@ -1184,6 +1210,7 @@ function moveActiveHandle(screenX, screenY) {
   if (!state.active) return;
   const world = screenToWorld(screenX, screenY);
   const { bobY, tilt } = getMotion();
+  markDirty();
   if (state.active.onArm) {
     moveElbowHandle(state.active, world.x, world.y);
     updateValues();
@@ -1236,6 +1263,12 @@ canvas.addEventListener(
 
 canvas.addEventListener("pointerdown", (evt) => {
   if (state.attacking) return;
+  if (state.walking) {
+    state.walking = false;
+    state.walkPhase = 0;
+    rebuildHandles();
+    setStatus("Walk preview OFF — editing idle pose. Click Save when done.");
+  }
   const pos = pointerPos(evt);
   const picked = pickHandle(pos.x, pos.y);
   if (!picked) return;
@@ -1304,18 +1337,30 @@ async function loadAll() {
   fitStageToCanvas();
   updateZoomLabel();
   const buildLabel = build ? `build ${build.sha}` : "web preview";
-  setStatus(`Loaded ${weapon} (${buildLabel}). Drag handles, scroll to zoom, then Save.`);
+  setStatus(`Loaded ${weapon} from disk — ${presetSummaryLine()} (${buildLabel}). Click Save after edits.`);
 }
 
 async function saveAll() {
+  if (state.walking || state.attacking) {
+    state.walking = false;
+    state.attacking = false;
+    state.walkPhase = 0;
+    state.attackPhase = 0;
+    rebuildHandles();
+  }
   setStatus("Saving…");
   if (isClubMode()) {
     const idle = normalizeVec2(state.preset.overlay_offset_idle_px);
+    state.preset.hand_grip_offset_px = [0, 0];
     state.preset.ready_offset_px = [...idle];
+    state.preset.hand_grip_ready_offset_px = [...idle];
   }
   await postJson("/api/layout", state.layout);
-  await savePreset(state.weapon);
-  setStatus(`Saved to assets/character_cards/layered_blank_1.tres and ${weaponPresetPath()}`);
+  const saved = await savePreset(state.weapon);
+  if (saved?.preset) {
+    await applyLoadedPreset(saved.preset, state.weapon);
+  }
+  setStatus(`Saved ${state.weapon} to ${weaponPresetPath()} — ${presetSummaryLine()}`);
 }
 
 function tick(ts) {
@@ -1343,9 +1388,12 @@ document.getElementById("saveBtn").addEventListener("click", () => {
 });
 
 document.getElementById("reloadBtn").addEventListener("click", () => {
+  if (state.dirty && !window.confirm("Reload from disk? Unsaved handle changes will be lost.")) {
+    return;
+  }
   loadAll()
     .then(() => {
-      setStatus(`Reloaded ${state.weapon} preset from disk.`);
+      setStatus(`Reloaded ${state.weapon} from disk — ${presetSummaryLine()}`);
     })
     .catch((err) => setStatus(String(err)));
 });
@@ -1358,6 +1406,7 @@ document.getElementById("upperArmLen").addEventListener("change", () => {
   applyArmLengthFromInputs();
   clampPresetHandsToReach();
   rebuildHandles();
+  markDirty();
   setStatus("Arm length updated — use spinboxes only (hands clamp to reach).");
 });
 
@@ -1365,6 +1414,7 @@ document.getElementById("lowerArmLen").addEventListener("change", () => {
   applyArmLengthFromInputs();
   clampPresetHandsToReach();
   rebuildHandles();
+  markDirty();
   setStatus("Arm length updated — use spinboxes only (hands clamp to reach).");
 });
 

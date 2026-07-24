@@ -122,6 +122,7 @@ def _upsert_float(text: str, key: str, value: float) -> str:
 PRESET_VEC2_KEYS = [
     "shoulder_offset_px",
     "hand_grip_offset_px",
+    "hand_grip_ready_offset_px",
     "support_shoulder_offset_px",
     "support_hand_idle_offset_px",
     "overlay_offset_idle_px",
