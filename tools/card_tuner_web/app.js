@@ -7,7 +7,8 @@ const zoomResetBtn = document.getElementById("zoomResetBtn");
 const DISPLAY_HEIGHT = 128;
 const WALK_AMP = 2.5;
 const WALK_SPEED = 8;
-const WALK_ARM_SWING_ANGLE_DEG = 26;
+const WALK_ARM_SWING_ANGLE_DEG = 24;
+const WALK_ARM_SWING_FORWARD_PX = 20;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
@@ -429,24 +430,25 @@ function swingHandDisplayPx(shoulderDisplay, handIdleDisplay, isDominant) {
   if (!state.walking || state.attacking) {
     return { x: handIdleDisplay.x, y: handIdleDisplay.y };
   }
-  let swing = Math.sin(state.walkPhase);
+  let armPhase = Math.sin(state.walkPhase);
   if (!isDominant) {
-    swing = -swing;
+    armPhase = -armPhase;
   }
-  if (Math.abs(swing) < 0.0001) {
+  if (Math.abs(armPhase) < 0.0001) {
     return { x: handIdleDisplay.x, y: handIdleDisplay.y };
   }
-  let angle = swing * degToRad(WALK_ARM_SWING_ANGLE_DEG);
-  if (swingFacingSign() < 0) {
-    angle = -angle;
-  }
+  const forwardSign = swingFacingSign();
   const ox = handIdleDisplay.x - shoulderDisplay.x;
   const oy = handIdleDisplay.y - shoulderDisplay.y;
+  const forwardDelta = armPhase * WALK_ARM_SWING_FORWARD_PX * forwardSign;
+  const sx = ox + forwardDelta;
+  const sy = oy;
+  const angle = armPhase * degToRad(WALK_ARM_SWING_ANGLE_DEG);
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   return {
-    x: shoulderDisplay.x + ox * cos - oy * sin,
-    y: shoulderDisplay.y + ox * sin + oy * cos,
+    x: shoulderDisplay.x + sx * cos - sy * sin,
+    y: shoulderDisplay.y + sx * sin + sy * cos,
   };
 }
 

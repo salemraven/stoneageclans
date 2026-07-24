@@ -58,7 +58,7 @@ static func walk_arm_sway_phase(bounce_time: float, moving: bool, is_dominant_ar
 	return swing if is_dominant_arm else -swing
 
 
-## Rotate idle hand (or club grip) around shoulder — true pendulum arc in display px.
+## Alternate walk swing: one arm forward on +character X while the other goes back.
 static func swing_hand_display_px(
 	shoulder_display_px: Vector2,
 	hand_idle_display_px: Vector2,
@@ -69,16 +69,18 @@ static func swing_hand_display_px(
 ) -> Vector2:
 	if not moving:
 		return hand_idle_display_px
-	var swing := walk_arm_sway_phase(bounce_time, moving, is_dominant_arm)
-	if absf(swing) < 0.0001:
+	var arm_phase := walk_arm_sway_phase(bounce_time, moving, is_dominant_arm)
+	if absf(arm_phase) < 0.0001:
 		return hand_idle_display_px
-	var angle := swing * deg_to_rad(Registry.WALK_ARM_SWING_ANGLE_DEG)
-	if facing_left:
-		angle = -angle
+	var forward_sign := -1.0 if facing_left else 1.0
 	var offset := hand_idle_display_px - shoulder_display_px
 	if offset.length_squared() < 0.0001:
 		return hand_idle_display_px
-	return shoulder_display_px + offset.rotated(angle)
+	# Opposite arms: dominant +phase swings forward, support -phase swings back.
+	var forward_delta := arm_phase * Registry.WALK_ARM_SWING_FORWARD_PX * forward_sign
+	var swung_offset := offset + Vector2(forward_delta, 0.0)
+	var pivot_angle := arm_phase * deg_to_rad(Registry.WALK_ARM_SWING_ANGLE_DEG)
+	return shoulder_display_px + swung_offset.rotated(pivot_angle)
 
 
 static func swing_hand_delta_display_px(

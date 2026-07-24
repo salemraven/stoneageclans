@@ -73,8 +73,8 @@ func _test_walk_arm_sway() -> void:
 		_fail("expected dominant shoulder swing delta at sin peak got %s" % str(dom))
 	if sup.length_squared() < 0.01:
 		_fail("expected support shoulder swing delta at sin peak got %s" % str(sup))
-	if dom.dot(sup) > 0.0:
-		_fail("arms should swing opposite got dom %s sup %s" % [str(dom), str(sup)])
+	if dom.x * sup.x > 0.0:
+		_fail("arms should alternate forward/back on X, not clap: dom %s sup %s" % [str(dom), str(sup)])
 	var idle := CardVisualController.swing_hand_delta_display_px(shoulder, hand, t, false, false, true)
 	if idle != Vector2.ZERO:
 		_fail("sway should be zero when not moving got %s" % str(idle))
