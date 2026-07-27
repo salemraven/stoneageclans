@@ -43,50 +43,8 @@ Sends a **short digest** (~700–1000 chars): hook, key bullets, closing line. N
 
 ## Discord Q&A bot (devblog + bible search)
 
-A real **bot** (not the webhook) that answers questions by searching `devblog/*.md` and `bible/**/*.md`.
+Answers questions in Discord by searching your docs (`?ask`, `?search`, or @mention).
 
-### What it does
+**Setup:** follow **[tools/DISCORD_BOT_SETUP.md](../tools/DISCORD_BOT_SETUP.md)** — then run `tools/run_lore_bot.ps1` on your PC.
 
-- `?ask how does animation work` — top matching excerpts from devblog + bible
-- `?search herding` — same thing
-- `@Stone Age Clans what is nomad mode?` — mention the bot
-
-No GitHub links. Answers are pulled from your docs on disk.
-
-### 1. Create the bot (~5 minutes)
-
-1. [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**
-2. **Bot** → **Add Bot** → copy the **token**
-3. Under Bot, enable **Message Content Intent** (required)
-4. **OAuth2 → URL Generator** → scopes: `bot` → permissions: `Send Messages`, `Read Message History`, `View Channels`
-5. Open the invite URL and add the bot to your server
-
-### 2. Install + run
-
-```bash
-pip install -r tools/requirements-discord-bot.txt
-export DISCORD_LORE_BOT_TOKEN="your-bot-token"
-python3 tools/discord_lore_bot.py
-```
-
-The bot must stay running (your PC, a small VPS, etc.). The webhook poster does **not** need this.
-
-**Optional env vars:**
-
-| Variable | Purpose |
-|----------|---------|
-| `DISCORD_LORE_BOT_TOKEN` | Bot token *(required)* |
-| `DISCORD_QA_CHANNEL_ID` | Only respond in this channel |
-| `DISCORD_QA_PREFIX` | Command prefix (default `?`) |
-
-### 3. Test search locally (no Discord)
-
-```bash
-python3 tools/lore_search.py "how does animation work"
-python3 tools/lore_search.py "nomad mode"
-```
-
-### Agent workflow
-
-- **Announce devblog:** "post this devblog to Discord" → runs `post_devblog_to_discord.py`
-- **Q&A bot:** runs on your machine/server with `DISCORD_LORE_BOT_TOKEN` — not started by the cloud agent unless you ask to deploy it somewhere
+**Quick test (no Discord):** `python3 tools/lore_search.py "animation"`
