@@ -1,0 +1,13 @@
+# Devblog → Discord
+
+When the user asks to **post a devblog to Discord** (or after publishing a new `devblog/*.md` if they want it announced):
+
+1. Confirm `devblog/*.md` exists and is on `main` (or note the branch in the GitHub link).
+2. Run:
+   ```bash
+   python3 tools/post_devblog_to_discord.py devblog/<filename>.md
+   ```
+3. If `DISCORD_DEVBLOG_WEBHOOK_URL` is missing, tell the user to add it in [Cursor Cloud secrets](https://cursor.com/dashboard/cloud-agents/environments/e/0e8db27c-7167-11f1-8cbf-12b154d6cb29) (Secrets tab) — **do not ask them to paste the URL in chat**.
+4. Use `--dry-run` first if testing or if the post failed before.
+
+**Never** commit webhook URLs. **Never** log the full webhook URL.
