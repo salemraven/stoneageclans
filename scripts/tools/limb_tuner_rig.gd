@@ -28,6 +28,7 @@ var _mannequin_layout
 var _walk := TunerWalkPreview.new()
 var _registry = PlaceholderCardRegistry.new()
 var _last_overlay_base := Vector2.ZERO
+var _card_preview_enabled := false
 
 
 func _ready() -> void:
@@ -70,6 +71,9 @@ func refresh_weapon_overlay() -> void:
 func reload_mannequin_from_layout() -> void:
 	if sprite == null:
 		return
+	if _card_preview_enabled:
+		_apply_card_preview()
+		return
 	_mannequin_layout = TunerMannequinLayoutScript.from_registry(_registry, body_card_index)
 	sprite.scale = Vector2.ONE * _mannequin_layout.sprite_scale
 	_anchor_foot_y = _mannequin_layout.foot_y
@@ -77,6 +81,39 @@ func reload_mannequin_from_layout() -> void:
 	var layout := CharacterCardPartsRegistry.reload_layout()
 	if body_visual and body_visual.has_method("apply_layer_layout"):
 		body_visual.call("apply_layer_layout", layout)
+	if body_visual:
+		body_visual.visible = true
+
+
+func set_card_preview_enabled(on: bool) -> void:
+	_card_preview_enabled = on
+	if on:
+		_apply_card_preview()
+	else:
+		if sprite:
+			sprite.texture = null
+		if body_visual:
+			body_visual.visible = true
+		reload_mannequin_from_layout()
+
+
+func is_card_preview_enabled() -> bool:
+	return _card_preview_enabled
+
+
+func _apply_card_preview() -> void:
+	if sprite == null:
+		return
+	var tex: Texture2D = _registry.get_clansmen_card(body_card_index)
+	if tex == null:
+		return
+	sprite.texture = tex
+	sprite.region_enabled = false
+	sprite.scale = Vector2.ONE * _registry.get_card_scale(tex)
+	_anchor_foot_y = _registry.get_card_foot_y(tex)
+	sprite.position = Vector2(0.0, _anchor_foot_y)
+	if body_visual:
+		body_visual.visible = false
 
 
 func get_equipped_weapon_type() -> ResourceData.ResourceType:
@@ -135,6 +172,8 @@ func _update_walk_preview(delta: float) -> void:
 	_walk.bounce_time = CardVisualController.tick_walk_bounce(
 		sprite, _anchor_foot_y, _walk.bounce_time, moving, delta
 	)
+	set("_card_bounce_time", _walk.bounce_time)
+	set("_card_bounce_moving", moving)
 	if body_visual and body_visual.has_method("set_walk_state"):
 		body_visual.call("set_walk_state", moving, _walk.bounce_time, _walk.direction)
 	_sync_overlay_walk_bounce(moving)
@@ -147,10 +186,17 @@ func _sync_overlay_walk_bounce(moving: bool) -> void:
 	if base_offset != Vector2.ZERO:
 		_last_overlay_base = base_offset
 	var bounce_y := 0.0
+	var swing_delta := Vector2.ZERO
 	if moving:
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
+		var shoulder := Vector2.ZERO
+		if arm_controller != null and arm_controller.config != null:
+			shoulder = arm_controller.config.weapon_shoulder_offset_px
+		swing_delta = CardVisualController.walk_weapon_overlay_sway_delta_display(
+			sprite, base_offset, shoulder, _walk.bounce_time, true
+		)
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y, swing_delta)
 
 
 func _show_weapon_overlay() -> void:
@@ -259,9 +305,16 @@ func _apply_tuner_overlay_pose(display_px: Vector2, rotation_rad: float, overlay
 	_last_overlay_base = base_unflipped
 	var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
 	var bounce_y := 0.0
+	var swing_delta := Vector2.ZERO
 	if _walk.is_moving():
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(_walk.bounce_time, true)
-	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y)
+		var shoulder := Vector2.ZERO
+		if arm_controller != null and arm_controller.config != null:
+			shoulder = arm_controller.config.weapon_shoulder_offset_px
+		swing_delta = CardVisualController.walk_weapon_overlay_sway_delta_display(
+			sprite, base_unflipped, shoulder, _walk.bounce_time, true
+		)
+	CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_unflipped, mirror_tex, bounce_y, swing_delta)
 	WeaponOverlayCombat.set_overlay_state(self, overlay_state)
 
 

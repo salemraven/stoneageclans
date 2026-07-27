@@ -38,6 +38,9 @@ const TOOL_OVERLAY_SCALE := {
 
 const WALK_BOUNCE_AMPLITUDE := 2.5
 const WALK_BOUNCE_SPEED := 8.0
+## Arm swing while walking — alternate forward/back per arm, with shoulder pivot arc.
+const WALK_ARM_SWING_ANGLE_DEG := 24.0
+const WALK_ARM_SWING_FORWARD_PX := 20.0
 ## Weapon overlay lags the card body bounce (radians) so the tool follows slightly behind.
 const WEAPON_OVERLAY_BOUNCE_PHASE_LAG_RAD := 0.55
 const WEAPON_OVERLAY_BOUNCE_AMP_SCALE := 0.9

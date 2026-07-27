@@ -63,15 +63,31 @@ script = ExtResource("4")
 [node name="UI" type="CanvasLayer" parent="."]
 layer = 10
 
+[node name="CanvasLegend" type="Label" parent="UI"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 120.0
+grow_horizontal = 0
+theme_override_colors/font_color = Color(0.85, 0.82, 0.75, 1)
+theme_override_font_sizes/font_size = 11
+text = "H=head  1=shoulder  1h/3=hand+club
+1e/2e=elbow (click=flip)
+2/2h=off arm  Alt=4px snap"
+autowrap_mode = 2
+
 [node name="Panel" type="PanelContainer" parent="UI"]
 offset_left = 16.0
 offset_top = 16.0
-offset_right = 416.0
-offset_bottom = 560.0
+offset_right = 460.0
+offset_bottom = 640.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/Panel"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
 [node name="Title" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
@@ -80,12 +96,19 @@ theme_override_font_sizes/font_size = 20
 
 [node name="ModeLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
-text = "Mode: ASSEMBLE | Pose: IDLE"
+text = "Mode: ASSEMBLE | Animation: Idle | Weapon: none"
+
+[node name="ReachBanner" type="Label" parent="UI/Panel/VBox"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.92, 0.88, 1)
+theme_override_font_sizes/font_size = 12
+text = "Reach warning"
 
 [node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Pick animation + weapon at top. Each combo saves its own arm pose.\nH = head | 1 = shoulder | 1h + 3 = hand/grip | 1e / 2e = elbow (click to flip bend side) | 2 / 2h = off arm\nWalk: arrow keys change direction. Attack: auto swing. Shift = ready preview."
+text = "Pick animation + weapon. Arm length: spinboxes only (not drag). Save writes .tres. Ctrl+Z = undo."
 
 [node name="Toolbar" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
@@ -107,36 +130,68 @@ text = "Weapon:"
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 
-[node name="Buttons" type="HBoxContainer" parent="UI/Panel/VBox"]
+[node name="PrimaryButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
 
-[node name="AssembleBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
+[node name="SaveBtn" type="Button" parent="UI/Panel/VBox/PrimaryButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Save preset + layout"
+
+[node name="ToolButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+
+[node name="RefreshBtn" type="Button" parent="UI/Panel/VBox/ToolButtons"]
+layout_mode = 2
+text = "Reload disk"
+
+[node name="ResetBtn" type="Button" parent="UI/Panel/VBox/ToolButtons"]
+layout_mode = 2
+text = "Reload + Idle"
+
+[node name="CopyWalkBtn" type="Button" parent="UI/Panel/VBox/ToolButtons"]
+layout_mode = 2
+text = "Idle→Walk"
+
+[node name="CopyAttackBtn" type="Button" parent="UI/Panel/VBox/ToolButtons"]
+layout_mode = 2
+text = "Idle→Attack"
+
+[node name="AdvancedButtons" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+
+[node name="AssembleBtn" type="Button" parent="UI/Panel/VBox/AdvancedButtons"]
 layout_mode = 2
 text = "Assemble"
 
-[node name="LockBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
+[node name="LockBtn" type="Button" parent="UI/Panel/VBox/AdvancedButtons"]
 layout_mode = 2
 text = "Lock"
 
-[node name="TestBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
+[node name="TestBtn" type="Button" parent="UI/Panel/VBox/AdvancedButtons"]
 layout_mode = 2
 text = "Test"
 
-[node name="SaveBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Save"
-
-[node name="RefreshBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Refresh"
-
-[node name="ResetBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Reset"
-
-[node name="CopyBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
+[node name="CopyBtn" type="Button" parent="UI/Panel/VBox/AdvancedButtons"]
 layout_mode = 2
 text = "Copy JSON"
+
+[node name="UtilityRow" type="HBoxContainer" parent="UI/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MirrorShoulderBtn" type="Button" parent="UI/Panel/VBox/UtilityRow"]
+layout_mode = 2
+text = "Mirror 1→2 X"
+
+[node name="CardPreviewCheck" type="CheckBox" parent="UI/Panel/VBox/UtilityRow"]
+layout_mode = 2
+text = "Card preview"
+
+[node name="ShowAllModesCheck" type="CheckBox" parent="UI/Panel/VBox/UtilityRow"]
+layout_mode = 2
+button_pressed = true
+text = "All modes"
 
 [node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/VBox"]
 layout_mode = 2
@@ -144,13 +199,13 @@ theme_override_constants/separation = 6
 
 [node name="ArmLengthLabel" type="Label" parent="UI/Panel/VBox/ArmLengthRow"]
 layout_mode = 2
-text = "Arm px upper / lower:"
+text = "Arm px (max 120/120):"
 
 [node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/VBox/ArmLengthRow"]
 custom_minimum_size = Vector2(72, 0)
 layout_mode = 2
 min_value = 4.0
-max_value = 400.0
+max_value = 120.0
 value = 120.0
 rounded = true
 
@@ -158,12 +213,22 @@ rounded = true
 custom_minimum_size = Vector2(72, 0)
 layout_mode = 2
 min_value = 4.0
-max_value = 400.0
+max_value = 120.0
 value = 120.0
 rounded = true
 
-[node name="ValuesLabel" type="Label" parent="UI/Panel/VBox"]
+[node name="ValuesScroll" type="ScrollContainer" parent="UI/Panel/VBox"]
+custom_minimum_size = Vector2(0, 140)
 layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ValuesLabel" type="RichTextLabel" parent="UI/Panel/VBox/ValuesScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
 autowrap_mode = 3
 text = "Values..."
 
@@ -173,6 +238,13 @@ autowrap_mode = 3
 text = "Ready"
 
 [node name="ExportLabel" type="Label" parent="UI/Panel/VBox"]
+visible = false
 layout_mode = 2
 autowrap_mode = 3
 text = "Export JSON appears here"
+
+[node name="UnsavedDialog" type="ConfirmationDialog" parent="."]
+title = "Unsaved changes"
+dialog_text = "Save changes before switching?"
+ok_button_text = "Save"
+cancel_button_text = "Discard"

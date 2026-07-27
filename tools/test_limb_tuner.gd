@@ -4,6 +4,7 @@ extends SceneTree
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
+const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 
 var _failures: Array[String] = []
 var _registry: Node
@@ -19,7 +20,9 @@ func _run() -> void:
 	_test_preset_defaults()
 	_test_none_preset_path()
 	_test_walk_fields_roundtrip()
+	_test_walk_arm_sway()
 	_test_save_roundtrip()
+	_test_club_preset_sane()
 	_test_limb_tuner_scene()
 	_test_procedural_arms_still_pass()
 	_report()
@@ -58,6 +61,25 @@ func _test_walk_fields_roundtrip() -> void:
 		_fail("walk hand round-trip failed got %s" % str(reloaded.walk_hand_grip_offset_px))
 
 
+func _test_walk_arm_sway() -> void:
+	var shoulder := Vector2(0.0, 0.0)
+	var hand := Vector2(48.0, 56.0)
+	var support_shoulder := Vector2(-24.0, 0.0)
+	var support_hand := Vector2(-36.0, 52.0)
+	var t := PI * 0.5
+	var dom := CardVisualController.swing_hand_delta_display_px(shoulder, hand, t, true, false, true)
+	var sup := CardVisualController.swing_hand_delta_display_px(support_shoulder, support_hand, t, true, false, false)
+	if dom.length_squared() < 0.01:
+		_fail("expected dominant shoulder swing delta at sin peak got %s" % str(dom))
+	if sup.length_squared() < 0.01:
+		_fail("expected support shoulder swing delta at sin peak got %s" % str(sup))
+	if dom.x * sup.x > 0.0:
+		_fail("arms should alternate forward/back on X, not clap: dom %s sup %s" % [str(dom), str(sup)])
+	var idle := CardVisualController.swing_hand_delta_display_px(shoulder, hand, t, false, false, true)
+	if idle != Vector2.ZERO:
+		_fail("sway should be zero when not moving got %s" % str(idle))
+
+
 func _test_save_roundtrip() -> void:
 	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.SPEAR, 1)
 	preset.body_card_id = "test_roundtrip"
@@ -75,6 +97,19 @@ func _test_save_roundtrip() -> void:
 		_fail("hand grip round-trip failed got %s" % str(reloaded.hand_grip_offset_px))
 	if reloaded.weapon_elbow_pole_idle_px != Vector2(3.0, -5.0):
 		_fail("elbow pole round-trip failed got %s" % str(reloaded.weapon_elbow_pole_idle_px))
+
+
+func _test_club_preset_sane() -> void:
+	var preset: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
+	if preset == null:
+		_fail("club preset missing")
+		return
+	if preset.upper_arm_length > WeaponLimbPreset.TUNER_MAX_UPPER_ARM_PX + 0.01:
+		_fail("club upper arm exceeds tuner cap")
+	if preset.lower_arm_length > WeaponLimbPreset.TUNER_MAX_LOWER_ARM_PX + 0.01:
+		_fail("club lower arm exceeds tuner cap")
+	if preset.overlay_offset_idle_px.length_squared() < 1.0:
+		_fail("club overlay offset looks unset")
 
 
 func _test_limb_tuner_scene() -> void:
@@ -103,8 +138,22 @@ func _test_limb_tuner_scene() -> void:
 		_fail("animation/weapon dropdowns missing")
 	elif anim_option.item_count < 3 or weapon_option.item_count < 2:
 		_fail("dropdowns need idle/walk/attack and none/club items")
-	if rig.weapon_overlay != null and rig.weapon_overlay.visible:
-		_fail("default weapon None should hide overlay")
+	var save_btn: Button = app.get_node_or_null("UI/Panel/VBox/PrimaryButtons/SaveBtn") as Button
+	var reach_banner: Label = app.get_node_or_null("UI/Panel/VBox/ReachBanner") as Label
+	var values_scroll: ScrollContainer = app.get_node_or_null("UI/Panel/VBox/ValuesScroll") as ScrollContainer
+	var legend: Label = app.get_node_or_null("UI/CanvasLegend") as Label
+	if save_btn == null:
+		_fail("primary SaveBtn missing")
+	if reach_banner == null:
+		_fail("ReachBanner missing")
+	if values_scroll == null:
+		_fail("ValuesScroll missing")
+	if legend == null:
+		_fail("CanvasLegend missing")
+	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
+		_fail("club WeaponOverlay should be visible on startup (default weapon)")
+	elif rig.weapon_overlay.texture == null:
+		_fail("club WeaponOverlay texture missing on startup")
 	var handle_stage: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage") as Node2D
 	if handle_stage == null:
 		_fail("HandleStage missing")
@@ -112,16 +161,9 @@ func _test_limb_tuner_scene() -> void:
 	if shoulder == null:
 		_fail("ShoulderHandle missing on HandleStage")
 	elif shoulder.global_position.distance_to(handle_stage.global_position) < 8.0:
-		_fail("shoulder handle still at stage center after startup")
-	if weapon_option:
-		weapon_option.select(1)
-		weapon_option.item_selected.emit(1)
-	for _i in range(6):
-		await process_frame
-	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
-		_fail("club WeaponOverlay should be visible after selecting Club")
-	elif rig.weapon_overlay.texture == null:
-		_fail("club WeaponOverlay texture missing after selecting Club")
+		_fail("shoulder handle still at stage center after startup (expected club preset)")
+	if weapon_option and weapon_option.selected != 1:
+		_fail("weapon dropdown should default to Club (index 1), got %d" % weapon_option.selected)
 	var stage: Node2D = app.get_node("World/Stage") as Node2D
 	if stage.scale.x < 3.5:
 		_fail("expected stage_scale >= 4.0 for tuner zoom, got %s" % str(stage.scale.x))

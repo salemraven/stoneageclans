@@ -5,6 +5,7 @@ const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_
 const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
+const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 
 const THRUST_SUPPORT_SHOULDER_FOLLOW := 0.1
 
@@ -98,6 +99,10 @@ func _process(_delta: float) -> void:
 	if thrust_active:
 		var counter_motion := _thrust_counter_motion(sprite, thrust_motion)
 		support_shoulder += counter_motion * THRUST_SUPPORT_SHOULDER_FOLLOW
+
+	var walk_sway := _walk_arm_sway_offsets(sprite, overlay, sprite_scale)
+	hand_grip += walk_sway.weapon
+	support_hand += walk_sway.support
 
 	var ready_poles := is_overlay_hand_tracking_active() or thrust_active
 	var weapon_pole := _resolve_elbow_pole_local(sprite, config.weapon_elbow_pole_ready_px if ready_poles else config.weapon_elbow_pole_idle_px, sprite_scale)
@@ -402,6 +407,34 @@ func _flip_offset_x(offset_px: Vector2, flip_h: bool) -> Vector2:
 	if flip_h:
 		return Vector2(-offset_px.x, offset_px.y)
 	return offset_px
+
+
+func _walk_arm_sway_offsets(sprite: Sprite2D, overlay: Sprite2D, sprite_scale: Vector2) -> Dictionary:
+	var zero := {"weapon": Vector2.ZERO, "support": Vector2.ZERO}
+	if sprite == null or config == null or is_combat_pose_active():
+		return zero
+	if _player.get("_card_bounce_moving") != true:
+		return zero
+	var bounce_time: float = float(_player.get("_card_bounce_time")) if _player.get("_card_bounce_time") != null else 0.0
+	var facing_left := sprite.flip_h
+	var weapon_shoulder_disp: Vector2 = _weapon_shoulder_offset_px()
+	var support_shoulder_disp: Vector2 = config.shoulder_offset_left
+	var weapon_hand_disp: Vector2 = config.hand_grip_offset_px
+	if overlay != null and overlay.visible:
+		var base_offset: Vector2 = overlay.get_meta("card_overlay_offset", Vector2.ZERO)
+		weapon_hand_disp = CardVisualController.overlay_display_from_base_offset(sprite, base_offset)
+	var support_hand_disp: Vector2 = config.support_hand_idle_offset_px
+	var weapon_sway_px := CardVisualController.swing_hand_delta_display_px(
+		weapon_shoulder_disp, weapon_hand_disp, bounce_time, true, facing_left, true
+	)
+	var support_sway_px := CardVisualController.swing_hand_delta_display_px(
+		support_shoulder_disp, support_hand_disp, bounce_time, true, facing_left, false
+	)
+	var weapon_sway := Vector2(weapon_sway_px.x * sprite_scale.x, weapon_sway_px.y * sprite_scale.y)
+	var support_sway := Vector2(support_sway_px.x * sprite_scale.x, support_sway_px.y * sprite_scale.y)
+	if overlay != null and overlay.visible:
+		weapon_sway = Vector2.ZERO
+	return {"weapon": weapon_sway, "support": support_sway}
 
 
 func _update_overlay_rest(overlay: Sprite2D, active: bool) -> void:
