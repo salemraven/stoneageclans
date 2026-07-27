@@ -193,3 +193,15 @@ The script:
 After push, wait ~1–2 minutes, then **hard-refresh** the game URL (or DevTools → Disable cache). Open **`…/BUILD.txt`** on the same Pages site to verify the stamp matches your machine.
 
 **Repo Settings → Pages:** Source should be **Deploy from a branch** → **`gh-pages`** → **`/ (root)`**.
+
+## Discord lore Q&A bot
+
+Search `devblog/` + `bible/` from Discord (`?ask`, `?search`, or @mention).
+
+```bash
+pip install -r tools/requirements-discord-bot.txt
+export DISCORD_LORE_BOT_TOKEN="..."
+python3 tools/discord_lore_bot.py
+```
+
+Local search test: `python3 tools/lore_search.py "herding"`. Full setup: **`devblog/README.md`**.
