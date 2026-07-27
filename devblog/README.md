@@ -40,16 +40,24 @@ python3 tools/post_devblog_to_discord.py devblog/animation-system.md --dry-run
 python3 tools/post_devblog_to_discord.py devblog/animation-system.md
 ```
 
-The script sends a short announcement + rich embed (title, summary, link to full post on GitHub). Full markdown is too long for Discord (2000-char limit), so the embed links to the repo.
+The script converts the markdown into a readable summary and posts it directly to Discord — no GitHub links. Long posts may arrive as 2+ messages.
+
+```bash
+# Preview what Discord will receive (no post)
+python3 tools/post_devblog_to_discord.py devblog/animation-system.md --dry-run
+
+# Post to Discord
+python3 tools/post_devblog_to_discord.py devblog/animation-system.md
+```
+
+The script skips dev-only sections (bash commands, repo file lists) and strips internal file paths so the Discord post stands on its own.
 
 ### Agent workflow
 
-After writing a new `devblog/*.md` file and pushing to `main`, ask: **"post this devblog to Discord"** — the agent runs the script above if the webhook secret is set.
+After writing a new `devblog/*.md` file, ask: **"post this devblog to Discord"** — the agent runs the script above if the webhook secret is set.
 
 Optional env vars:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DISCORD_DEVBLOG_WEBHOOK_URL` | *(required)* | Webhook URL |
-| `DEVBLOG_REPO_URL` | `https://github.com/salemraven/stoneageclans` | Link target |
-| `DEVBLOG_BRANCH` | `main` | Branch for GitHub links |
+| Variable | Purpose |
+|----------|---------|
+| `DISCORD_DEVBLOG_WEBHOOK_URL` | *(required)* Webhook URL |
