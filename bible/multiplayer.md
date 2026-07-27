@@ -4,6 +4,8 @@
 
 **Goal:** Get StoneAgeClans running in the browser with multiplayer. Players can spawn, move, and play together.
 
+**Strategy & trade-offs:** See **[multiplayer_concept.md](multiplayer_concept.md)** — browser hosting, persistent server, player-owned clans, limitations, and recommended solutions for this game.
+
 **Architecture:** Dedicated server (Godot headless or external). WebSocket transport for browser clients.
 
 ### What already exists in the repo (vs this checklist)
