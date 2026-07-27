@@ -10,6 +10,11 @@
     <header>
       <h1>Character Card Tuner (Web)</h1>
       <span id="buildInfo" class="build-info">loading build…</span>
+      <label class="weapon-label" for="weaponSelect">Weapon:</label>
+      <select id="weaponSelect" aria-label="Weapon preset">
+        <option value="none">None</option>
+        <option value="club" selected>Club</option>
+      </select>
       <button id="saveBtn" type="button">Save</button>
       <button id="walkBtn" type="button" class="secondary">Toggle walk</button>
       <button id="attackBtn" type="button" class="secondary">Toggle attack</button>
@@ -24,24 +29,34 @@
       </div>
       <aside>
         <div class="help">
-          Preview the same layout files as the Godot LimbTuner. Drag handles, Save, Reload.
-          Use <strong>Toggle walk</strong> and <strong>Toggle attack</strong> to preview motion and arm IK.
-          Attack swings from your saved club grip (handle 3 / yellow), not a separate ready pose.
+          Preview the same layout files as the Godot LimbTuner. Pick <strong>None</strong> or <strong>Club</strong>.
+          Drag handles for pose; change <strong>arm length only</strong> with the number boxes below (not by dragging).
+          Use <strong>Toggle walk</strong> to preview sway — turn it off before dragging or saving idle poses.
+          Click <strong>Save</strong> to write to disk; <strong>Reload</strong> reads the saved .tres files again.
+        </div>
+        <div class="arm-length-row">
+          <span class="arm-length-label">Arm px (max 120/120):</span>
+          <label class="arm-length-field">Upper
+            <input id="upperArmLen" type="number" min="4" max="120" step="1" value="120" />
+          </label>
+          <label class="arm-length-field">Lower
+            <input id="lowerArmLen" type="number" min="4" max="120" step="1" value="120" />
+          </label>
         </div>
         <div class="legend">
           <div><span style="background:#73bff2"></span><strong>H</strong> head / neck</div>
           <div><span style="background:#e64d4d"></span><strong>1</strong> dominant shoulder</div>
-          <div><span style="background:#f28c1a"></span><strong>1e</strong> dominant elbow (on arm — drag to bend)</div>
+          <div><span style="background:#f28c1a"></span><strong>1e</strong> dominant elbow — drag left/right to flip bend</div>
           <div><span style="background:#36d95c"></span><strong>1</strong> dominant hand (grips club with 3)</div>
           <div><span style="background:#bf2626"></span><strong>2</strong> off shoulder</div>
-          <div><span style="background:#33bfd9"></span><strong>2e</strong> off elbow (on arm — drag to bend)</div>
+          <div><span style="background:#33bfd9"></span><strong>2e</strong> off elbow — drag left/right to flip bend</div>
           <div><span style="background:#2eb34a"></span><strong>2</strong> off hand (idle)</div>
-          <div><span style="background:#f2bf26"></span><strong>3</strong> club grip (moves with 1)</div>
+          <div><span style="background:#f2bf26"></span><strong>3</strong> club grip (Club only — moves with 1)</div>
         </div>
         <div id="status" class="status">Loading…</div>
         <div id="values" class="values"></div>
       </aside>
     </main>
-    <script src="app.js"></script>
+    <script src="app.js?v=alternate1"></script>
   </body>
 </html>

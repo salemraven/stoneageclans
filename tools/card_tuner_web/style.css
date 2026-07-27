@@ -80,6 +80,56 @@ button.secondary {
   background: #3a3028;
 }
 
+select,
+.weapon-label {
+  font-size: 14px;
+  color: #f2e8dc;
+}
+
+select {
+  background: #3a3028;
+  border: 1px solid #5a4a3d;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.weapon-label {
+  margin-left: 4px;
+}
+
+.arm-length-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.arm-length-label {
+  color: #d8cbb8;
+  font-weight: 600;
+}
+
+.arm-length-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #c9baa8;
+}
+
+.arm-length-field input {
+  width: 64px;
+  background: #3a3028;
+  border: 1px solid #5a4a3d;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #fff;
+  font-weight: 600;
+}
+
 .help,
 .status,
 .values {
