@@ -2,6 +2,8 @@
 
 **Not** the old clansmen placeholder-card tool. This scene tunes **procedural arms**, **weapon overlay**, and **layered mannequin art** (body + head), then saves presets the game loads at runtime.
 
+**Purpose, agent workflow, and roadmap:** [guides/animation_tuner.md](../../guides/animation_tuner.md)
+
 ## Run
 
 ```bash

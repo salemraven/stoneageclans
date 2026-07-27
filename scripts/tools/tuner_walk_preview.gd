@@ -5,6 +5,7 @@ class_name TunerWalkPreview
 
 const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 const PlaceholderCardRegistry = preload("res://scripts/config/placeholder_card_registry.gd")
+const WalkArmSwing = preload("res://scripts/systems/walk_arm_swing.gd")
 
 const DISPLAY_HEIGHT := 128.0
 
@@ -31,9 +32,17 @@ func tick(delta: float) -> void:
 	if not is_moving():
 		walk_phase = 0.0
 		return
-	walk_phase += delta * PlaceholderCardRegistry.WALK_BOUNCE_SPEED
+	walk_phase += delta * PlaceholderCardRegistry.effective_walk_bounce_speed()
 	if walk_phase > TAU:
 		walk_phase = fmod(walk_phase, TAU)
+
+
+func swing_phase() -> float:
+	return WalkArmSwing.swing_phase_from_bounce(bounce_time) if is_moving() else 0.0
+
+
+func arm_swing_offset_rig(_dominant: bool) -> Vector2:
+	return Vector2.ZERO
 
 
 static func mannequin_foot_y(layout = null) -> float:

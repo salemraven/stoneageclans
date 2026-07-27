@@ -164,11 +164,15 @@ static func play_strike(
 		start_rot = compute_aim_rotation(body_sprite, aim_dir, tip_deg, 0.0)
 		overlay.rotation = start_rot
 		var mirror_tex: bool = _overlay_mirror_texture(registry, weapon_type)
-		var windup_px: float = float(profile.get("thrust_windup_px", 8.0))
-		var extend_px: float = float(profile.get("thrust_extend_px", 50.0))
+		var strike_px: Vector2 = profile.get("strike_offset_px", Vector2.ZERO) as Vector2
+		var ready_px: Vector2 = profile.get("ready_offset_px", Vector2.ZERO) as Vector2
+		var use_tuned_strike := (
+			strike_px.length_squared() > 0.0001
+			and ready_px.length_squared() > 0.0001
+			and strike_px.distance_to(ready_px) > 2.0
+		)
 		var windup_frac: float = float(profile.get("thrust_windup_frac", 0.0))
 		var lunge_frac: float = float(profile.get("thrust_lunge_frac", 0.52))
-		var hit_lunge_frac: float = clampf(float(profile.get("thrust_hit_lunge_frac", 0.55)), 0.2, 1.0)
 		var windup_t: float = strike_duration * windup_frac
 		var lunge_t: float = strike_duration * lunge_frac
 		var retract_t: float = maxf(strike_duration - windup_t - lunge_t, 0.04)
@@ -179,24 +183,51 @@ static func play_strike(
 			ready_pos += _aim_delta_local(body_sprite, aim_dir, ready_forward_px)
 		overlay.set_meta("card_overlay_offset", ready_base_now)
 		CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, ready_base_now, mirror_tex)
-		var windup_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, -windup_px)
-		var extend_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px)
-		var hit_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px * hit_lunge_frac)
 		overlay.position = ready_pos
-		if windup_t > 0.001:
+		if use_tuned_strike:
+			var strike_base := _offset_px_to_local(body_sprite, strike_px)
+			var strike_pos: Vector2 = _flipped_position(body_sprite, strike_base)
+			var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_SINE)
+			var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN_OUT)
+			if windup_t > 0.001:
+				var windup_pos: Vector2 = ready_pos + _aim_delta_local(
+					body_sprite, aim_dir, -float(profile.get("thrust_windup_px", 3.0))
+				)
+				tween.set_ease(Tween.EASE_OUT)
+				tween.tween_property(overlay, "position", windup_pos, windup_t)
+				overlay.position = windup_pos
+			tween.set_trans(lunge_trans)
+			tween.set_ease(lunge_ease)
+			tween.tween_property(overlay, "position", strike_pos, lunge_t)
+			tween.tween_callback(func() -> void:
+				if not hit_called and on_hit.is_valid():
+					hit_called = true
+					on_hit.call()
+			)
+			tween.set_trans(Tween.TRANS_SINE)
+			tween.set_ease(_profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_OUT))
+			tween.tween_property(overlay, "position", ready_pos, retract_t)
+		else:
+			var windup_px: float = float(profile.get("thrust_windup_px", 8.0))
+			var extend_px: float = float(profile.get("thrust_extend_px", 50.0))
+			var hit_lunge_frac: float = clampf(float(profile.get("thrust_hit_lunge_frac", 0.55)), 0.2, 1.0)
+			var windup_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, -windup_px)
+			var extend_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px)
+			var hit_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px * hit_lunge_frac)
+			if windup_t > 0.001:
+				tween.set_ease(Tween.EASE_OUT)
+				tween.tween_property(overlay, "position", windup_pos, windup_t)
+			tween.set_ease(Tween.EASE_IN)
+			tween.tween_property(overlay, "position", hit_pos, lunge_t * hit_lunge_frac)
+			tween.tween_callback(func() -> void:
+				if not hit_called and on_hit.is_valid():
+					hit_called = true
+					on_hit.call()
+			)
+			if hit_lunge_frac < 0.999:
+				tween.tween_property(overlay, "position", extend_pos, lunge_t * (1.0 - hit_lunge_frac))
 			tween.set_ease(Tween.EASE_OUT)
-			tween.tween_property(overlay, "position", windup_pos, windup_t)
-		tween.set_ease(Tween.EASE_IN)
-		tween.tween_property(overlay, "position", hit_pos, lunge_t * hit_lunge_frac)
-		tween.tween_callback(func() -> void:
-			if not hit_called and on_hit.is_valid():
-				hit_called = true
-				on_hit.call()
-		)
-		if hit_lunge_frac < 0.999:
-			tween.tween_property(overlay, "position", extend_pos, lunge_t * (1.0 - hit_lunge_frac))
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(overlay, "position", ready_pos, retract_t)
+			tween.tween_property(overlay, "position", ready_pos, retract_t)
 	else:
 		_play_swing_strike(
 			overlay, body_sprite, registry, weapon_type, profile, ready_base,
@@ -319,12 +350,12 @@ static func _ensure_weapon_pivot(overlay: Sprite2D, profile: Dictionary) -> void
 	if kind == AttackKind.THRUST:
 		overlay.offset = Vector2.ZERO
 		return
+	var pivot_x_frac: float = clampf(float(profile.get("pivot_x_frac", 0.5)), 0.0, 1.0)
 	var pivot_y_frac: float = clampf(float(profile.get("pivot_y_frac", 1.0)), 0.0, 1.0)
+	var w: float = float(overlay.texture.get_width()) * absf(overlay.scale.x)
 	var h: float = float(overlay.texture.get_height()) * absf(overlay.scale.y)
-	# Godot draws centered sprites at node.position + offset; node origin = rotation pivot.
-	# pivot_y_frac 1.0 = handle at bottom of PNG → shift texture center up (−Y).
-	var pivot_from_center_y: float = (0.5 - pivot_y_frac) * h
-	overlay.offset = Vector2(0.0, pivot_from_center_y)
+	# Node origin = texture point (pivot_x_frac, pivot_y_frac) — measured on opaque art for club.
+	overlay.offset = Vector2((0.5 - pivot_x_frac) * w, (0.5 - pivot_y_frac) * h)
 
 
 static func _swing_ready_degrees(body_sprite: Sprite2D, profile: Dictionary) -> float:
@@ -387,6 +418,32 @@ static func compute_swing_strike_targets(
 	}
 
 
+static func _profile_swing_trans(profile: Dictionary, key: String, default: Tween.TransitionType) -> Tween.TransitionType:
+	match str(profile.get(key, "")):
+		"cubic":
+			return Tween.TRANS_CUBIC
+		"sine":
+			return Tween.TRANS_SINE
+		"elastic":
+			return Tween.TRANS_ELASTIC
+		"quad":
+			return Tween.TRANS_QUAD
+		_:
+			return default
+
+
+static func _profile_swing_ease(profile: Dictionary, key: String, default: Tween.EaseType) -> Tween.EaseType:
+	match str(profile.get(key, "")):
+		"in":
+			return Tween.EASE_IN
+		"out":
+			return Tween.EASE_OUT
+		"in_out":
+			return Tween.EASE_IN_OUT
+		_:
+			return default
+
+
 static func _play_swing_strike(
 	overlay: Sprite2D,
 	body_sprite: Sprite2D,
@@ -419,22 +476,28 @@ static func _play_swing_strike(
 	overlay.set_meta("card_overlay_offset", ready_base)
 	CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, ready_base, mirror_tex)
 	overlay.position = ready_pos
-	# Wind-up: quick cock back.
+	var windup_trans := _profile_swing_trans(profile, "swing_windup_trans", Tween.TRANS_QUAD)
+	var windup_ease := _profile_swing_ease(profile, "swing_windup_ease", Tween.EASE_OUT)
+	var strike_trans := _profile_swing_trans(profile, "swing_strike_trans", Tween.TRANS_QUAD)
+	var strike_ease := _profile_swing_ease(profile, "swing_strike_ease", Tween.EASE_IN)
+	var recover_trans := _profile_swing_trans(profile, "swing_recover_trans", Tween.TRANS_QUAD)
+	var recover_ease := _profile_swing_ease(profile, "swing_recover_ease", Tween.EASE_OUT)
+	# Wind-up: cock back (short fraction of total time).
 	tween.set_parallel(true)
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
+	tween.set_trans(windup_trans)
+	tween.set_ease(windup_ease)
 	tween.tween_property(overlay, "rotation", windup_rot, windup_t)
 	tween.tween_property(overlay, "position", windup_pos, windup_t)
-	# Downswing: fast sweep forward and down.
+	# Downswing: sweep forward and down.
 	tween.chain().set_parallel(true)
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_IN)
+	tween.set_trans(strike_trans)
+	tween.set_ease(strike_ease)
 	tween.tween_property(overlay, "rotation", end_rot, strike_t)
 	tween.tween_property(overlay, "position", hit_pos, strike_t)
 	tween.chain().tween_callback(on_hit_frame)
-	# Snap back to ready.
+	# Return to ready.
 	tween.chain().set_parallel(true)
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
+	tween.set_trans(recover_trans)
+	tween.set_ease(recover_ease)
 	tween.tween_property(overlay, "rotation", ready_rot, recover_t)
 	tween.tween_property(overlay, "position", ready_pos, recover_t)

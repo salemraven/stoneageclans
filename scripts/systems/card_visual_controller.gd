@@ -26,7 +26,7 @@ static func tick_walk_bounce(
 	moving: bool,
 	delta: float,
 	amplitude: float = Registry.WALK_BOUNCE_AMPLITUDE,
-	speed: float = Registry.WALK_BOUNCE_SPEED
+	speed: float = Registry.effective_walk_bounce_speed()
 ) -> float:
 	if sprite == null:
 		return bounce_time

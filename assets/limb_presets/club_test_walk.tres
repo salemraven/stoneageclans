@@ -1,24 +1,24 @@
 [gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_7324g"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_y7084"]
 
 [resource]
-script = ExtResource("1_7324g")
-weapon_type = 31
-body_card_id = "clansmen_1"
+script = ExtResource("1_y7084")
+weapon_type = 1
+body_card_id = "test_walk"
 body_card_index = 1
 shoulder_offset_px = Vector2(118.9036, -178.5426)
-hand_grip_offset_px = Vector2(4.966575, 101.0588)
-hand_grip_ready_offset_px = Vector2(4.966615, 101.0587)
+hand_grip_offset_px = Vector2(0, 72)
+hand_grip_ready_offset_px = Vector2(0, 0)
 support_shoulder_offset_px = Vector2(-94.06356, -177.754)
 support_hand_idle_offset_px = Vector2(-86.28906, 52.03825)
 support_hand_idle_raise_offset_px = Vector2(0, 0)
-support_hand_offset_px = Vector2(7.493812, 205.6481)
-overlay_offset_idle_px = Vector2(63.5, -116.0)
+support_hand_offset_px = Vector2(6, 52)
+overlay_offset_idle_px = Vector2(22, -34)
 idle_rotation_deg = 0.0
-walk_hand_grip_offset_px = Vector2(0, 0)
+walk_hand_grip_offset_px = Vector2(10, 20)
 walk_support_hand_offset_px = Vector2(0, 0)
-walk_overlay_offset_px = Vector2(0, 0)
+walk_overlay_offset_px = Vector2(30, -5)
 walk_weapon_elbow_pole_px = Vector2(0, 0)
 walk_support_elbow_pole_px = Vector2(0, 0)
 walk1_hand_grip_offset_px = Vector2(0, 0)
@@ -45,10 +45,11 @@ idle_club1_support_elbow_pole_px = Vector2(0, 0)
 idle_club1_weapon_elbow_bend_sign_override = 0.0
 idle_club1_support_elbow_bend_sign_override = 0.0
 idle_club1_grip_authoritative = false
-ready_offset_px = Vector2(113.5, -17.0)
-strike_offset_px = Vector2(165.0, -19.0)
+club_attack_pose_saved = false
+spear_attack_pose_saved = false
+ready_offset_px = Vector2(8, 6)
+strike_offset_px = Vector2(0, 0)
 ready_forward_px = 24.0
-spear_attack_pose_saved = true
 upper_arm_length = 120.0
 lower_arm_length = 120.0
 weapon_upper_arm_length = -1.0
@@ -58,15 +59,15 @@ support_lower_arm_length = -1.0
 elbow_hint_outward = 18.0
 arm_width = 14.0
 hand_width = 10.0
-weapon_elbow_pole_idle_px = Vector2(110.2281, -162.7713)
-weapon_elbow_pole_ready_px = Vector2(111.5622, -162.1078)
+weapon_elbow_pole_idle_px = Vector2(150.7301, -185.8533)
+weapon_elbow_pole_ready_px = Vector2(0, 0)
 support_elbow_pole_idle_px = Vector2(-111.3289, -176.4535)
-support_elbow_pole_ready_px = Vector2(-112.0533, -177.1453)
-weapon_elbow_bend_sign_override = 1.0
+support_elbow_pole_ready_px = Vector2(0, 0)
+weapon_elbow_bend_sign_override = 0.0
 support_elbow_bend_sign_override = 1.0
 support_elbow_bend_sign_raise_override = 0.0
 walk_weapon_elbow_bend_sign_override = 0.0
 walk_support_elbow_bend_sign_override = 0.0
-weapon_elbow_bend_sign_ready_override = 1.0
-support_elbow_bend_sign_ready_override = 1.0
+weapon_elbow_bend_sign_ready_override = 0.0
+support_elbow_bend_sign_ready_override = 0.0
 tuner_stage_scale = 1.0

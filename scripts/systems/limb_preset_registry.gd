@@ -71,7 +71,13 @@ func apply_to_arm_config(config: ProceduralArmConfig, preset: WeaponLimbPreset) 
 	if config == null or preset == null:
 		return
 	config.weapon_shoulder_offset_px = preset.shoulder_offset_px
-	config.hand_grip_offset_px = preset.hand_grip_offset_px
+	if (
+		preset.weapon_type == ResourceData.ResourceType.WOOD
+		and preset.uses_saved_club_grip_on_art()
+	):
+		config.hand_grip_offset_px = preset.idle_club1_hand_grip_offset_px
+	else:
+		config.hand_grip_offset_px = preset.hand_grip_offset_px
 	config.hand_grip_ready_offset_px = preset.hand_grip_ready_offset_px
 	config.support_hand_grip_offset_px = preset.support_hand_offset_px
 	config.support_hand_idle_offset_px = preset.support_hand_idle_offset_px
@@ -81,6 +87,8 @@ func apply_to_arm_config(config: ProceduralArmConfig, preset: WeaponLimbPreset) 
 	config.weapon_lower_arm_length = preset.weapon_lower_arm_length
 	config.support_upper_arm_length = preset.support_upper_arm_length
 	config.support_lower_arm_length = preset.support_lower_arm_length
+	config.arm_width = preset.arm_width
+	config.hand_width = preset.hand_width
 	config.elbow_hint_outward = preset.elbow_hint_outward
 	config.weapon_elbow_pole_idle_px = preset.weapon_elbow_pole_idle_px
 	config.weapon_elbow_pole_ready_px = preset.weapon_elbow_pole_ready_px
@@ -96,6 +104,7 @@ func apply_combat_profile_overrides(profile: Dictionary, weapon_type: ResourceDa
 		return profile
 	var out: Dictionary = profile.duplicate(true)
 	out["ready_offset_px"] = preset.ready_offset_px
+	out["strike_offset_px"] = preset.strike_offset_px
 	out["ready_forward_px"] = preset.ready_forward_px
 	out["idle_rotation_deg"] = preset.idle_rotation_deg
 	return out

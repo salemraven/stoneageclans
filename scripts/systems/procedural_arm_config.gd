@@ -53,6 +53,10 @@ var support_elbow_bend_sign_active: float = 0.0
 
 # Draw above character card and weapon overlay (YSortUtils.Z_ABOVE_WORLD).
 @export var arm_z_index := 4095
+## Split upper/lower arm draw order at elbow (LimbTuner: head between segments).
+@export var split_depth_at_elbow := false
+@export var arm_upper_z_index := 4090
+@export var arm_lower_z_index := 4096
 @export var line_endpoint_inset_px := 3.0
 @export var endpoint_marker_radius := 5.0
 @export var shoulder_marker_color := Color(0.9, 0.2, 0.2, 1.0)

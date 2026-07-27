@@ -1,6 +1,13 @@
-# Guides moved
+# Guides
 
-Documentation is now under **`bible/`** (includes `bible.md` and all former guides).
+Most design docs live under **`bible/`** — see [bible/README.md](../bible/README.md).
 
-- [bible/README.md](../bible/README.md) — index
-- [bible/bible.md](../bible/bible.md) — main bible
+## Tooling guides (this folder)
+
+| Guide | Topic |
+|-------|--------|
+| [animation_tuner.md](animation_tuner.md) | **Animation Tuner** — purpose, agent workflow, future plans |
+
+## Legacy note
+
+Former `guides/` content was merged into `bible/` (May 2026). Tool-specific guides that support day-to-day dev + agent handoff stay here when they are not core game design.

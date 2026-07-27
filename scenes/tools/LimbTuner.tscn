@@ -36,7 +36,6 @@ position = Vector2(960, 540)
 layer = 1
 
 [node name="HandleStage" type="Node2D" parent="World/HandleLayer"]
-position = Vector2(960, 540)
 
 [node name="TunerRig" type="CharacterBody2D" parent="World/Stage"]
 script = ExtResource("2")
@@ -57,122 +56,202 @@ script = ExtResource("3")
 
 [node name="ProceduralArmController" type="Node2D" parent="World/Stage/TunerRig"]
 z_as_relative = false
-z_index = 4095
+z_index = 0
+use_tuner_arm_layers = true
 script = ExtResource("4")
 
 [node name="UI" type="CanvasLayer" parent="."]
 layer = 10
 
 [node name="Panel" type="PanelContainer" parent="UI"]
-offset_left = 16.0
-offset_top = 16.0
-offset_right = 416.0
-offset_bottom = 560.0
+custom_minimum_size = Vector2(300, 0)
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 312.0
+offset_bottom = 620.0
 
-[node name="VBox" type="VBoxContainer" parent="UI/Panel"]
+[node name="Margin" type="MarginContainer" parent="UI/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 14
+
+[node name="VBox" type="VBoxContainer" parent="UI/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Pose Map"
+
+[node name="HelpLabel" type="Label" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+text = "Pick a pose, Play to preview, drag pins, Save."
+
+[node name="Sep1" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="SelectSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Title" type="Label" parent="UI/Panel/VBox"]
+[node name="SelectHeader" type="Label" parent="UI/Panel/Margin/VBox/SelectSection"]
 layout_mode = 2
-text = "Character Animation Tuner"
-theme_override_font_sizes/font_size = 20
+theme_override_font_sizes/font_size = 13
+text = "Pose + preview"
 
-[node name="ModeLabel" type="Label" parent="UI/Panel/VBox"]
+[node name="PoseRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
 layout_mode = 2
-text = "Mode: ASSEMBLE | Pose: IDLE"
+theme_override_constants/separation = 4
 
-[node name="HelpLabel" type="Label" parent="UI/Panel/VBox"]
+[node name="PoseLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/PoseRow"]
 layout_mode = 2
-autowrap_mode = 3
-text = "Pick animation + weapon at top. Each combo saves its own arm pose.\nH = head | 1 = shoulder | 1h + 3 = hand/grip | 1e / 2e = elbow (click to flip bend side) | 2 / 2h = off arm\nWalk: arrow keys change direction. Attack: auto swing. Shift = ready preview."
+theme_override_font_sizes/font_size = 12
+text = "Pose (weapon + snapshot)"
 
-[node name="Toolbar" type="HBoxContainer" parent="UI/Panel/VBox"]
+[node name="AnimModeOption" type="OptionButton" parent="UI/Panel/Margin/VBox/SelectSection/PoseRow"]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
-theme_override_constants/separation = 12
+size_flags_horizontal = 3
+alignment = 0
+fit_to_longest_item = true
 
-[node name="AnimLabel" type="Label" parent="UI/Panel/VBox/Toolbar"]
-layout_mode = 2
-text = "Animation:"
-
-[node name="AnimModeOption" type="OptionButton" parent="UI/Panel/VBox/Toolbar"]
-custom_minimum_size = Vector2(120, 0)
+[node name="Sep2" type="HSeparator" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 
-[node name="WeaponLabel" type="Label" parent="UI/Panel/VBox/Toolbar"]
+[node name="PreviewSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
-text = "Weapon:"
+theme_override_constants/separation = 4
 
-[node name="WeaponOption" type="OptionButton" parent="UI/Panel/VBox/Toolbar"]
-custom_minimum_size = Vector2(100, 0)
+[node name="PreviewHeader" type="Label" parent="UI/Panel/Margin/VBox/PreviewSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Preview"
+
+[node name="PlayPauseBtn" type="Button" parent="UI/Panel/Margin/VBox/PreviewSection"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "▶  Play idle"
+
+[node name="Sep2b" type="HSeparator" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 
-[node name="Buttons" type="HBoxContainer" parent="UI/Panel/VBox"]
-layout_mode = 2
-
-[node name="AssembleBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Assemble"
-
-[node name="LockBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Lock"
-
-[node name="TestBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Test"
-
-[node name="SaveBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Save"
-
-[node name="RefreshBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Refresh"
-
-[node name="ResetBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Reset"
-
-[node name="CopyBtn" type="Button" parent="UI/Panel/VBox/Buttons"]
-layout_mode = 2
-text = "Copy JSON"
-
-[node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/VBox"]
+[node name="ActionsSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="ArmLengthLabel" type="Label" parent="UI/Panel/VBox/ArmLengthRow"]
+[node name="ActionsHeader" type="Label" parent="UI/Panel/Margin/VBox/ActionsSection"]
 layout_mode = 2
-text = "Arm px upper / lower:"
+theme_override_font_sizes/font_size = 13
+text = "Save & reset"
 
-[node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/VBox/ArmLengthRow"]
-custom_minimum_size = Vector2(72, 0)
+[node name="ActionGrid" type="GridContainer" parent="UI/Panel/Margin/VBox/ActionsSection"]
 layout_mode = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+columns = 2
+
+[node name="SaveBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Save all"
+
+[node name="ResetPoseBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Reset pose"
+
+[node name="ReloadBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Reload file"
+
+[node name="ResetAnchorsBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Reset anchors"
+
+[node name="CopyBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Copy for chat"
+
+[node name="Sep3" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="ArmsSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ArmsHeader" type="Label" parent="UI/Panel/Margin/VBox/ArmsSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Arm length & thickness (both arms)"
+
+[node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/ArmsSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+prefix = "Upper "
+suffix = " px"
 min_value = 4.0
 max_value = 400.0
 value = 120.0
 rounded = true
 
-[node name="LowerArmLengthSpin" type="SpinBox" parent="UI/Panel/VBox/ArmLengthRow"]
-custom_minimum_size = Vector2(72, 0)
+[node name="LowerArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow"]
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
+size_flags_horizontal = 3
+prefix = "Lower "
+suffix = " px"
 min_value = 4.0
 max_value = 400.0
 value = 120.0
 rounded = true
 
-[node name="ValuesLabel" type="Label" parent="UI/Panel/VBox"]
+[node name="ArmThicknessRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/ArmsSection"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ArmThicknessSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmThicknessRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+prefix = "Thickness "
+suffix = " px"
+min_value = 2.0
+max_value = 48.0
+value = 14.0
+rounded = true
+
+[node name="Sep4" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="SummaryLabel" type="Label" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
 autowrap_mode = 3
-text = "Values..."
+text = "Summary appears here."
 
-[node name="StatusLabel" type="Label" parent="UI/Panel/VBox"]
+[node name="StatusLabel" type="Label" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.85, 0.55, 1)
+theme_override_font_sizes/font_size = 11
 autowrap_mode = 3
 text = "Ready"
-
-[node name="ExportLabel" type="Label" parent="UI/Panel/VBox"]
-layout_mode = 2
-autowrap_mode = 3
-text = "Export JSON appears here"

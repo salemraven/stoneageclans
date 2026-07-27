@@ -14,7 +14,11 @@ var draggable: bool = true
 
 var _dragging: bool = false
 var _poly: Polygon2D
+var _socket_poly: Polygon2D
+var _pin_line: Line2D
 var _side_label: Label
+var _body_pin_enabled: bool = false
+var _pin_anchor_global: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
@@ -23,6 +27,23 @@ func _ready() -> void:
 	_poly = Polygon2D.new()
 	_poly.antialiased = false
 	add_child(_poly)
+	_pin_line = Line2D.new()
+	_pin_line.name = "BodyPinLine"
+	_pin_line.width = 2.0
+	_pin_line.default_color = Color(0.55, 0.12, 0.12, 0.85)
+	_pin_line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_pin_line.joint_mode = Line2D.LINE_JOINT_ROUND
+	_pin_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_pin_line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_pin_line.visible = false
+	_pin_line.z_index = -2
+	add_child(_pin_line)
+	_socket_poly = Polygon2D.new()
+	_socket_poly.name = "BodySocket"
+	_socket_poly.antialiased = false
+	_socket_poly.visible = false
+	_socket_poly.z_index = -1
+	add_child(_socket_poly)
 	_side_label = Label.new()
 	_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_side_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -61,6 +82,44 @@ func set_draggable(on: bool) -> void:
 		_dragging = false
 
 
+func set_body_pin_enabled(on: bool) -> void:
+	_body_pin_enabled = on
+	if not on:
+		if _pin_line:
+			_pin_line.visible = false
+		if _socket_poly:
+			_socket_poly.visible = false
+
+
+func set_pin_anchor_global(global_pos: Vector2) -> void:
+	_pin_anchor_global = global_pos
+	_refresh_pin_visual()
+
+
+func _refresh_pin_visual() -> void:
+	if not _body_pin_enabled or _pin_line == null or _socket_poly == null:
+		return
+	if _pin_anchor_global.distance_squared_to(global_position) < 0.25:
+		_pin_line.visible = false
+		_socket_poly.visible = false
+		return
+	var anchor_local := to_local(_pin_anchor_global)
+	_pin_line.visible = true
+	_pin_line.points = PackedVector2Array([anchor_local, Vector2.ZERO])
+	_socket_poly.visible = true
+	var socket_radius := maxf(handle_radius * 0.42, 2.5)
+	var darker := handle_color.darkened(0.35)
+	darker.a = 0.95
+	_socket_poly.color = darker
+	var pts := PackedVector2Array()
+	var segments := 10
+	for i in range(segments):
+		var angle := TAU * float(i) / float(segments)
+		pts.append(anchor_local + Vector2(cos(angle), sin(angle)) * socket_radius)
+	_socket_poly.polygon = pts
+	_pin_line.default_color = Color(darker.r, darker.g, darker.b, 0.75)
+
+
 func _refresh_circle() -> void:
 	if _poly == null:
 		return
@@ -72,6 +131,7 @@ func _refresh_circle() -> void:
 		pts.append(Vector2(cos(angle), sin(angle)) * handle_radius)
 	_poly.polygon = pts
 	_refresh_side_label_layout()
+	_refresh_pin_visual()
 
 
 func _refresh_side_label_layout() -> void:

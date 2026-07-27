@@ -3,8 +3,13 @@ class_name ProceduralArm
 
 const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_config.gd")
 
+var _draw_root: Node2D
 var _line: Line2D
+var _line_upper: Line2D
+var _line_lower: Line2D
 var _endpoint_root: Node2D
+var _endpoint_root_upper: Node2D
+var _endpoint_root_lower: Node2D
 var _shoulder_marker: Node2D
 var _hand_marker: Node2D
 var _debug_root: Node2D
@@ -21,48 +26,141 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	var cfg := _as_config(config)
 	if cfg == null:
 		return
-	_line = Line2D.new()
-	_line.name = "ArmLine_%s" % side_label
-	_line.z_as_relative = false
-	_line.z_index = cfg.arm_z_index
-	_line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_line.joint_mode = Line2D.LINE_JOINT_ROUND
-	_line.begin_cap_mode = Line2D.LINE_CAP_BOX
-	_line.end_cap_mode = Line2D.LINE_CAP_BOX
-	_line.antialiased = false
-	_apply_line_style(cfg)
-	parent.add_child(_line)
-
-	_endpoint_root = Node2D.new()
-	_endpoint_root.name = "ArmEndpoints_%s" % side_label
-	_endpoint_root.z_as_relative = false
-	_endpoint_root.z_index = cfg.arm_z_index
-	parent.add_child(_endpoint_root)
-	_shoulder_marker = _make_circle_marker(_endpoint_root, cfg.shoulder_marker_color)
-	_hand_marker = _make_circle_marker(_endpoint_root, cfg.hand_marker_color)
+	_draw_root = Node2D.new()
+	_draw_root.name = "ArmDraw_%s" % side_label
+	parent.add_child(_draw_root)
+	var under_tuner := parent.name in ["Arm1Draw", "Arm2Draw"]
+	var line_z := 0 if under_tuner else cfg.arm_z_index
+	var line_relative := under_tuner
+	var line_parent := _draw_root
+	if cfg.split_depth_at_elbow:
+		_line_upper = _create_arm_line(line_parent, "ArmUpper_%s" % side_label, line_z, line_relative, cfg)
+		_line_lower = _create_arm_line(line_parent, "ArmLower_%s" % side_label, line_z, line_relative, cfg)
+		_endpoint_root_upper = _create_endpoint_root(line_parent, "ArmEndpointsUpper_%s" % side_label, line_z, line_relative)
+		_endpoint_root_lower = _create_endpoint_root(line_parent, "ArmEndpointsLower_%s" % side_label, line_z, line_relative)
+		_shoulder_marker = _make_circle_marker(_endpoint_root_upper, cfg.shoulder_marker_color)
+		_hand_marker = _make_circle_marker(_endpoint_root_lower, cfg.hand_marker_color)
+	else:
+		_line = _create_arm_line(line_parent, "ArmLine_%s" % side_label, line_z, line_relative, cfg)
+		_endpoint_root = _create_endpoint_root(line_parent, "ArmEndpoints_%s" % side_label, line_z, line_relative)
+		_shoulder_marker = _make_circle_marker(_endpoint_root, cfg.shoulder_marker_color)
+		_hand_marker = _make_circle_marker(_endpoint_root, cfg.hand_marker_color)
 
 	_debug_root = Node2D.new()
 	_debug_root.name = "ArmDebug_%s" % side_label
-	_debug_root.z_as_relative = false
-	_debug_root.z_index = cfg.arm_z_index
+	_debug_root.z_as_relative = line_relative
+	_debug_root.z_index = line_z
 	_debug_root.visible = false
-	parent.add_child(_debug_root)
+	line_parent.add_child(_debug_root)
 	_debug_elbow = _make_circle_marker(_debug_root, _elbow_joint_color(side_label))
+
+
+func reparent_draw_to(new_parent: Node2D) -> void:
+	if _draw_root == null or new_parent == null:
+		return
+	if _draw_root.get_parent() == new_parent:
+		return
+	_draw_root.reparent(new_parent)
+	_apply_draw_band_for_parent(new_parent)
+
+
+func get_draw_root() -> Node2D:
+	return _draw_root
+
+
+func _apply_draw_band_for_parent(parent: Node2D) -> void:
+	var under_tuner := parent != null and parent.name in ["Arm1Draw", "Arm2Draw"]
+	var line_z := 0 if under_tuner else (_line.z_index if _line != null else 4095)
+	var relative := under_tuner
+	if _draw_root:
+		_draw_root.z_as_relative = relative
+		_draw_root.z_index = line_z
+	for line in [_line, _line_upper, _line_lower]:
+		if line:
+			line.z_as_relative = relative
+			line.z_index = line_z
+	for root in [_endpoint_root, _endpoint_root_upper, _endpoint_root_lower, _debug_root]:
+		if root:
+			root.z_as_relative = relative
+			root.z_index = line_z
+
+
+func _create_arm_line(parent: Node2D, line_name: String, z: int, relative: bool, cfg: ProceduralArmConfigScript) -> Line2D:
+	var line := Line2D.new()
+	line.name = line_name
+	line.z_as_relative = relative
+	line.z_index = z
+	line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_apply_line_geometry(line)
+	line.antialiased = false
+	_apply_line_style(line, cfg)
+	parent.add_child(line)
+	return line
+
+
+func _create_endpoint_root(parent: Node2D, root_name: String, z: int, relative: bool) -> Node2D:
+	var root := Node2D.new()
+	root.name = root_name
+	root.z_as_relative = relative
+	root.z_index = z
+	parent.add_child(root)
+	return root
 
 
 func set_endpoint_markers_visible(visible_markers: bool) -> void:
 	_endpoint_markers_visible = visible_markers
+	var arm_visible := _arm_lines_visible()
 	if _endpoint_root:
-		_endpoint_root.visible = visible_markers and (_line != null and _line.visible)
+		_endpoint_root.visible = visible_markers and arm_visible
+	if _endpoint_root_upper:
+		_endpoint_root_upper.visible = visible_markers and arm_visible
+	if _endpoint_root_lower:
+		_endpoint_root_lower.visible = visible_markers and arm_visible
 
 
 func set_visible_arm(visible_arm: bool) -> void:
 	if _line:
 		_line.visible = visible_arm
+	if _line_upper:
+		_line_upper.visible = visible_arm
+	if _line_lower:
+		_line_lower.visible = visible_arm
 	if _endpoint_root:
 		_endpoint_root.visible = visible_arm and _endpoint_markers_visible
+	if _endpoint_root_upper:
+		_endpoint_root_upper.visible = visible_arm and _endpoint_markers_visible
+	if _endpoint_root_lower:
+		_endpoint_root_lower.visible = visible_arm and _endpoint_markers_visible
 	if _debug_root:
 		_debug_root.visible = visible_arm and _debug_root.get_meta("debug_enabled", false)
+
+
+func set_draw_z_index(z: int) -> void:
+	if _draw_root:
+		_draw_root.z_as_relative = false
+		_draw_root.z_index = z
+	if _line:
+		_line.z_index = z
+	if _line_upper:
+		_line_upper.z_index = z
+	if _line_lower:
+		_line_lower.z_index = z
+	if _endpoint_root:
+		_endpoint_root.z_index = z
+	if _endpoint_root_upper:
+		_endpoint_root_upper.z_index = z
+	if _endpoint_root_lower:
+		_endpoint_root_lower.z_index = z
+	if _debug_root:
+		_debug_root.z_index = z
+
+
+func _arm_lines_visible() -> bool:
+	if _line:
+		return _line.visible
+	if _line_upper:
+		return _line_upper.visible
+	return false
 
 
 func set_debug_enabled(enabled: bool) -> void:
@@ -77,11 +175,20 @@ func set_show_elbow_joints(show_joints: bool) -> void:
 		_update_debug_visibility()
 
 
+func refresh_line_style(config: Resource) -> void:
+	var cfg := _as_config(config)
+	if cfg == null:
+		return
+	for line in [_line, _line_upper, _line_lower]:
+		if line:
+			_apply_line_style(line, cfg)
+
+
 func _update_debug_visibility() -> void:
 	if _debug_root == null:
 		return
 	var show := bool(_debug_root.get_meta("debug_enabled", false)) or bool(_debug_root.get_meta("show_elbow_joints", false))
-	_debug_root.visible = show and _line != null and _line.visible
+	_debug_root.visible = show and _arm_lines_visible()
 
 
 func update_arm(
@@ -95,7 +202,8 @@ func update_arm(
 	segment_upper_px: float = -1.0,
 	segment_lower_px: float = -1.0,
 	forced_elbow: Vector2 = Vector2.ZERO,
-	use_forced_elbow: bool = false
+	use_forced_elbow: bool = false,
+	relax_min_reach: bool = false
 ) -> void:
 	var cfg := _as_config(config)
 	if _line == null or cfg == null:
@@ -120,14 +228,19 @@ func update_arm(
 			local_shoulder, solved_hand, cfg, bend_sign, sprite_scale
 		),
 		cfg,
-		bend_sign
+		bend_sign,
+		relax_min_reach
 	)
 
 	_points[0] = local_shoulder
 	_points[1] = elbow
 	_points[2] = solved_hand
 	_trim_line_endpoints(cfg, sprite_scale)
-	_line.points = _points
+	if _line_upper and _line_lower:
+		_line_upper.points = PackedVector2Array([_points[0], _points[1]])
+		_line_lower.points = PackedVector2Array([_points[1], _points[2]])
+	elif _line:
+		_line.points = _points
 
 	_last_shoulder = local_shoulder
 	_last_elbow = elbow
@@ -148,20 +261,27 @@ func _as_config(config: Resource) -> ProceduralArmConfigScript:
 	return config as ProceduralArmConfigScript
 
 
-func _apply_line_style(cfg: ProceduralArmConfigScript) -> void:
+func _apply_line_geometry(line: Line2D) -> void:
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+
+
+func _apply_line_style(line: Line2D, cfg: ProceduralArmConfigScript) -> void:
+	_apply_line_geometry(line)
 	var width_mult: float = cfg.width_genetics_mult
-	_line.width = cfg.arm_width * width_mult
-	_line.default_color = cfg.arm_color
+	line.width = cfg.arm_width * width_mult
+	line.default_color = cfg.arm_color
 	var curve := Curve.new()
 	curve.add_point(Vector2(0.0, cfg.arm_width * width_mult))
 	curve.add_point(Vector2(1.0, cfg.hand_width * width_mult))
-	_line.width_curve = curve
+	line.width_curve = curve
 	var tex: Texture2D = cfg.arm_texture
 	if tex == null:
 		tex = _default_arm_texture()
 	if tex:
-		_line.texture = tex
-		_line.texture_mode = Line2D.LINE_TEXTURE_TILE
+		line.texture = tex
+		line.texture_mode = Line2D.LINE_TEXTURE_TILE
 
 
 func _elbow_pole_hint(
@@ -186,21 +306,25 @@ func _solve_ik(
 	lower_len: float,
 	_pole_hint: Vector2,
 	cfg: ProceduralArmConfigScript,
-	bend_sign: float
+	bend_sign: float,
+	relax_min_reach: bool = false
 ) -> Vector2:
 	var to_hand := hand - shoulder
 	var dist := to_hand.length()
 	if dist < 0.001:
 		return shoulder + Vector2(upper_len, 0.0)
-	var min_fold := deg_to_rad(cfg.elbow_fold_min_deg)
-	var max_fold := deg_to_rad(cfg.elbow_fold_max_deg)
+	var min_fold := deg_to_rad(cfg.elbow_fold_min_deg if not relax_min_reach else 4.0)
+	var max_fold := deg_to_rad(cfg.elbow_fold_max_deg if not relax_min_reach else 172.0)
 	var max_reach := sqrt(
 		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
 	) - 0.01
 	var min_reach := sqrt(
 		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
 	) + 0.01
-	dist = clampf(dist, min_reach, max_reach)
+	if dist > max_reach:
+		dist = max_reach
+	elif not relax_min_reach and dist < min_reach:
+		dist = min_reach
 	var dir := to_hand / dist
 
 	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
