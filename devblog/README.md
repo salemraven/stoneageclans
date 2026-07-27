@@ -40,7 +40,7 @@ python3 tools/post_devblog_to_discord.py devblog/animation-system.md --dry-run
 python3 tools/post_devblog_to_discord.py devblog/animation-system.md
 ```
 
-The script converts the markdown into a readable summary and posts it directly to Discord — no GitHub links. Long posts may arrive as 2+ messages.
+The script builds a **short summary** (~700–1000 chars): a hook paragraph, a few key bullets, and a closing line. No GitHub links, no wall of text.
 
 ```bash
 # Preview what Discord will receive (no post)
@@ -50,7 +50,7 @@ python3 tools/post_devblog_to_discord.py devblog/animation-system.md --dry-run
 python3 tools/post_devblog_to_discord.py devblog/animation-system.md
 ```
 
-The script skips dev-only sections (bash commands, repo file lists) and strips internal file paths so the Discord post stands on its own.
+The script skips dev-only sections and internal file paths. Discord gets the digest; the full post stays in `devblog/*.md`.
 
 ### Agent workflow
 
