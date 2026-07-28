@@ -32,7 +32,8 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from lore_search import LoreIndex, format_answer  # noqa: E402
+from lore_responses import answer_query  # noqa: E402
+from lore_search import LoreIndex  # noqa: E402
 
 try:
     import discord
@@ -82,8 +83,7 @@ async def ask_cmd(ctx: commands.Context, *, query: str) -> None:
         await ctx.reply(_channel_denied_message(), mention_author=False)
         return
     async with ctx.typing():
-        hits = index.search(query, limit=3)
-        answer = format_answer(query, hits)
+        answer = answer_query(query, index)
     await ctx.reply(answer[:2000], mention_author=False)
 
 
@@ -98,19 +98,26 @@ async def help_cmd(ctx: commands.Context) -> None:
         await ctx.reply(_channel_denied_message(), mention_author=False)
         return
     text = (
-        "**Stone Age Clans lore bot**\n"
-        f"`{PREFIX}ask <question>` — search devblog + design bible\n"
-        f"`{PREFIX}search <keywords>` — same thing\n"
-        f"Or @mention the bot with your question.\n\n"
-        "Examples:\n"
+        "**Zedu the Wise** — lore keeper for Stone Age Clans\n"
+        f"`{PREFIX}pitch` — what is the game? (elevator pitch)\n"
+        f"`{PREFIX}ask <question>` — hunting, herding, nomad mode, etc.\n"
+        f"Or @mention me with your question.\n\n"
+        "Try:\n"
+        f"`{PREFIX}pitch`\n"
         f"`{PREFIX}ask how does animation work`\n"
-        f"`{PREFIX}search herding panic`\n"
-        f"`{PREFIX}ask what is nomad mode`"
+        f"`@Zedu what does pull based mean?`"
     )
     await ctx.reply(text, mention_author=False)
 
 
-@bot.command(name="reload", help="Reload devblog + bible index (admin)")
+@bot.command(name="pitch", help="What is Stone Age Clans?")
+async def pitch_cmd(ctx: commands.Context) -> None:
+    if not _allowed_channel(ctx.message):
+        await ctx.reply(_channel_denied_message(), mention_author=False)
+        return
+    from lore_responses import GAME_PITCH
+
+    await ctx.reply(GAME_PITCH[:2000], mention_author=False)
 @commands.has_permissions(administrator=True)
 async def reload_cmd(ctx: commands.Context) -> None:
     count = index.load()
@@ -133,8 +140,7 @@ async def on_message(message: discord.Message) -> None:
         query = " ".join(query.split()).strip()
         if query:
             async with message.channel.typing():
-                hits = index.search(query, limit=3)
-                answer = format_answer(query, hits)
+                answer = answer_query(query, index)
             await message.reply(answer[:2000], mention_author=False)
         else:
             await message.reply(
