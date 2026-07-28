@@ -30,8 +30,16 @@ You only need to do **Part A once** (create the bot). After that, run `tools/run
 
 **Cursor Cloud** (so the agent can run it):
 
-1. Open your [Cursor Cloud environment secrets](https://cursor.com/dashboard/cloud-agents/environments)
-2. Add: `DISCORD_LORE_BOT_TOKEN` = the token you copied
+> **Important:** Add the token to your **repository environment**, not only "My Secrets".
+> The webhook (`DISCORD_DEVBLOG_WEBHOOK_URL`) works because it's on the environment.
+> The bot token must go in the **same place**.
+
+1. Open your [stoneageclans cloud environment](https://cursor.com/dashboard/cloud-agents/environments/e/0e8db27c-7167-11f1-8cbf-12b154d6cb29)
+2. Go to **Secrets** (same page where `DISCORD_DEVBLOG_WEBHOOK_URL` lives)
+3. Click **Add secret** (do not edit the webhook one)
+4. **Name:** `DISCORD_LORE_BOT_TOKEN`
+5. **Value:** the bot token you copied from Discord → Bot → Reset Token
+6. **Save**, then start a **new** cloud agent chat (old chats won't see new secrets)
 
 **Your Windows PC** (so you can run it locally):
 
