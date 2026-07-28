@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 
-from lore_search import LoreHit, LoreIndex, _strip_md, format_answer
+from dataclasses import dataclass
+
+from lore_search import LoreHit, LoreIndex, _strip_md
 
 # Player-facing pitch — Zedu promotes the game, not internal dev notes.
 GAME_PITCH = """**Stone Age Clans: The Dawn of Aggro-Culture**
@@ -90,6 +92,27 @@ FILLER_RE = re.compile(
     re.IGNORECASE,
 )
 
+FOLLOW_UP_RE = re.compile(
+    r"^(?:"
+    r"what does (?:that|it|this) mean\??|"
+    r"what do you mean\??|"
+    r"(?:can you )?explain(?: (?:that|more|further))?\??|"
+    r"what\??|"
+    r"huh\??|"
+    r"elaborate\??|"
+    r"say more\??"
+    r")$",
+    re.IGNORECASE,
+)
+
+FOLLOW_UP_AFTER_PITCH = """Ah — let me unpack that a little.
+
+**ClanBrain** is your clan's strategist. It watches food, threats, and prey, then sets *intent*: "we need defenders," "go hunt," "raid them." Your NPCs aren't puppets on strings.
+
+**Pull-based** means fighters *volunteer* for those jobs instead of the AI assigning every clansman every second. Raids feel intentional. Herds break under stress. Less lag, more emergent stories.
+
+Want specifics? Ask about **hunting**, **herding**, **raiding**, or **nomad mode**."""
+
 GAME_PITCH_TRIGGERS = (
     "pitch",
     "sell me",
@@ -106,6 +129,45 @@ GAME_PITCH_TRIGGERS = (
 )
 
 
+PRONOUN_TERMS = {"that", "it", "this", "those"}
+
+
+@dataclass
+class ChannelContext:
+    kind: str = ""
+    last_query: str = ""
+
+
+@dataclass
+class LoreAnswer:
+    text: str
+    kind: str = "search"
+
+
+def is_follow_up(query: str) -> bool:
+    return bool(FOLLOW_UP_RE.match(query.strip().rstrip("?!. ")))
+
+
+def answer_follow_up(context: ChannelContext | None, max_chars: int = 1900) -> LoreAnswer | None:
+    if not context or not context.kind:
+        return None
+    if context.kind == "pitch":
+        return LoreAnswer(FOLLOW_UP_AFTER_PITCH[:max_chars], "follow_up")
+    if context.kind.startswith("glossary:"):
+        term = context.kind.split(":", 1)[1]
+        gloss = glossary_answer(term)
+        if gloss:
+            return LoreAnswer(gloss[:max_chars], context.kind)
+    if "pull" in context.last_query.lower() or context.kind == "search":
+        gloss = glossary_answer("pull based")
+        if gloss:
+            combined = (
+                f"{glossary_answer('clanbrain')}\n\n{gloss}"
+            )[:max_chars]
+            return LoreAnswer(combined, "glossary:pull-based")
+    return LoreAnswer(FOLLOW_UP_AFTER_PITCH[:max_chars], "follow_up")
+
+
 def normalize_query(raw: str) -> str:
     text = _strip_md(raw)
     text = re.sub(r"<@!?\d+>", " ", text)
@@ -119,7 +181,10 @@ def _extract_define_term(query: str) -> str | None:
     q = query.lower().strip().rstrip("?!. ")
     match = re.search(r"what does (.+?) mean$", q)
     if match:
-        return match.group(1).strip()
+        term = match.group(1).strip()
+        if term not in PRONOUN_TERMS:
+            return term
+        return None
     match = re.search(r"what is (?:a |an |the )?(.+)$", q)
     if match and len(match.group(1).split()) <= 5:
         return match.group(1).strip()
@@ -132,8 +197,10 @@ def wants_pitch(raw: str, normalized: str) -> bool:
     blob = f"{raw} {normalized}".lower()
     if any(t in blob for t in GAME_PITCH_TRIGGERS):
         return True
-    if normalized.lower() in ("", "game", "it", "this"):
-        return "pitch" in raw.lower() or "game" in raw.lower()
+    if re.search(r"\bstone\s*age\s*clans?\b", blob):
+        return True
+    if normalized.lower() in ("", "game", "it", "this", "stone age clans"):
+        return True
     return False
 
 
@@ -175,30 +242,42 @@ def _format_search_answer(query: str, hits: list[LoreHit], max_chars: int = 1900
     return "\n\n".join(lines)
 
 
-def answer_query(raw: str, index: LoreIndex, *, max_chars: int = 1900) -> str:
+def answer_query(
+    raw: str,
+    index: LoreIndex,
+    *,
+    context: ChannelContext | None = None,
+    max_chars: int = 1900,
+) -> LoreAnswer:
+    if is_follow_up(raw):
+        follow = answer_follow_up(context, max_chars=max_chars)
+        if follow:
+            return follow
+
     normalized = normalize_query(raw)
 
     if wants_pitch(raw, normalized):
-        return GAME_PITCH[:max_chars]
+        return LoreAnswer(GAME_PITCH[:max_chars], "pitch")
 
     term = _extract_define_term(raw) or _extract_define_term(normalized)
-    if term:
+    if term and term.lower() not in PRONOUN_TERMS:
         gloss = glossary_answer(term)
         if gloss:
-            return gloss[:max_chars]
-        # Fall through to dictionary-weighted search
+            return LoreAnswer(gloss[:max_chars], f"glossary:{term.lower()}")
         hits = index.search(f"{term} definition", limit=2)
         dict_hits = [h for h in hits if "dictionary" in h.chunk.rel_path.lower()]
         if dict_hits:
-            return f"{glossary_answer(term) or ''}\n\n{dict_hits[0].excerpt}"[:max_chars].strip()
+            text = f"{dict_hits[0].excerpt}"[:max_chars].strip()
+            return LoreAnswer(text, f"glossary:{term.lower()}")
         if hits:
-            return f"**{term.title()}** — in our design docs:\n\n{hits[0].excerpt}"[:max_chars]
+            text = f"**{term.title()}** — in our design docs:\n\n{hits[0].excerpt}"[:max_chars]
+            return LoreAnswer(text, "search")
 
-    search_q = normalized if len(normalize_query(raw)) >= 3 else raw
+    search_q = normalized if len(normalized) >= 3 else raw
     hits = index.search(search_q, limit=3)
-    # Prefer player-facing docs over phase/audit notes for open questions
     hits = _rerank_for_readability(hits)
-    return _format_search_answer(raw, hits, max_chars=max_chars)[:max_chars]
+    text = _format_search_answer(raw, hits, max_chars=max_chars)[:max_chars]
+    return LoreAnswer(text, "search")
 
 
 def _rerank_for_readability(hits: list[LoreHit]) -> list[LoreHit]:
@@ -213,7 +292,7 @@ def _rerank_for_readability(hits: list[LoreHit]) -> list[LoreHit]:
 def cli_answer(query: str) -> str:
     index = LoreIndex()
     index.load()
-    return answer_query(query, index)
+    return answer_query(query, index).text
 
 
 if __name__ == "__main__":
