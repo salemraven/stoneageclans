@@ -72,8 +72,10 @@ In any channel the bot can see:
 
 ```
 ?ask how does animation work
-?search nomad mode
+!help
 ```
+
+Either `?` or `!` works for commands.
 
 Or @mention the bot with your question.
 
