@@ -50,19 +50,22 @@ $env:DISCORD_LORE_BOT_TOKEN = "PASTE_TOKEN_HERE"
 
 ## Part B — Start the bot
 
-**Windows** (recommended — leave the window open while you want the bot online):
-
-```powershell
-powershell -File tools/run_lore_bot.ps1
-```
-
-**Mac / Linux:**
+**Mac / Linux / Cloud** (leave the terminal open while Zedu is online):
 
 ```bash
-bash tools/run_lore_bot.sh
+cd /path/to/StoneAgeClans
+bash tools/restart_lore_bot.sh
 ```
 
-When you see `ready — indexed … lore chunks`, it works.
+**Windows:**
+
+```powershell
+powershell -File tools/restart_lore_bot.ps1
+```
+
+When you see `Zedu the Wise v2.1.0 ready`, it works.
+
+**Verify in Discord:** `?version` should reply `v2.1.0`
 
 ---
 
