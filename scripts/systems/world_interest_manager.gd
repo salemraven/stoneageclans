@@ -4,11 +4,13 @@ extends Node
 const CLAIM_ACTIVE_WORLD_RADIUS: float = 2400.0
 
 var _active_chunks: Dictionary = {}  # Vector2i -> true
+var _sim_active_chunks: Dictionary = {}  # Vector2i -> true (smaller radius — full sim)
 var _active_claims: Dictionary = {}  # instance_id -> true
 
 
 func recompute(main: Node) -> void:
 	_active_chunks.clear()
+	_sim_active_chunks.clear()
 	_active_claims.clear()
 	if main == null:
 		return
@@ -18,6 +20,9 @@ func recompute(main: Node) -> void:
 		radius = int(wgc.call("get_effective_load_radius"))
 	if wgc:
 		radius = maxi(radius, int(wgc.get("single_player_initial_load_radius")))
+	var sim_radius: int = 1
+	if wgc:
+		sim_radius = maxi(0, int(wgc.get("sim_active_chunk_radius")))
 	var player_centers: Array[Vector2] = []
 	var player: Node2D = main.get("player") as Node2D if main.get("player") != null else null
 	if player and is_instance_valid(player):
@@ -32,6 +37,9 @@ func recompute(main: Node) -> void:
 		for dx in range(-radius, radius + 1):
 			for dy in range(-radius, radius + 1):
 				_active_chunks[cc + Vector2i(dx, dy)] = true
+		for dx in range(-sim_radius, sim_radius + 1):
+			for dy in range(-sim_radius, sim_radius + 1):
+				_sim_active_chunks[cc + Vector2i(dx, dy)] = true
 	for claim in main.get_tree().get_nodes_in_group("land_claims"):
 		if not is_instance_valid(claim) or not (claim is Node2D):
 			continue
@@ -44,6 +52,10 @@ func recompute(main: Node) -> void:
 
 func is_chunk_active(chunk: Vector2i) -> bool:
 	return _active_chunks.has(chunk)
+
+
+func is_chunk_sim_active(chunk: Vector2i) -> bool:
+	return _sim_active_chunks.has(chunk)
 
 
 func is_claim_active(claim: Node) -> bool:

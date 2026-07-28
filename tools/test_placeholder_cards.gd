@@ -6,6 +6,7 @@ extends SceneTree
 # Load at runtime so dependent scripts (EntityRegistry, etc.) compile after autoloads init.
 const NPC_SCENE_PATH := "res://scenes/NPC.tscn"
 const PLAYER_SCENE_PATH := "res://scenes/Player.tscn"
+const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const TARGET_HEIGHT := 128.0
 const FOOT_Y_TOLERANCE := 1.5
 
@@ -29,6 +30,46 @@ func _expected_foot_y(texture: Texture2D) -> float:
 		_fail("texture is null")
 	var scale := TARGET_HEIGHT / float(texture.get_height())
 	return -(texture.get_height() * scale * 0.5)
+
+
+func _mannequin_body_tex() -> Texture2D:
+	var tex: Texture2D = PartsRegistry.load_blank_body()
+	if tex == null:
+		_fail("body1.png failed to load")
+	return tex
+
+
+func _count_head_pivots(sprite: Sprite2D) -> int:
+	if sprite == null:
+		return 0
+	var count := 0
+	for child in sprite.get_children():
+		if child.name == "HeadPivot":
+			count += 1
+	return count
+
+
+func _assert_procedural_mannequin(entity: Node, sprite: Sprite2D, label: String) -> void:
+	if sprite == null:
+		_fail("%s sprite missing" % label)
+		return
+	if sprite.texture != null:
+		_fail("%s should use layered mannequin (sprite.texture cleared)" % label)
+	var head_count := _count_head_pivots(sprite)
+	if head_count != 1:
+		_fail("%s should have exactly 1 HeadPivot, got %d" % [label, head_count])
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	if body_visual == null:
+		_fail("%s BodyVisual missing" % label)
+	var body_tex: Texture2D = _mannequin_body_tex()
+	_assert_near(sprite.position.y, _expected_foot_y(body_tex), "%s foot_y" % label)
+	if absf(sprite.scale.y - (TARGET_HEIGHT / float(body_tex.get_height()))) > 0.02:
+		_fail("%s scale not 128px tall layout" % label)
+	var arm_ctrl: Node = entity.get_node_or_null("ProceduralArmController")
+	if arm_ctrl == null:
+		_fail("%s ProceduralArmController missing" % label)
+	elif arm_ctrl.get("use_tuner_arm_layers") != true:
+		_fail("%s should use tuner arm draw layers" % label)
 
 
 func _texture_path(texture: Texture2D) -> String:
@@ -70,14 +111,11 @@ func _run() -> void:
 	root_node.add_child(player)
 	await process_frame
 	svc.apply_to_player(player)
+	svc.apply_to_player(player)
 	var player_sprite: Sprite2D = player.get_node_or_null("Sprite") as Sprite2D
-	if player_sprite == null or player_sprite.texture == null:
-		_fail("player sprite/texture missing")
-	_assert_near(player_sprite.position.y, _expected_foot_y(player_sprite.texture), "player foot_y")
-	if not _texture_path(player_sprite.texture).contains("placeholder_cards"):
-		_fail("player card path wrong: %s" % _texture_path(player_sprite.texture))
-	if absf(player_sprite.scale.y - (TARGET_HEIGHT / float(player_sprite.texture.get_height()))) > 0.02:
-		_fail("player scale not 128px tall layout")
+	_assert_procedural_mannequin(player, player_sprite, "player")
+	if not svc.uses_procedural_mannequin(player):
+		_fail("player should use procedural mannequin")
 
 	# Caveman NPC
 	var caveman: Node = npc_scene.instantiate()
@@ -89,9 +127,7 @@ func _run() -> void:
 	await process_frame
 	svc.apply_to_npc(caveman)
 	var cave_sprite: Sprite2D = caveman.get_node_or_null("Sprite") as Sprite2D
-	if cave_sprite == null or cave_sprite.texture == null:
-		_fail("caveman sprite/texture missing")
-	_assert_near(cave_sprite.position.y, _expected_foot_y(cave_sprite.texture), "caveman foot_y")
+	_assert_procedural_mannequin(caveman, cave_sprite, "caveman")
 	var card_index: int = int(caveman.get("card_index"))
 	if card_index < 1 or card_index > 18:
 		_fail("caveman card_index out of range: %d" % card_index)
@@ -158,6 +194,38 @@ func _run() -> void:
 		_fail("Thrust delta aim-right should extend +local X")
 	if delta_left_u.x >= 0.0:
 		_fail("Thrust delta aim-left should extend -local X")
+	var spear_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.SPEAR)
+	var ready_px: Vector2 = spear_profile.get("ready_offset_px", Vector2.ZERO) as Vector2
+	var strike_px: Vector2 = spear_profile.get("strike_offset_px", Vector2.ZERO) as Vector2
+	var spear_ready_base: Vector2 = WeaponOverlayCombat._pose_offset(
+		player_sprite, registry, ResourceData.ResourceType.SPEAR, spear_profile, true
+	)
+	var ready_pos: Vector2 = WeaponOverlayCombat._flipped_position(player_sprite, spear_ready_base)
+	var extend_dist: float = ready_px.distance_to(strike_px)
+	var sx: float = maxf(absf(player_sprite.scale.x), 0.001)
+	var expected_local_extend: float = extend_dist / sx
+	var strike_right: Vector2 = WeaponOverlayCombat.compute_tuned_thrust_strike_pos(
+		player_sprite, ready_pos, ready_px, strike_px, Vector2(1.0, 0.0)
+	)
+	if absf(strike_right.distance_to(ready_pos) - expected_local_extend) > 1.5:
+		_fail("Tuned thrust right should extend by preset distance")
+	if strike_right.x <= ready_pos.x + 5.0:
+		_fail("Tuned thrust right should move overlay right from ready")
+	var min_horiz: float = float(spear_profile.get("thrust_min_horizontal_frac", 0.35))
+	var clamped_up: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
+		Vector2(0.0, -1.0), registry, ResourceData.ResourceType.SPEAR, 1.0
+	)
+	var clamped_down: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
+		Vector2(0.0, 1.0), registry, ResourceData.ResourceType.SPEAR, -1.0
+	)
+	if absf(clamped_up.x) < min_horiz - 0.02:
+		_fail("Spear thrust should block straight up (min horizontal)")
+	if absf(clamped_down.x) < min_horiz - 0.02:
+		_fail("Spear thrust should block straight down (min horizontal)")
+	if clamped_up.y >= -0.05:
+		_fail("Clamped up thrust should still point upward")
+	if clamped_down.y <= 0.05:
+		_fail("Clamped down thrust should still point downward")
 	player_sprite.flip_h = false
 	WeaponOverlayCombat.apply_idle_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR)
 	if absf(player_overlay.rotation) > 0.05:
@@ -171,13 +239,15 @@ func _run() -> void:
 	var club_overlay: Sprite2D = player_sprite.get_node_or_null("WeaponOverlay") as Sprite2D
 	if club_overlay == null or club_overlay.texture == null:
 		_fail("Club WeaponOverlay missing")
+	var wood_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.WOOD)
 	WeaponOverlayCombat.apply_idle_pose(player_sprite, club_overlay, registry, ResourceData.ResourceType.WOOD)
 	if absf(club_overlay.rotation) > 0.05:
 		_fail("Club idle rotation should be ~0 got %.1f°" % rad_to_deg(club_overlay.rotation))
 	var club_h: float = float(club_overlay.texture.get_height()) * absf(club_overlay.scale.y)
 	if club_overlay.offset.y >= 0.0:
 		_fail("Club pivot offset should be negative (handle at node origin)")
-	var expected_pivot_y: float = (0.5 - 0.88) * club_h
+	var pivot_y_frac: float = clampf(float(wood_profile.get("pivot_y_frac", 0.88)), 0.0, 1.0)
+	var expected_pivot_y: float = (0.5 - pivot_y_frac) * club_h
 	if absf(club_overlay.offset.y - expected_pivot_y) > club_h * 0.05:
 		_fail("Club handle pivot offset wrong got %.1f expected ~%.1f" % [club_overlay.offset.y, expected_pivot_y])
 	player_sprite.flip_h = false
@@ -195,7 +265,6 @@ func _run() -> void:
 	if club_overlay.flip_h:
 		_fail("Club overlay should not mirror texture when facing left")
 
-	var wood_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.WOOD)
 	var ready_base: Vector2 = WeaponOverlayCombat._pose_offset(
 		player_sprite, registry, ResourceData.ResourceType.WOOD, wood_profile, true
 	)
@@ -249,9 +318,9 @@ func _run() -> void:
 	son.set("npc_type", "clansman")
 	svc.apply_to_npc(son)
 	var son_sprite: Sprite2D = son.get_node_or_null("Sprite") as Sprite2D
-	var son_path := _texture_path(son_sprite.texture)
-	if not son_path.ends_with("clansmen_card5.png"):
-		_fail("grown son card path wrong: %s" % son_path)
+	_assert_procedural_mannequin(son, son_sprite, "grown son")
+	if int(son.get("card_index")) != 5:
+		_fail("grown son should keep inherited card_index 5")
 
 	player.queue_free()
 	caveman.queue_free()

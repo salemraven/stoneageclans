@@ -20,10 +20,13 @@ func _run() -> void:
 	_test_none_preset_path()
 	_test_walk_fields_roundtrip()
 	_test_save_roundtrip()
+	_test_save_all_staged_holdables()
 	_test_arm_thickness_preset()
 	_test_walk_arm_swing()
 	_test_limb_tuner_scene()
 	_test_idle_club_drag_handles()
+	_test_spear_yellow_pinned_to_hand()
+	_test_spear_walk_grip_pinned_to_shaft()
 	_test_club_overlay_grip_fallback()
 	_test_club_walk_carry_pose()
 	_test_pose_snapshot_isolation()
@@ -85,6 +88,34 @@ func _test_save_roundtrip() -> void:
 		_fail("elbow pole round-trip failed got %s" % str(reloaded.weapon_elbow_pole_idle_px))
 
 
+func _test_save_all_staged_holdables() -> void:
+	var none: WeaponLimbPreset = _registry.get_preset(ResourceData.ResourceType.NONE, "clansmen_1", 1)
+	var spear: WeaponLimbPreset = _registry.get_preset(ResourceData.ResourceType.SPEAR, "clansmen_1", 1)
+	var none_marker := none.walk_hand_grip_offset_px
+	var spear_marker := spear.overlay_offset_idle_px
+	none.walk_hand_grip_offset_px = none_marker + Vector2(3.0, 4.0)
+	spear.overlay_offset_idle_px = spear_marker + Vector2(5.0, -2.0)
+	_registry.stage_preset(none)
+	_registry.stage_preset(spear)
+	var result: Dictionary = _registry.save_all_staged()
+	if int(result.get("count", 0)) < 2:
+		_fail("save_all_staged should write multiple holdables, got %s" % str(result))
+	if result.get("err", ERR_CANT_CREATE) != OK:
+		_fail("save_all_staged failed err=%s keys=%s" % [str(result.get("err")), str(result.get("failed_keys"))])
+	_registry.reload_all_presets("clansmen_1")
+	var none_disk: WeaponLimbPreset = _registry.get_preset(ResourceData.ResourceType.NONE, "clansmen_1", 1)
+	var spear_disk: WeaponLimbPreset = _registry.get_preset(ResourceData.ResourceType.SPEAR, "clansmen_1", 1)
+	if none_disk.walk_hand_grip_offset_px != none_marker + Vector2(3.0, 4.0):
+		_fail("save_all_staged did not persist none walk hand")
+	if spear_disk.overlay_offset_idle_px != spear_marker + Vector2(5.0, -2.0):
+		_fail("save_all_staged did not persist spear idle overlay")
+	none.walk_hand_grip_offset_px = none_marker
+	spear.overlay_offset_idle_px = spear_marker
+	_registry.save_preset(none)
+	_registry.save_preset(spear)
+	_registry.reload_all_presets("clansmen_1")
+
+
 func _test_arm_thickness_preset() -> void:
 	const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_config.gd")
 	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
@@ -130,6 +161,35 @@ func _test_walk_arm_swing() -> void:
 		_fail("walk swing should mirror when travel sign flips")
 	if WalkArmSwingScript.reach_slack_ratio(false) <= WalkArmSwingScript.reach_slack_ratio(true):
 		_fail("support arm should get more walk reach slack than dominant")
+	var spear_dom_travel := absf(
+		WalkArmSwingScript.travel_axis_offset(
+			rest_dom, swung_phase, true, 1.0, ResourceData.ResourceType.SPEAR
+		)
+	)
+	var none_dom_travel := absf(
+		WalkArmSwingScript.travel_axis_offset(
+			rest_dom, swung_phase, true, 1.0, ResourceData.ResourceType.NONE
+		)
+	)
+	if spear_dom_travel >= none_dom_travel * 0.5:
+		_fail("spear dominant walk should travel less forward/back than empty hands")
+	var spear_dom := WalkArmSwingScript.swing_hand_local_offset(
+		rest_dom, swung_phase, true, 1.0, ResourceData.ResourceType.SPEAR
+	)
+	var none_dom := WalkArmSwingScript.swing_hand_local_offset(
+		rest_dom, swung_phase, true, 1.0, ResourceData.ResourceType.NONE
+	)
+	if absf(spear_dom.y - rest_dom.y) >= absf(none_dom.y - rest_dom.y):
+		_fail("spear dominant walk should stay subtler vertically than empty-hands swing")
+	var phase_b := swung_phase + PI
+	var spear_a := WalkArmSwingScript.swing_hand_local_offset(
+		rest_dom, swung_phase, true, 1.0, ResourceData.ResourceType.SPEAR
+	)
+	var spear_b := WalkArmSwingScript.swing_hand_local_offset(
+		rest_dom, phase_b, true, 1.0, ResourceData.ResourceType.SPEAR
+	)
+	if absf(spear_a.y - spear_b.y) < 4.0:
+		_fail("spear dominant walk should oscillate smoothly across half a cycle")
 
 
 func _test_limb_tuner_scene() -> void:
@@ -165,15 +225,21 @@ func _test_limb_tuner_scene() -> void:
 	if rig.weapon_overlay != null and rig.weapon_overlay.visible:
 		_fail("default weapon None should hide overlay")
 	var handle_stage: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage") as Node2D
+	var stage: Node2D = app.get_node("World/Stage") as Node2D
 	if handle_stage == null:
 		_fail("HandleStage missing on HandleLayer")
+	elif handle_stage.global_transform.origin.distance_to(stage.global_transform.origin) > 2.0:
+		_fail(
+			"HandleStage should track Stage world transform (dist=%.2f)"
+			% handle_stage.global_transform.origin.distance_to(stage.global_transform.origin)
+		)
 	var shoulder: Node2D = handle_stage.get_node_or_null("ShoulderHandle") as Node2D
 	if shoulder == null:
 		_fail("ShoulderHandle missing on HandleStage overlay")
 	elif shoulder.get_parent() != handle_stage:
 		_fail("shoulder handle should stay on HandleStage overlay, got %s" % shoulder.get_parent().name)
 	_test_tuner_draw_layers(rig)
-	var stage: Node2D = app.get_node("World/Stage") as Node2D
+	_test_tuner_arm_lines_draw(rig)
 	var scale_before := stage.scale.x
 	for i in anim_option.item_count:
 		var label := anim_option.get_item_text(i)
@@ -189,8 +255,10 @@ func _test_limb_tuner_scene() -> void:
 		_fail("club WeaponOverlay texture missing after selecting Club · Idle")
 	if absf(stage.scale.x - scale_before) > 0.01:
 		_fail("stage scale changed when switching pose catalog entry")
-	if stage.scale.x < 3.5:
-		_fail("expected stage_scale >= 4.0 for tuner zoom, got %s" % str(stage.scale.x))
+	if absf(app.stage_scale - 1.0) > 0.01:
+		_fail("stage_scale export must stay 1.0 (1:1 with game), got %s" % str(app.stage_scale))
+	if app.view_zoom < 1.0:
+		_fail("view_zoom should be >= 1 for preview zoom")
 	var club_preset: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
 	if club_preset != null:
 		var overlay_px := club_preset.overlay_offset_idle_px
@@ -278,6 +346,117 @@ func _test_idle_club_drag_handles() -> void:
 			"idle club: motion preview reset club after drag (was %s now %s)"
 			% [str(overlay_after_drag), str(rig.weapon_overlay.global_position)]
 		)
+	app.queue_free()
+
+
+func _test_spear_yellow_pinned_to_hand() -> void:
+	var root := get_root()
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for spear yellow pin test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	var pose_option: OptionButton = app.get_node_or_null(
+		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
+	) as OptionButton
+	if pose_option:
+		for i in pose_option.item_count:
+			if pose_option.get_item_text(i).begins_with("Spear · Idle standing"):
+				pose_option.select(i)
+				pose_option.item_selected.emit(i)
+				break
+	for _i in range(8):
+		await process_frame
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	var spear: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SpearHandle") as Node2D
+	if hand == null or spear == null:
+		_fail("spear yellow pin: handles missing")
+		app.queue_free()
+		return
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail(
+			"spear idle: yellow 3 not stacked on green 1h (dist=%.2f hand=%s spear=%s)"
+			% [hand.global_position.distance_to(spear.global_position), str(hand.global_position), str(spear.global_position)]
+		)
+	var preset: WeaponLimbPreset = app.get("_preset")
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	if preset != null and rig != null and rig.weapon_overlay != null:
+		var grip_on_art := LimbPresetCoords.overlay_grip_global(
+			rig.weapon_overlay,
+			preset.resolve_hand_grip_for_mode(WeaponLimbPresetScript.TunerAnimMode.IDLE)
+		)
+		if spear.global_position.distance_to(grip_on_art) > 2.0:
+			_fail(
+				"spear idle: yellow 3 not on spear art grip (dist=%.2f pin=%s art=%s)"
+				% [spear.global_position.distance_to(grip_on_art), str(spear.global_position), str(grip_on_art)]
+			)
+	for _i in range(6):
+		app.call("_sync_assemble_preview")
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail("spear idle: preview sync broke yellow↔1h stack")
+	app.set("_active_drag_handle", hand)
+	app.call("_on_hand_dragged", hand.global_position + Vector2(24.0, -12.0))
+	for _i in range(3):
+		app.call("_sync_assemble_preview")
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail("spear idle: yellow 3 drifted from 1h during hand drag")
+	app.queue_free()
+
+
+func _test_spear_walk_grip_pinned_to_shaft() -> void:
+	var root := get_root()
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for spear walk grip test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	var pose_option: OptionButton = app.get_node_or_null(
+		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
+	) as OptionButton
+	if pose_option:
+		for i in pose_option.item_count:
+			if pose_option.get_item_text(i).begins_with("Spear · Walk"):
+				pose_option.select(i)
+				pose_option.item_selected.emit(i)
+				break
+	for _i in range(8):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	if rig == null or hand == null or rig.weapon_overlay == null:
+		_fail("spear walk grip: rig, hand, or overlay missing")
+		app.queue_free()
+		return
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		_fail("spear walk grip: preset missing")
+		app.queue_free()
+		return
+	rig.set_walk_direction(1)
+	var max_drift := 0.0
+	for _i in range(36):
+		await process_frame
+		var grip_on_art := LimbPresetCoords.overlay_grip_global(
+			rig.weapon_overlay,
+			preset.resolve_hand_grip_for_mode(WeaponLimbPresetScript.TunerAnimMode.WALK)
+		)
+		var drift := hand.global_position.distance_to(grip_on_art)
+		max_drift = maxf(max_drift, drift)
+		if drift > 2.5:
+			_fail(
+				"spear walk: hand slid off shaft grip (drift=%.2f hand=%s grip=%s)"
+				% [drift, str(hand.global_position), str(grip_on_art)]
+			)
+			break
+	if max_drift > 2.5:
+		app.queue_free()
+		return
 	app.queue_free()
 
 
@@ -511,6 +690,29 @@ func _test_idle_club1_minimal_scenario() -> void:
 	if select_section != null and select_section.visible:
 		_fail("idle club1: pose/holdable section should be hidden in minimal view")
 	app.queue_free()
+
+
+func _test_tuner_arm_lines_draw(rig: LimbTunerRig) -> void:
+	if rig == null or rig.arm_controller == null:
+		_fail("arm line draw: rig or arm_controller missing")
+		return
+	if not rig.arm_controller.is_processing():
+		_fail("tuner arm_controller must set_process(true) so Line2D IK runs")
+	var arm1: Node2D = rig.get_node_or_null("Arm1Draw") as Node2D
+	if arm1 == null:
+		_fail("Arm1Draw missing for arm line draw test")
+		return
+	var saw_points := false
+	for child in arm1.get_children():
+		for sub in child.get_children():
+			var line := sub as Line2D
+			if line == null:
+				continue
+			if line.points.size() >= 2 and line.visible:
+				saw_points = true
+				break
+	if not saw_points:
+		_fail("tuner arm Line2D should have IK points after startup (got empty lines)")
 
 
 func _test_tuner_draw_layers(rig: LimbTunerRig) -> void:

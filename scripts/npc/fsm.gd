@@ -28,6 +28,11 @@ const OccupyBuildingStateScript = preload("res://scripts/npc/states/occupy_build
 const WorkAtBuildingStateScript = preload("res://scripts/npc/states/work_at_building_state.gd")
 const ProductionWorkStateScript = preload("res://scripts/npc/states/production_work_state.gd")
 const CraftStateScript = preload("res://scripts/npc/states/craft_state.gd")
+
+func _log_fsm_setup(msg: String) -> void:
+	var dc := get_node_or_null("/root/DebugConfig")
+	if dc != null and bool(dc.get("enable_verbose_npc_logging")):
+		print(msg)
 const BuildHutForWomanStateScript = preload("res://scripts/npc/states/build_hut_for_woman_state.gd")
 const BuildMilestoneStateScript = preload("res://scripts/npc/states/build_milestone_state.gd")
 const PanicStateScript = preload("res://scripts/npc/states/panic_state.gd")
@@ -186,7 +191,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created eat state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created eat state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach eat_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -203,7 +208,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created gather state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created gather state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach gather_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -220,7 +225,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created herd state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created herd state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach herd_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -234,7 +239,7 @@ func _create_state_instances() -> void:
 			states["party"] = party_st
 			party_st.initialize(npc)
 			party_st.set("fsm", self)
-			print("FSM: Successfully created party state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created party state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach party_state for %s" % npc_name)
 			party_st.queue_free()
@@ -263,7 +268,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created herd_wildnpc state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created herd_wildnpc state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach herd_wildnpc_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -280,7 +285,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created agro state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created agro state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach agro_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -297,7 +302,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created combat state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created combat state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach combat_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -324,7 +329,7 @@ func _create_state_instances() -> void:
 			states["defend"] = state
 			state.initialize(npc)
 			state.set("fsm", self)
-			print("FSM: Successfully created defend state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created defend state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach defend_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -338,7 +343,7 @@ func _create_state_instances() -> void:
 			states["raid"] = state
 			state.initialize(npc)
 			state.set("fsm", self)
-			print("FSM: Successfully created raid state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created raid state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach raid_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -352,7 +357,7 @@ func _create_state_instances() -> void:
 			states["hunt"] = state_hunt
 			state_hunt.initialize(npc)
 			state_hunt.set("fsm", self)
-			print("FSM: Successfully created hunt state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created hunt state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach hunt_state script or missing initialize method for %s" % npc_name)
 			state_hunt.queue_free()
@@ -366,7 +371,7 @@ func _create_state_instances() -> void:
 			states["search"] = state
 			state.initialize(npc)
 			state.set("fsm", self)
-			print("FSM: Successfully created search state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created search state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach search_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -383,7 +388,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created build state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created build state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach build_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -400,7 +405,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created reproduction state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created reproduction state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach reproduction_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -417,7 +422,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created occupy_building state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created occupy_building state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach occupy_building_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -434,7 +439,7 @@ func _create_state_instances() -> void:
 			# Set FSM reference after initialization
 			# Directly set fsm property (it's defined in base_state.gd)
 			state.set("fsm", self)
-			print("FSM: Successfully created work_at_building state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created work_at_building state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach work_at_building_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -460,7 +465,7 @@ func _create_state_instances() -> void:
 			states["craft"] = state
 			state.initialize(npc)
 			state.set("fsm", self)
-			print("FSM: Successfully created craft state for %s" % npc_name)
+			_log_fsm_setup("FSM: Successfully created craft state for %s" % npc_name)
 		else:
 			push_error("FSM: Failed to attach craft_state script or missing initialize method for %s" % npc_name)
 			state.queue_free()
@@ -1174,7 +1179,7 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 		direct_before_enter = npc.clan_name if npc else ""
 		# Debug print disabled to reduce console spam
 		# if npc_name_track != "unknown":
-		# 	print("🔵 FSM PRE-ENTER: %s - Before enter(): direct='%s', meta='%s', backup='%s' (state: %s)" % [npc_name_track, direct_before_enter, meta_before_enter, backup_before_enter, new_state_name])
+		# 	_log_fsm_setup("🔵 FSM PRE-ENTER: %s - Before enter(): direct='%s', meta='%s', backup='%s' (state: %s)" % [npc_name_track, direct_before_enter, meta_before_enter, backup_before_enter, new_state_name])
 	
 	if current_state:
 		# Call enter() immediately for state changes (not during initialization)

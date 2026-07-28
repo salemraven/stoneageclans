@@ -26,7 +26,7 @@ visible = true
 [node name="WeaponOverlay" type="Sprite2D" parent="Sprite"]
 visible = false
 texture_filter = 0
-z_index = 1
+z_index = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("1")

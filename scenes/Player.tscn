@@ -1,10 +1,11 @@
-[gd_scene load_steps=7 format=3 uid="uid://dcplayerquat01"]
+[gd_scene load_steps=8 format=3 uid="uid://dcplayerquat01"]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/npc/components/combat_component.gd" id="2"]
 [ext_resource type="Texture2D" path="res://assets/sprites/PlayerB.png" id="3"]
 [ext_resource type="Script" path="res://scripts/npc/components/health_component.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/systems/procedural_arm_controller.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/tools/tuner_body_visual.gd" id="6"]
 
 [sub_resource type="RectangleShape2D" id="1"]
 size = Vector2(40, 40)
@@ -19,10 +20,13 @@ scale = Vector2(0.5, 0.5)
 texture_filter = 0
 texture = ExtResource("3")
 
+[node name="BodyVisual" type="Node2D" parent="Sprite"]
+script = ExtResource("6")
+
 [node name="WeaponOverlay" type="Sprite2D" parent="Sprite"]
 visible = false
 texture_filter = 0
-z_index = 1
+z_index = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("1")
@@ -35,5 +39,7 @@ script = ExtResource("4")
 
 [node name="ProceduralArmController" type="Node2D" parent="."]
 z_as_relative = false
-z_index = 4095
+z_index = 0
+use_tuner_arm_layers = true
+body_card_id = "clansmen_1"
 script = ExtResource("5")

@@ -59,6 +59,37 @@ SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_hunt_
 
 You may see a **short burst** of benign “Identifier not found: UnifiedLogger / NPCConfig” during the initial script parse — the project completes boot (`RuntimeFaultSink` audit). Increase **`--quit-after`** only if needed for slow machines (`SceneTree --script` uses the main-loop budget).
 
+## Lag root-cause profiler (`--lag-profile`)
+
+Records **frame times**, **spikes**, **world composition**, **engine physics/process ms**, and hot-path counters to **`user://lag_profile_*.jsonl`**.
+
+**Per-second snapshot includes:**
+- Resources: total, gatherables, ground piles, `_process` awake, **Area2D monitoring**
+- NPCs: total, physics active, distance buckets (near/mid/far), physics/fsm/perception tick counts
+- Physics engine: **collision pairs**, active objects, islands
+- Chunk load/unload timing
+
+**Play with profiling (GUI):**
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/Main.tscn --lag-profile
+```
+
+Optional timed capture + ranked recommendations:
+
+```bash
+bash tools/run_lag_profile_capture.sh
+# or: LAG_PROFILE_SECONDS=90 bash tools/run_lag_profile_capture.sh
+```
+
+**Analyze latest log** (steady-state FPS + ranked fix paths):
+
+```bash
+godot --headless --path . -s res://tools/analyze_lag_profile.gd
+```
+
+The analyzer scores: NPC sleep/wake, area monitoring sleep, world density config, boot chunk stagger, resource `_process`, perception script cost.
+
 ## Wild NPC JSONL trace (`--wild-npc-trace`)
 
 Session log for debugging **migration spawns, chunk wildlife batches, and throttled flee positions**:

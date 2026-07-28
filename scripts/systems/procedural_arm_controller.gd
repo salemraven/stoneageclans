@@ -7,8 +7,11 @@ const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
 const WalkArmSwing = preload("res://scripts/systems/walk_arm_swing.gd")
 const PlaceholderCardRegistry = preload("res://scripts/config/placeholder_card_registry.gd")
+const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
+const MannequinPoseRuntime = preload("res://scripts/systems/mannequin_pose_runtime.gd")
 
 const THRUST_SUPPORT_SHOULDER_FOLLOW := 0.1
+const THRUST_WEAPON_SHOULDER_FOLLOW := 0.16
 ## Godot 4.5 clamps canvas z_index to 0..4095 — stay inside that range.
 const YSortUtilsScript = preload("res://scripts/systems/y_sort_utils.gd")
 ## Tuner draw stack (back → front): arm1=0, body=1, head=2, arm2=3
@@ -41,6 +44,8 @@ var _arm1_draw: Node2D
 var _arm2_draw: Node2D
 var _walk_cycle_phase := 0.0
 var _cached_limb_preset: WeaponLimbPreset
+var _cached_limb_preset_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE as ResourceData.ResourceType
+var _tuner_arm_layers_ready: bool = false
 
 
 func _ready() -> void:
@@ -55,11 +60,14 @@ func _ready() -> void:
 	else:
 		_arm_left.setup(self, "L", config)
 		_arm_right.setup(self, "R", config)
+	set_process(false)
 	_apply_debug_state()
 
 
 ## LimbTuner: back arm → body → head → front arm. Safe to call again after rig rebuild.
 func initialize_tuner_arm_layers() -> void:
+	if is_tuner_arm_layers_ready():
+		return
 	use_tuner_arm_layers = true
 	_apply_draw_layer()
 	_ensure_tuner_draw_containers()
@@ -79,6 +87,19 @@ func initialize_tuner_arm_layers() -> void:
 		_arm_left.setup(_arm2_draw, "L", config)
 	_apply_tuner_rig_child_order()
 	_apply_tuner_arm_layers(_is_aiming_left())
+	_tuner_arm_layers_ready = true
+
+
+func is_tuner_arm_layers_ready() -> bool:
+	return (
+		_tuner_arm_layers_ready
+		and _arm1_draw != null
+		and _arm2_draw != null
+		and _arm_left != null
+		and _arm_right != null
+		and _arm_left.get_draw_root() != null
+		and _arm_right.get_draw_root() != null
+	)
 
 
 func _ensure_tuner_draw_containers() -> void:
@@ -121,6 +142,8 @@ func _apply_draw_layer() -> void:
 
 
 func _process(_delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_arm_process()
 	if not enabled or _player == null or config == null:
 		_set_arms_visible(false)
 		return
@@ -140,46 +163,78 @@ func _process(_delta: float) -> void:
 		scale = Vector2.ONE
 
 	var weapon_type := _get_weapon_type()
-	_apply_limb_preset(weapon_type)
-	_tick_walk_cycle(_delta, sprite)
-
 	var overlay: Sprite2D = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
-	if not _should_show_weapon_arms(overlay, weapon_type):
+	if (
+		not _should_show_weapon_arms(overlay, weapon_type)
+		and not force_show_arms
+		and not _weapon_endpoints_override
+		and not _support_endpoints_override
+	):
 		_set_arms_visible(false)
 		return
+
+	_apply_limb_preset(weapon_type)
+	_tick_walk_cycle(_delta, sprite)
 
 	var sprite_scale := sprite.scale
 	var thrust_active := is_thrust_active()
 	_update_overlay_rest(overlay, thrust_active)
 	var thrust_motion := _overlay_motion_delta_rig(sprite, overlay, sprite_scale)
 
-	var shoulder_weapon := _weapon_shoulder_local(sprite, sprite_scale)
-	var hand_grip := _hand_grip_local(sprite, overlay, sprite_scale)
-	if weapon_type != ResourceData.ResourceType.WOOD:
-		hand_grip = _apply_walk_swing_rig_local(sprite, shoulder_weapon, hand_grip, true)
+	var overlay_combat := is_overlay_hand_tracking_active() or thrust_active
+	var use_mannequin_endpoints := MannequinPoseRuntime.uses_mannequin(sprite) and _cached_limb_preset != null
+
+	var shoulder_weapon: Vector2
+	var hand_grip: Vector2
+	var support_shoulder: Vector2
+	var support_hand: Vector2
+	if use_mannequin_endpoints:
+		var endpoints: Dictionary = MannequinPoseRuntime.resolve_arm_endpoints(
+			_player,
+			sprite,
+			overlay,
+			_cached_limb_preset,
+			weapon_type,
+			WeaponOverlayCombat.get_overlay_state(_player),
+			_get_aim_dir(sprite),
+			_is_walking_for_swing(sprite),
+			_get_walk_bounce_time()
+		)
+		shoulder_weapon = endpoints.get("weapon_shoulder", Vector2.ZERO)
+		hand_grip = endpoints.get("weapon_hand", Vector2.ZERO)
+		support_shoulder = endpoints.get("support_shoulder", Vector2.ZERO)
+		support_hand = endpoints.get("support_hand", Vector2.ZERO)
+	else:
+		shoulder_weapon = _weapon_shoulder_local(sprite, sprite_scale)
+		hand_grip = _hand_grip_local(sprite, overlay, sprite_scale)
+		support_shoulder = _support_shoulder_local(sprite, config.shoulder_offset_left, sprite_scale)
+		support_hand = _support_hand_target_local(sprite, overlay, sprite_scale)
+	if not _weapon_hand_uses_overlay_walk_carry() and not overlay_combat:
+		hand_grip = _apply_walk_swing_rig_local(sprite, shoulder_weapon, hand_grip, true, weapon_type)
+	if not overlay_combat:
+		support_hand = _apply_walk_swing_rig_local(sprite, support_shoulder, support_hand, false, weapon_type)
 	if _weapon_endpoints_override:
 		shoulder_weapon = _weapon_shoulder_override
 		hand_grip = _weapon_hand_override
 
 	var aiming_left := _is_aiming_left()
-	var support_shoulder := _support_shoulder_local(sprite, config.shoulder_offset_left, sprite_scale)
-	var support_hand := _support_hand_target_local(sprite, overlay, sprite_scale)
-	support_hand = _apply_walk_swing_rig_local(sprite, support_shoulder, support_hand, false)
 	if _support_endpoints_override:
 		support_shoulder = _support_shoulder_override
 		support_hand = _support_hand_override
 	if thrust_active:
 		var counter_motion := _thrust_counter_motion(sprite, thrust_motion)
+		shoulder_weapon += thrust_motion * THRUST_WEAPON_SHOULDER_FOLLOW
 		support_shoulder += counter_motion * THRUST_SUPPORT_SHOULDER_FOLLOW
 
-	var ready_poles := is_overlay_hand_tracking_active() or thrust_active
+	var ready_poles := overlay_combat
 	var weapon_pole := _resolve_elbow_pole_local(sprite, config.weapon_elbow_pole_ready_px if ready_poles else config.weapon_elbow_pole_idle_px, sprite_scale)
 	var support_pole := _resolve_elbow_pole_local(sprite, config.support_elbow_pole_ready_px if ready_poles else config.support_elbow_pole_idle_px, sprite_scale)
 	var use_weapon_pole := weapon_pole.length_squared() > 0.0001
 	var use_support_pole := support_pole.length_squared() > 0.0001
 	var weapon_bend := _resolve_weapon_bend_sign()
 	var support_bend := _resolve_support_bend_sign()
-	var relax_reach := _is_walking_for_swing(sprite) or _is_gather_preview_for_ik()
+	var use_walk_elbow_limits := _is_walking_for_swing(sprite) or _is_gather_preview_for_ik()
+	var relax_reach := use_walk_elbow_limits or thrust_active
 
 	if aiming_left:
 		_arm_left.update_arm(
@@ -187,14 +242,14 @@ func _process(_delta: float) -> void:
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override,
-			relax_reach
+			relax_reach, use_walk_elbow_limits
 		)
 		_arm_right.update_arm(
 			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override,
-			relax_reach
+			relax_reach, use_walk_elbow_limits
 		)
 	else:
 		_arm_right.update_arm(
@@ -202,14 +257,14 @@ func _process(_delta: float) -> void:
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override,
-			relax_reach
+			relax_reach, use_walk_elbow_limits
 		)
 		_arm_left.update_arm(
 			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override,
-			relax_reach
+			relax_reach, use_walk_elbow_limits
 		)
 
 	_apply_tuner_arm_layers(aiming_left)
@@ -368,9 +423,12 @@ func refresh_line_styles_from_config() -> void:
 func _apply_limb_preset(weapon_type: ResourceData.ResourceType) -> void:
 	if LimbPresetRegistry == null or config == null:
 		return
+	if weapon_type == _cached_limb_preset_weapon and _cached_limb_preset != null:
+		return
 	var preset := LimbPresetRegistry.get_preset(weapon_type, body_card_id)
 	LimbPresetRegistry.apply_to_arm_config(config, preset)
 	_cached_limb_preset = preset
+	_cached_limb_preset_weapon = weapon_type
 	refresh_line_styles_from_config()
 
 
@@ -477,7 +535,13 @@ func _weapon_shoulder_offset_px() -> Vector2:
 
 
 func _weapon_shoulder_local(sprite: Sprite2D, sprite_scale: Vector2) -> Vector2:
-	var offset := _flip_offset_x(_weapon_shoulder_offset_px(), sprite.flip_h)
+	var offset_px := _weapon_shoulder_offset_px()
+	if _uses_mannequin_anchors(sprite):
+		var global_pos := MannequinAnchorResolver.shoulder_global_from_display(
+			sprite, _get_body_visual(sprite), offset_px
+		)
+		return MannequinAnchorResolver.rig_local_from_global(_player, global_pos)
+	var offset := _flip_offset_x(offset_px, sprite.flip_h)
 	return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
 
 
@@ -514,6 +578,12 @@ func _use_two_hand_spear_grip() -> bool:
 	return is_overlay_hand_tracking_active() or is_thrust_active()
 
 
+func _weapon_hand_uses_overlay_walk_carry() -> bool:
+	## Club + spear: weapon overlay sways during walk; hand stays on saved grip art.
+	var wt := _get_weapon_type()
+	return wt == ResourceData.ResourceType.WOOD or wt == ResourceData.ResourceType.SPEAR
+
+
 func _grip_on_overlay_local(sprite: Sprite2D, overlay: Sprite2D, grip_px: Vector2) -> Vector2:
 	var overlay_scale := overlay.scale
 	var grip_overlay_local := Vector2(grip_px.x * overlay_scale.x, grip_px.y * overlay_scale.y)
@@ -526,6 +596,11 @@ func _grip_on_overlay_local(sprite: Sprite2D, overlay: Sprite2D, grip_px: Vector
 
 
 func _support_shoulder_local(sprite: Sprite2D, offset_px: Vector2, sprite_scale: Vector2) -> Vector2:
+	if _uses_mannequin_anchors(sprite):
+		var global_pos := MannequinAnchorResolver.shoulder_global_from_display(
+			sprite, _get_body_visual(sprite), offset_px
+		)
+		return MannequinAnchorResolver.rig_local_from_global(_player, global_pos)
 	var offset := _flip_offset_x(offset_px, sprite.flip_h)
 	return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
 
@@ -582,7 +657,8 @@ func _apply_walk_swing_rig_local(
 	sprite: Sprite2D,
 	shoulder_local: Vector2,
 	hand_local: Vector2,
-	dominant: bool
+	dominant: bool,
+	weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 ) -> Vector2:
 	if sprite == null or not _is_walking_for_swing(sprite):
 		return hand_local
@@ -601,7 +677,8 @@ func _apply_walk_swing_rig_local(
 		rest_offset,
 		WalkArmSwing.swing_phase_from_bounce(_get_walk_bounce_time()),
 		dominant,
-		travel_sign
+		travel_sign,
+		_get_weapon_type()
 	) * sx
 	return shoulder_local + swung_offset
 
@@ -640,3 +717,18 @@ func _get_aim_dir(sprite: Sprite2D) -> Vector2:
 	if sprite != null and sprite.flip_h:
 		return Vector2.LEFT
 	return Vector2.RIGHT
+
+
+func _get_body_visual(sprite: Sprite2D) -> Node:
+	if sprite == null:
+		return null
+	return sprite.get_node_or_null("BodyVisual")
+
+
+func _uses_mannequin_anchors(sprite: Sprite2D) -> bool:
+	var body_visual := _get_body_visual(sprite)
+	if body_visual == null:
+		return false
+	if body_visual.has_method("get_body_sprite"):
+		return body_visual.call("get_body_sprite") != null
+	return body_visual.get_child_count() > 0

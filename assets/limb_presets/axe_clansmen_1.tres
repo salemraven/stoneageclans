@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_cco56"]
+
+[resource]
+script = ExtResource("1_cco56")
+weapon_type = 8
+shoulder_offset_px = Vector2(118.90351, -178.54268)
+support_shoulder_offset_px = Vector2(-94.06356, -177.75403)
+support_hand_idle_offset_px = Vector2(-86.28906, 52.038197)
+weapon_elbow_pole_idle_px = Vector2(150.7301, -185.8533)
+support_elbow_pole_idle_px = Vector2(-111.3289, -176.4535)
+support_elbow_bend_sign_override = 1.0

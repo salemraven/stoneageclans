@@ -16,6 +16,7 @@ const TUNER_BODY_Z_INDEX := 1
 const TUNER_HEAD_Z_INDEX := 2
 const TUNER_ARM2_Z_INDEX := 3
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
+const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
 ## Tuner handle 3 — grip on overlay texture (normalized Y from top). Spear = shaft midpoint.
@@ -40,6 +41,8 @@ var _registry = PlaceholderCardRegistry.new()
 var _last_overlay_base := Vector2.ZERO
 var _preview_idle_mode := true
 var _preview_gather_mode := false
+var _walk_preview_preset: WeaponLimbPreset = null
+var _walk_preview_grip_mode: WeaponLimbPreset.TunerAnimMode = WeaponLimbPreset.TunerAnimMode.IDLE
 
 
 func _ready() -> void:
@@ -52,6 +55,7 @@ func _ready() -> void:
 		arm_controller.body_card_id = "clansmen_1"
 		arm_controller.force_show_arms = true
 		arm_controller.initialize_tuner_arm_layers()
+		_sync_tuner_arm_process()
 	_apply_tuner_arm_draw_order()
 	_setup_mannequin_anchor()
 	_show_weapon_overlay()
@@ -64,8 +68,62 @@ func _apply_tuner_arm_draw_order() -> void:
 		body_visual.call("apply_tuner_draw_layers")
 
 
+## ProceduralArmController defaults to set_process(false); tuner must tick IK every frame.
+func _sync_tuner_arm_process() -> void:
+	if arm_controller:
+		arm_controller.set_process(true)
+
+
 func _process(delta: float) -> void:
 	_update_motion_preview(delta)
+
+
+func set_walk_preview_context(
+	preset: WeaponLimbPreset,
+	grip_mode: WeaponLimbPreset.TunerAnimMode
+) -> void:
+	_walk_preview_preset = preset
+	_walk_preview_grip_mode = grip_mode
+
+
+func sync_spear_overlay_motion_preview(
+	preset: WeaponLimbPreset,
+	grip_mode: WeaponLimbPreset.TunerAnimMode,
+	walk_swing: bool,
+	gather_motion: bool
+) -> void:
+	## Spear: overlay (art) is source of truth — sway it, then yellow pin reads grip on art.
+	if (
+		preset == null
+		or weapon_type != ResourceData.ResourceType.SPEAR
+		or weapon_overlay == null
+		or sprite == null
+		or not weapon_overlay.visible
+	):
+		return
+	_apply_overlay_walk_bounce(walk_swing or gather_motion)
+	if walk_swing:
+		_apply_spear_overlay_motion_delta(preset, grip_mode, true, false)
+	elif gather_motion:
+		_apply_spear_overlay_motion_delta(preset, grip_mode, false, true)
+
+
+func _apply_spear_overlay_motion_delta(
+	preset: WeaponLimbPreset,
+	grip_mode: WeaponLimbPreset.TunerAnimMode,
+	walk_swing: bool,
+	gather_motion: bool
+) -> void:
+	var shoulder_global := shoulder_global_from_preset(preset)
+	var rest_grip_global := hand_grip_global_from_preset(preset, grip_mode)
+	var target_grip_global := rest_grip_global
+	if walk_swing:
+		target_grip_global = _apply_walk_swing_arc(shoulder_global, rest_grip_global, true)
+	elif gather_motion:
+		target_grip_global = hand_grip_global_with_gather_motion(preset, grip_mode)
+	var delta_global := target_grip_global - rest_grip_global
+	if delta_global.length_squared() > 0.0001:
+		weapon_overlay.global_position += delta_global
 
 
 func set_preview_playing(on: bool) -> void:
@@ -158,7 +216,8 @@ func _apply_walk_swing_arc(shoulder_global: Vector2, rest_hand_global: Vector2, 
 		rest_offset,
 		_walk.swing_phase(),
 		dominant,
-		travel_sign
+		travel_sign,
+		weapon_type
 	) * sx
 	return to_global(shoulder_local + swung_offset)
 
@@ -302,7 +361,10 @@ func _get_cursor_aim_direction() -> Vector2:
 	var mp := get_global_mouse_position()
 	var delta := mp - global_position
 	if delta.length_squared() > 4.0:
-		return delta.normalized()
+		var raw := delta.normalized()
+		if weapon_type == ResourceData.ResourceType.SPEAR and _registry:
+			return WeaponOverlayCombat.resolve_thrust_aim(raw, _registry, weapon_type, self)
+		return raw
 	return aim_dir
 
 
@@ -347,17 +409,7 @@ func torso_pin_global_for_shoulder(shoulder_global: Vector2) -> Vector2:
 
 
 func _shoulder_body_local_from_display_px(display_px: Vector2) -> Vector2:
-	if body_visual == null or sprite == null:
-		return Vector2.ZERO
-	var sx: float = absf(sprite.scale.x)
-	if sx < 0.001:
-		sx = 1.0
-	var rig_local := LimbPresetCoords.body_display_to_rig_local(sprite, display_px)
-	var in_sprite_local := (rig_local - sprite.position) / sx
-	var body_offset := Vector2.ZERO
-	if body_visual.has_method("get_body_sprite_offset"):
-		body_offset = body_visual.call("get_body_sprite_offset")
-	return in_sprite_local - body_offset
+	return MannequinAnchorResolver.shoulder_body_local_from_display_px(sprite, body_visual, display_px)
 
 
 func _shoulder_display_px_from_body_local(body_local: Vector2) -> Vector2:
@@ -375,14 +427,23 @@ func _shoulder_display_px_from_body_local(body_local: Vector2) -> Vector2:
 
 
 func _shoulder_anchor_global(body_local: Vector2) -> Vector2:
+	return MannequinAnchorResolver.shoulder_anchor_global(body_visual, body_local)
+
+
+func shoulder_global_from_preset(preset: WeaponLimbPreset) -> Vector2:
+	if preset == null:
+		return global_position
+	return MannequinAnchorResolver.shoulder_global_from_display(sprite, body_visual, preset.shoulder_offset_px)
+
+
+func set_shoulder_from_global(preset: WeaponLimbPreset, global_pos: Vector2) -> void:
+	if preset == null:
+		return
 	if body_visual == null:
-		return LimbPresetCoords.body_global_from_display(sprite, _shoulder_display_px_from_body_local(body_local))
-	var body_sprite: Sprite2D = null
-	if body_visual.has_method("get_body_sprite"):
-		body_sprite = body_visual.call("get_body_sprite") as Sprite2D
-	if body_sprite:
-		return body_sprite.to_global(body_local)
-	return body_visual.to_global(body_local + body_visual.call("get_body_sprite_offset"))
+		preset.shoulder_offset_px = LimbPresetCoords.body_display_from_global(sprite, global_pos)
+		return
+	var body_local := _body_local_from_shoulder_global(global_pos)
+	preset.shoulder_offset_px = _shoulder_display_px_from_body_local(body_local)
 
 
 func _update_motion_preview(delta: float) -> void:
@@ -481,6 +542,15 @@ func _update_walk_preview(delta: float) -> void:
 
 
 func _sync_overlay_walk_bounce(moving: bool) -> void:
+	if weapon_overlay == null or sprite == null or not weapon_overlay.visible:
+		return
+	## Spear walk/gather sway is applied in sync_spear_overlay_motion_preview (grip on art).
+	if weapon_type == ResourceData.ResourceType.SPEAR and moving:
+		return
+	_apply_overlay_walk_bounce(moving)
+
+
+func _apply_overlay_walk_bounce(moving: bool) -> void:
 	if weapon_overlay == null or sprite == null or not weapon_overlay.visible:
 		return
 	var base_offset: Vector2 = weapon_overlay.get_meta("card_overlay_offset", _last_overlay_base)
@@ -757,28 +827,12 @@ func move_weapon_handle_anchor_global(anchor_global: Vector2) -> Vector2:
 	return display_px_from_overlay_position()
 
 
-func shoulder_global_from_preset(preset: WeaponLimbPreset) -> Vector2:
-	if body_visual == null:
-		return LimbPresetCoords.body_global_from_display(sprite, preset.shoulder_offset_px)
-	var body_local := _shoulder_body_local_from_display_px(preset.shoulder_offset_px)
-	return _shoulder_anchor_global(body_local)
-
-
-func set_shoulder_from_global(preset: WeaponLimbPreset, global_pos: Vector2) -> void:
-	if preset == null:
-		return
-	if body_visual == null:
-		preset.shoulder_offset_px = LimbPresetCoords.body_display_from_global(sprite, global_pos)
-		return
-	var body_local := _body_local_from_shoulder_global(global_pos)
-	preset.shoulder_offset_px = _shoulder_display_px_from_body_local(body_local)
-
-
 func support_shoulder_global_from_preset(preset: WeaponLimbPreset) -> Vector2:
-	if body_visual == null:
-		return LimbPresetCoords.body_global_from_display(sprite, preset.support_shoulder_offset_px)
-	var body_local := _shoulder_body_local_from_display_px(preset.support_shoulder_offset_px)
-	return _shoulder_anchor_global(body_local)
+	if preset == null:
+		return global_position
+	return MannequinAnchorResolver.shoulder_global_from_display(
+		sprite, body_visual, preset.support_shoulder_offset_px
+	)
 
 
 func set_support_shoulder_from_global(preset: WeaponLimbPreset, global_pos: Vector2) -> void:
@@ -887,23 +941,30 @@ func align_spear_windup_overlay_to_grip_global(
 func align_weapon_overlay_to_hand_grip_global(
 	preset: WeaponLimbPreset,
 	hand_global: Vector2,
-	mode: WeaponLimbPreset.TunerAnimMode = WeaponLimbPreset.TunerAnimMode.IDLE
+	mode: WeaponLimbPreset.TunerAnimMode = WeaponLimbPreset.TunerAnimMode.IDLE,
+	commit_to_preset: bool = true
 ) -> void:
 	if preset == null or weapon_overlay == null or sprite == null or not has_weapon_overlay():
 		return
 	var ready_pose := mode == WeaponLimbPreset.TunerAnimMode.ATTACK
 	var grip_px := preset.resolve_club_overlay_grip_px(mode)
-	if grip_px.length_squared() > 0.0001 or preset.uses_saved_club_grip_on_art():
+	if (
+		grip_px.length_squared() > 0.0001
+		or preset.uses_saved_club_grip_on_art()
+		or preset.uses_saved_spear_grip_on_art()
+	):
 		_ensure_overlay_pivot()
 		var grip_local := Vector2(grip_px.x * weapon_overlay.scale.x, grip_px.y * weapon_overlay.scale.y)
 		var grip_global := weapon_overlay.to_global(grip_local)
 		weapon_overlay.global_position += hand_global - grip_global
-		_apply_overlay_display_for_mode(preset, mode)
+		if commit_to_preset:
+			_apply_overlay_display_for_mode(preset, mode)
 		return
 	if uses_weapon_grip_anchor_hand() and not preset.uses_saved_club_grip_on_art():
 		move_weapon_handle_anchor_global(hand_global)
 		snap_hand_grip_to_weapon_anchor(preset, ready_pose)
-		_apply_overlay_display_for_mode(preset, mode)
+		if commit_to_preset:
+			_apply_overlay_display_for_mode(preset, mode)
 		return
 	_ensure_overlay_pivot()
 	if grip_px.length_squared() < 0.0001 and not preset.uses_saved_club_grip_on_art():
@@ -912,7 +973,8 @@ func align_weapon_overlay_to_hand_grip_global(
 	var grip_local := Vector2(grip_px.x * weapon_overlay.scale.x, grip_px.y * weapon_overlay.scale.y)
 	var grip_global := weapon_overlay.to_global(grip_local)
 	weapon_overlay.global_position += hand_global - grip_global
-	_apply_overlay_display_for_mode(preset, mode)
+	if commit_to_preset:
+		_apply_overlay_display_for_mode(preset, mode)
 
 
 func uses_spear_shaft_grip_slide() -> bool:
@@ -1131,8 +1193,18 @@ func elbow_joint_global_from_handles(
 			or mode == WeaponLimbPreset.TunerAnimMode.WALK1
 		) and _walk.is_moving()
 	) or (mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.playing)
+	var fold_min := 8.0
+	var fold_max := 150.0
+	if arm_controller and arm_controller.config:
+		var cfg: ProceduralArmConfig = arm_controller.config
+		if relax_min_reach:
+			fold_min = cfg.elbow_fold_min_walk_deg
+			fold_max = cfg.elbow_fold_max_walk_deg
+		else:
+			fold_min = cfg.elbow_fold_min_deg
+			fold_max = cfg.elbow_fold_max_deg
 	var elbow_local := _solve_ik_local(
-		shoulder_local, hand_local, upper_len, lower_len, bend_sign, 8.0, 150.0, relax_min_reach
+		shoulder_local, hand_local, upper_len, lower_len, bend_sign, fold_min, fold_max, relax_min_reach
 	)
 	return to_global(elbow_local)
 
@@ -1151,8 +1223,8 @@ func _solve_ik_local(
 	var dist := to_hand.length()
 	if dist < 0.001:
 		return shoulder + Vector2(upper_len, 0.0)
-	var min_fold := deg_to_rad(fold_min_deg if not relax_min_reach else 4.0)
-	var max_fold := deg_to_rad(fold_max_deg if not relax_min_reach else 172.0)
+	var min_fold := deg_to_rad(fold_min_deg)
+	var max_fold := deg_to_rad(fold_max_deg)
 	var max_reach := sqrt(
 		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
 	) - 0.01

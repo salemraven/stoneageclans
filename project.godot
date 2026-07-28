@@ -51,6 +51,7 @@ ResourceIndex="*res://scripts/systems/resource_index.gd"
 DecorIndex="*res://scripts/systems/decor_index.gd"
 NPCSleepManager="*res://scripts/systems/npc_sleep_manager.gd"
 WorldInterestManager="*res://scripts/systems/world_interest_manager.gd"
+SimDormancyController="*res://scripts/systems/sim_dormancy_controller.gd"
 OccupationSystem="*res://scripts/systems/occupation_system.gd"
 HerdManager="*res://scripts/systems/herd_manager.gd"
 BalanceConfig="*res://scripts/config/balance_config.gd"
@@ -63,6 +64,7 @@ SimulationManager="*res://scripts/systems/simulation_manager.gd"
 ChunkUtils="*res://scripts/world/chunk_utils.gd"
 CorpseConfig="*res://scripts/config/corpse_config.gd"
 RuntimeFaultSink="*res://scripts/logging/runtime_fault_sink.gd"
+LagProfiler="*res://scripts/debug/lag_profiler.gd"
 
 [display]
 

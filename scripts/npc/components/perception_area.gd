@@ -68,6 +68,8 @@ func _ready() -> void:
 			UnifiedLogger.log_debug("PerceptionArea init: parent_layer=%d collision_mask=%d radius=%.0f" % [parent_layer, collision_mask, detection_range], UnifiedLogger.Category.SYSTEM, {"npc": parent.get("npc_name") if parent else "?"})
 
 func _process(delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_perception_process()
 	# Disable when parent dead
 	var parent = get_parent()
 	if parent and parent.has_method("is_dead") and parent.is_dead():

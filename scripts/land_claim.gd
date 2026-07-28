@@ -671,6 +671,14 @@ func _update_player_defender_quota() -> void:
 	if clan_brain and clan_brain.has_method("_update_defender_assignments"):
 		clan_brain._update_defender_assignments()
 
+
+func set_sim_zones_monitoring(enabled: bool) -> void:
+	if _aoh_zone and is_instance_valid(_aoh_zone):
+		_aoh_zone.monitoring = enabled
+	if _enemies_zone and is_instance_valid(_enemies_zone):
+		_enemies_zone.monitoring = enabled
+
+
 func _process(delta: float) -> void:
 	"""Process building decay and ClanBrain updates"""
 	

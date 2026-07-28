@@ -56,6 +56,8 @@ const _CATALOG_HOLDABLES: Array[Dictionary] = [
 		"type": ResourceData.ResourceType.SPEAR,
 		"modes": [
 			AnimMode.IDLE,
+			AnimMode.WALK,
+			AnimMode.WALK1,
 			AnimMode.ATTACK,
 		],
 		"mode_labels": {
@@ -117,8 +119,14 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _lower_arm_length_spin: SpinBox = $UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow/LowerArmLengthSpin
 @onready var _arm_thickness_spin: SpinBox = $UI/Panel/Margin/VBox/ArmsSection/ArmThicknessRow/ArmThicknessSpin
 
-@export var stage_scale: float = 4.0
-const MIN_STAGE_SCALE := 1.6
+@export var stage_scale: float = 1.0
+## Screen-space pin size only — character scale stays 1:1 with Main (stage_scale = 1).
+@export var handle_ui_scale: float = 4.0
+## Preview-only camera zoom (does not change saved poses or in-game scale). Scroll wheel over workspace.
+@export var view_zoom: float = 3.0
+@export var view_zoom_min: float = 1.0
+@export var view_zoom_max: float = 6.0
+@export var view_zoom_step: float = 1.12
 const VIEW_FIT_PADDING_PX := 24.0
 
 var _mode: AppMode = AppMode.ASSEMBLE
@@ -209,15 +217,20 @@ func _ready() -> void:
 
 func _finish_startup() -> void:
 	process_priority = -100
-	_stage.scale = Vector2(stage_scale, stage_scale)
-	_sync_handle_stage_transform()
-	_refresh_all_handle_radii()
 	if _wants_idle_club1_edit_startup() or _wants_idle_club1_place_startup():
 		_selected_weapon = ResourceData.ResourceType.WOOD
 	if _rig:
 		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
-	_reload_all_from_disk()
+		if _rig.arm_controller:
+			_rig.arm_controller.set_show_endpoint_markers(false)
+			_rig.arm_controller.set_show_elbow_joints(false)
+			_rig.arm_controller.set_debug_draw(false)
+			_rig.arm_controller.initialize_tuner_arm_layers()
+		_apply_tuner_draw_layers()
+		if _rig.has_method("_sync_tuner_arm_process"):
+			_rig.call("_sync_tuner_arm_process")
+	_load_preset_from_disk()
 	_sync_pose_dropdown()
 	if _wants_gather1_edit_startup():
 		call_deferred("_begin_gather1_edit_session")
@@ -225,17 +238,26 @@ func _finish_startup() -> void:
 		call_deferred("_begin_idle_club1_edit_session")
 	if _wants_idle_club1_place_startup():
 		call_deferred("_begin_idle_club1_place_session")
-	if _rig and _rig.arm_controller:
-		_rig.arm_controller.set_show_endpoint_markers(false)
-		_rig.arm_controller.set_show_elbow_joints(false)
-		_rig.arm_controller.set_debug_draw(false)
-		_rig.arm_controller.initialize_tuner_arm_layers()
-		if _rig.body_visual and _rig.body_visual.has_method("apply_tuner_draw_layers"):
-			_rig.body_visual.call("apply_tuner_draw_layers")
 	_update_ui()
 	_sync_preview_playback()
 	call_deferred("_apply_fixed_stage_view")
 	call_deferred("_ensure_handles_on_overlay")
+
+
+func _apply_tuner_draw_layers() -> void:
+	if _rig == null or _rig.body_visual == null:
+		return
+	if _rig.body_visual.has_method("apply_tuner_draw_layers"):
+		_rig.body_visual.call("apply_tuner_draw_layers")
+
+
+func _load_preset_from_disk() -> void:
+	_preset = LimbPresetRegistry.reload_preset(_selected_weapon, "clansmen_1")
+	if _rig:
+		_rig.reload_mannequin_from_layout()
+		_rig.refresh_weapon_overlay()
+		_apply_tuner_draw_layers()
+	_refresh_rig_from_preset()
 
 
 func _ensure_handles_on_overlay() -> void:
@@ -307,6 +329,36 @@ func _uses_decoupled_weapon_hand_pins() -> bool:
 
 func _idle_club_pins_independent() -> bool:
 	return _idle_club_minimal_active
+
+
+func _uses_spear_grip_on_art_pins() -> bool:
+	if _selected_weapon != ResourceData.ResourceType.SPEAR:
+		return false
+	if _is_spear_windup_edit():
+		return false
+	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
+		return false
+	if _is_thrust_animating():
+		return false
+	return true
+
+
+func _sync_spear_grip_pin_on_art() -> void:
+	## Yellow 3 sits on saved grip px on spear art; green 1h stacks on yellow.
+	if _rig == null or _spear_handle == null or _preset == null or not _rig.has_weapon_overlay():
+		return
+	_ensure_handle_on_stage(_spear_handle)
+	if _active_drag_handle == _spear_handle:
+		return
+	var grip_px := _preset.resolve_hand_grip_for_mode(_hand_storage_mode())
+	var grip_global := LimbPresetCoords.overlay_grip_global(_rig.weapon_overlay, grip_px)
+	_set_hand_handle_position(_spear_handle, grip_global)
+	if _active_drag_handle != _hand_handle:
+		_set_hand_handle_position(_hand_handle, grip_global)
+
+
+func _sync_spear_grip_pins_from_overlay(storage_mode: AnimMode) -> void:
+	_sync_spear_grip_pin_on_art()
 
 
 func _wants_idle_club1_place_startup() -> bool:
@@ -754,9 +806,8 @@ func _center_stage() -> void:
 func _sync_handle_stage_transform() -> void:
 	if _handle_stage == null or _stage == null:
 		return
-	# HandleLayer is separate from Stage — mirror pan/zoom so pins track the rig.
-	_handle_stage.position = _stage.position
-	_handle_stage.scale = _stage.scale
+	# HandleLayer is a nested CanvasLayer — local position ≠ Stage position; match world transform.
+	_handle_stage.global_transform = _stage.global_transform
 
 
 func _workspace_rect() -> Rect2:
@@ -799,15 +850,15 @@ func _center_character_on_stage() -> void:
 func _apply_fixed_stage_view() -> void:
 	if _rig == null or _stage == null:
 		return
-	_stage.scale = Vector2(stage_scale, stage_scale)
-	_sync_handle_stage_transform()
+	_apply_stage_display_scale()
 	_refresh_all_handle_radii()
 	_center_character_on_stage()
+	_center_stage()
 	if _uses_club_walk_carry_pose():
 		_layout_club_idle_handles_and_arms()
 	elif _preset != null:
 		_sync_handle_positions()
-	_center_stage()
+		_lock_arm_lines_to_handles()
 	_stage_view_initialized = true
 
 
@@ -824,6 +875,63 @@ func _recenter_character_only() -> void:
 
 func _center_view() -> void:
 	_apply_fixed_stage_view()
+
+
+func _apply_stage_display_scale() -> void:
+	if _stage == null:
+		return
+	var display_scale: float = stage_scale * view_zoom
+	_stage.scale = Vector2(display_scale, display_scale)
+	_sync_handle_stage_transform()
+	_update_view_zoom_hint()
+
+
+func _set_view_zoom(z: float) -> void:
+	view_zoom = clampf(z, view_zoom_min, view_zoom_max)
+	_apply_fixed_stage_view()
+
+
+func _update_view_zoom_hint() -> void:
+	var help: Label = get_node_or_null("UI/Panel/Margin/VBox/HelpLabel") as Label
+	if help:
+		var z_text := "%.1f" % view_zoom
+		help.text = (
+			"Pick a pose, Play to preview, drag pins, Save. "
+			+ "Scroll wheel over character to zoom preview (" + z_text + "x, preview only). "
+			+ "[+/-] zoom, [0] reset zoom."
+		)
+
+
+func _try_handle_view_zoom_input(event: InputEvent) -> bool:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if not mb.pressed:
+			return false
+		if not _workspace_rect().has_point(mb.position):
+			return false
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_set_view_zoom(view_zoom * view_zoom_step)
+			get_viewport().set_input_as_handled()
+			return true
+		if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_set_view_zoom(view_zoom / view_zoom_step)
+			get_viewport().set_input_as_handled()
+			return true
+	if event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_EQUAL, KEY_KP_ADD:
+				_set_view_zoom(view_zoom * view_zoom_step)
+				get_viewport().set_input_as_handled()
+				return true
+			KEY_MINUS, KEY_KP_SUBTRACT:
+				_set_view_zoom(view_zoom / view_zoom_step)
+				get_viewport().set_input_as_handled()
+				return true
+			KEY_0, KEY_KP_0:
+				_set_view_zoom(1.0)
+				get_viewport().set_input_as_handled()
+				return true
+	return false
 
 
 func _apply_ui_theme() -> void:
@@ -847,6 +955,8 @@ func _apply_ui_theme() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _try_handle_view_zoom_input(event):
+		return
 	if _mode != AppMode.ASSEMBLE:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -974,6 +1084,10 @@ func _apply_idle_club_minimal_view(on: bool) -> void:
 		if _rig.arm_controller:
 			_rig.arm_controller.visible = not on
 			_rig.arm_controller.enabled = not on
+			if not on and _rig.has_method("_sync_tuner_arm_process"):
+				_rig.call("_sync_tuner_arm_process")
+			elif on:
+				_rig.arm_controller.set_process(false)
 		var head_pivot := _rig.get_node_or_null("Sprite/HeadPivot") as CanvasItem
 		if head_pivot:
 			head_pivot.visible = not on
@@ -1304,8 +1418,7 @@ func _apply_uniform_handle_radius(handle: LimbTunerHandle) -> void:
 	var base_radius := HAND_HANDLE_RADIUS if _is_hand_handle(handle) else (
 		SHOULDER_HANDLE_RADIUS if _is_shoulder_handle(handle) else HANDLE_RADIUS
 	)
-	var stage_scale_x: float = absf(_stage.scale.x if _stage else 1.0)
-	var target_global: float = base_radius * stage_scale_x
+	var target_global: float = base_radius * handle_ui_scale
 	var parent_scale: float = absf(handle.global_scale.x)
 	if parent_scale < 0.001:
 		parent_scale = 1.0
@@ -1395,6 +1508,9 @@ func _sync_spear_handle() -> void:
 	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
 		_sync_idle_club_grip_handle()
 		return
+	if _uses_spear_grip_on_art_pins():
+		_sync_spear_grip_pin_on_art()
+		return
 	_ensure_handle_on_stage(_spear_handle)
 	if _active_drag_handle == _spear_handle:
 		return
@@ -1445,6 +1561,8 @@ func _sync_dominant_grip_stack(mode: AnimMode, walk_swing: bool = false, gather_
 func _process(delta: float) -> void:
 	if _rig == null or _preset == null:
 		return
+	if _rig.has_method("set_walk_preview_context"):
+		_rig.set_walk_preview_context(_preset, _hand_storage_mode())
 	_poll_tuner_movement(delta)
 	_poll_walk_input()
 	_process_combat_input()
@@ -1769,17 +1887,37 @@ func _sync_assemble_preview() -> void:
 		return
 	_sync_body_pinned_handles()
 	_sync_weapon_pin_parenting()
+	if _uses_spear_grip_on_art_pins():
+		var storage := _hand_storage_mode()
+		var walk_swing := WeaponLimbPreset.is_walk_mode(_anim_mode) and _rig.is_walking()
+		var gather_motion := (
+			WeaponLimbPreset.is_gather_mode(_anim_mode) and _rig.is_gather_preview_playing()
+		)
+		_rig.sync_spear_overlay_motion_preview(_preset, storage, walk_swing, gather_motion)
 	if _club_idle_handle_drag_active():
 		_sync_club_idle_handles_during_drag()
 	else:
 		_sync_hands_with_spear()
 		_sync_spear_handle()
+	if _uses_spear_grip_on_art_pins() and (
+		_active_drag_handle == _hand_handle or _active_drag_handle == _spear_handle
+	):
+		_sync_spear_yellow_hand_stack_during_drag()
 	_lock_arm_lines_to_handles()
 	_sync_elbow_handles()
 
 
 func _sync_club_idle_handles_during_drag() -> void:
 	## Keep green 1h + yellow 3 stacked while dragging either; do not snap back to preset.
+	if _active_drag_handle == _hand_handle and _spear_handle:
+		_spear_handle.global_position = _hand_handle.global_position
+	elif _active_drag_handle == _spear_handle and _hand_handle:
+		_hand_handle.global_position = _spear_handle.global_position
+
+
+func _sync_spear_yellow_hand_stack_during_drag() -> void:
+	if not _uses_spear_grip_on_art_pins():
+		return
 	if _active_drag_handle == _hand_handle and _spear_handle:
 		_spear_handle.global_position = _hand_handle.global_position
 	elif _active_drag_handle == _spear_handle and _hand_handle:
@@ -1899,6 +2037,8 @@ func _sync_hands_with_spear() -> void:
 			_sync_club_grip_pins_from_storage(AnimMode.IDLE_CLUB1)
 		else:
 			_sync_dominant_grip_stack(mode, walk_swing, gather_motion)
+	elif _uses_spear_grip_on_art_pins():
+		_sync_spear_grip_pins_from_overlay(_hand_storage_mode())
 	elif _active_drag_handle != _hand_handle and _active_drag_handle != _spear_handle:
 		var hand_global: Vector2
 		if gather_motion:
@@ -2196,6 +2336,7 @@ func _clamp_dominant_hand_to_reach() -> void:
 		var adjusted := _rig.project_hand_grip_drag_global(clamped, _preset, mode)
 		_rig.set_hand_grip_from_global(_preset, adjusted, mode)
 		_set_hand_handle_position(_hand_handle, _rig.hand_grip_global_from_preset(_preset, mode))
+		_sync_spear_grip_pin_on_art()
 
 
 func _clamp_support_hand_to_reach() -> void:
@@ -2222,6 +2363,7 @@ func _on_hand_dragged(global_pos: Vector2) -> void:
 		var adjusted := _rig.project_hand_grip_drag_global(clamped, _preset, mode)
 		_rig.set_hand_grip_from_global(_preset, adjusted, mode)
 		_set_hand_handle_position(_hand_handle, _rig.hand_grip_global_from_preset(_preset, mode))
+		_sync_spear_grip_pin_on_art()
 
 
 func _on_support_shoulder_dragged(global_pos: Vector2) -> void:
@@ -2375,7 +2517,9 @@ func _on_save_pressed() -> void:
 	if LimbPresetRegistry == null or _preset == null:
 		return
 	_commit_all_poses_to_preset()
-	var err := LimbPresetRegistry.save_preset(_preset)
+	LimbPresetRegistry.stage_preset(_preset)
+	var save_result: Dictionary = LimbPresetRegistry.save_all_staged()
+	var err: Error = save_result.get("err", ERR_CANT_CREATE) as Error
 	var layout := _rig.get_layer_layout() if _rig else null
 	var layout_err := OK
 	if layout == null:
@@ -2386,7 +2530,14 @@ func _on_save_pressed() -> void:
 		_reload_all_from_disk()
 	if _status_label:
 		if err == OK and layout_err == OK:
-			_status_label.text = "Saved all poses for %s to disk." % _holdable_label()
+			var saved_count: int = int(save_result.get("count", 0))
+			if saved_count <= 1:
+				_status_label.text = "Saved all poses for %s to disk." % _holdable_label()
+			else:
+				_status_label.text = (
+					"Saved %d holdable presets to disk (current: %s)."
+					% [saved_count, _holdable_label()]
+				)
 		else:
 			_status_label.text = "Save failed (arms=%s, head=%s)" % [str(err), str(layout_err)]
 
@@ -2422,13 +2573,19 @@ func _on_reset_anchors_pressed() -> void:
 
 
 func _reload_all_from_disk() -> void:
-	_preset = LimbPresetRegistry.reload_preset(_selected_weapon, "clansmen_1")
+	LimbPresetRegistry.reload_all_presets("clansmen_1")
+	_preset = LimbPresetRegistry.get_preset(_selected_weapon, "clansmen_1", 1)
 	if _rig:
 		_rig.reload_mannequin_from_layout()
 		_rig.refresh_weapon_overlay()
+		if _rig.arm_controller:
+			_rig.arm_controller.initialize_tuner_arm_layers()
+		_apply_tuner_draw_layers()
+		if _rig.has_method("_sync_tuner_arm_process"):
+			_rig.call("_sync_tuner_arm_process")
 	_refresh_rig_from_preset()
-	_center_view()
 	_update_ui()
+	call_deferred("_apply_fixed_stage_view")
 	call_deferred("_ensure_handles_on_overlay")
 
 

@@ -9,6 +9,10 @@ var _failures: Array[String] = []
 
 
 func _initialize() -> void:
+	call_deferred("_run_all")
+
+
+func _run_all() -> void:
 	_test_ik_solver()
 	_test_player_scene()
 	_test_grip_directions()
@@ -95,13 +99,19 @@ func _test_player_scene() -> void:
 		return
 	var player: Node = packed.instantiate()
 	root.add_child(player)
+	var svc = root.get_node_or_null("/root/PlaceholderCardService")
+	if svc and svc.has_method("apply_to_player"):
+		svc.apply_to_player(player)
 	var ctrl: Node = player.get_node_or_null("ProceduralArmController")
 	if ctrl == null:
 		_fail("ProceduralArmController missing on Player")
 	elif not ctrl.has_method("toggle_debug_draw"):
 		_fail("ProceduralArmController missing toggle_debug_draw")
-	if int(ctrl.get("z_index")) < 4000:
-		_fail("ProceduralArmController z_index should draw above card/weapon")
+	if ctrl.get("use_tuner_arm_layers") != true:
+		_fail("ProceduralArmController should use tuner arm layers for mannequin")
+	var body_visual: Node = player.get_node_or_null("Sprite/BodyVisual")
+	if body_visual == null:
+		_fail("BodyVisual missing on Player Sprite")
 	player.queue_free()
 
 

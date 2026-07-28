@@ -120,6 +120,8 @@ func _is_valid_herder(body: Node) -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_herd_influence_physics()
 	var animal = get_parent()
 	if not animal or not is_instance_valid(animal):
 		return

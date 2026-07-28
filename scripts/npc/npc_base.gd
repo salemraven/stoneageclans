@@ -331,6 +331,7 @@ var follow_is_ordered: bool = false  # True = player-ordered follow; no distance
 var _distance_based_update_scale: float = 1.0  # 1.0 = full rate; 0.25 = quarter rate when far
 var _distance_update_accumulator: float = 0.0
 var _distance_update_interval: float = 0.0  # When scale < 1, skip FSM until accumulated >= this
+var _sim_dormant: bool = false
 
 # State memory with validation: NPCs remember targets and resume after interruption (e.g. combat)
 var state_memory: Dictionary = {}  # state_name -> { target: Node2D, data: Dictionary }
@@ -841,7 +842,9 @@ func _ready() -> void:
 				new_task_runner.name = "TaskRunner"
 				add_child(new_task_runner)
 				task_runner = new_task_runner
-				print("Task System: Created TaskRunner component for %s" % npc_name)
+				var dc := get_node_or_null("/root/DebugConfig")
+				if dc != null and bool(dc.get("enable_verbose_npc_logging")):
+					print("Task System: Created TaskRunner component for %s" % npc_name)
 	
 	UnifiedLogger.log_npc("NPC initialized at %s (sprite: %s)" % [global_position, "found" if sprite else "missing"], {
 		"npc": npc_name,
@@ -963,7 +966,39 @@ func _deer_update_fright_meter_try_flee(delta: float) -> void:
 		fsm.change_state("flee_prey")
 
 
+func set_sim_dormant(dormant: bool) -> void:
+	if _sim_dormant == dormant:
+		return
+	_sim_dormant = dormant
+	if dormant:
+		set_physics_process(false)
+		var pa_off: Node = get_node_or_null("DetectionArea")
+		if pa_off is PerceptionArea:
+			(pa_off as PerceptionArea).monitoring = false
+			pa_off.set_process(false)
+		var hi_off: Node = get_node_or_null("HerdInfluenceArea")
+		if hi_off:
+			hi_off.set_physics_process(false)
+		return
+	var health_comp_wake: HealthComponent = get_node_or_null("HealthComponent")
+	if health_comp_wake and health_comp_wake.is_dead:
+		return
+	set_physics_process(true)
+	var pa_on: Node = get_node_or_null("DetectionArea")
+	if pa_on is PerceptionArea:
+		var mp: MultiplayerAPI = get_multiplayer()
+		var authority_ok := mp == null or not mp.has_multiplayer_peer() or is_multiplayer_authority()
+		if authority_ok:
+			(pa_on as PerceptionArea).monitoring = true
+			pa_on.set_process(true)
+	var hi_on: Node = get_node_or_null("HerdInfluenceArea")
+	if hi_on:
+		hi_on.set_physics_process(true)
+
+
 func _physics_process(delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_npc_physics_process()
 	# Check if dead - if so, stop all processing
 	var health_comp: HealthComponent = get_node_or_null("HealthComponent")
 	if health_comp and health_comp.is_dead:
@@ -1060,6 +1095,8 @@ func _physics_process(delta: float) -> void:
 					effective_delta = _distance_update_accumulator
 					_distance_update_accumulator = 0.0
 			if effective_delta > 0.0 and fsm.has_method("update"):
+				if LagProfiler and LagProfiler.is_enabled():
+					LagProfiler.record_npc_fsm_update()
 				fsm.update(effective_delta)
 	
 	# Safety check: Cavemen cannot be herded - they are leaders
@@ -1650,7 +1687,8 @@ func _physics_process(delta: float) -> void:
 					weapon_comp.force_apply_idle()
 		_walk_timer = 0.0
 	if uses_placeholder_cards() and PlaceholderCardService:
-		PlaceholderCardService.sync_weapon_overlay_flip(self)
+		if not PlaceholderCardService.uses_procedural_mannequin(self):
+			PlaceholderCardService.sync_weapon_overlay_flip(self)
 
 func _apply_woman_idle_once() -> void:
 	"""Apply woman idle (womanwalk frame 0) once after _ready. Used for women."""
@@ -2277,9 +2315,11 @@ func _apply_wild_profile() -> void:
 		if ChunkUtils:
 			_init_chunk_roaming()
 	if OS.is_debug_build():
-		print("🦌 %s: wild_profile movement=%s role=%s herdable=%s defensive=%s migr_active=%s" % [
-			npc_name, wild_movement, wild_role, is_herdable_type, is_defensive, migration_active
-		])
+		var dc := get_node_or_null("/root/DebugConfig")
+		if dc != null and bool(dc.get("enable_wild_npc_trace")):
+			print("🦌 %s: wild_profile movement=%s role=%s herdable=%s defensive=%s migr_active=%s" % [
+				npc_name, wild_movement, wild_role, is_herdable_type, is_defensive, migration_active
+			])
 
 
 func _deferred_apply_wild_profile_if_needed() -> void:

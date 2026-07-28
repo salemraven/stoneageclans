@@ -4,4 +4,4 @@
 
 [resource]
 script = ExtResource("1")
-body_neck_socket_px = Vector2(179.5459, 68.03671)
+body_neck_socket_px = Vector2(179.2085, 66.09204)

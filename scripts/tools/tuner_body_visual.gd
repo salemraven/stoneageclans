@@ -76,6 +76,11 @@ func apply_tuner_draw_layers() -> void:
 		_head_sprite.z_index = 0
 
 
+## In-game mannequin uses the same body/head z stack as the limb tuner.
+func apply_runtime_draw_layers() -> void:
+	apply_tuner_draw_layers()
+
+
 func sync_head_draw_transform() -> void:
 	if _head_pivot == null or _layer_layout == null or _body_tex == null:
 		return
@@ -84,7 +89,14 @@ func sync_head_draw_transform() -> void:
 	_head_pivot.global_position = to_global(neck_local)
 	_head_pivot.global_rotation = global_rotation
 	var look_sign := 1.0 if _look_right else -1.0
-	_head_pivot.scale = Vector2(absf(global_scale.x) * look_sign, global_scale.y)
+	# HeadPivot is parented under the card Sprite; scale comes from that parent once.
+	_head_pivot.scale = Vector2(look_sign, 1.0)
+
+
+func _apply_facing(look_right: bool) -> void:
+	_look_right = look_right
+	if _body_sprite:
+		_body_sprite.flip_h = not look_right
 
 
 func _body_pivot_local() -> Vector2:
@@ -127,6 +139,7 @@ func set_neck_socket_from_global(global_pos: Vector2) -> void:
 
 
 func set_walk_state(moving: bool, bounce_time: float, direction: int) -> void:
+	_apply_facing(direction > 0)
 	var tilt_sign := -1.0 if direction < 0 else 1.0
 	var bob: float = _layout.head_bob_local() if _layout else 2.5
 	if moving:
@@ -139,7 +152,7 @@ func set_walk_state(moving: bool, bounce_time: float, direction: int) -> void:
 
 func set_idle_state(head_offset_y: float, sway_rad: float, look_right: bool = true) -> void:
 	_head_bob_y = head_offset_y
-	_look_right = look_right
+	_apply_facing(look_right)
 	_apply_torso_sway(sway_rad)
 	sync_head_draw_transform()
 
@@ -160,13 +173,11 @@ func clear_motion_state() -> void:
 
 func _build_layers() -> void:
 	var sprite_root := get_parent() as Node2D
-	if sprite_root:
-		var old_head := sprite_root.get_node_or_null("HeadPivot")
-		if old_head and old_head != _head_pivot:
-			old_head.queue_free()
+	_clear_sprite_head_pivots(sprite_root)
 
 	for child in get_children():
 		child.queue_free()
+	_body_sprite = null
 
 	if _layer_layout == null:
 		_layer_layout = PartsRegistry.get_layout()
@@ -208,6 +219,19 @@ func _build_layers() -> void:
 	_head_pivot.add_child(_head_sprite)
 	_apply_head_attachment()
 	apply_tuner_draw_layers()
+
+
+func _clear_sprite_head_pivots(sprite_root: Node2D) -> void:
+	if sprite_root == null:
+		return
+	var stale: Array[Node] = []
+	for child in sprite_root.get_children():
+		if child.name == "HeadPivot":
+			stale.append(child)
+	for node in stale:
+		node.free()
+	_head_pivot = null
+	_head_sprite = null
 
 
 func _apply_head_attachment() -> void:

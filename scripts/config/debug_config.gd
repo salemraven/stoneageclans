@@ -89,6 +89,11 @@ var movement_debug_filter: String = "clansman"
 ## Procedural arm IK debug markers (shoulder/elbow/hand). CLI: `--arms-debug`; F9 toggles in-game.
 var enable_procedural_arms_debug: bool = false
 
+## Lag root-cause profiler → user://lag_profile_*.jsonl. CLI: `--lag-profile`
+var enable_lag_profiling: bool = false
+var lag_profile_interval_sec: float = 1.0
+var lag_profile_spike_ms: float = 20.0
+
 # Performance monitoring settings
 var performance_log_interval: float = 1.0  # Log performance stats every N seconds
 var frame_time_warning_threshold: float = 16.67  # Warn if frame time exceeds this (ms) - 60 FPS threshold
@@ -135,6 +140,10 @@ func _parse_command_line_args() -> void:
 	if "--performance" in args:
 		enable_performance_monitoring = true
 		print("✓ Performance monitoring enabled")
+
+	if "--lag-profile" in args:
+		enable_lag_profiling = true
+		print("✓ Lag profiler enabled (user://lag_profile_*.jsonl; analyze with tools/analyze_lag_profile.gd)")
 	
 	# Headless implies debug mode for automated testing
 	if "--headless" in args:

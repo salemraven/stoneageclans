@@ -1223,7 +1223,10 @@ func _process(delta: float) -> void:
 			player.set("is_gathering", true)
 			active_collection_resource = null  # Prevent gatherable from also consuming gather
 	elif Input.is_action_just_pressed("gather"):
-		if not Input.is_action_pressed("weapon_ready"):
+		if active_collection_resource != null and is_instance_valid(active_collection_resource):
+			if active_collection_resource.has_method("try_player_gather_press"):
+				active_collection_resource.try_player_gather_press(self)
+		elif not Input.is_action_pressed("weapon_ready"):
 			call_deferred("_deferred_try_ambient_grass_forage")
 	_spawn_ground_items_around_player()  # Continuously spawn ground items as player moves
 	# Step 10: NPC drag hold timer + preview follow
@@ -7637,10 +7640,12 @@ func _finalize_migratory_npc(npc: Node, spawn_pos: Vector2, entry_side: int, exi
 	if npc.has_method("_apply_wild_profile"):
 		npc._apply_wild_profile()
 	if OS.is_debug_build():
-		var side_name: String = "WEST" if entry_side == -1 else "EAST"
-		print("🦌 MIGRATORY_SPAWN: %s at (%.0f,%.0f) entry=%s exit_x=%.0f" % [
-			npc.get("npc_name"), spawn_pos.x, spawn_pos.y, side_name, exit_x
-		])
+		var dc := get_node_or_null("/root/DebugConfig")
+		if dc != null and bool(dc.get("enable_wild_npc_trace")):
+			var side_name: String = "WEST" if entry_side == -1 else "EAST"
+			print("🦌 MIGRATORY_SPAWN: %s at (%.0f,%.0f) entry=%s exit_x=%.0f" % [
+				npc.get("npc_name"), spawn_pos.x, spawn_pos.y, side_name, exit_x
+			])
 	var wnt: Node = get_node_or_null("/root/WildNpcTrace")
 	if wnt and wnt.has_method("trace"):
 		var cx: int = 0

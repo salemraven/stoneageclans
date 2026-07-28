@@ -28,6 +28,7 @@ var collection_start_position: Vector2 = Vector2.ZERO
 const MOVE_CANCEL_THRESHOLD: float = 20.0
 var last_gather_press_time := 0.0
 const GATHER_COOLDOWN := 0.2  # Small cooldown to prevent double-presses
+var _sim_monitoring_enabled: bool = true
 
 func _ready() -> void:
 	add_to_group("ground_items")
@@ -50,6 +51,59 @@ func _ready() -> void:
 	if sprite:
 		sprite.z_as_relative = false
 		YSortUtils.update_draw_order(sprite, self)
+	set_process(false)
+
+
+func apply_sim_monitoring(enabled: bool) -> void:
+	if _sim_monitoring_enabled == enabled:
+		return
+	_sim_monitoring_enabled = enabled
+	if enabled:
+		monitoring = true
+		call_deferred("_refresh_player_overlap_after_monitor_wake")
+	else:
+		monitoring = false
+		if nearby_player != null:
+			nearby_player = null
+			var main := get_tree().get_first_node_in_group("main")
+			if main and main.get("active_collection_resource") == self:
+				main.active_collection_resource = null
+			if is_collecting:
+				_stop_collection(true)
+		_sync_interaction_process()
+
+
+func _refresh_player_overlap_after_monitor_wake() -> void:
+	if not monitoring or not is_inside_tree() or is_picked_up:
+		return
+	for body in get_overlapping_bodies():
+		if body is Node2D and body.is_in_group("player"):
+			_on_body_entered(body as Node2D)
+			return
+
+
+func _sync_interaction_process() -> void:
+	set_process(nearby_player != null or is_collecting)
+
+
+func _update_active_collection_target(main: Node, player: Node2D) -> void:
+	if main == null or player == null:
+		return
+	var ar: Variant = main.get("active_collection_resource")
+	if ar != null and not is_instance_valid(ar):
+		main.active_collection_resource = null
+	var player_pos := player.global_position
+	var this_distance := player_pos.distance_to(global_position)
+	if main.active_collection_resource == null:
+		main.active_collection_resource = self
+	elif main.active_collection_resource != self:
+		var other: Variant = main.active_collection_resource
+		if other == null or not is_instance_valid(other):
+			main.active_collection_resource = self
+		else:
+			var other_distance := player_pos.distance_to((other as Node2D).global_position)
+			if this_distance < other_distance:
+				main.active_collection_resource = self
 
 func _setup_visuals() -> void:
 	# Ensure sprite exists
@@ -129,76 +183,50 @@ func _on_body_entered(body: Node2D) -> void:
 		return
 	if body.is_in_group("player"):
 		nearby_player = body
-		# Try to become the active collection resource
 		var main := get_tree().get_first_node_in_group("main")
-		if main:
-			var player_pos := body.global_position
-			var this_distance := player_pos.distance_to(global_position)
-			
-			# If no resource is active, or this one is closer, make it active
-			if main.active_collection_resource == null:
-				main.active_collection_resource = self
-			elif main.active_collection_resource != self:
-				var other_distance := player_pos.distance_to(main.active_collection_resource.global_position)
-				if this_distance < other_distance:
-					main.active_collection_resource = self
+		_update_active_collection_target(main, body)
+		_sync_interaction_process()
 
 func _on_body_exited(body: Node2D) -> void:
 	if body == nearby_player:
 		nearby_player = null
-		# Clear active collection if this was the active resource
 		var main := get_tree().get_first_node_in_group("main")
-		if main:
-			if main.active_collection_resource == self:
-				main.active_collection_resource = null
+		if main and main.active_collection_resource == self:
+			main.active_collection_resource = null
 		_stop_collection(true)
+		_sync_interaction_process()
 
 func _process(_delta: float) -> void:
 	if is_picked_up:
 		return
-	
-	# Check for player gathering (SPACE key)
 	if nearby_player:
-		# Make sure this resource is active if no other is active
-		var main := get_tree().get_first_node_in_group("main")
-		if main:
-			# If no resource is active, make this one active
-			if main.active_collection_resource == null:
-				main.active_collection_resource = self
-			# If another resource is active, check if this one is closer
-			elif main.active_collection_resource != self:
-				var player_pos := nearby_player.global_position
-				var this_distance := player_pos.distance_to(global_position)
-				var other_distance := player_pos.distance_to(main.active_collection_resource.global_position)
-				if this_distance < other_distance:
-					main.active_collection_resource = self
-		
-		# Check if this resource is the active collection resource
-		var is_active := false
-		if main:
-			is_active = (main.active_collection_resource == self)
-		
-		# Only process if this is the active resource
-		if is_active:
-			if Input.is_action_just_pressed("gather"):
-				if Input.is_action_pressed("weapon_ready"):
-					if main.has_method("show_gather_feedback"):
-						main.show_gather_feedback("Release Shift before gathering.")
-					return
-				var current_time := Time.get_ticks_msec() / 1000.0
-				# Prevent double-presses with small cooldown
-				if current_time - last_gather_press_time >= GATHER_COOLDOWN:
-					last_gather_press_time = current_time
-					_collect_one_item()
-			elif is_collecting and gathering_player:
-				var moved := gathering_player.global_position.distance_to(collection_start_position)
-				if moved > MOVE_CANCEL_THRESHOLD:
-					if main.has_method("show_gather_feedback"):
-						main.show_gather_feedback("Stand still to finish gathering.")
-					_stop_collection(true)
+		var main: Node = get_tree().get_first_node_in_group("main")
+		_update_active_collection_target(main, nearby_player)
+	if is_collecting and gathering_player:
+		var moved := gathering_player.global_position.distance_to(collection_start_position)
+		if moved > MOVE_CANCEL_THRESHOLD:
+			var main_move: Node = get_tree().get_first_node_in_group("main")
+			if main_move and main_move.has_method("show_gather_feedback"):
+				main_move.show_gather_feedback("Stand still to finish gathering.")
+			_stop_collection(true)
 	elif is_collecting:
-		# Player left hitbox, stop collection
 		_stop_collection(true)
+
+
+func try_player_gather_press(main: Node) -> void:
+	if is_picked_up or nearby_player == null:
+		return
+	if main == null or main.get("active_collection_resource") != self:
+		return
+	if Input.is_action_pressed("weapon_ready"):
+		if main.has_method("show_gather_feedback"):
+			main.show_gather_feedback("Release Shift before gathering.")
+		return
+	var current_time := Time.get_ticks_msec() / 1000.0
+	if current_time - last_gather_press_time < GATHER_COOLDOWN:
+		return
+	last_gather_press_time = current_time
+	_collect_one_item()
 
 func _collect_one_item() -> void:
 	# This should already be the active resource, but double-check
@@ -224,8 +252,8 @@ func _collect_one_item() -> void:
 				icon = load(icon_path) as Texture2D
 		collection_progress.start_collection(icon, collection_time)
 	
-	# Wait for collection time, then give item
 	is_collecting = true
+	_sync_interaction_process()
 	var timer := get_tree().create_timer(collection_time)
 	timer.timeout.connect(func(): _finish_collection())
 
@@ -279,6 +307,7 @@ func _stop_collection(cancelled: bool = true) -> void:
 	if collection_progress:
 		collection_progress.stop_collection(cancelled)
 	_clear_gathering_player()
+	_sync_interaction_process()
 
 # NPC interaction methods
 func is_harvestable() -> bool:

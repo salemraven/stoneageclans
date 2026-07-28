@@ -17,9 +17,9 @@ func _run() -> void:
 	var sprite: Sprite2D = rig.get_node("Sprite") as Sprite2D
 	var layout = rig.get("_mannequin_layout")
 	var scale: float = sprite.scale.x
-	var expected_scale: float = 128.0 / 816.0
+	var expected_scale: float = 128.0 / 470.0
 	if absf(scale - expected_scale) > 0.02:
-		push_error("scale got %.4f expected ~%.4f" % [scale, expected_scale])
+		push_error("scale got %.4f expected ~%.4f (body1.png card scale)" % [scale, expected_scale])
 		quit(1)
 		return
 	if absf(sprite.position.y - (-64.0)) > 1.0:

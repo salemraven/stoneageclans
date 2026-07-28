@@ -108,12 +108,69 @@ static func uses_overlay_texture_mirror(registry, weapon_type: ResourceData.Reso
 	return _overlay_mirror_texture(registry, weapon_type)
 
 
+static func is_thrust_weapon(registry, weapon_type: ResourceData.ResourceType) -> bool:
+	return uses_aim_facing_flip(registry, weapon_type)
+
+
+static func horizontal_sign_from_entity(entity: Node, fallback_aim: Vector2 = Vector2.ZERO) -> float:
+	if entity == null:
+		return 1.0
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite and sprite.flip_h:
+		return -1.0
+	if entity.get("last_facing") != null:
+		var lf: Vector2 = entity.get("last_facing") as Vector2
+		if absf(lf.x) > 0.05:
+			return signf(lf.x)
+	if fallback_aim.length_squared() > 0.0001 and absf(fallback_aim.x) > 0.05:
+		return signf(fallback_aim.x)
+	return 1.0
+
+
+## Spear thrust cannot aim straight up/down — clamp to a minimum horizontal component.
+static func clamp_thrust_aim(
+	world_aim: Vector2,
+	registry,
+	weapon_type: ResourceData.ResourceType,
+	horizontal_sign: float = 1.0
+) -> Vector2:
+	if registry == null or not is_thrust_weapon(registry, weapon_type):
+		return _world_aim_dir(world_aim)
+	if world_aim.length_squared() < 0.0001:
+		return Vector2(signf(horizontal_sign), 0.0).normalized()
+	var profile: Dictionary = _combat_profile(registry, weapon_type)
+	var min_horiz: float = clampf(float(profile.get("thrust_min_horizontal_frac", 0.35)), 0.05, 0.95)
+	var dir := world_aim.normalized()
+	if absf(dir.x) >= min_horiz:
+		return dir
+	var sign_x: float = signf(dir.x) if absf(dir.x) > 0.001 else signf(horizontal_sign)
+	if sign_x == 0.0:
+		sign_x = 1.0
+	var sign_y: float = signf(dir.y) if absf(dir.y) > 0.001 else -1.0
+	var clamped_x: float = sign_x * min_horiz
+	var clamped_y: float = sign_y * sqrt(maxf(0.0, 1.0 - min_horiz * min_horiz))
+	return Vector2(clamped_x, clamped_y).normalized()
+
+
+static func resolve_thrust_aim(
+	world_aim: Vector2,
+	registry,
+	weapon_type: ResourceData.ResourceType,
+	entity: Node = null
+) -> Vector2:
+	var sign_x: float = horizontal_sign_from_entity(entity, world_aim)
+	return clamp_thrust_aim(world_aim, registry, weapon_type, sign_x)
+
+
 static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, weapon_type: ResourceData.ResourceType, aim_dir: Vector2) -> void:
 	if body_sprite == null or overlay == null or registry == null:
 		return
 	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
 	var kind: int = int(profile.get("attack_kind", AttackKind.SWING_DOWN))
+	var entity: Node = body_sprite.get_parent()
+	if kind == AttackKind.THRUST:
+		aim_dir = resolve_thrust_aim(aim_dir, registry, weapon_type, entity)
 	var rot: float
 	if kind == AttackKind.THRUST:
 		body_sprite.flip_h = aim_dir.x < 0.0
@@ -159,6 +216,7 @@ static func play_strike(
 	tween.set_trans(Tween.TRANS_QUAD)
 
 	if kind == AttackKind.THRUST:
+		aim_dir = resolve_thrust_aim(aim_dir, registry, weapon_type, entity)
 		# Match card facing to thrust direction before computing local strike path.
 		body_sprite.flip_h = aim_dir.x < 0.0
 		start_rot = compute_aim_rotation(body_sprite, aim_dir, tip_deg, 0.0)
@@ -185,8 +243,9 @@ static func play_strike(
 		CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, ready_base_now, mirror_tex)
 		overlay.position = ready_pos
 		if use_tuned_strike:
-			var strike_base := _offset_px_to_local(body_sprite, strike_px)
-			var strike_pos: Vector2 = _flipped_position(body_sprite, strike_base)
+			var strike_pos: Vector2 = compute_tuned_thrust_strike_pos(
+				body_sprite, ready_pos, ready_px, strike_px, aim_dir
+			)
 			var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_SINE)
 			var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN_OUT)
 			if windup_t > 0.001:
@@ -356,6 +415,20 @@ static func _ensure_weapon_pivot(overlay: Sprite2D, profile: Dictionary) -> void
 	var h: float = float(overlay.texture.get_height()) * absf(overlay.scale.y)
 	# Node origin = texture point (pivot_x_frac, pivot_y_frac) — measured on opaque art for club.
 	overlay.offset = Vector2((0.5 - pivot_x_frac) * w, (0.5 - pivot_y_frac) * h)
+
+
+static func compute_tuned_thrust_strike_pos(
+	body_sprite: Sprite2D,
+	ready_pos: Vector2,
+	ready_px: Vector2,
+	strike_px: Vector2,
+	aim_dir: Vector2
+) -> Vector2:
+	## Preset ready/strike offsets are tuned in card space; extend along live aim at the same distance.
+	var extend_dist: float = ready_px.distance_to(strike_px)
+	if extend_dist < 0.001 or aim_dir.length_squared() < 0.0001:
+		return ready_pos
+	return ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_dist)
 
 
 static func _swing_ready_degrees(body_sprite: Sprite2D, profile: Dictionary) -> float:

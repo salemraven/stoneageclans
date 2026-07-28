@@ -51,6 +51,8 @@ const WALK_BOUNCE_AMPLITUDE := 2.5
 const WALK_BOUNCE_SPEED := 8.0
 ## Shared walk tempo — body bounce, head bob, overlay lag, and arm swing stay in sync.
 const WALK_RHYTHM_SPEED_SCALE := 0.62
+const WALK_ARM_SWING_FORWARD_PX := 20.0
+const WALK_ARM_SWING_ANGLE_DEG := 24.0
 ## Weapon overlay lags the card body bounce (radians) so the tool follows slightly behind.
 const WEAPON_OVERLAY_BOUNCE_PHASE_LAG_RAD := 0.55
 const WEAPON_OVERLAY_BOUNCE_AMP_SCALE := 0.9
@@ -80,6 +82,8 @@ const WEAPON_COMBAT_PROFILES := {
 		"thrust_lunge_trans": "sine",
 		"thrust_lunge_ease": "in_out",
 		"thrust_recover_ease": "out",
+		## Block near-vertical thrusts: minimum |aim.x| after normalize (0.35 ≈ within ~20° of straight up/down).
+		"thrust_min_horizontal_frac": 0.35,
 	},
 	ResourceData.ResourceType.WOOD: {
 		"texture_tip_deg": -90.0,

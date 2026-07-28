@@ -5,6 +5,16 @@ extends Node
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const PRESETS_DIR := "res://assets/limb_presets/"
 
+## Holdables edited in LimbTuner — reload_all_presets refreshes every file.
+const TUNER_HOLDABLES: Array[ResourceData.ResourceType] = [
+	ResourceData.ResourceType.NONE,
+	ResourceData.ResourceType.WOOD,
+	ResourceData.ResourceType.SPEAR,
+	ResourceData.ResourceType.AXE,
+	ResourceData.ResourceType.PICK,
+	ResourceData.ResourceType.OLDOWAN,
+]
+
 var _cache: Dictionary = {}
 
 
@@ -56,7 +66,37 @@ func save_preset(preset: WeaponLimbPreset) -> Error:
 func reload_preset(weapon_type: ResourceData.ResourceType, body_card_id: String = "clansmen_1") -> WeaponLimbPreset:
 	var key := "%d:%s" % [int(weapon_type), body_card_id]
 	_cache.erase(key)
-	return get_preset(weapon_type, body_card_id)
+	var path := preset_path(weapon_type, body_card_id)
+	var preset: WeaponLimbPreset = null
+	if ResourceLoader.exists(path):
+		preset = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_REPLACE) as WeaponLimbPreset
+	if preset == null:
+		preset = WeaponLimbPresetScript.defaults_for(weapon_type, 1)
+		preset.body_card_id = body_card_id
+	_cache[key] = preset
+	return preset
+
+
+func reload_all_presets(body_card_id: String = "clansmen_1") -> void:
+	for weapon_type in TUNER_HOLDABLES:
+		reload_preset(weapon_type, body_card_id)
+
+
+## Write every in-memory preset the tuner touched this session (weapon switches stage edits).
+func save_all_staged() -> Dictionary:
+	var out := {"err": OK, "count": 0, "failed_keys": [] as Array[String]}
+	if _cache.is_empty():
+		return out
+	for key in _cache.keys():
+		var preset := _cache[key] as WeaponLimbPreset
+		if preset == null:
+			continue
+		var err := save_preset(preset)
+		out.count = int(out.count) + 1
+		if err != OK:
+			out.err = err
+			(out.failed_keys as Array).append(String(key))
+	return out
 
 
 ## Keep in-memory preset edits visible to ProceduralArmController before Save.

@@ -42,6 +42,7 @@ var _bush_off_texture: Texture2D = null
 var _wood_nut_search: bool = false
 # Throttle playtest logs when Space is pressed near this node but another target is active
 var _gather_diag_wrong_target_last_t: float = -100.0
+var _sim_monitoring_enabled: bool = true
 
 # OPTIMIZATION: Lock system removed - capacity/reservation system handles resource access
 # Old lock system (locked_by, lock_for, unlock) has been migrated to capacity system
@@ -89,6 +90,39 @@ func _ready() -> void:
 			YSortUtils.update_tree_draw_order(sprite, self, sprite.texture)
 		else:
 			YSortUtils.update_object_y_sort(sprite, self)
+	# Idle resources do not poll input or cooldown every frame — wake on player proximity.
+	set_process(false)
+
+
+func apply_sim_monitoring(enabled: bool) -> void:
+	if _sim_monitoring_enabled == enabled:
+		return
+	_sim_monitoring_enabled = enabled
+	if enabled:
+		monitoring = true
+		call_deferred("_refresh_player_overlap_after_monitor_wake")
+	else:
+		monitoring = false
+		if nearby_player != null:
+			var exited := nearby_player
+			nearby_player = null
+			var main := get_tree().get_first_node_in_group("main")
+			if main and main.get("active_collection_resource") == self:
+				main.active_collection_resource = null
+			if is_collecting or _wood_nut_search:
+				_stop_collection("sim_monitoring_off")
+			elif exited != null:
+				_emit_gather_diagnostic("gather_body_exited", exited, main)
+		_sync_interaction_process()
+
+
+func _refresh_player_overlap_after_monitor_wake() -> void:
+	if not monitoring or not is_inside_tree() or gathered:
+		return
+	for body in get_overlapping_bodies():
+		if body is Node2D and body.is_in_group("player"):
+			_on_body_entered(body as Node2D)
+			return
 
 func _setup_tree_from_sheet() -> void:
 	"""Load trees.png sprite sheet (5 cols x 3 rows = 15 trees) and pick random frame."""
@@ -357,40 +391,85 @@ func _gather_diagnostic_payload(evt: String, player: Node2D, main: Node) -> Dict
 	}
 
 
+func _sync_interaction_process() -> void:
+	set_process(nearby_player != null or is_collecting or _wood_nut_search)
+
+
+func _refresh_cooldown_if_expired() -> void:
+	if not is_in_cooldown:
+		return
+	var current_time: float = Time.get_ticks_msec() / 1000.0
+	if current_time - cooldown_start_time >= COOLDOWN_DURATION:
+		_clear_cooldown_state()
+
+
+func _clear_cooldown_state() -> void:
+	is_in_cooldown = false
+	gather_count = 0
+	cooldown_start_time = 0.0
+	_update_cooldown_visual()
+
+
+func _enter_cooldown_state() -> void:
+	is_in_cooldown = true
+	cooldown_start_time = Time.get_ticks_msec() / 1000.0
+	_update_cooldown_visual()
+	_schedule_cooldown_expiry()
+
+
+func _schedule_cooldown_expiry() -> void:
+	if not is_in_cooldown or not is_inside_tree():
+		return
+	var elapsed: float = Time.get_ticks_msec() / 1000.0 - cooldown_start_time
+	var remaining: float = maxf(COOLDOWN_DURATION - elapsed, 0.05)
+	var timer := get_tree().create_timer(remaining)
+	timer.timeout.connect(_on_cooldown_timer_expired)
+
+
+func _on_cooldown_timer_expired() -> void:
+	_refresh_cooldown_if_expired()
+
+
+func _update_active_collection_target(main: Node, player: Node2D) -> void:
+	if main == null or player == null:
+		return
+	var ar: Variant = main.get("active_collection_resource")
+	if ar != null and not is_instance_valid(ar):
+		main.active_collection_resource = null
+	var player_pos := player.global_position
+	var this_distance := player_pos.distance_to(global_position)
+	if main.active_collection_resource == null:
+		main.active_collection_resource = self
+	elif main.active_collection_resource != self:
+		var other: Variant = main.active_collection_resource
+		if other == null or not is_instance_valid(other):
+			main.active_collection_resource = self
+		else:
+			var other_distance := player_pos.distance_to((other as Node2D).global_position)
+			if this_distance < other_distance:
+				main.active_collection_resource = self
+
+
 func _on_body_entered(body: Node2D) -> void:
 	if gathered:
 		return
 	if body.is_in_group("player"):
 		nearby_player = body
-		# Try to become the active collection resource
+		_refresh_cooldown_if_expired()
 		var main := get_tree().get_first_node_in_group("main")
-		if main:
-			var player_pos := body.global_position
-			var this_distance := player_pos.distance_to(global_position)
-			
-			# If no resource is active, or this one is closer, make it active
-			if main.active_collection_resource == null:
-				main.active_collection_resource = self
-			elif main.active_collection_resource != self:
-				var other: Variant = main.active_collection_resource
-				if other == null or not is_instance_valid(other):
-					main.active_collection_resource = self
-				else:
-					var other_distance := player_pos.distance_to((other as Node2D).global_position)
-					if this_distance < other_distance:
-						main.active_collection_resource = self
+		_update_active_collection_target(main, body)
+		_sync_interaction_process()
 		_emit_gather_diagnostic("gather_body_entered", body, main)
 
 func _on_body_exited(body: Node2D) -> void:
 	if body == nearby_player:
 		nearby_player = null
-		# Clear active collection if this was the active resource
 		var main := get_tree().get_first_node_in_group("main")
-		if main:
-			if main.active_collection_resource == self:
-				main.active_collection_resource = null
+		if main and main.active_collection_resource == self:
+			main.active_collection_resource = null
 		_emit_gather_diagnostic("gather_body_exited", body, main)
 		_stop_collection("player_left_hitbox")
+		_sync_interaction_process()
 
 func _setup_collection_progress() -> void:
 	var progress_node := Node2D.new()
@@ -409,51 +488,15 @@ func _setup_collection_progress() -> void:
 		add_child(collection_progress)
 		collection_progress.visible = false
 
-func _process(delta: float) -> void:
-	# Update cooldown visual
-	_update_cooldown_visual()
-	
-	# Check if cooldown has expired
-	if is_in_cooldown:
-		var current_time: float = Time.get_ticks_msec() / 1000.0
-		if current_time - cooldown_start_time >= COOLDOWN_DURATION:
-			# Cooldown expired - reset
-			is_in_cooldown = false
-			gather_count = 0
-			cooldown_start_time = 0.0
-			_update_cooldown_visual()  # Update visual to normal
-	
+func _process(_delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_gatherable_process()
 	if gathered:
 		return
-	
-	# Check for E key press (just pressed, not held) when player is nearby
 	if nearby_player:
-		# Make sure this resource is active if no other is active
 		var main: Node = get_tree().get_first_node_in_group("main")
-		if main:
-			var ar: Variant = main.get("active_collection_resource")
-			if ar != null and not is_instance_valid(ar):
-				main.active_collection_resource = null
-			# If no resource is active, make this one active
-			if main.active_collection_resource == null:
-				main.active_collection_resource = self
-			# If another resource is active, check if this one is closer
-			elif main.active_collection_resource != self:
-				var player_pos := nearby_player.global_position
-				var this_distance := player_pos.distance_to(global_position)
-				var other2: Variant = main.active_collection_resource
-				if other2 != null and is_instance_valid(other2):
-					var other_distance := player_pos.distance_to((other2 as Node2D).global_position)
-					if this_distance < other_distance:
-						main.active_collection_resource = self
-				else:
-					main.active_collection_resource = self
-		
-		# Check if this resource is the active collection resource
-		var is_active := false
-		if main:
-			is_active = (main.active_collection_resource == self)
-		
+		_update_active_collection_target(main, nearby_player)
+		var is_active: bool = main != null and main.get("active_collection_resource") == self
 		if Input.is_action_just_pressed("gather") and main and not is_active:
 			var now_sec: float = Time.get_ticks_msec() / 1000.0
 			if now_sec - _gather_diag_wrong_target_last_t >= 0.35:
@@ -463,27 +506,29 @@ func _process(delta: float) -> void:
 				})
 				if main.has_method("show_gather_feedback"):
 					main.show_gather_feedback("Move closer to the resource you are gathering.")
-		
-		# Only process if this is the active resource
-		if is_active:
-			if Input.is_action_just_pressed("gather"):
-				if Input.is_action_pressed("weapon_ready"):
-					if main.has_method("show_gather_feedback"):
-						main.show_gather_feedback("Release Shift before gathering.")
-					return
-				var current_time := Time.get_ticks_msec() / 1000.0
-				# Prevent double-presses with small cooldown
-				if current_time - last_gather_press_time >= GATHER_COOLDOWN:
-					last_gather_press_time = current_time
-					_collect_one_item()
-			elif is_collecting and gathering_player:
-				# Player moved — cancel gather (must stay in place)
-				var moved := gathering_player.global_position.distance_to(collection_start_position)
-				if moved > MOVE_CANCEL_THRESHOLD:
-					_stop_collection("moved_while_collecting")
+	if is_collecting and gathering_player:
+		var moved := gathering_player.global_position.distance_to(collection_start_position)
+		if moved > MOVE_CANCEL_THRESHOLD:
+			_stop_collection("moved_while_collecting")
 	elif is_collecting:
-		# Player left area, stop collection
 		_stop_collection("left_hitbox_while_collecting")
+
+
+func try_player_gather_press(main: Node) -> void:
+	if gathered or nearby_player == null:
+		return
+	_refresh_cooldown_if_expired()
+	if main == null or main.get("active_collection_resource") != self:
+		return
+	if Input.is_action_pressed("weapon_ready"):
+		if main.has_method("show_gather_feedback"):
+			main.show_gather_feedback("Release Shift before gathering.")
+		return
+	var current_time := Time.get_ticks_msec() / 1000.0
+	if current_time - last_gather_press_time < GATHER_COOLDOWN:
+		return
+	last_gather_press_time = current_time
+	_collect_one_item()
 
 func _is_bumping(player: Node2D) -> bool:
 	# Check if player is very close (bump detection)
@@ -494,6 +539,7 @@ func _is_bumping(player: Node2D) -> bool:
 func _collect_one_item() -> void:
 	if is_collecting or _wood_nut_search:
 		return
+	_refresh_cooldown_if_expired()
 	var main: Node = get_tree().get_first_node_in_group("main")
 	# Check if resource is exhausted (in cooldown)
 	if is_in_cooldown:
@@ -554,8 +600,8 @@ func _collect_one_item() -> void:
 				icon = load(icon_path) as Texture2D
 		collection_progress.start_collection(icon, effective_time)
 	
-	# Wait for collection time, then give item
 	is_collecting = true
+	_sync_interaction_process()
 	_emit_gather_diagnostic("gather_started", nearby_player, main, {"effective_time": effective_time})
 	var timer := get_tree().create_timer(effective_time)
 	timer.timeout.connect(func(): _finish_collection())
@@ -575,6 +621,7 @@ func _start_wood_nut_search(main: Node) -> void:
 	if collection_progress:
 		collection_progress.start_collection(null, search_time)
 	is_collecting = true
+	_sync_interaction_process()
 	var timer := get_tree().create_timer(search_time)
 	timer.timeout.connect(func(): _finish_wood_nut_search())
 
@@ -590,6 +637,7 @@ func _finish_wood_nut_search() -> void:
 			if collection_progress:
 				collection_progress.stop_collection(true)
 			_clear_gathering_player()
+			_sync_interaction_process()
 			return
 	is_collecting = false
 	if collection_progress:
@@ -600,6 +648,7 @@ func _finish_wood_nut_search() -> void:
 		elif main.has_method("_show_placement_warning"):
 			main._show_placement_warning("Nothing here")
 	_clear_gathering_player()
+	_sync_interaction_process()
 
 func _finish_collection() -> void:
 	# Cancelled gathers clear is_collecting; SceneTreeTimer may still fire — do not grant items
@@ -616,10 +665,12 @@ func _finish_collection() -> void:
 			is_collecting = false
 			if collection_progress:
 				collection_progress.stop_collection(true)
+			_sync_interaction_process()
 			return
 	# Collection complete, give item to player
 	if not main_finish:
 		_clear_gathering_player()
+		_sync_interaction_process()
 		return
 	
 	# Check if resource is in cooldown (exhausted)
@@ -631,16 +682,14 @@ func _finish_collection() -> void:
 		if collection_progress:
 			collection_progress.stop_collection(false)
 		_clear_gathering_player()
+		_sync_interaction_process()
 		return
 	
 	# Increment gather count (track player gathers too)
 	gather_count += 1
 	
-	# If reached max gathers, start cooldown (exhausted state)
 	if gather_count >= MAX_GATHERS_BEFORE_COOLDOWN:
-		is_in_cooldown = true
-		cooldown_start_time = Time.get_ticks_msec() / 1000.0
-		_update_cooldown_visual()
+		_enter_cooldown_state()
 	
 	# Determine what item to give based on resource type
 	var item_type: ResourceData.ResourceType = resource_type
@@ -662,11 +711,11 @@ func _finish_collection() -> void:
 	else:
 		_emit_gather_diagnostic("gather_complete_no_inventory", gathering_player, main_finish, {"item": ResourceData.get_resource_name(item_type)})
 	
-	# Stop collection visual
 	is_collecting = false
 	if collection_progress:
 		collection_progress.stop_collection(false)
 	_clear_gathering_player()
+	_sync_interaction_process()
 
 func _clear_gathering_player() -> void:
 	if gathering_player != null:
@@ -686,6 +735,7 @@ func _stop_collection(reason: String = "unspecified") -> void:
 		if reason == "moved_while_collecting" and main_stop and main_stop.has_method("show_gather_feedback"):
 			main_stop.show_gather_feedback("Stand still to finish gathering.")
 	_clear_gathering_player()
+	_sync_interaction_process()
 
 # NPC interaction methods
 func is_edible() -> bool:
@@ -758,11 +808,8 @@ func harvest() -> int:
 		# Increment gather count
 		gather_count += 1
 		
-		# If reached max gathers, start cooldown
 		if gather_count >= MAX_GATHERS_BEFORE_COOLDOWN:
-			is_in_cooldown = true
-			cooldown_start_time = Time.get_ticks_msec() / 1000.0
-			_update_cooldown_visual()
+			_enter_cooldown_state()
 		# This prevents inventory overflow and makes threshold checks reliable
 		# Previous: Wood/Stone yielded 4-6 items (random), causing overflow issues
 		# Now: All resources yield 1 item - predictable, simple, reliable

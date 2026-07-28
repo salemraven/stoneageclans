@@ -53,7 +53,7 @@ func ensure_initial_load(main_node: Node2D) -> void:
 		radius = maxi(radius, int(_wgc.single_player_initial_load_radius))
 	var center := ChunkUtils.get_chunk_coords(player.global_position)
 	_queue_disk(center, radius)
-	_process_pending_loads(true)
+	_process_pending_loads(false)
 
 
 func update_streaming(player_world_pos: Vector2, delta: float) -> void:
@@ -74,6 +74,9 @@ func update_streaming(player_world_pos: Vector2, delta: float) -> void:
 	_process_pending_loads(false)
 	_process_unloads(center, r, delta)
 	_process_density_timer(delta)
+	var dormancy: Node = get_node_or_null("/root/SimDormancyController")
+	if dormancy and dormancy.has_method("apply"):
+		dormancy.call("apply", _main)
 
 
 func _queue_disk(center: Vector2i, radius: int) -> void:
@@ -121,6 +124,7 @@ func _process_unloads(center: Vector2i, radius: int, _delta: float) -> void:
 
 
 func _load_chunk(chunk: Vector2i) -> void:
+	var load_t0_usec: int = Time.get_ticks_usec()
 	if _wgc == null:
 		_wgc = get_node_or_null("/root/WorldGenConfig")
 	if _ms == null:
@@ -157,9 +161,13 @@ func _load_chunk(chunk: Vector2i) -> void:
 	if sleep_mgr and sleep_mgr.has_method("wake_npcs_in_chunk") and _main:
 		var wo_parent: Node2D = _main.get("world_objects") as Node2D
 		sleep_mgr.call("wake_npcs_in_chunk", chunk, wo_parent, _main)
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_chunk_load(chunk, Time.get_ticks_usec() - load_t0_usec)
 
 
 func _unload_chunk(chunk: Vector2i) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_chunk_unload(chunk)
 	var sleep_mgr: Node = get_node_or_null("/root/NPCSleepManager")
 	if sleep_mgr and sleep_mgr.has_method("sleep_npcs_in_chunk") and _main:
 		sleep_mgr.call("sleep_npcs_in_chunk", chunk, _main)

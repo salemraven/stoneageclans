@@ -203,7 +203,8 @@ func update_arm(
 	segment_lower_px: float = -1.0,
 	forced_elbow: Vector2 = Vector2.ZERO,
 	use_forced_elbow: bool = false,
-	relax_min_reach: bool = false
+	relax_min_reach: bool = false,
+	use_walk_elbow_limits: bool = false
 ) -> void:
 	var cfg := _as_config(config)
 	if _line == null or cfg == null:
@@ -229,7 +230,8 @@ func update_arm(
 		),
 		cfg,
 		bend_sign,
-		relax_min_reach
+		relax_min_reach,
+		use_walk_elbow_limits
 	)
 
 	_points[0] = local_shoulder
@@ -307,14 +309,18 @@ func _solve_ik(
 	_pole_hint: Vector2,
 	cfg: ProceduralArmConfigScript,
 	bend_sign: float,
-	relax_min_reach: bool = false
+	relax_min_reach: bool = false,
+	use_walk_elbow_limits: bool = false
 ) -> Vector2:
 	var to_hand := hand - shoulder
 	var dist := to_hand.length()
 	if dist < 0.001:
 		return shoulder + Vector2(upper_len, 0.0)
-	var min_fold := deg_to_rad(cfg.elbow_fold_min_deg if not relax_min_reach else 4.0)
-	var max_fold := deg_to_rad(cfg.elbow_fold_max_deg if not relax_min_reach else 172.0)
+	var min_fold := deg_to_rad(cfg.elbow_fold_min_deg)
+	var max_fold := deg_to_rad(cfg.elbow_fold_max_deg)
+	if use_walk_elbow_limits:
+		min_fold = deg_to_rad(cfg.elbow_fold_min_walk_deg)
+		max_fold = deg_to_rad(cfg.elbow_fold_max_walk_deg)
 	var max_reach := sqrt(
 		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
 	) - 0.01

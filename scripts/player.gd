@@ -419,7 +419,9 @@ func _physics_process(_delta: float) -> void:
 			sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
 		else:
 			_sync_card_weapon_overlay()
-			PlaceholderCardService.sync_weapon_overlay_flip(self)
+			# Overlay bounce/sway for procedural mannequin runs inside tick_card_bounce above.
+			if not PlaceholderCardService.uses_procedural_mannequin(self):
+				PlaceholderCardService.sync_weapon_overlay_flip(self)
 
 func _apply_player_equipment_sprite_scale() -> void:
 	if not sprite:
@@ -490,14 +492,26 @@ func _sync_card_weapon_overlay() -> void:
 
 func _get_cursor_aim_direction() -> Vector2:
 	var main: Node = get_tree().get_first_node_in_group("main")
+	var raw: Vector2 = Vector2.ZERO
 	if main and main.has_method("_get_world_mouse_position"):
 		var cursor: Vector2 = main._get_world_mouse_position()
 		var delta: Vector2 = cursor - global_position
 		if delta.length_squared() > 4.0:
-			return delta.normalized()
-	if last_facing.length_squared() > 0.0001:
-		return last_facing.normalized()
-	return Vector2(1, 0)
+			raw = delta.normalized()
+	if raw.length_squared() < 0.0001:
+		if last_facing.length_squared() > 0.0001:
+			raw = last_facing.normalized()
+		else:
+			raw = Vector2(1, 0)
+	if (
+		_equipped_item == ResourceData.ResourceType.SPEAR
+		and PlaceholderCardService
+		and PlaceholderCardService.registry
+	):
+		return WeaponOverlayCombat.resolve_thrust_aim(
+			raw, PlaceholderCardService.registry, ResourceData.ResourceType.SPEAR, self
+		)
+	return raw
 
 
 func is_weapon_ready() -> bool:

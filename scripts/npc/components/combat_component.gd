@@ -153,13 +153,24 @@ func _uses_overlay_combat() -> bool:
 	return PlaceholderCardService.uses_placeholder_cards(npc)
 
 
+func _normalize_strike_aim(raw: Vector2) -> Vector2:
+	if raw.length_squared() < 0.0001:
+		return _get_default_facing_dir()
+	var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+	if PlaceholderCardService and _uses_overlay_combat():
+		var registry = PlaceholderCardService.registry
+		if registry and WeaponOverlayCombat.is_thrust_weapon(registry, wt):
+			return WeaponOverlayCombat.resolve_thrust_aim(raw, registry, wt, npc)
+	return raw.normalized()
+
+
 func enter_ready(new_aim: Vector2) -> void:
 	if state != CombatState.IDLE:
 		return
 	if _get_equipped_weapon_type() == ResourceData.ResourceType.NONE:
 		return
 	if new_aim.length_squared() > 0.0001:
-		aim_dir = new_aim.normalized()
+		aim_dir = _normalize_strike_aim(new_aim)
 	else:
 		aim_dir = _get_default_facing_dir()
 	state = CombatState.READY
@@ -179,7 +190,7 @@ func update_ready_aim(new_aim: Vector2) -> void:
 	if state != CombatState.READY:
 		return
 	if new_aim.length_squared() > 0.0001:
-		aim_dir = new_aim.normalized()
+		aim_dir = _normalize_strike_aim(new_aim)
 	if PlaceholderCardService and _uses_overlay_combat():
 		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
 		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
@@ -249,15 +260,15 @@ func commit_strike(strike_aim: Vector2) -> void:
 		return
 	_update_attack_profile_from_weapon()
 	if strike_aim.length_squared() > 0.0001:
-		strike_aim = strike_aim.normalized()
+		strike_aim = _normalize_strike_aim(strike_aim)
 	elif aim_dir.length_squared() > 0.0001:
-		strike_aim = aim_dir.normalized()
+		strike_aim = _normalize_strike_aim(aim_dir)
 	else:
 		strike_aim = _get_default_facing_dir()
 	if npc.is_in_group("player") and npc.has_method("_get_cursor_aim_direction"):
 		var fresh: Vector2 = npc._get_cursor_aim_direction()
 		if fresh.length_squared() > 0.0001:
-			strike_aim = fresh.normalized()
+			strike_aim = _normalize_strike_aim(fresh)
 			npc.set("aim_dir", strike_aim)
 	locked_strike_dir = strike_aim
 	aim_dir = locked_strike_dir

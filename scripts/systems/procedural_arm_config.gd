@@ -28,6 +28,9 @@ class_name ProceduralArmConfig
 ## How far the elbow can straighten (min) and curl (max), in degrees of fold from a straight arm.
 @export_range(0.0, 45.0) var elbow_fold_min_deg := 8.0
 @export_range(60.0, 170.0) var elbow_fold_max_deg := 150.0
+## Walk / gather swing — tighter curl cap so the elbow does not fold past ~120°.
+@export_range(0.0, 45.0) var elbow_fold_min_walk_deg := 12.0
+@export_range(60.0, 170.0) var elbow_fold_max_walk_deg := 120.0
 
 # Line2D appearance.
 @export var arm_width := 14.0
