@@ -51,7 +51,7 @@ except ImportError:
     )
     raise SystemExit(1)
 
-PREFIX = os.environ.get("DISCORD_QA_PREFIX", "?")
+BOT_VERSION = "2.1.0"
 CHANNEL_ID = os.environ.get("DISCORD_QA_CHANNEL_ID", "").strip()
 TOKEN = os.environ.get("DISCORD_LORE_BOT_TOKEN", "").strip() or os.environ.get(
     "DISCORD_BOT_TOKEN", ""
@@ -111,7 +111,7 @@ async def _reply_with_lore(message: discord.Message, query: str) -> None:
 async def on_ready() -> None:
     count = index.load()
     user = bot.user.name if bot.user else "bot"
-    print(f"{user} ready — indexed {count} lore chunks from devblog + bible")
+    print(f"{user} v{BOT_VERSION} ready — indexed {count} lore chunks from devblog + bible")
 
 
 @bot.command(name="ask", help="Search devblog + bible for an answer")
@@ -152,6 +152,15 @@ async def pitch_cmd(ctx: commands.Context) -> None:
         return
     channel_memory[ctx.channel.id] = ChannelContext(kind="pitch", last_query="pitch")
     await ctx.reply(GAME_PITCH[:2000], mention_author=False)
+
+
+@bot.command(name="version", help="Show bot version (verify you have the latest)")
+async def version_cmd(ctx: commands.Context) -> None:
+    await ctx.reply(
+        f"**Zedu the Wise** v`{BOT_VERSION}` — pitch + glossary + lore search.\n"
+        f"If this command fails, you're on an **old bot**. Run `git pull` and restart.",
+        mention_author=False,
+    )
 
 
 @bot.command(name="reload", help="Reload devblog + bible index (admin)")
