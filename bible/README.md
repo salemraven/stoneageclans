@@ -43,7 +43,8 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [items_guide.md](items_guide.md) | Items, hotbar, resources |
 | [traits.md](traits.md) | Species, traits, stats |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
-| [multiplayer.md](multiplayer.md) | MP roadmap + repo stubs |
+| [multiplayer_concept.md](multiplayer_concept.md) | **MP strategy** — browser, persistent server, clans, limits |
+| [multiplayer.md](multiplayer.md) | MP implementation checklist + repo stubs |
 | [earlygame.md](earlygame.md) | Nomadic loop, territory tiers |
 | [nomad.md](nomad.md) | Nomadic playstyle overview |
 | [camp_relocation.md](camp_relocation.md) | **Nomad Mode** (ABANDON CAMP, AI relocate) |
