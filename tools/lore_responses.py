@@ -120,7 +120,6 @@ GAME_PITCH_TRIGGERS = (
     "about the game",
     "about stone age",
     "stone age clans",
-    "tell me about",
     "what is stone",
     "whats stone",
     "introduce",
@@ -195,13 +194,19 @@ def _extract_define_term(query: str) -> str | None:
 
 def wants_pitch(raw: str, normalized: str) -> bool:
     blob = f"{raw} {normalized}".lower()
-    if "stone age" in blob:
+    topic = normalized.lower().strip()
+
+    # Specific lore topics are not a game pitch.
+    if glossary_answer(topic):
+        return False
+
+    if "stone age" in blob or re.search(r"\bstone\s*age\s*clans?\b", blob):
         return True
     if any(t in blob for t in GAME_PITCH_TRIGGERS):
         return True
-    if re.search(r"\bstone\s*age\s*clans?\b", blob):
+    if topic in ("", "game", "it", "this", "stone age clans"):
         return True
-    if normalized.lower() in ("", "game", "it", "this", "stone age clans"):
+    if "tell me about" in blob and topic in ("game", "", "stone age clans"):
         return True
     return False
 
@@ -258,8 +263,19 @@ def answer_query(
 
     normalized = normalize_query(raw)
 
+    topic_match = re.match(r"^(?:tell me about|what is|what's)\s+(.+)$", raw.lower().strip().rstrip("?!. "))
+    if topic_match:
+        topic = topic_match.group(1).strip()
+        gloss = glossary_answer(topic)
+        if gloss:
+            return LoreAnswer(gloss[:max_chars], f"glossary:{topic.lower()}")
+
     if wants_pitch(raw, normalized):
         return LoreAnswer(GAME_PITCH[:max_chars], "pitch")
+
+    gloss = glossary_answer(normalized)
+    if gloss:
+        return LoreAnswer(gloss[:max_chars], f"glossary:{normalized.lower()}")
 
     term = _extract_define_term(raw) or _extract_define_term(normalized)
     if term and term.lower() not in PRONOUN_TERMS:
