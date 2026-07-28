@@ -195,6 +195,8 @@ def _extract_define_term(query: str) -> str | None:
 
 def wants_pitch(raw: str, normalized: str) -> bool:
     blob = f"{raw} {normalized}".lower()
+    if "stone age" in blob:
+        return True
     if any(t in blob for t in GAME_PITCH_TRIGGERS):
         return True
     if re.search(r"\bstone\s*age\s*clans?\b", blob):
