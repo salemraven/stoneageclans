@@ -7,6 +7,7 @@ Requires:
 Optional:
   DISCORD_QA_CHANNEL_ID   — only respond in this channel
   DISCORD_QA_PREFIX       — command prefix (default: ? and !)
+  DISCORD_LORE_PLAY_URL   — public play/download link (itch, Steam, etc.)
 
 Setup:
   1. https://discord.com/developers/applications → New Application → Bot

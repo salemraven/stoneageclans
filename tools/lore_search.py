@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,22 @@ STOPWORDS = {
     "you", "your",
 }
 WEAK_TERMS = {"work", "like", "use", "get", "make", "need", "game", "play"}
+
+PLAY_URL = os.environ.get("DISCORD_LORE_PLAY_URL", "").strip()
+PLAY_LINK_UNAVAILABLE = (
+    "Stone Age Clans isn't publicly downloadable yet — we're still in development. "
+    "Follow devblog updates in Discord for when a build is available."
+)
+
+_PLAY_LINK_PATTERNS = (
+    re.compile(r"\b(where|how)\s+(can|do)\s+i\s+(play|download|get|try)\b", re.I),
+    re.compile(r"\b(can|may)\s+i\s+(play|download|get|try)\b", re.I),
+    re.compile(r"\b(play|download|get|try)\s+(the\s+)?game\b", re.I),
+    re.compile(r"\blink\s+to\s+play\b", re.I),
+    re.compile(r"\bsend\s+(me\s+)?(a\s+)?link\b", re.I),
+    re.compile(r"\bplayable\s+(build|demo|version|link)\b", re.I),
+    re.compile(r"\b(itch\.io|steam)\b", re.I),
+)
 
 
 @dataclass(frozen=True)
@@ -46,6 +63,26 @@ class LoreHit:
 def _tokenize(text: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+", text.lower())
     return [w for w in words if len(w) > 1 and w not in STOPWORDS]
+
+
+def is_play_link_question(query: str) -> bool:
+    q = query.strip()
+    if not q:
+        return False
+    if any(pattern.search(q) for pattern in _PLAY_LINK_PATTERNS):
+        return True
+    q_l = q.lower()
+    mentions_game = any(
+        phrase in q_l
+        for phrase in ("stone age clans", "stoneageclans", "this game", "the game")
+    )
+    return mentions_game and any(word in q_l for word in ("play", "download", "link", "try", "demo"))
+
+
+def play_link_answer() -> str:
+    if PLAY_URL:
+        return f"You can play Stone Age Clans here: {PLAY_URL}"
+    return PLAY_LINK_UNAVAILABLE
 
 
 def _strip_md(text: str) -> str:
@@ -557,6 +594,9 @@ def _dedupe_hits(hits: list[LoreHit], limit: int) -> list[LoreHit]:
 
 
 def format_answer(query: str, hits: list[LoreHit], max_chars: int = 900) -> str:
+    if is_play_link_question(query):
+        return play_link_answer()
+
     if not hits:
         return (
             "I don't have a good plain-language answer for that in the devblog or design bible. "
