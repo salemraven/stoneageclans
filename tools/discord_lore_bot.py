@@ -6,7 +6,8 @@ Requires:
 
 Optional:
   DISCORD_QA_CHANNEL_ID   — only respond in this channel
-  DISCORD_QA_PREFIX       — command prefix (default: ?)
+  DISCORD_QA_PREFIX       — command prefix (default: ? and !)
+  DISCORD_LORE_PLAY_URL   — public play/download link (itch, Steam, etc.)
 
 Setup:
   1. https://discord.com/developers/applications → New Application → Bot
@@ -45,7 +46,11 @@ except ImportError:
     )
     raise SystemExit(1)
 
-PREFIX = os.environ.get("DISCORD_QA_PREFIX", "?")
+_PREFIX_ENV = os.environ.get("DISCORD_QA_PREFIX", "").strip()
+PREFIXES: list[str] = (
+    [_PREFIX_ENV] if _PREFIX_ENV else ["?", "!"]
+)
+PREFIX = PREFIXES[0]
 CHANNEL_ID = os.environ.get("DISCORD_QA_CHANNEL_ID", "").strip()
 TOKEN = os.environ.get("DISCORD_LORE_BOT_TOKEN", "").strip() or os.environ.get(
     "DISCORD_BOT_TOKEN", ""
@@ -55,7 +60,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+bot = commands.Bot(command_prefix=PREFIXES, intents=intents, help_command=None)
 index = LoreIndex()
 
 

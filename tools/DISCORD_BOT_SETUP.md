@@ -72,8 +72,10 @@ In any channel the bot can see:
 
 ```
 ?ask how does animation work
-?search nomad mode
+!help
 ```
+
+Either `?` or `!` works for commands.
 
 Or @mention the bot with your question.
 
@@ -83,6 +85,23 @@ Or @mention the bot with your question.
 
 1. In Discord: right-click your Q&A channel → **Copy Channel ID** (enable Developer Mode in Discord settings → Advanced if you don't see it)
 2. Set env var: `DISCORD_QA_CHANNEL_ID` = that number
+
+---
+
+## Optional: public play link
+
+When someone asks to play or download the game, Zedu replies with a fixed message instead of searching the bible.
+
+**Before a public build exists:** no setup needed. Default reply:
+
+> Stone Age Clans isn't publicly downloadable yet — we're still in development. Follow devblog updates in Discord for when a build is available.
+
+**When you have a link** (itch.io, Steam, web demo, etc.):
+
+1. Add to Cursor Cloud secrets or your shell: `DISCORD_LORE_PLAY_URL` = your URL
+2. Restart the bot
+
+Zedu will then reply: `You can play Stone Age Clans here: <your URL>`
 
 ---
 
