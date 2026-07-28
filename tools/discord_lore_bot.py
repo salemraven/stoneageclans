@@ -17,9 +17,10 @@ Setup:
   6. python3 tools/discord_lore_bot.py
 
 Usage in Discord:
+  ?pitch
   ?ask how does animation work
-  ?search herding
-  @Stone Age Clans what is multiplayer like?
+  @Zedu tell me about Stone Age Clans
+  (reply to Zedu) What does that mean?
 """
 from __future__ import annotations
 
@@ -32,7 +33,11 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from lore_responses import answer_query  # noqa: E402
+from lore_responses import (  # noqa: E402
+    ChannelContext,
+    GAME_PITCH,
+    answer_query,
+)
 from lore_search import LoreIndex  # noqa: E402
 
 try:
@@ -58,6 +63,7 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 index = LoreIndex()
+channel_memory: dict[int, ChannelContext] = {}
 
 
 def _allowed_channel(message: discord.Message) -> bool:
@@ -68,6 +74,37 @@ def _allowed_channel(message: discord.Message) -> bool:
 
 def _channel_denied_message() -> str:
     return "This bot is limited to the configured Q&A channel."
+
+
+def _clean_query(message: discord.Message) -> str:
+    query = message.content
+    if bot.user:
+        for mention in message.mentions:
+            query = query.replace(f"<@{mention.id}>", " ")
+            query = query.replace(f"<@!{mention.id}>", " ")
+    return " ".join(query.split()).strip()
+
+
+def _should_respond(message: discord.Message) -> bool:
+    if bot.user and bot.user in message.mentions:
+        return True
+    if not message.reference:
+        return False
+    ref = message.reference.resolved
+    if isinstance(ref, discord.Message) and ref.author == bot.user:
+        return True
+    return False
+
+
+async def _reply_with_lore(message: discord.Message, query: str) -> None:
+    ctx = channel_memory.get(message.channel.id)
+    async with message.channel.typing():
+        result = answer_query(query, index, context=ctx)
+    channel_memory[message.channel.id] = ChannelContext(
+        kind=result.kind,
+        last_query=query,
+    )
+    await message.reply(result.text[:2000], mention_author=False)
 
 
 @bot.event
@@ -82,9 +119,7 @@ async def ask_cmd(ctx: commands.Context, *, query: str) -> None:
     if not _allowed_channel(ctx.message):
         await ctx.reply(_channel_denied_message(), mention_author=False)
         return
-    async with ctx.typing():
-        answer = answer_query(query, index)
-    await ctx.reply(answer[:2000], mention_author=False)
+    await _reply_with_lore(ctx.message, query)
 
 
 @bot.command(name="search", help="Same as ask — keyword search")
@@ -101,11 +136,11 @@ async def help_cmd(ctx: commands.Context) -> None:
         "**Zedu the Wise** — lore keeper for Stone Age Clans\n"
         f"`{PREFIX}pitch` — what is the game? (elevator pitch)\n"
         f"`{PREFIX}ask <question>` — hunting, herding, nomad mode, etc.\n"
-        f"Or @mention me with your question.\n\n"
+        f"Or @mention me — or **reply** to one of my messages.\n\n"
         "Try:\n"
         f"`{PREFIX}pitch`\n"
-        f"`{PREFIX}ask how does animation work`\n"
-        f"`@Zedu what does pull based mean?`"
+        f"`@Zedu tell me about Stone Age Clans`\n"
+        f"Then reply: `What does that mean?`"
     )
     await ctx.reply(text, mention_author=False)
 
@@ -115,9 +150,11 @@ async def pitch_cmd(ctx: commands.Context) -> None:
     if not _allowed_channel(ctx.message):
         await ctx.reply(_channel_denied_message(), mention_author=False)
         return
-    from lore_responses import GAME_PITCH
-
+    channel_memory[ctx.channel.id] = ChannelContext(kind="pitch", last_query="pitch")
     await ctx.reply(GAME_PITCH[:2000], mention_author=False)
+
+
+@bot.command(name="reload", help="Reload devblog + bible index (admin)")
 @commands.has_permissions(administrator=True)
 async def reload_cmd(ctx: commands.Context) -> None:
     count = index.load()
@@ -129,22 +166,16 @@ async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
 
-    if bot.user and bot.user in message.mentions:
+    if _should_respond(message):
         if not _allowed_channel(message):
             await message.reply(_channel_denied_message(), mention_author=False)
             return
-        query = message.content
-        for mention in message.mentions:
-            query = query.replace(f"<@{mention.id}>", " ")
-            query = query.replace(f"<@!{mention.id}>", " ")
-        query = " ".join(query.split()).strip()
+        query = _clean_query(message)
         if query:
-            async with message.channel.typing():
-                answer = answer_query(query, index)
-            await message.reply(answer[:2000], mention_author=False)
+            await _reply_with_lore(message, query)
         else:
             await message.reply(
-                f"Ask me something about the game — e.g. `{PREFIX}ask hunting`",
+                f"Ask me something — e.g. `{PREFIX}pitch` or *tell me about Stone Age Clans*",
                 mention_author=False,
             )
         return
