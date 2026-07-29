@@ -1,25 +1,123 @@
-# Animation Tuner — purpose, goals, UX, and plans
+# Character Animation Tuner — purpose, goals, UX, and plans
 
 **Scene:** `scenes/tools/LimbTuner.tscn`  
-**Window title:** Character Animation Tuner · **Pose Map** (left panel)  
+**Window title:** Character Animation Tuner · **Character Tuner** (left panel)  
+**Animation catalog:** `scripts/config/character_animation_catalog.gd`  
+**Pawn vision (north star):** [pawn_goal.md](pawn_goal.md) — layered pivots, genetics, RimWorld readability  
 **Canonical preset example:** `assets/limb_presets/none_clansmen_1.tres`  
-**Last updated:** July 2026 (bake + DNA builds section added)
+**Last updated:** July 2026 (pawn pipeline + single-panel growth model)
 
 ---
 
 ## North star
 
-The Animation Tuner exists so **you can show me exactly what you want** — poses, timing feel, overlay placement, walk swing, attack sanity — without us guessing numbers in chat.
+The Character Tuner is the **authoring studio** for hominid pawns: motion, proportions, grips, and (soon) layered appearance — all measurable before anything ships in Main.
 
 | Role | What it means |
 |------|----------------|
 | **Primary** | **You ↔ agent communication** — visual spec + preview + saved numbers + “Copy for chat” |
-| **Secondary (today)** | **Game runtime** — presets + procedural motion code load in Main for player/NPCs |
-| **Secondary (planned)** | **Game runtime** — **baked clips only**; tuner remains the authoring studio |
+| **Pawn vision** | [pawn_goal.md](pawn_goal.md) — modular layers on pivots, genetics-driven morphology, large populations |
+| **Game runtime (today)** | Layered body + head + floating weapon overlay (**no arm lines** in Main) |
+| **Game runtime (planned)** | **Procedural pawns in Main** (preferred if feasible) · **baked strips** as bridge until then · runtime cosmetic layers |
 
-If something looks right in the tuner and is **Saved**, that is the contract. I read the `.tres`, run `tools/test_limb_tuner.gd`, and change **shared code** (`WalkArmSwing`, `WeaponOverlayCombat`, layer stack, etc.) — not one-off tweaks from screenshots alone.
+If something looks right in the tuner and is **Saved**, that is the contract. I read the `.tres`, run `tools/test_limb_tuner.gd`, and change **shared code** — not one-off tweaks from screenshots alone.
 
-**Not yet:** full bake pipeline — procedural arms still run in Main until bake + playback land (see [Planned: bake pipeline](#planned-bake-pipeline-tuner--game-no-runtime-ik)).
+### Target pipeline (author → bake → layer)
+
+This is how the tuner grows toward `pawn_goal.md` without fighting genetics or performance:
+
+```text
+Character Tuner (one panel)
+  ├── Animation  — holdable, category, variant, pins, Play, Bake
+  └── Morphology — arm length/thickness, head↔body, body/head scale (same panel, not a separate tab)
+         ↓
+  Save pose presets (WeaponLimbPreset)     Save morphology (CharacterAppearance / DNA build)
+         ↓                                           ↓
+  Bake clip → PNG sprite sheets              genetics_profile at spawn
+  (idle, walk, attack… per holdable)                ↓
+         ↓                                  Layer eyes, hair, skin tint, clothes
+  Main: BakedPawnPlayer advances frames     on HeadPivot / BodyPivot (not in the bake)
+```
+
+**Motion** is baked once at **reference morphology** (DNA 1.0). **Identity** stays layered at runtime so every clansman can look different without combinatorial sprite sheets.
+
+**Note on `pawn_goal` wording:** Characters are *authored* with procedural pivots in the tuner; the game may *play* baked strips for scale. Baking is the performance path described in pawn_goal § Performance Strategy — not a rejection of procedural authoring.
+
+---
+
+## Tuner vs in-game (important split)
+
+| | **Character Tuner** | **Main gameplay** |
+|--|---------------------|-------------------|
+| Body + head | ✅ layered mannequin | ✅ same stack |
+| Weapon overlay | ✅ spear, club, axe, … | ✅ floating overlay (hand chain planned) |
+| Procedural arm lines | ✅ Line2D IK for **authoring** | ❌ **off** (`PROCEDURAL_MANNEQUIN_ENABLED_IN_GAME = false`) |
+| Combat preview | Shift ready · Shift+click strike/thrust | Overlay tween on weapon sprite |
+| Morphology preview | Spinboxes + **H** pin (more scales planned) | From `genetics_profile` → appearance (planned) |
+
+**Why:** RimWorld-style readability — body + held item reads clearly at zoom. The tuner keeps full rig detail so you can tune grips, proportions, and bake; Main stays cheap at population scale.
+
+---
+
+## Bakes + procedural (you can do both)
+
+**Bakes for the game now; procedural stays alive in the tuner.** That is the intended split — not a conflict. [pawn_goal.md](pawn_goal.md) describes procedural pivots and layered identity; this doc adds **baked motion strips** for population scale. Authoring stays procedural; shipping stays cheap.
+
+**Long-term preference:** If we find a way to run **procedural character animation in Main** at acceptable cost (performance, multiplayer determinism, readability at zoom), **that is the preferred end state** — genetics-driven morphology and motion from the same pivot rig, no re-bake per size or clip. Bakes are the **practical bridge today**, not the forever answer. We **continue to explore** procedural pawns in-game (shared motion code with the tuner, dormancy, LOD, optional bake fallback only where needed).
+
+### Mental model: same rig, two outputs
+
+```text
+Character Tuner (procedural rig — always on)
+  ├── Live Play       → pivots + IK arms + weapon tween  (fast iteration)
+  ├── Morphology sweep → small / ref / large preview     (size exploration)
+  └── Bake clip       → sample the same rig → PNG strip → Main
+```
+
+| Lane | Role |
+|------|------|
+| **Procedural (tuner)** | How you **author and experiment** — pins, Play, morphology, combat preview |
+| **Bake (Main)** | How you **ship motion** to hundreds of NPCs — one strip, many instances |
+
+The bake is a **recording** of procedural motion (`prepare_bake_sample()` → frame capture), not a second animation system. **One motion source** — preset pins + shared motion code. Do not maintain a parallel hand-tuned timeline.
+
+### Keep procedural in the tuner for
+
+| Use | Why |
+|-----|-----|
+| Grip / pin tuning | Instant feedback — no re-bake every tweak |
+| Play / scrub | Feel walk cycles before committing to a strip |
+| Morphology sliders | See clipping and reach at different body/head scales |
+| Size bands | Preview Small / Ref / Large on the same motion code |
+| Combat preview | Tune arc and lunge; then bake or apply reach multipliers at runtime |
+| Compare mode *(planned)* | Live rig vs last baked strip — parity check |
+
+### Bakes handle (for now)
+
+- Walk / idle / gather at population scale in Main **until procedural runtime is proven**
+- Fixed pixel look at **reference morphology**
+- Optional **Small / Ref / Large** bands — still **sampled from procedural**, not hand-drawn per size
+
+Runtime cosmetics (face, hair, clothes) stay **layered on pivots** either way — procedural north star for **identity** and, when ready, for **locomotion** too.
+
+### Exploration phases
+
+| Phase | Tuner | Main |
+|-------|-------|------|
+| **Now** | Full procedural preview + **Bake clip** | Baked strips *(when `BakedPawnPlayer` lands)* — bridge path |
+| **Next** | Morphology scrub while Play; preview-band dropdown; bake from current morphology | Still baked; **spike procedural playback** on one pawn / test scene |
+| **Goal** | Same motion code as game would use | **Procedural pawns at scale** if perf + MP + look pass — **preferred** over permanent baking |
+| **Fallback** | Bake still available for export / low-end / parity checks | Baked strips only where procedural cannot meet the bar |
+
+**In-game procedural exploration** (ongoing): reuse tuner rig + preset motion in Main behind a flag; measure frame cost and network determinism; compare to baked parity; graduate genetics-driven scale (body_size, arm length) without new sprite sheets. Bakes remain valid output until that bar is cleared.
+
+Use the procedural tuner to prove clothing on `BodyPivot` scales with morphology, weapons on hand pivot + grip pins work at ~0.85×–1.15×, and swing reach / arc multipliers feel fair **before** baking or hard-coding combat. If scaling breaks at extremes → clothing variant or size-band bake — not five full procedural runtimes.
+
+### Do not
+
+- Build **two unrelated** motion systems (procedural walk vs separate bake keyframes)
+- Drop procedural in the tuner because Main uses bakes — the tuner **is** the procedural lab
+- Bake per-NPC genetics — bake **bands + reference**, layer face/hair at spawn
 
 ---
 
@@ -29,294 +127,246 @@ The tuner preview **must** match Main pixel-for-pixel at default camera zoom. Bo
 
 - `TunerMannequinLayout.from_registry()` → card scale **128 ÷ body texture height** (~0.272 for `body1.png`)
 - `TunerBodyVisual.apply_layout()` — same body/head layers as in-game
-- `PlaceholderCardService._apply_procedural_mannequin()` — same rig on player/caveman
+- `PlaceholderCardService` layered mannequin path on player/caveman
 
 | Check | Expected |
 |-------|----------|
-| **Stage scale** | **`stage_scale = 1.0`** — no preview magnifier on the character |
-| **Body height** | ~**128 px** on screen |
-| **Head height** | ~**95 px** on screen |
-| **Drag pins** | Bigger via **`handle_ui_scale = 4`** — UI only, does not change saved numbers |
+| **Stage scale** | **`stage_scale = 1.0`** — character is not magnified by stage |
+| **View zoom** | **`view_zoom`** (default ~3) — scroll wheel; UI-only, does not change saved numbers |
+| **Body height** | ~**128 px** on screen at default zoom |
+| **Drag pins** | Bigger via **`handle_ui_scale = 4`** — UI only |
 | **Verify** | `godot --headless -s res://tools/compare_mannequin_parity.gd` → `PASS` |
 
-Saved preset numbers live in **128 px display space** (card foot at origin). What you see in the tuner is what spawns in-game.
+Saved preset numbers live in **128 px display space** (card foot at origin).
 
-**Past bugs fixed:** head was scaled twice (`sync_head_draw_transform`); tuner used `stage_scale = 4` so the character looked 4× bigger than in Main.
+---
+
+## Character Tuner UI (Holdable → Category → Variant)
+
+The old **single pose dropdown** is gone. Selection is three steps:
+
+```
+1. HOLDABLE   — grid: None · Club · Spear · Axe · Pick · Oldowan
+2. CATEGORY   — Idle · Walk · Attack · Gather · Taunt · Ranged
+3. VARIANT    — e.g. Idle / Idle 1, Walk / Walk 1 (hidden when only one)
+```
+
+**Source of truth:** `CharacterAnimationCatalog.HOLDABLES`. Disabled categories = not supported for that holdable yet (Taunt, Ranged are placeholders).
+
+### Idle default (avoid jumbled arms)
+
+| Action | What happens |
+|--------|----------------|
+| **Switch holdable** | Always resets to **Idle** (first idle variant) |
+| **Switch category** | Jumps to **first variant** in that category |
+| **Switch variant** | Loads that pose snapshot only |
+
+### Per-holdable catalog (today)
+
+| Holdable | Idle | Walk | Attack | Gather | Taunt / Ranged |
+|----------|------|------|--------|--------|----------------|
+| **None** | Idle, Idle 1 | Walk, Walk 1 | — | Gather | — |
+| **Club** | Idle, Club grip | — | Windup | — | — |
+| **Spear** | Idle | Walk, Walk 1 | Windup | — | — |
+| **Axe / Pick / Oldowan** | Idle, Idle 1 | Walk, Walk 1 | Attack | Gather | — |
+
+**Adding a clip:** extend `CharacterAnimationCatalog.HOLDABLES` — do not grow a flat dropdown again.
+
+---
+
+## One panel, growing sections (not separate tabs)
+
+The tuner stays **one scrollable left panel**. New capabilities add **sections** or **controls**, not hidden tabs.
+
+| Section | Today | Growing toward |
+|---------|-------|----------------|
+| **Animation** | Holdable · Category · Variant · Play · Bake | Taunt, Ranged, bow/sling |
+| **Morphology** | Arm length · arm thickness · **H** head pin | Body scale · head scale · neck offset spinboxes |
+| **Cosmetic layers** *(planned, same panel)* | — | Eyes, hair, nose, clothing preview slots |
+| **Save / reset** | Save all · Bake · Copy · Reload | **Save DNA** (morphology file) alongside pose save |
+
+**UI = one panel. Disk = two save types** (see below). Morphology must not be duplicated into every `spear_clansmen_1.tres` — genetics needs one place to read/write shape.
+
+---
+
+## Morphology & DNA (main panel, separate files)
+
+Controls live on the **main tuner panel** (Arm length/thickness row today; body/head scale and neck distance coming on the same panel).
+
+| Control | Tuner (today / planned) | Saves to |
+|---------|-------------------------|----------|
+| Upper / lower arm length | ✅ spinboxes | **Transition:** preset today → **DNA build** (one value for all holdables) |
+| Arm thickness | ✅ spinbox | same |
+| Head ↔ body (neck) | ✅ **H** pin + `CharacterCardLayerLayout` | layout + DNA build |
+| Body scale (X/Y) | planned spinboxes | `CharacterAppearance.body_proportion_scale` |
+| Head scale | planned spinboxes | DNA build / appearance |
+
+| Save type | Example file | Stores | Does **not** store |
+|-----------|--------------|--------|---------------------|
+| **Pose preset** | `spear_clansmen_1.tres` | Idle / Walk 1 / Attack **pins & grips** for that holdable | Global body height, face variants |
+| **Morphology / DNA build** | `assets/character_builds/reference.tres` | Arm length, thickness, body/head scale, neck | Walk swing phase, spear windup timing |
+| **Layout** | `layered_blank_1.tres` | Default neck socket, body/head texture paths | Per-NPC genetics |
+
+**Rule:** Tune **motion** at reference morphology (1.0). **Genetics** at spawn adjusts morphology + cosmetic layers; same baked walk plays on all builds unless you add optional **size buckets** (Small / Ref / Large) for extreme species blends.
+
+Stub: `scripts/character/character_appearance.gd`. **Save DNA** button planned; morphology preview is always live in the viewer.
+
+Cross-ref: [pawn_goal.md](pawn_goal.md) (genetics, hierarchy), `bible/future implementations/genetics.md`.
+
+---
+
+## Runtime pawn (goal): bake motion, layer identity
+
+What players see in a large clan:
+
+```text
+CharacterRoot
+├── Shadow, dust (cheap procedural)
+├── BodyPivot  ← plays baked strip OR live bob (clip from tuner)
+│   ├── Torso (+ future chest hair, clothes, armor layers)
+│   ├── HeadPivot  ← baked bob or counter-balance from same clip
+│   │   └── Face layers (eyes, nose, hair, beard — from genotype, NOT baked)
+│   └── Weapon / hand chain (from bake or overlay tween)
+└── Status FX
+```
+
+| Layer type | Source | Why |
+|------------|--------|-----|
+| **Walk / idle / gather / attack motion** | Tuner **Bake clip** → `assets/baked/…` | Same clip for hundreds of NPCs |
+| **Face, hair, skin tint, clothing** | Layered sprites at spawn | Genetics — no re-bake per individual |
+| **Body/head scale, arm length** | Morphology from DNA + genetics | Neanderthal hybrid vs tall build without new art |
+
+Bake **reference body + head motion + weapon** (arms optional in composite until sprite arms land). Do **not** bake per-individual faces into the strip.
 
 ---
 
 ## Pose snapshot isolation (do not cross-contaminate)
 
-Each **Pose** dropdown row owns its own fields in the `.tres`. The tuner must **read and save the active row only**.
-
-| Pose row | Preset fields (examples) |
-|----------|---------------------------|
-| Club · Idle standing | `overlay_offset_idle_px`, shoulders, elbow poles, authoritative grip on art |
-| Club · Attack windup | Position only — test swing on **Club · Idle standing** (Shift+click) |
-| Spear · Idle standing | `overlay_offset_idle_px`, both hand grips (weapon + support idle on body) |
-| Spear · Attack windup | Horizontal max extension — **Y1** positions spear; **Y2** + **2h** pinned. Saves `strike_offset_px`. Windup hold = `ready_offset_px`. Test thrust on **Idle standing** (Shift+click) |
+Each **variant** owns its fields in the pose `.tres`. The tuner **read/save active row only**.
 
 **Rules (enforced in code + tests):**
 
-1. **Never** redirect because another snapshot “exists” (e.g. `idle_club1` tuned ≠ use it for idle standing overlay).
-2. **Club grip on art** (`Club grip / in-hand` row): when saved, `idle_club1_grip_authoritative = true` — **user work is law**. No snap-to-texture-anchor, no treating pose-row `(0,0)` as “unset.”
-3. **Save** always writes the pose row you are editing (`WeaponLimbPreset.tuner_commit_storage_mode`).
-4. **Read** routing lives in one place: `WeaponLimbPreset.tuner_overlay_storage_mode` / `resolve_club_overlay_grip_px`.
-5. **Debug builds** log an error if live overlay ≠ expected row (`verify_tuner_overlay_matches`).
-6. **`tools/test_limb_tuner.gd`** includes `_test_pose_snapshot_isolation` — run after any tuner routing change.
+1. Never redirect because another snapshot “exists” (e.g. `idle_club1` ≠ idle standing overlay).
+2. **Save** uses `WeaponLimbPreset.tuner_commit_storage_mode` for the active variant.
+3. **`tools/test_limb_tuner.gd`** includes `_test_pose_snapshot_isolation`.
 
-**Past bug:** idle standing showed wrong overlay or yellow grip at club bottom because code treated `(0,0)` on the idle row as “no grip” and overwrote user-tuned `idle_club1` data. **Forbidden:** any heuristic that overrides `idle_club1_grip_authoritative`.
+Tests use `_apply_pose_catalog_entry(weapon, mode)` — same path as the UI.
 
 ---
 
 ## Story so far (why this tool exists)
 
-This grew out of the **procedural arms** effort:
-
-1. **Weapon-driven Line2D arms** — spear/club overlay tracks cursor; arms IK to grip; genetics-friendly thickness (`width_genetics_mult`).
-2. **Positioning had to be easy** — exported preset fields, drag pins, save to disk, reload in game.
-3. **Side app** — load character + weapon like the game; assemble placement; test attacks (Shift ready, Shift+click strike).
-4. **Mannequin pivot** — layered **blank body + head** (`body1.png`, `head1.png`) instead of baked `clansmen_card*.png` arms, so procedural limbs are the arms.
-5. **Full animation surface** — not just idle: **Idle 1** (look-around), **Walk / Walk 1**, **Attack**, per-weapon holdables.
-6. **Walk polish** (this chat arc) — humanoid swing, travel-aligned (+X default), support arm wider arc, rounded line caps, **slow smooth rhythm** synced with **body bounce + head bob**; **Walk 1** locked as first named walk snapshot.
-7. **Elbow rule** — **click `1e` / `2e` to flip bend**; saved in preset; **no auto-flip during walk** (you rejected that).
-8. **UX simplification** — **Pose Map** workflow: pick pose + holdable → drag pins → preview → **Save all**; Lock/Test de-emphasized in favor of always-editable assemble mode.
+1. Weapon-driven Line2D arms — IK authoring for spear/club.
+2. Limb Tuner side app → **Character Animation Tuner** with mannequin body/head.
+3. Pose map per holdable: Idle 1, Walk 1, Gather 1, Attack windups.
+4. Main simplified: **no arm lines in gameplay**; floating weapon RimWorld-style.
+5. **Character Tuner UI** — holdable + category + variant; idle default on holdable change.
+6. **Bake v1** — export sprite sheets + review popup.
+7. **Direction locked** — [pawn_goal.md](pawn_goal.md): bake motion from tuner, layer genetics/cosmetics at runtime; morphology on **same panel**.
 
 ---
 
-## What you are building toward
+## Bake pipeline (v1 shipped · playback planned)
 
-A single place to **preview almost everything on a character** across animations:
+**Tuner authors → Bake clip → sprite sheet + JSON → Main plays frames.**
 
-| Layer | Today | Planned |
-|-------|--------|---------|
-| Procedural arms | ✅ Line2D IK, length/thickness | DNA-scaled length/thickness at runtime |
-| Body + head mannequin | ✅ neck socket, walk/idle motion | Same stack in-game |
-| Weapon overlay | ✅ spear, club, none, … | Every new holdable gets a preset file |
-| Walk / idle motion | ✅ bounce + swing + Idle 1 | More named walks, attack variants |
-| Hair, eyes, clothing | — | Overlay slots + per-pose offsets |
-| DNA body/head/arm size | — | **Save DNA** named builds + preview in tuner; genetics in sim later |
-| Baked animation playback | — | Main plays PNG sheets; **no** runtime IK |
+### v1 — shipped in tuner
 
-**Genetics note (today):** Author **pose** presets at **DNA 1.0 (reference)**. Full genetics sim is in `bible/future implementations/genetics.md` — mostly **not wired** yet (skin modulate works; `body_size` / arm thickness are planned). See [Planned: DNA character builds](#planned-dna-character-builds-save-dna).
+| Piece | Path |
+|-------|------|
+| **Bake clip** button | Actions section |
+| Baker | `scripts/tools/limb_animation_baker.gd` |
+| Capture | `scripts/tools/limb_bake_frame_capture.gd` (body + head + weapon) |
+| Review | `scenes/tools/LimbBakeReviewWindow.tscn` |
+| Output | `assets/baked/clansmen_1/<holdable>/<clip>.png` + `.json` |
+| Clips | `idle`, `idle1`, `walk`, `gather1` — east, 128×128 |
+| Test | `godot --headless -s res://tools/test_limb_bake.gd` |
 
----
+**Workflow:**
 
-## Planned: bake pipeline (tuner → game, no runtime IK)
+1. Set morphology (reference build).
+2. Pick holdable + category + variant → tune pins → **Save all**.
+3. **Bake clip** → review popup → files under `assets/baked/`.
 
-**Goal:** You tune in the tuner; the game **plays frames**, not live arm math. The tuner stays procedural while editing — only **Main** switches to baked playback.
+**Not yet:** attack/thrust strips, 8 directions, `BakedPawnPlayer` in Main, batch bake all catalog clips.
 
-### One-sentence model
+### Optional size buckets (later)
 
-**Tuner authors → Bake step exports sprite sheets → Main advances frame index and picks facing.**
-
-### Why (perf + workflow)
-
-| Today | Planned |
-|-------|---------|
-| `ProceduralArmController` IK every frame on player + armed cavemen | `BakedMannequinPlayer` (or `DirectionalSpriteSheet`) — cheap atlas swap |
-| Same motion code in tuner and Main | Tuner preview code **samples** clips at bake time; Main only **plays** |
-| Lag when many NPCs carry weapons | NPCs use same baked sheets; optional distance throttling |
-
-Procedural arms are **not wrong** — they are **expensive at scale**. Baking is the long-term fix, not an abandonment of the tuner.
-
-### What gets baked (per holdable + body card)
-
-| Clip | Source in tuner | Output (example) |
-|------|-----------------|------------------|
-| Idle loop | `TunerIdlePreview` + idle standing pins | `baked/clansmen_1/spear_idle.png` + JSON |
-| Walk cycle | `WalkArmSwing` + **Walk 1** rest pins, L/R facing | `spear_walk.png` |
-| Gather | Gather 1 reach → pull keyframes | `spear_gather.png` |
-| Club swing | `WeaponOverlayCombat` swing tween | `club_strike.png` |
-| Spear thrust | Ready → strike → recover; **8 aim directions** (not infinite) | `spear_thrust_E.png`, … |
-
-Existing loader pattern: `DirectionalSpriteSheet` + `WalkAnimation` (paths empty today because procedural mannequin took over). Legacy `walk.png` / `clubwalk.png` are the older baked style.
-
-### Bake tool (not built yet)
-
-- **Trigger:** Tuner button **Bake animations** and/or headless `tools/bake_limb_animations.gd`.
-- **Input:** Saved `WeaponLimbPreset` + active weapon + `CharacterCardLayerLayout` (+ optional [DNA build](#planned-dna-character-builds-save-dna) for non-reference sizes).
-- **Process:** Step preview clock frame-by-frame; rasterize body + head + arms + overlay; pack grid PNG + manifest (fps, frame ranges, facing).
-- **Output dir (example):** `assets/baked/clansmen_1/<weapon>/`.
-
-### Runtime playback (Main)
-
-| State | Game behavior |
-|-------|----------------|
-| Walk | Advance walk frame; pick left/right row or sheet |
-| Idle | Loop idle clip |
-| Gather | Play gather clip once |
-| Spear ready / strike | Snap cursor aim to **nearest baked direction**; play that clip (same idea as `thrust_min_horizontal_frac`) |
-| Club | Play baked windup / hit / recover |
-
-**Tuner unchanged:** Shift+click combat test, pin drag, Save all — still the sign-off path.
-
-### Agent workflow (after bake exists)
-
-1. You tune pins → **Save all**.
-2. You say “bake spear walk + thrust” (or click Bake).
-3. Agent runs bake, wires manifest, disables procedural path in Main for that weapon.
-4. If walk feels stiff → tweak **WalkArmSwing** or Walk 1 pins in tuner → **re-bake** (not guess numbers in chat).
-
-### Phased rollout (when we implement)
-
-1. **Walk + idle** bake for spear/club/none — biggest win.
-2. **Gather** bake.
-3. **Combat** bake (club swing; spear thrust 8-dir).
-4. Turn off procedural mannequin in `PlaceholderCardService` for Main; tuner still procedural.
-5. Genetics: reference bake + [layer scale or size buckets](#genetics-with-baked-animation) (see below).
-
-### Non-goals for v1 bake
-
-- Baking every NPC individually by hand.
-- Infinite spear aim angles (use direction buckets).
-- Replacing tuner procedural preview (authoring stays live).
-
----
-
-## Planned: DNA character builds (Save DNA)
-
-**Goal:** Save and **name different character builds** (body proportions, arm length/thickness) separately from **pose** presets — so you can preview “stocky hunter” vs “lanky gatherer” without mixing that into `spear_clansmen_1.tres` walk pins.
-
-### Two save types (do not mix)
-
-| Save type | Example name | Stores | Does **not** store |
-|-----------|--------------|--------|---------------------|
-| **Pose preset** | `spear_clansmen_1.tres` | Idle / Walk 1 / Attack pin rows, overlay offsets, elbow poles | Body height, genetics sim values |
-| **DNA build** | `"Stocky hunter"`, `"Reference"`, `"Tall thin"` | Body scale, arm length/thickness multipliers, optional body/head texture ids | Walk swing phase, strike timing |
-
-**Rule:** Pose `.tres` = **what the animation looks like at reference body**. DNA build = **which body** that animation is authored or displayed on.
-
-### Planned UI: **Save DNA**
-
-- Dropdown or list of named builds (like Pose Map, but for **character**, not animation).
-- **Save DNA** / **Save DNA as…** — name the build; write to disk (format TBD, e.g. `assets/character_builds/<slug>.tres` wrapping `CharacterAppearance` or a new `CharacterDnaBuild` resource).
-- **Load DNA** — preview mannequin at that size; **does not overwrite** the active pose preset unless you explicitly “Apply to preset reference” (avoided by default).
-- Preview sliders (Small / Reference / Large) for quick look — **preview only** until you Save DNA.
-
-Stub today: `scripts/character/character_appearance.gd` (`body_proportion_scale`); tuner guide previously listed “DNA preview row” as planned.
-
-### Genetics with baked animation
-
-When bake lands, genetics attach to **playback**, not live IK:
-
-| Approach | When | How |
-|----------|------|-----|
-| **Reference + layer scale** (v1) | First bake ship | Bake at DNA 1.0; at spawn multiply body / head / arm layer scale from build or `genetics_profile` (tight caps, e.g. 0.9–1.1) |
-| **Size buckets** (v2) | Genetics sim matters visually | Bake Small / Reference / Large per clip from **Save DNA** builds; spawn picks nearest bucket |
-| **Uniform whole-character scale** | Simplest fallback | One scale on entire sprite — fast, mushy for “long arms, short torso” |
-
-**Author once at reference** — never hand-tune 100 NPCs. Optional: **Bake all DNA variants** from named builds when you click Bake (outputs `baked/stocky_hunter/spear_walk.png`, etc.).
-
-Cross-ref: `bible/future implementations/genetics.md` (`body_size`, continuous loci). Runtime wiring (`genetics_profile` → appearance) is [Future plans](#future-plans-priority--communication-value) section C.
-
-### Status
-
-**Too soon to implement** bake + Save DNA in code (July 2026) — document only. Procedural mannequin remains in Main until bake playback is ready.
+If extreme genetics stretch bakes badly: bake **Small / Reference / Large** from named DNA builds in the tuner — still not one sheet per NPC.
 
 ---
 
 ## Smooth UI / UX — principles
 
-These come from your feedback (locked handles, cluttered modes, wanting a clear flow):
-
 ### One happy path
 
 ```
-Pick pose → Play to preview (or ←→ / Shift+click) → Pause → Drag pins → Save all
+Set morphology (reference) → pick holdable / category / variant
+→ Play or ←→ or Shift+click → drag pins → Save all → Bake clip (when ready)
 ```
 
-No hidden “you must Lock first” step for normal pose work. **Assemble mode is the default.**
-
-### Panel layout (left **Pose Map**, ~300px)
+### Panel layout (left **Character Tuner**, ~340px, single panel)
 
 | Section | Purpose |
 |---------|---------|
-| **Pose + preview** | **Pose** dropdown (weapon + snapshot). **▶ Play / ⏸ Pause** for idle & gather loops. |
-| **Save & reset** | Save all · **Save DNA** (planned) · Reset pose · Reload file · Reset anchors |
-| **Copy for chat** | Full handoff for agent sessions |
-| **Arm length & thickness** | Shared upper/lower/thickness spinboxes |
-| **Summary** | Live pose row, elbow labels, reach warnings |
-| **Status** | Last action (saved, copied, editing which pose) |
-
-**Zoom:** character scale is **fixed** (body-centered at 4× stage scale) — switching pose rows does not shrink/grow the mannequin.
+| **Animation** | Holdable grid · Category · Variant |
+| **Preview** | **▶ Play / ⏸ Pause** (idle & gather) |
+| **Morphology** | Arm length · thickness · **H** head · *(planned)* body/head scale |
+| **Cosmetics** *(planned)* | Face/hair/clothing pickers — same panel, below morphology |
+| **Save & reset** | Save all · **Save DNA** *(planned)* · Bake clip · Reload · Reset |
+| **Copy for chat** | Pose + morphology handoff |
+| **Summary / Status** | Active variant, elbow labels, reach warnings |
 
 ### Canvas / pins
 
 | Pin | Label | Action |
 |-----|-------|--------|
 | Dominant shoulder | **1** | Drag |
-| Dominant hand | **1h** | Drag (priority pick target) |
+| Dominant hand | **1h** | Drag |
 | Support shoulder | **2** | Drag |
 | Support hand | **2h** | Drag |
-| Weapon / holdable | **3** | Drag when holdable has overlay |
-| Head / neck | **H** | Drag |
-| Dominant elbow bend | **1e** | **Click** to flip outward ± (not drag) |
-| Support elbow bend | **2e** | **Click** to flip |
+| Weapon | **3** | Drag |
+| Head / neck | **H** | Drag (head↔body distance) |
+| Elbow bend | **1e / 2e** | **Click** to flip ± |
 
-**Draw order (tuner):** arm1 → body → head → arm2 (arms split at elbow for depth).
+**Draw order (tuner):** arm1 → body → head → arm2.
 
 ### Preview controls
 
-| Pose row | Preview |
-|----------|---------|
-| **Idle / Idle 1 / Gather 1** | **▶ Play** / **⏸ Pause** — subtle breathe only; drag a pin auto-pauses |
-| **Walk / Walk 1** | **← / →** arrow keys — **club arm stays in idle carry pose**; free arm swings |
-| **Attack ready** | **Shift** = ready · **Shift + click** = swing |
-
-Dragging a pin **pauses** idle preview so the pose doesn’t fight your edit.
-
-### Feedback that should always feel instant
-
-- **Summary** updates: holdable, pose name, hand/overlay coords, 1e/2e bend, arm px, idle play state.
-- **Reach warnings** when a hand is outside IK range (⚠ in summary).
-- **Status line** after Save / Copy / Reset — one plain English sentence.
-- **Handles track pan/zoom** via `HandleStage` mirroring `Stage`.
-
-### UX we are still improving
-
-- ~~Walk preview discoverability~~ → **Play walk button + arrows** (planned).
-- **Eyes overlay slot** — first cosmetic on mannequin (planned).
-- DNA preview sliders not in UI yet; **Save DNA** named builds not in UI yet (see [Planned: DNA character builds](#planned-dna-character-builds-save-dna)).
-- Attack mode copy could mention “optional sanity check only” for None holdable.
-- **Remove Lock/Test modes** from code when doing UX cleanup pass.
+| Variant | Preview |
+|---------|---------|
+| Idle / Idle 1 / Gather | **▶ Play** / **⏸ Pause** |
+| Walk / Walk 1 | **← / →** arrow keys |
+| Attack windup | **Shift** ready · **Shift + click** strike/thrust |
 
 ---
 
-## Agent workflow (how we use this together)
+## Agent workflow
 
 ### Your side
 
-1. Open tuner (or ask agent to launch `LimbTuner.tscn`).
-2. Select **pose** + **holdable**.
-3. Tune pins + spinboxes; preview until it feels right.
-4. **Save all**.
-5. In chat, short handoff:
+1. Open tuner (`LimbTuner.tscn`).
+2. Adjust morphology + pick animation variant.
+3. Tune pins; **Save all**; **Bake clip** when loop is ready.
+4. Handoff example:
 
 ```
-Preset: none_clansmen_1
-Animation: Walk 1
-Saved: yes
-Intent: arms slower, synced with body; support arm swings wider
+Morphology: reference (arm 120/120, thickness 14)
+Preset: spear_clansmen_1 · Walk 1
+Baked: assets/baked/clansmen_1/spear/walk.png
+Intent: support arm swings wider than weapon arm
 ```
-
-Or press **Copy for chat** and paste.
 
 ### Agent side
 
-1. Read `assets/limb_presets/<weapon>_clansmen_1.tres` (+ layout if head moved).
-2. Run `SKIP_SINGLE_INSTANCE=1 godot --path . --headless -s res://tools/test_limb_tuner.gd`.
-3. Change **shared motion/IK code** when you asked for feel tweaks (not duplicate magic numbers).
-4. Re-launch tuner for you to sign off.
+1. Read pose `.tres` + layout + baked manifest if relevant.
+2. Run `tools/test_limb_tuner.gd` (+ `test_limb_bake.gd` after bake changes).
+3. Wire Main playback when implementing `BakedPawnPlayer`.
 
-### Rest pose vs procedural motion (don’t mix these up)
-
-| Type | Where it lives | Examples |
-|------|----------------|----------|
-| **Rest pose** | Preset fields per anim mode | `walk1_hand_grip_offset_px`, elbow poles, bend overrides |
-| **Procedural motion** | Code modules | `WalkArmSwing`, `TunerIdlePreview`, `WeaponOverlayCombat` strike |
-
-**Walk 1** = your saved **rest** + shared **swing** + shared **body/head rhythm** (`WALK_RHYTHM_SPEED_SCALE` in `PlaceholderCardRegistry`).
+```bash
+cd "/Users/macbook/Desktop/stoneageclans"
+SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
+```
 
 ---
 
@@ -324,89 +374,12 @@ Or press **Copy for chat** and paste.
 
 | File | Resource | Contents |
 |------|----------|----------|
-| `assets/limb_presets/<weapon>_clansmen_1.tres` | `WeaponLimbPreset` | Shoulders, hands, walk/walk1/attack snapshots, elbow poles/bends, arm length/thickness |
-| `assets/character_cards/layered_blank_1.tres` | `CharacterCardLayerLayout` | Body/head texture paths, neck socket, offsets |
-| `assets/character_builds/<name>.tres` *(planned)* | `CharacterAppearance` or `CharacterDnaBuild` | Named DNA build: body/head/arm scale multipliers, texture ids |
+| `assets/limb_presets/<weapon>_clansmen_1.tres` | `WeaponLimbPreset` | Per-variant pins, grips, elbows (motion) |
+| `assets/character_cards/layered_blank_1.tres` | `CharacterCardLayerLayout` | Neck socket, texture paths |
+| `assets/character_builds/<name>.tres` *(planned)* | `CharacterAppearance` | Morphology: scales, arm length, thickness |
+| `assets/baked/clansmen_1/<holdable>/` | PNG + JSON | Baked motion strips |
 
-**Named animations today:**
-
-| UI label | Enum | Storage |
-|----------|------|---------|
-| Idle (standing) | `IDLE` | `hand_grip_offset_px`, idle poles, … |
-| Idle 1 (look around) | `IDLE1` | Same idle storage + `TunerIdlePreview` motion |
-| Walk | `WALK` | `walk_*` fields |
-| **Walk 1** | `WALK1` | `walk1_*` fields (**canonical saved walk** for none/clansmen_1) |
-| Attack (windup) | `ATTACK` | ready grip, `ready_offset_px`, … |
-
-**Coordinate space:** display pixels at **128px card height**; mannequin textures in `assets/character_cards/`.
-
-**Export API:** `WeaponLimbPreset.to_chat_handoff()` · `to_export_dict()` · UI **Copy for chat**.
-
----
-
-## Walk animation decisions (locked in)
-
-Documented so we don’t re-debate:
-
-- **Travel direction:** walking **right** = **+X** in rig space (arrow keys).
-- **Arm swing:** opposite-phase humanoid pump; **support arm wider** than weapon arm.
-- **Motion model:** travel-aligned push + shoulder arc; softened wave; **shared clock** with body bounce and head bob.
-- **IK during walk:** relaxed min-reach so arms don’t feel “choked”.
-- **Elbows:** preset bend only; **no automatic flip while walking**.
-- **Walk 1:** first **named** walk snapshot — use this when you say “the walk we tuned”.
-
-Key code: `scripts/systems/walk_arm_swing.gd`, `scripts/config/placeholder_card_registry.gd` (`effective_walk_bounce_speed()`).
-
----
-
-## Club swing animation (locked intent)
-
-**Pivot:** handle knob on club art (`CLUB_HANDLE_TEXTURE_NX/NY` in `placeholder_card_registry.gd`). The overlay rotates around the grip, not the PNG center.
-
-**Facing right (default):**
-
-| Phase | Rotation | Position | Feel |
-|-------|----------|----------|------|
-| **Ready** (Shift) | ~−50° (10 o'clock) | `ready_offset_px` from limb preset | Club raised in windup stance |
-| **Windup** (start of strike) | **Counter-clockwise** more (−42° from ready) | Pull **back + up** | Tip goes **behind the head** |
-| **Downswing** | **Clockwise** sweep (+110° arc from ready) | Lunge **forward + down** | Heavy smash |
-| **Recover** | Back to ready | Back to ready pose | Short follow-through |
-
-**Facing left:** same motion mirrored (`_swing_facing_sign` flips rotation and X lunge).
-
-**Tuning knobs** (club block in `WEAPON_COMBAT_PROFILES` → `ResourceData.ResourceType.WOOD`):
-
-- `ready_rotation_offset_deg` — how high the ready pose sits
-- `swing_windup_deg` + `swing_pull_back_px` / `swing_pull_up_px` — CCW cock behind head
-- `swing_arc_deg` + `swing_lunge_forward_px` / `swing_lunge_down_px` — CW downswing (club uses lower `swing_lunge_down_px` + smooth cubic easing)
-- `swing_windup_frac` / `swing_strike_frac` / `strike_duration` — timing
-- Optional: `swing_strike_trans` / `swing_strike_ease` — club = smooth cubic in-out; axe inherits old snappy club chop defaults
-
-**In Limb Tuner:** **Club · Attack windup** — drag pins to position the raised stance → **Save all**. **Club · Idle standing** — **Shift** = live windup → **Shift + click** = test strike (same as in-game). Swing arc/timing lives in `placeholder_card_registry.gd` until we expose it in UI.
-
-### Spear thrust (two-hand)
-
-Same tuner pattern as club:
-
-- **Spear · Idle standing** — carry pose; **Shift** = windup preview; **Shift + click** = test thrust.
-- **Spear · Attack windup** — horizontal **max extension** pose (thrust peak). **Y1** moves spear; **Y2** + **2h** pinned. Saves to `strike_offset_px`. Shift-ready windup uses `ready_offset_px`. Test thrust from **Idle standing**.
-
-Thrust arc/timing: spear block in `WEAPON_COMBAT_PROFILES` → `ResourceData.ResourceType.SPEAR`.
-
-Key code: `scripts/systems/weapon_overlay_combat.gd` (`compute_swing_strike_targets`, `_play_swing_strike`).
-
----
-
-## New weapon workflow
-
-When you add spear, club, axe, etc.:
-
-1. Open tuner → select holdable.
-2. Tune **Idle**, **Walk 1**, **Attack** (at minimum).
-3. Save → creates/updates `assets/limb_presets/<weapon>_clansmen_1.tres`.
-4. Tell agent which file + any “feels like X” notes.
-
-Same pipeline later for **hair/clothing** overlays: new slot → tune on mannequin → save offsets → handoff.
+**Coordinate space:** 128 px display height reference. **Export:** `to_chat_handoff()` · **Copy for chat**.
 
 ---
 
@@ -416,96 +389,72 @@ Same pipeline later for **hair/clothing** overlays: new slot → tune on mannequ
 |-------|------|
 | Scene | `scenes/tools/LimbTuner.tscn` |
 | App / UI | `scripts/tools/limb_tuner.gd` |
+| Animation catalog | `scripts/config/character_animation_catalog.gd` |
+| Pawn vision | [guides/pawn_goal.md](pawn_goal.md) |
 | Rig + preview | `scripts/tools/limb_tuner_rig.gd` |
 | Mannequin | `scripts/tools/tuner_body_visual.gd` |
-| Walk preview | `scripts/tools/tuner_walk_preview.gd` |
-| Idle 1 | `scripts/tools/tuner_idle_preview.gd` |
+| Bake | `scripts/tools/limb_animation_baker.gd` |
+| Appearance stub | `scripts/character/character_appearance.gd` |
 | Preset schema | `scripts/config/weapon_limb_preset.gd` |
-| Preset I/O | `scripts/systems/limb_preset_registry.gd` |
-| In-game arms | `scripts/systems/procedural_arm_controller.gd` |
-| Headless smoke | `tools/test_limb_tuner.gd` |
-
-Run: [scenes/tools/README.md](../scenes/tools/README.md).
+| In-game mannequin | `scripts/systems/placeholder_card_service.gd` |
+| Tests | `tools/test_limb_tuner.gd`, `tools/test_limb_bake.gd` |
 
 ---
 
-## Future plans (priority = communication value)
+## Future plans
 
-### A — Tuner UX (smooth preview for you + me)
+### A — Tuner panel (same screen)
 
-- [ ] **▶ Play walk** button — auto left-right loop **plus** existing arrow keys (confirmed).
-- [ ] **Remove Lock / Test modes** — Pose Map only (confirmed).
-- [ ] **Eyes overlay slot** — first cosmetic: texture pick + head-anchored offset pins (confirmed).
-- [ ] **Pose strip** — quick buttons: Idle · Idle 1 · Walk 1 · Attack for active holdable.
-- [ ] **On-screen pin legend** (optional toggle) for beginners.
-- [ ] **DNA preview row** — Small / Reference / Large sliders; **does not save** to preset.
-- [ ] **Hair / clothing slots** — after eyes pattern is proven.
-- [ ] **Scrub bar** for walk phase (debug swing at 0%, 25%, 50%, …) when tuning with agent.
-- [ ] **Unsaved indicator** when pins differ from disk.
+- [x] Holdable + category + variant picker
+- [x] Idle default on holdable switch
+- [ ] **Morphology row** — body scale, head scale, neck offset spinboxes (main panel)
+- [ ] **Save DNA** — morphology file separate from pose Save all
+- [ ] Cosmetic layer pickers (eyes, hair, …) — **same panel**, not a new tab
+- [ ] ▶ Play walk button
+- [ ] Unsaved indicator (pose vs morphology vs disk)
 
 ### B — Data model
 
-- [ ] **`CharacterDnaBuild` / Save DNA** — named builds on disk; separate from `WeaponLimbPreset`.
-- [ ] Per-pose cosmetic offsets in preset or layout.
-- [ ] `to_chat_handoff()` lines for cosmetics + active DNA build name + preview scale.
-- [ ] Migrate to **pose dictionary** (`poses["walk1"]`) when field count gets painful.
-- [ ] Attack variants: `attack1`, `attack2` same pattern as Walk 1.
+- [x] `CharacterAnimationCatalog`
+- [ ] Move global arm length/thickness from preset → DNA build (single source for genetics)
+- [ ] `genetics_profile` → appearance layers + morphology at spawn
+- [ ] Bow, sling, taunt, ranged in catalog
 
-### B2 — Bake pipeline *(after pose + DNA build schema stable)*
+### B2 — Bake + Main playback
 
-- [ ] `tools/bake_limb_animations.gd` — sample tuner preview → PNG sheets + JSON manifest.
-- [ ] Tuner **Bake animations** button (weapon + optional DNA build).
-- [ ] `BakedMannequinPlayer` (or extend `WalkAnimation`) — Main playback, no `ProceduralArmController` in game.
-- [ ] Spear thrust **8-direction** baked clips + aim snap (reuse thrust aim clamp rules).
-- [ ] Re-bake checklist in agent workflow when Walk 1 or combat timing changes.
+- [x] Bake clip + review popup
+- [ ] Combat strips + 8-dir spear
+- [ ] `BakedPawnPlayer` in Main
+- [ ] Batch bake entire catalog
+- [ ] Optional DNA size buckets for bakes
 
 ### C — Game parity
 
-- [ ] Runtime layer stack = tuner draw order.
-- [ ] Walk 1 rest + shared swing for placeholder-card NPCs/player *(today: procedural)*.
-- [ ] `genetics_profile` → `CharacterAppearance` scale multipliers.
-- [ ] Optional DNA **size buckets** for baked clips (Small / Ref / Large per build).
+- [x] Main: layered body + weapon, no arm lines
+- [ ] Runtime face/hair/skin layers on HeadPivot
+- [ ] Hand → weapon attach chain (pawn_goal hierarchy)
 
-### Non-goals
+### D — Procedural exploration (tuner + Main)
 
-- Full genetics sim UI inside tuner.
-- Replacing bible lineage docs.
-- Skeleton2D cutout rig **unless** you explicitly pivot art pipeline (`bible/future implementations/characergenerator.md` is a different track).
-
----
-
-## Design rules (agent + future features)
-
-1. **No guessing** — measure in tuner; save; then code (or re-bake).
-2. **One source of truth** — preset beats chat approximations; **DNA build** beats ad-hoc scale in Main.
-3. **Author poses at DNA 1.0 reference** — genetics / named builds multiply or pick baked variant later.
-4. **Named animations** — `walk1`, not “the walk we did Tuesday”.
-5. **Named DNA builds** — `"Stocky hunter"`, not “the short one we tried once”.
-6. **Every new tunable field** → shows up in Copy for chat.
-7. **Agent runs the tuner** — headless test + launch; you don’t carry CLI alone.
-8. **Same clocks in preview and game** for walk/idle rhythm (until bake; then manifest fps must match preview sample rate).
+- [ ] Preview-band dropdown (Small / Ref / Large) while Play runs
+- [ ] Morphology scrub during live preview
+- [ ] Live rig vs last baked strip compare overlay
+- [ ] Bake from current morphology (band-specific export)
+- [ ] **In-game procedural spike** — shared motion code with tuner; perf + MP determinism tests
+- [ ] Graduated path: debug flag → player pawn → population if bar is met; bakes as fallback only
 
 ---
 
-## UX decisions (confirmed)
+## Design rules
 
-| Topic | Decision |
-|-------|----------|
-| **Walk preview** | **Both** — add ▶ Play walk (auto loop) **and** keep ← / → arrow keys |
-| **Lock / Test modes** | **Remove** — Pose Map + Attack preview is enough |
-| **First cosmetic slot** | **Eyes** on head (before hair/clothing) |
-
-These drive the next tuner UI pass. See [Future plans](#future-plans-priority--communication-value) section A.
-
----
-
-## Open decisions
-
-| Topic | Notes |
-|-------|--------|
-| **DNA build resource** | Extend `CharacterAppearance` vs new `CharacterDnaBuild` — decide when implementing Save DNA. |
-| **Bake raster** | Viewport capture vs layered composite from mannequin nodes — decide in bake spike. |
-| **Genetics v1 with bake** | Layer scale vs size buckets — start reference + tight scale; buckets when sim ships. |
+1. **No guessing** — measure in tuner; save; bake or code.
+2. **One panel** — animation, morphology, and cosmetics grow as sections, not tabs.
+3. **Two save types** — pose preset (motion) vs DNA/morphology (shape); never mix genetics into six weapon files.
+4. **Bake motion, layer identity** — strips for walk/idle/attack; genetics for face/hair/skin/clothes.
+5. **Author at reference morphology** — genetics and optional buckets handle extremes.
+6. **Tuner has arms; Main does not** — bake bridges authoring to population scale.
+7. **Bakes + procedural** — one motion source in the tuner; bake records it; do not fork into two timelines. **Procedural in Main is the preferred end state** if we can make it work at scale.
+8. **pawn_goal is the pawn target** — this doc is how the tuner feeds it.
 
 ---
 
@@ -513,21 +462,22 @@ These drive the next tuner UI pass. See [Future plans](#future-plans-priority--c
 
 | Doc | Topic |
 |-----|--------|
-| [scenes/tools/README.md](../scenes/tools/README.md) | Commands + file table |
-| [docs/clothing.md](../docs/clothing.md) | Runtime tint / clan color rules |
-| `bible/future implementations/genetics.md` | DNA traits (simulation) |
-| `scripts/character/character_appearance.gd` | Runtime appearance stub |
+| **[pawn_goal.md](pawn_goal.md)** | Character hierarchy, genetics, layered appearance — **pawn north star** |
+| [assets/baked/README.md](../assets/baked/README.md) | Bake output layout |
+| [scenes/tools/README.md](../scenes/tools/README.md) | Run commands |
+| `bible/future implementations/genetics.md` | Simulation traits |
 
 ---
 
-## Quick reference card
+## Quick reference
 
-**Do:** Save all · name pose (Walk 1) · **Save DNA** when UI exists · one intent sentence · Copy for chat optional.  
-**Don’t:** screenshot-only handoff · tune feel only in Main · expect auto elbow flip on walk · mix DNA scale into pose `.tres` rows.
+**Do:** One panel — morphology + animation · Save pose · Save DNA (when wired) · Bake clip · layer cosmetics in game, not in bake · keep procedural preview in tuner · **keep exploring procedural pawns in Main** (preferred long-term).
 
-**Four task types for chat:**
+**Don’t:** Treat bakes as the permanent ceiling · separate tabs for morphology · duplicate arm length in every weapon `.tres` · bake individual faces into walk strips · expect arm lines in Main today · maintain two unrelated motion systems (procedural vs bake).
 
-1. **New named pose** — drag pins, save, new dropdown entry / preset fields.  
-2. **Procedural feel** — “slower”, “looser”, “more sync” → code in `WalkArmSwing` / idle / combat (until baked; then re-bake).  
-3. **New overlay slot** — hair/clothing/eyes → layer + pins + handoff line.  
-4. **DNA build** *(planned)* — name + save body/arm proportions; preview in tuner; later bake per build.
+**Task types for chat:**
+
+1. **New animation variant** — catalog + preset pins + bake.
+2. **Morphology** — arm length, head/body scale, neck — DNA build.
+3. **Cosmetic layer** — eyes/hair/clothing — layer on HeadPivot, genotype-driven.
+4. **Feel tweak** — shared motion code until baked; then re-bake.

@@ -7,7 +7,8 @@ extends SceneTree
 const NPC_SCENE_PATH := "res://scenes/NPC.tscn"
 const PLAYER_SCENE_PATH := "res://scenes/Player.tscn"
 const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
-const TARGET_HEIGHT := 128.0
+const MANNEQUIN_TARGET_HEIGHT := 56.0
+const CARD_TARGET_HEIGHT := 128.0
 const FOOT_Y_TOLERANCE := 1.5
 
 
@@ -25,10 +26,10 @@ func _assert_near(actual: float, expected: float, label: String) -> void:
 		_fail("%s expected %.2f got %.2f" % [label, expected, actual])
 
 
-func _expected_foot_y(texture: Texture2D) -> float:
+func _expected_foot_y(texture: Texture2D, display_height: float = CARD_TARGET_HEIGHT) -> float:
 	if texture == null:
 		_fail("texture is null")
-	var scale := TARGET_HEIGHT / float(texture.get_height())
+	var scale := display_height / float(texture.get_height())
 	return -(texture.get_height() * scale * 0.5)
 
 
@@ -49,12 +50,12 @@ func _count_head_pivots(sprite: Sprite2D) -> int:
 	return count
 
 
-func _assert_procedural_mannequin(entity: Node, sprite: Sprite2D, label: String) -> void:
+func _assert_layered_body_mannequin(entity: Node, sprite: Sprite2D, label: String) -> void:
 	if sprite == null:
 		_fail("%s sprite missing" % label)
 		return
 	if sprite.texture != null:
-		_fail("%s should use layered mannequin (sprite.texture cleared)" % label)
+		_fail("%s should use layered body+head (sprite.texture cleared)" % label)
 	var head_count := _count_head_pivots(sprite)
 	if head_count != 1:
 		_fail("%s should have exactly 1 HeadPivot, got %d" % [label, head_count])
@@ -62,14 +63,12 @@ func _assert_procedural_mannequin(entity: Node, sprite: Sprite2D, label: String)
 	if body_visual == null:
 		_fail("%s BodyVisual missing" % label)
 	var body_tex: Texture2D = _mannequin_body_tex()
-	_assert_near(sprite.position.y, _expected_foot_y(body_tex), "%s foot_y" % label)
-	if absf(sprite.scale.y - (TARGET_HEIGHT / float(body_tex.get_height()))) > 0.02:
-		_fail("%s scale not 128px tall layout" % label)
+	_assert_near(sprite.position.y, _expected_foot_y(body_tex, MANNEQUIN_TARGET_HEIGHT), "%s foot_y" % label)
+	if absf(sprite.scale.y - (MANNEQUIN_TARGET_HEIGHT / float(body_tex.get_height()))) > 0.02:
+		_fail("%s scale not 56px tall runtime mannequin layout" % label)
 	var arm_ctrl: Node = entity.get_node_or_null("ProceduralArmController")
-	if arm_ctrl == null:
-		_fail("%s ProceduralArmController missing" % label)
-	elif arm_ctrl.get("use_tuner_arm_layers") != true:
-		_fail("%s should use tuner arm draw layers" % label)
+	if arm_ctrl != null and arm_ctrl.is_processing():
+		_fail("%s ProceduralArmController should not run in game" % label)
 
 
 func _texture_path(texture: Texture2D) -> String:
@@ -113,9 +112,11 @@ func _run() -> void:
 	svc.apply_to_player(player)
 	svc.apply_to_player(player)
 	var player_sprite: Sprite2D = player.get_node_or_null("Sprite") as Sprite2D
-	_assert_procedural_mannequin(player, player_sprite, "player")
-	if not svc.uses_procedural_mannequin(player):
-		_fail("player should use procedural mannequin")
+	_assert_layered_body_mannequin(player, player_sprite, "player")
+	if not svc.uses_layered_body_mannequin(player):
+		_fail("player should use layered body mannequin in game")
+	if svc.uses_procedural_mannequin(player):
+		_fail("player should not use procedural arms in game")
 
 	# Caveman NPC
 	var caveman: Node = npc_scene.instantiate()
@@ -127,7 +128,7 @@ func _run() -> void:
 	await process_frame
 	svc.apply_to_npc(caveman)
 	var cave_sprite: Sprite2D = caveman.get_node_or_null("Sprite") as Sprite2D
-	_assert_procedural_mannequin(caveman, cave_sprite, "caveman")
+	_assert_layered_body_mannequin(caveman, cave_sprite, "caveman")
 	var card_index: int = int(caveman.get("card_index"))
 	if card_index < 1 or card_index > 18:
 		_fail("caveman card_index out of range: %d" % card_index)
@@ -203,7 +204,8 @@ func _run() -> void:
 	var ready_pos: Vector2 = WeaponOverlayCombat._flipped_position(player_sprite, spear_ready_base)
 	var extend_dist: float = ready_px.distance_to(strike_px)
 	var sx: float = maxf(absf(player_sprite.scale.x), 0.001)
-	var expected_local_extend: float = extend_dist / sx
+	var runtime_mul: float = svc.get_runtime_display_scale(player)
+	var expected_local_extend: float = extend_dist * runtime_mul / sx
 	var strike_right: Vector2 = WeaponOverlayCombat.compute_tuned_thrust_strike_pos(
 		player_sprite, ready_pos, ready_px, strike_px, Vector2(1.0, 0.0)
 	)
@@ -318,7 +320,7 @@ func _run() -> void:
 	son.set("npc_type", "clansman")
 	svc.apply_to_npc(son)
 	var son_sprite: Sprite2D = son.get_node_or_null("Sprite") as Sprite2D
-	_assert_procedural_mannequin(son, son_sprite, "grown son")
+	_assert_layered_body_mannequin(son, son_sprite, "grown son")
 	if int(son.get("card_index")) != 5:
 		_fail("grown son should keep inherited card_index 5")
 

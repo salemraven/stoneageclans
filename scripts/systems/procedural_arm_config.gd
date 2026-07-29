@@ -36,7 +36,9 @@ class_name ProceduralArmConfig
 @export var arm_width := 14.0
 @export var hand_width := 10.0
 @export_range(0.5, 2.0) var width_genetics_mult := 1.0
-@export var arm_color := Color(0.55, 0.42, 0.35, 1.0)
+@export var arm_color := Color("#ecb58e")
+@export var arm_outline_color := Color(0.0, 0.0, 0.0, 1.0)
+@export var arm_outline_width_px := 2.0
 @export var arm_texture: Texture2D
 
 # IK: elbow bends toward shoulder + outward * this distance.

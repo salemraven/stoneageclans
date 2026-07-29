@@ -38,7 +38,7 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light (visual only)
 var card_index: int = 0  # clansmen_card1-18 for caveman/clansman/player lineage
 var genetics_profile: Dictionary = {}  # conception profile; skin_modulate applied in PR3
-var _card_foot_y: float = -64.0
+var _card_foot_y: float = -28.0
 var _card_bounce_time: float = 0.0
 
 # Traits array (editable in inspector)

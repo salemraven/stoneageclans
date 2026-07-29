@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://limb_tuner_tool01"]
+[gd_scene load_steps=7 format=3 uid="uid://limb_tuner_tool01"]
 
 [ext_resource type="Script" path="res://scripts/tools/limb_tuner.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/tools/limb_tuner_rig.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/npc/components/combat_component.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/systems/procedural_arm_controller.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/tools/tuner_body_visual.gd" id="5"]
+[ext_resource type="PackedScene" uid="uid://limb_bake_review01" path="res://scenes/tools/LimbBakeReviewWindow.tscn" id="6"]
 
 [node name="LimbTuner" type="Control"]
 layout_mode = 3
@@ -64,11 +65,11 @@ script = ExtResource("4")
 layer = 10
 
 [node name="Panel" type="PanelContainer" parent="UI"]
-custom_minimum_size = Vector2(300, 0)
+custom_minimum_size = Vector2(340, 0)
 offset_left = 12.0
 offset_top = 12.0
-offset_right = 312.0
-offset_bottom = 620.0
+offset_right = 352.0
+offset_bottom = 680.0
 
 [node name="Margin" type="MarginContainer" parent="UI/Panel"]
 layout_mode = 2
@@ -84,14 +85,14 @@ theme_override_constants/separation = 10
 [node name="Title" type="Label" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
-text = "Pose Map"
+text = "Character Tuner"
 
 [node name="HelpLabel" type="Label" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
 theme_override_font_sizes/font_size = 12
 autowrap_mode = 3
-text = "Pick a pose, Play to preview, drag pins, Save."
+text = "Pick holdable, category, variant. Switching holdable resets to Idle."
 
 [node name="Sep1" type="HSeparator" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
@@ -103,23 +104,48 @@ theme_override_constants/separation = 8
 [node name="SelectHeader" type="Label" parent="UI/Panel/Margin/VBox/SelectSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
-text = "Pose + preview"
+text = "Animation"
 
-[node name="PoseRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+[node name="HoldableRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="PoseLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/PoseRow"]
+[node name="HoldableLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/HoldableRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
-text = "Pose (weapon + snapshot)"
+text = "Holdable"
 
-[node name="AnimModeOption" type="OptionButton" parent="UI/Panel/Margin/VBox/SelectSection/PoseRow"]
-custom_minimum_size = Vector2(0, 34)
+[node name="HoldableGrid" type="GridContainer" parent="UI/Panel/Margin/VBox/SelectSection/HoldableRow"]
 layout_mode = 2
-size_flags_horizontal = 3
-alignment = 0
-fit_to_longest_item = true
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+columns = 3
+
+[node name="CategoryRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CategoryLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/CategoryRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Category"
+
+[node name="CategoryButtons" type="HBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection/CategoryRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="VariantRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="VariantLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/VariantRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Variant"
+
+[node name="VariantButtons" type="HBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection/VariantRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
 
 [node name="Sep2" type="HSeparator" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
@@ -180,6 +206,12 @@ custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Reset anchors"
+
+[node name="BakeBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Bake clip"
 
 [node name="CopyBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection"]
 custom_minimum_size = Vector2(0, 36)
@@ -255,3 +287,5 @@ theme_override_colors/font_color = Color(0.65, 0.85, 0.55, 1)
 theme_override_font_sizes/font_size = 11
 autowrap_mode = 3
 text = "Ready"
+
+[node name="BakeReviewWindow" parent="." instance=ExtResource("6")]

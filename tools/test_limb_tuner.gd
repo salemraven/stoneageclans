@@ -208,13 +208,18 @@ func _test_limb_tuner_scene() -> void:
 		_fail("BodyVisual mannequin missing")
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
-	var anim_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if anim_option == null:
-		_fail("pose dropdown missing")
-	elif anim_option.item_count < 20:
-		_fail("pose catalog too small: %d items" % anim_option.item_count)
+	var holdable_grid: GridContainer = app.get_node_or_null(
+		"UI/Panel/Margin/VBox/SelectSection/HoldableRow/HoldableGrid"
+	) as GridContainer
+	if holdable_grid == null:
+		_fail("holdable grid missing")
+	elif holdable_grid.get_child_count() < 6:
+		_fail("holdable grid too small: %d buttons" % holdable_grid.get_child_count())
+	var category_row: HBoxContainer = app.get_node_or_null(
+		"UI/Panel/Margin/VBox/SelectSection/CategoryRow/CategoryButtons"
+	) as HBoxContainer
+	if category_row == null or category_row.get_child_count() < 4:
+		_fail("category picker missing or incomplete")
 	var thickness_spin: SpinBox = app.get_node_or_null(
 		"UI/Panel/Margin/VBox/ArmsSection/ArmThicknessRow/ArmThicknessSpin"
 	) as SpinBox
@@ -241,12 +246,11 @@ func _test_limb_tuner_scene() -> void:
 	_test_tuner_draw_layers(rig)
 	_test_tuner_arm_lines_draw(rig)
 	var scale_before := stage.scale.x
-	for i in anim_option.item_count:
-		var label := anim_option.get_item_text(i)
-		if label.begins_with("Club · Idle standing"):
-			anim_option.select(i)
-			anim_option.item_selected.emit(i)
-			break
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
 	for _i in range(6):
 		await process_frame
 	if rig.weapon_overlay == null or not rig.weapon_overlay.visible:
@@ -287,15 +291,11 @@ func _test_idle_club_drag_handles() -> void:
 	root.add_child(app)
 	for _i in range(6):
 		await process_frame
-	var weapon_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if weapon_option:
-		for i in weapon_option.item_count:
-			if weapon_option.get_item_text(i).begins_with("Club ·"):
-				weapon_option.select(i)
-				weapon_option.item_selected.emit(i)
-				break
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
 	for _i in range(8):
 		await process_frame
 	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
@@ -359,15 +359,11 @@ func _test_spear_yellow_pinned_to_hand() -> void:
 	root.add_child(app)
 	for _i in range(6):
 		await process_frame
-	var pose_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if pose_option:
-		for i in pose_option.item_count:
-			if pose_option.get_item_text(i).begins_with("Spear · Idle standing"):
-				pose_option.select(i)
-				pose_option.item_selected.emit(i)
-				break
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.SPEAR,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
 	for _i in range(8):
 		await process_frame
 	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
@@ -416,15 +412,11 @@ func _test_spear_walk_grip_pinned_to_shaft() -> void:
 	root.add_child(app)
 	for _i in range(6):
 		await process_frame
-	var pose_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if pose_option:
-		for i in pose_option.item_count:
-			if pose_option.get_item_text(i).begins_with("Spear · Walk"):
-				pose_option.select(i)
-				pose_option.item_selected.emit(i)
-				break
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.SPEAR,
+		WeaponLimbPresetScript.TunerAnimMode.WALK
+	)
 	for _i in range(8):
 		await process_frame
 	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
@@ -493,18 +485,11 @@ func _test_club_walk_carry_pose() -> void:
 	root.add_child(app)
 	for _i in range(6):
 		await process_frame
-	var pose_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if pose_option == null:
-		_fail("club walk carry: pose dropdown missing")
-		app.queue_free()
-		return
-	for i in pose_option.item_count:
-		if pose_option.get_item_text(i).begins_with("Club · Idle standing"):
-			pose_option.select(i)
-			pose_option.item_selected.emit(i)
-			break
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
 	if app.has_method("_set_anim_mode"):
 		app.call("_set_anim_mode", WeaponLimbPresetScript.TunerAnimMode.WALK)
 	for _i in range(6):
@@ -591,38 +576,27 @@ func _test_pose_snapshot_isolation() -> void:
 		return
 	var app: Node = packed.instantiate()
 	root.add_child(app)
-	var pose_option: OptionButton = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption"
-	) as OptionButton
-	if pose_option == null:
-		_fail("snapshot isolation: pose dropdown missing")
-		app.queue_free()
-		return
 	var spear_strike_overlay := spear.strike_offset_px
 	var cases: Array[Dictionary] = [
-		{"prefix": "Club · Idle standing", "expect": idle_overlay},
-		{"prefix": "Club · Attack windup", "expect": idle_overlay},
-		{"prefix": "Spear · Idle standing", "expect": spear_idle_overlay},
-		{"prefix": "Spear · Attack windup", "expect": spear_strike_overlay},
+		{"weapon": ResourceData.ResourceType.WOOD, "mode": WeaponLimbPresetScript.TunerAnimMode.IDLE, "expect": idle_overlay},
+		{"weapon": ResourceData.ResourceType.WOOD, "mode": WeaponLimbPresetScript.TunerAnimMode.ATTACK, "expect": idle_overlay},
+		{"weapon": ResourceData.ResourceType.SPEAR, "mode": WeaponLimbPresetScript.TunerAnimMode.IDLE, "expect": spear_idle_overlay},
+		{"weapon": ResourceData.ResourceType.SPEAR, "mode": WeaponLimbPresetScript.TunerAnimMode.ATTACK, "expect": spear_strike_overlay},
 	]
 	for case in cases:
-		for i in pose_option.item_count:
-			if pose_option.get_item_text(i).begins_with(case["prefix"] as String):
-				pose_option.select(i)
-				pose_option.item_selected.emit(i)
-				break
+		app.call("_apply_pose_catalog_entry", case["weapon"], case["mode"])
 		for _i in range(8):
 			await process_frame
 		var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
 		if rig == null:
-			_fail("snapshot isolation: rig missing for %s" % case["prefix"])
+			_fail("snapshot isolation: rig missing for %s" % str(case))
 			continue
 		var live := rig.display_px_from_overlay_position()
 		var expect: Vector2 = case["expect"] as Vector2
 		if live.distance_to(expect) > 3.0:
 			_fail(
-				"snapshot isolation: %s overlay expected %s got %s"
-				% [case["prefix"], str(expect), str(live)]
+				"snapshot isolation: %s/%s overlay expected %s got %s"
+				% [str(case["weapon"]), str(case["mode"]), str(expect), str(live)]
 			)
 	app.queue_free()
 

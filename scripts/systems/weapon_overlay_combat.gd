@@ -80,6 +80,15 @@ static func _combat_profile(registry, weapon_type: ResourceData.ResourceType) ->
 	return profile
 
 
+static func _display_scale_mul(body_sprite: Sprite2D) -> float:
+	if body_sprite == null or not PlaceholderCardService:
+		return 1.0
+	var entity: Node = body_sprite.get_parent()
+	if entity and PlaceholderCardService.uses_layered_body_mannequin(entity):
+		return PlaceholderCardService.get_runtime_display_scale(entity)
+	return 1.0
+
+
 static func uses_aim_facing_flip(registry, weapon_type: ResourceData.ResourceType) -> bool:
 	if registry == null:
 		return false
@@ -231,9 +240,14 @@ static func play_strike(
 		)
 		var windup_frac: float = float(profile.get("thrust_windup_frac", 0.0))
 		var lunge_frac: float = float(profile.get("thrust_lunge_frac", 0.52))
+		var hold_frac: float = float(profile.get("thrust_hold_frac", 0.0))
+		var retract_frac: float = float(profile.get("thrust_retract_frac", -1.0))
+		if retract_frac < 0.0:
+			retract_frac = maxf(1.0 - windup_frac - lunge_frac - hold_frac, 0.04)
 		var windup_t: float = strike_duration * windup_frac
 		var lunge_t: float = strike_duration * lunge_frac
-		var retract_t: float = maxf(strike_duration - windup_t - lunge_t, 0.04)
+		var hold_t: float = strike_duration * hold_frac
+		var retract_t: float = strike_duration * retract_frac
 		var ready_base_now: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, true)
 		var ready_pos: Vector2 = _flipped_position(body_sprite, ready_base_now)
 		var ready_forward_px: float = float(profile.get("ready_forward_px", 0.0))
@@ -254,7 +268,6 @@ static func play_strike(
 				)
 				tween.set_ease(Tween.EASE_OUT)
 				tween.tween_property(overlay, "position", windup_pos, windup_t)
-				overlay.position = windup_pos
 			tween.set_trans(lunge_trans)
 			tween.set_ease(lunge_ease)
 			tween.tween_property(overlay, "position", strike_pos, lunge_t)
@@ -263,29 +276,36 @@ static func play_strike(
 					hit_called = true
 					on_hit.call()
 			)
-			tween.set_trans(Tween.TRANS_SINE)
+			if hold_t > 0.001:
+				tween.tween_interval(hold_t)
+			tween.set_trans(_profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_SINE))
 			tween.set_ease(_profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_OUT))
 			tween.tween_property(overlay, "position", ready_pos, retract_t)
 		else:
 			var windup_px: float = float(profile.get("thrust_windup_px", 8.0))
 			var extend_px: float = float(profile.get("thrust_extend_px", 50.0))
-			var hit_lunge_frac: float = clampf(float(profile.get("thrust_hit_lunge_frac", 0.55)), 0.2, 1.0)
+			var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_QUAD)
+			var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN)
+			var recover_trans := _profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_QUAD)
+			var recover_ease := _profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_IN)
 			var windup_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, -windup_px)
 			var extend_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px)
-			var hit_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px * hit_lunge_frac)
 			if windup_t > 0.001:
+				tween.set_trans(Tween.TRANS_SINE)
 				tween.set_ease(Tween.EASE_OUT)
 				tween.tween_property(overlay, "position", windup_pos, windup_t)
-			tween.set_ease(Tween.EASE_IN)
-			tween.tween_property(overlay, "position", hit_pos, lunge_t * hit_lunge_frac)
+			tween.set_trans(lunge_trans)
+			tween.set_ease(lunge_ease)
+			tween.tween_property(overlay, "position", extend_pos, lunge_t)
 			tween.tween_callback(func() -> void:
 				if not hit_called and on_hit.is_valid():
 					hit_called = true
 					on_hit.call()
 			)
-			if hit_lunge_frac < 0.999:
-				tween.tween_property(overlay, "position", extend_pos, lunge_t * (1.0 - hit_lunge_frac))
-			tween.set_ease(Tween.EASE_OUT)
+			if hold_t > 0.001:
+				tween.tween_interval(hold_t)
+			tween.set_trans(recover_trans)
+			tween.set_ease(recover_ease)
 			tween.tween_property(overlay, "position", ready_pos, retract_t)
 	else:
 		_play_swing_strike(
@@ -382,7 +402,8 @@ static func _offset_px_to_local(body_sprite: Sprite2D, offset_px: Vector2) -> Ve
 	var sx: float = absf(body_sprite.scale.x)
 	if sx < 0.001:
 		sx = 1.0
-	return Vector2(offset_px.x / sx, offset_px.y / sx)
+	var mul: float = _display_scale_mul(body_sprite)
+	return Vector2(offset_px.x * mul / sx, offset_px.y * mul / sx)
 
 
 static func _flipped_position(body_sprite: Sprite2D, base_offset: Vector2) -> Vector2:
@@ -397,7 +418,8 @@ static func _aim_delta_local(body_sprite: Sprite2D, world_aim: Vector2, distance
 	var sx: float = absf(body_sprite.scale.x)
 	if sx < 0.001:
 		sx = 1.0
-	return dir * (distance_display_px / sx)
+	var mul: float = _display_scale_mul(body_sprite)
+	return dir * (distance_display_px * mul / sx)
 
 
 ## Swing weapons: rotate around handle (bottom of texture), not center of PNG.
@@ -499,7 +521,7 @@ static func _profile_swing_trans(profile: Dictionary, key: String, default: Twee
 			return Tween.TRANS_SINE
 		"elastic":
 			return Tween.TRANS_ELASTIC
-		"quad":
+		"quad", "quart":
 			return Tween.TRANS_QUAD
 		_:
 			return default

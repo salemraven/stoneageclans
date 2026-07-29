@@ -10,6 +10,12 @@ extends Node
 @export var building_sort_offset_y: float = -220.0  # Buildings: more negative = player stays in front longer as they move north
 @export var tree_foot_offset_y: float = 0.0  # Added to sprite Y after bottom-align; negative = shift art up (ground line above node)
 @export var tree_sort_offset_y: float = 240.0  # Trees: positive = tree draws in front for larger zone = player hides behind trunk when closer
+const PlaceholderCardRegistryScript = preload("res://scripts/config/placeholder_card_registry.gd")
+## Runtime card hominids — keep in sync with PlaceholderCardRegistry.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT.
+const CARD_RUNTIME_DISPLAY_HEIGHT := PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT
+const CARD_REFERENCE_DISPLAY_HEIGHT := 128.0
+## Slight uniform bump for trees, grass, rocks, gatherables, ground piles (not player/buildings).
+@export var world_prop_scale: float = 1.15
 
 # z_index only sorts SIBLINGS in Godot. z_as_relative=false lets sprites sort across branches.
 # Godot 4.5 limits z_index to 0..4095 (12-bit); values outside cause "p_z > CANVAS_ITEM_Z_MAX" errors.
@@ -24,6 +30,16 @@ const Z_ABOVE_WORLD: int = 4095  # Progress bars, lines, indicators - max, draws
 const WORLD_OVERLAY_LINE_WIDTH_PX := 2.0
 const WORLD_OVERLAY_LINE_HERD_COLOR := Color(1.0, 1.0, 1.0, 0.35)
 const WORLD_OVERLAY_LINE_PARTY_COLOR := Color(0.92, 0.22, 0.2, 0.35)
+
+
+func get_world_prop_scale() -> float:
+	return maxf(world_prop_scale, 0.01)
+
+
+func scaled_tree_sort_offset_y() -> float:
+	var char_ratio: float = CARD_RUNTIME_DISPLAY_HEIGHT / CARD_REFERENCE_DISPLAY_HEIGHT
+	return tree_sort_offset_y * char_ratio
+
 
 # 128x128 sprites: move draw lower so feet align with 64x64
 const SPRITE_BASE_OFFSET_Y_64: float = -6.0
@@ -62,12 +78,12 @@ func get_tree_sprite_position_for_cell_height(cell_height: float, scale_y: float
 	return Vector2(0, -half_visual + tree_foot_offset_y)
 
 ## Returns grass/decor sprite position (0, y): foot at node so draw order is correct.
-## 64px: -32 (bottom at node); 128px: -64.
-func get_grass_sprite_position_for_texture(texture: Texture2D) -> Vector2:
+## 64px: -32 (bottom at node); 128px: -64. Pass scale_y matching sprite.scale.y.
+func get_grass_sprite_position_for_texture(texture: Texture2D, scale_y: float = 1.0) -> Vector2:
 	if not texture:
-		return Vector2(0, -32.0)  # Default 64px
+		return Vector2(0, -32.0 * scale_y)
 	var h: float = texture.get_height()
-	return Vector2(0, -h / 2.0)  # Center at node - half height = bottom at node
+	return Vector2(0, -h * scale_y / 2.0)
 
 ## Update draw order. Sort by feet. Same formula for all (grass is on CanvasLayer -1).
 ## z_as_relative=false so sprites in different branches (player vs building) sort together.
@@ -79,14 +95,12 @@ func update_draw_order(sprite: Sprite2D, parent_node: Node2D) -> void:
 	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
 
 
-## Tall placeholder cards: sprite.position.y anchors the PNG (negative); feet sit on the entity origin.
-## card_anchor_foot_y = resting sprite.position.y from get_card_foot_y (typically -half_display_height).
-func update_card_draw_order(sprite: Sprite2D, parent_node: Node2D, card_anchor_foot_y: float) -> void:
+## Tall placeholder cards: feet stay on entity origin; bounce is visual-only for Y-sort.
+func update_card_draw_order(sprite: Sprite2D, parent_node: Node2D, _card_anchor_foot_y: float) -> void:
 	if not sprite or not parent_node:
 		return
 	sprite.z_as_relative = false
-	var bounce_y: float = sprite.position.y - card_anchor_foot_y
-	var foot_y: float = parent_node.global_position.y + bounce_y
+	var foot_y: float = parent_node.global_position.y
 	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
 
 ## Tree-specific: sort by bottom of tree sprite (trunk/ground line) so player can hide behind trunks.
@@ -104,7 +118,12 @@ func update_tree_draw_order(sprite: Sprite2D, parent_node: Node2D, texture: Text
 		tex_h = texture.get_height() if texture else 64.0
 	var scale_y: float = sprite.scale.y if sprite.scale.y > 0 else 1.0
 	var half_visual_height: float = (tex_h * scale_y) / 2.0
-	var trunk_base_y: float = parent_node.global_position.y + sprite.position.y + half_visual_height + tree_sort_offset_y
+	var trunk_base_y: float = (
+		parent_node.global_position.y
+		+ sprite.position.y
+		+ half_visual_height
+		+ scaled_tree_sort_offset_y()
+	)
 	sprite.z_index = clampi(Z_BASE + int(trunk_base_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
 
 ## Buildings: offset adjusts when player goes behind. Uses building_sort_offset_y (editable).

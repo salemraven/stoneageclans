@@ -2,6 +2,8 @@ extends RefCounted
 class_name PlaceholderCardRegistry
 
 const TARGET_DISPLAY_HEIGHT := 128.0
+## Layered body+head in Main (~44% of card reference — tuner stays 128px).
+const RUNTIME_MANNEQUIN_DISPLAY_HEIGHT := 56.0
 const CLANSMEN_CARD_COUNT := 18
 const CARDS_DIR := "res://assets/placeholder_cards/"
 
@@ -29,6 +31,8 @@ const TOOL_OVERLAY_PATHS := {
 const TOOL_OVERLAY_REFERENCE_HEIGHT := 835.0
 ## Card overlay spear — larger than 1:1 PNG so it reads on the body card; grip stays at SPEAR_GRIP_TEXTURE_NY.
 const SPEAR_OVERLAY_SCALE := 1.52
+## Half-size runtime mannequin scales overlays down; this boost keeps tools readable (all types).
+const RUNTIME_TOOL_OVERLAY_SCALE_MUL := 2.0
 
 ## Display-pixel nudge after body card scale (x = right, y = up). Same top-right slot as spear.
 const TOOL_OVERLAY_OFFSET_PX := {
@@ -71,16 +75,19 @@ const WEAPON_COMBAT_PROFILES := {
 		"pivot_y_frac": SPEAR_GRIP_TEXTURE_NY,
 		"attack_kind": 0,  # WeaponOverlayCombat.AttackKind.THRUST
 		"strike_duration": 0.24,
-		"recovery_duration": 0.22,
-		"combat_recovery_duration": 0.14,
-		"combat_recovery_duration_ready": 0.09,
-		"thrust_windup_px": 3.0,
-		"thrust_extend_px": 56.0,
-		"thrust_windup_frac": 0.1,
-		"thrust_lunge_frac": 0.5,
-		"thrust_hit_lunge_frac": 0.88,
-		"thrust_lunge_trans": "sine",
-		"thrust_lunge_ease": "in_out",
+		"recovery_duration": 0.18,
+		"combat_recovery_duration": 0.12,
+		"combat_recovery_duration_ready": 0.08,
+		"thrust_windup_px": 0.0,
+		"thrust_extend_px": 138.0,
+		"thrust_windup_frac": 0.0,
+		"thrust_lunge_frac": 0.30,
+		"thrust_hold_frac": 0.12,
+		"thrust_retract_frac": 0.58,
+		"thrust_hit_lunge_frac": 1.0,
+		"thrust_lunge_trans": "quart",
+		"thrust_lunge_ease": "in",
+		"thrust_recover_trans": "sine",
 		"thrust_recover_ease": "out",
 		## Block near-vertical thrusts: minimum |aim.x| after normalize (0.35 ≈ within ~20° of straight up/down).
 		"thrust_min_horizontal_frac": 0.35,
@@ -223,10 +230,36 @@ func get_tool_overlay_scale(resource_type: ResourceData.ResourceType) -> float:
 	return float(TOOL_OVERLAY_SCALE.get(resource_type, 1.0))
 
 
+func get_runtime_tool_overlay_scale(resource_type: ResourceData.ResourceType) -> float:
+	return (
+		get_tool_overlay_scale(resource_type)
+		* get_runtime_mannequin_display_scale()
+		* RUNTIME_TOOL_OVERLAY_SCALE_MUL
+	)
+
+
 func get_card_scale(texture: Texture2D) -> float:
 	if texture == null or texture.get_height() <= 0:
 		return 1.0
 	return TARGET_DISPLAY_HEIGHT / float(texture.get_height())
+
+
+func get_runtime_mannequin_display_scale() -> float:
+	return RUNTIME_MANNEQUIN_DISPLAY_HEIGHT / TARGET_DISPLAY_HEIGHT
+
+
+func get_runtime_mannequin_scale(texture: Texture2D) -> float:
+	if texture == null or texture.get_height() <= 0:
+		return 1.0
+	return RUNTIME_MANNEQUIN_DISPLAY_HEIGHT / float(texture.get_height())
+
+
+func get_runtime_mannequin_foot_y(texture: Texture2D) -> float:
+	if texture == null:
+		return -RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+	var scale := get_runtime_mannequin_scale(texture)
+	var half_visual := texture.get_height() * scale * 0.5
+	return -half_visual
 
 
 func get_card_foot_y(texture: Texture2D) -> float:
@@ -248,6 +281,15 @@ func get_progress_display_y(texture: Texture2D) -> float:
 	var foot_y: float = get_card_foot_y(texture)
 	var half_visual: float = texture.get_height() * get_card_scale(texture) * 0.5
 	return foot_y - half_visual - PROGRESS_CIRCLE_RADIUS - PROGRESS_CIRCLE_GAP_ABOVE_CARD
+
+
+func get_runtime_mannequin_progress_display_y(texture: Texture2D) -> float:
+	if texture == null:
+		return get_progress_display_y(texture) * get_runtime_mannequin_display_scale()
+	var foot_y: float = get_runtime_mannequin_foot_y(texture)
+	var half_visual: float = texture.get_height() * get_runtime_mannequin_scale(texture) * 0.5
+	var scale_mul: float = get_runtime_mannequin_display_scale()
+	return foot_y - half_visual - PROGRESS_CIRCLE_RADIUS * scale_mul - PROGRESS_CIRCLE_GAP_ABOVE_CARD * scale_mul
 
 
 func _ensure_clansmen_loaded(up_to_index: int) -> void:

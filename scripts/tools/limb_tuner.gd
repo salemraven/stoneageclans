@@ -7,6 +7,7 @@ const AnimMode = WeaponLimbPreset.TunerAnimMode
 const TunerIdlePreviewScript = preload("res://scripts/tools/tuner_idle_preview.gd")
 const WalkArmSwingScript = preload("res://scripts/systems/walk_arm_swing.gd")
 const GatherArmMotionScript = preload("res://scripts/systems/gather_arm_motion.gd")
+const AnimCatalog = preload("res://scripts/config/character_animation_catalog.gd")
 const HOLDABLE_MENU: Array[Dictionary] = [
 	{"label": "Nothing (empty hands)", "type": ResourceData.ResourceType.NONE},
 	{"label": "Club", "type": ResourceData.ResourceType.WOOD},
@@ -18,92 +19,9 @@ const HOLDABLE_MENU: Array[Dictionary] = [
 ## Back-compat alias for tests / older references.
 const WEAPON_MENU: Array[Dictionary] = HOLDABLE_MENU
 
-const _POSE_SNAPSHOT_LABELS: Dictionary = {
-	AnimMode.IDLE: "Idle standing",
-	AnimMode.IDLE1: "Idle 1 (look around)",
-	AnimMode.WALK: "Walk",
-	AnimMode.WALK1: "Walk 1",
-	AnimMode.GATHER1: "Gather 1 (pick up)",
-	AnimMode.ATTACK: "Attack ready",
-	AnimMode.IDLE_CLUB1: "Club grip / in-hand",
-}
-
-const _CATALOG_HOLDABLES: Array[Dictionary] = [
-	{
-		"label": "Empty hands",
-		"type": ResourceData.ResourceType.NONE,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.IDLE1,
-			AnimMode.WALK,
-			AnimMode.WALK1,
-			AnimMode.GATHER1,
-		],
-	},
-	{
-		"label": "Club",
-		"type": ResourceData.ResourceType.WOOD,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.ATTACK,
-		],
-		"mode_labels": {
-			AnimMode.ATTACK: "Attack windup",
-		},
-	},
-	{
-		"label": "Spear",
-		"type": ResourceData.ResourceType.SPEAR,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.WALK,
-			AnimMode.WALK1,
-			AnimMode.ATTACK,
-		],
-		"mode_labels": {
-			AnimMode.ATTACK: "Attack windup",
-		},
-	},
-	{
-		"label": "Axe",
-		"type": ResourceData.ResourceType.AXE,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.IDLE1,
-			AnimMode.WALK,
-			AnimMode.WALK1,
-			AnimMode.GATHER1,
-			AnimMode.ATTACK,
-		],
-	},
-	{
-		"label": "Pick",
-		"type": ResourceData.ResourceType.PICK,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.IDLE1,
-			AnimMode.WALK,
-			AnimMode.WALK1,
-			AnimMode.GATHER1,
-			AnimMode.ATTACK,
-		],
-	},
-	{
-		"label": "Oldowan tool",
-		"type": ResourceData.ResourceType.OLDOWAN,
-		"modes": [
-			AnimMode.IDLE,
-			AnimMode.IDLE1,
-			AnimMode.WALK,
-			AnimMode.WALK1,
-			AnimMode.GATHER1,
-			AnimMode.ATTACK,
-		],
-	},
-]
-
 const LimbTunerHandleScript = preload("res://scripts/tools/limb_tuner_handle.gd")
 const LimbTunerRigScript = preload("res://scripts/tools/limb_tuner_rig.gd")
+const LimbAnimationBakerScript = preload("res://scripts/tools/limb_animation_baker.gd")
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 
@@ -111,7 +29,9 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _rig: LimbTunerRig = $World/Stage/TunerRig
 @onready var _handle_stage: Node2D = $World/HandleLayer/HandleStage
 @onready var _panel: PanelContainer = $UI/Panel
-@onready var _anim_mode_option: OptionButton = $UI/Panel/Margin/VBox/SelectSection/PoseRow/AnimModeOption
+@onready var _holdable_grid: GridContainer = $UI/Panel/Margin/VBox/SelectSection/HoldableRow/HoldableGrid
+@onready var _category_buttons: HBoxContainer = $UI/Panel/Margin/VBox/SelectSection/CategoryRow/CategoryButtons
+@onready var _variant_buttons: HBoxContainer = $UI/Panel/Margin/VBox/SelectSection/VariantRow/VariantButtons
 @onready var _play_pause_btn: Button = $UI/Panel/Margin/VBox/PreviewSection/PlayPauseBtn
 @onready var _summary_label: Label = $UI/Panel/Margin/VBox/SummaryLabel
 @onready var _status_label: Label = $UI/Panel/Margin/VBox/StatusLabel
@@ -143,6 +63,9 @@ var _weapon_elbow_handle: LimbTunerHandle
 var _support_elbow_handle: LimbTunerHandle
 var _head_handle: LimbTunerHandle
 var _was_combat_preview_busy: bool = false
+var _baker
+var _bake_review: Window
+var _bake_in_progress: bool = false
 const SHOULDER_HANDLE_RADIUS := 5.0
 const HANDLE_RADIUS := 6.0
 const HAND_HANDLE_RADIUS := 9.0
@@ -177,11 +100,14 @@ var _spear_grab_offset: Vector2 = Vector2.ZERO
 var _spear_grip_2_grab_offset: Vector2 = Vector2.ZERO
 var _syncing_arm_length_ui: bool = false
 var _syncing_arm_thickness_ui: bool = false
-var _syncing_dropdown_ui: bool = false
+var _syncing_picker_ui: bool = false
 var _idle_club_minimal_active: bool = false
 var _elbow_click_target: LimbTunerHandle = null
 var _anim_playing: bool = false
-var _pose_catalog: Array[Dictionary] = []
+var _selected_category: StringName = AnimCatalog.CATEGORY_IDLE
+var _holdable_button_map: Dictionary = {}
+var _category_button_map: Dictionary = {}
+var _variant_button_map: Dictionary = {}
 var _stage_view_initialized: bool = false
 
 
@@ -189,7 +115,7 @@ func _ready() -> void:
 	_ensure_weapon_ready_action()
 	process_priority = 1
 	_apply_ui_theme()
-	_setup_dropdowns()
+	_setup_animation_picker()
 	_setup_arm_length_fields()
 	_setup_arm_thickness_fields()
 	_spawn_handles()
@@ -211,6 +137,9 @@ func _ready() -> void:
 		reset_anchors_btn.pressed.connect(_on_reset_anchors_pressed)
 	if copy_btn:
 		copy_btn.pressed.connect(_on_copy_pressed)
+	var bake_btn: Button = $UI/Panel/Margin/VBox/ActionsSection/ActionGrid/BakeBtn
+	if bake_btn:
+		bake_btn.pressed.connect(_on_bake_pressed)
 	if _play_pause_btn:
 		_play_pause_btn.pressed.connect(_on_play_pause_pressed)
 
@@ -231,7 +160,7 @@ func _finish_startup() -> void:
 		if _rig.has_method("_sync_tuner_arm_process"):
 			_rig.call("_sync_tuner_arm_process")
 	_load_preset_from_disk()
-	_sync_pose_dropdown()
+	_sync_animation_picker_ui()
 	if _wants_gather1_edit_startup():
 		call_deferred("_begin_gather1_edit_session")
 	if _wants_idle_club1_edit_startup():
@@ -242,6 +171,79 @@ func _finish_startup() -> void:
 	_sync_preview_playback()
 	call_deferred("_apply_fixed_stage_view")
 	call_deferred("_ensure_handles_on_overlay")
+	_baker = LimbAnimationBakerScript.new()
+	_bake_review = get_node_or_null("BakeReviewWindow") as Window
+
+
+func prepare_bake_sample(clip: String, phase: float) -> void:
+	if _rig == null or _preset == null:
+		return
+	var grip_mode := _grip_mode_for_bake_clip(clip)
+	var overlay_mode := _overlay_mode_for_bake_clip(clip)
+	_rig.apply_preset_overlay_for_mode(_preset, overlay_mode)
+	_rig.apply_bake_sample(clip, phase)
+	var walk_swing := clip == LimbAnimationBakerScript.CLIP_WALK
+	var gather_motion := clip == LimbAnimationBakerScript.CLIP_GATHER1
+	_rig.sync_bake_weapon_overlay(_preset, grip_mode, walk_swing, gather_motion)
+
+
+func _grip_mode_for_bake_clip(clip: String) -> AnimMode:
+	match clip:
+		LimbAnimationBakerScript.CLIP_WALK:
+			if WeaponLimbPreset.is_walk_mode(_anim_mode):
+				return _anim_mode
+			return AnimMode.WALK
+		LimbAnimationBakerScript.CLIP_GATHER1:
+			return AnimMode.GATHER1
+		LimbAnimationBakerScript.CLIP_IDLE1:
+			return AnimMode.IDLE1
+		_:
+			return AnimMode.IDLE
+
+
+func _overlay_mode_for_bake_clip(clip: String) -> AnimMode:
+	if clip == LimbAnimationBakerScript.CLIP_WALK:
+		return _grip_mode_for_bake_clip(clip)
+	if clip == LimbAnimationBakerScript.CLIP_GATHER1:
+		return AnimMode.GATHER1
+	if clip == LimbAnimationBakerScript.CLIP_IDLE1:
+		return AnimMode.IDLE1
+	return AnimMode.IDLE
+
+
+func _on_bake_pressed() -> void:
+	if _bake_in_progress or _baker == null:
+		return
+	var clip := LimbAnimationBakerScript.clip_for_anim_mode(_anim_mode)
+	if clip.is_empty():
+		if _status_label:
+			_status_label.text = "Pick Idle, Walk, or Gather to bake this pose."
+		return
+	_bake_in_progress = true
+	if _status_label:
+		_status_label.text = "Baking %s for %s…" % [clip, _holdable_label()]
+	var result: Dictionary = await _baker.bake_from_tuner(self, clip)
+	_bake_in_progress = false
+	if result.get("ok", false):
+		if _status_label:
+			_status_label.text = "Baked %s → %s" % [clip, str(result.get("png_path", "")).get_file()]
+		if _bake_review and _bake_review.has_method("show_bake"):
+			_bake_review.call("show_bake", result)
+	else:
+		if _status_label:
+			_status_label.text = "Bake failed: %s" % str(result.get("error", "unknown"))
+
+
+func _sync_bake_button() -> void:
+	var bake_btn: Button = $UI/Panel/Margin/VBox/ActionsSection/ActionGrid/BakeBtn
+	if bake_btn == null:
+		return
+	var clip := LimbAnimationBakerScript.clip_for_anim_mode(_anim_mode)
+	bake_btn.disabled = _bake_in_progress or clip.is_empty()
+	bake_btn.tooltip_text = (
+		"Export looping %s strip + JSON, then open bake review."
+		% clip if not clip.is_empty() else "Attack poses are not baked yet — use Idle or Walk."
+	)
 
 
 func _apply_tuner_draw_layers() -> void:
@@ -550,7 +552,7 @@ func _ensure_club_holdable_for_idle_club1() -> void:
 		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
 		_rig.refresh_weapon_combat_timing()
-	_sync_pose_dropdown()
+	_sync_animation_picker_ui()
 	_update_weapon_handle_visibility()
 
 
@@ -655,73 +657,137 @@ func _on_play_pause_pressed() -> void:
 				_status_label.text = "Idle paused — drag pins, then Save all."
 
 
-func _catalog_mode_label(weapon: ResourceData.ResourceType, mode: AnimMode) -> String:
-	for holdable in _CATALOG_HOLDABLES:
-		if holdable.get("type") == weapon:
-			var overrides: Dictionary = holdable.get("mode_labels", {}) as Dictionary
-			if overrides.has(mode):
-				return overrides[mode] as String
-			break
-	return _POSE_SNAPSHOT_LABELS.get(mode, str(mode)) as String
+func _make_picker_button(text: String, min_width: float = 0.0) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.toggle_mode = true
+	btn.custom_minimum_size = Vector2(min_width, 32.0)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return btn
 
 
-func _build_pose_catalog() -> void:
-	_pose_catalog.clear()
-	for holdable in _CATALOG_HOLDABLES:
-		for mode in holdable["modes"]:
-			var mode_label: String = _catalog_mode_label(holdable["type"] as ResourceData.ResourceType, mode as AnimMode)
-			_pose_catalog.append({
-				"label": "%s · %s" % [holdable["label"], mode_label],
-				"weapon": holdable["type"] as ResourceData.ResourceType,
-				"mode": mode as AnimMode,
-			})
+func _setup_animation_picker() -> void:
+	_build_holdable_buttons()
+	_build_category_buttons()
+	_rebuild_variant_buttons()
+	_sync_animation_picker_ui()
 
 
-func _pose_catalog_index(weapon: ResourceData.ResourceType, mode: AnimMode) -> int:
-	for i in _pose_catalog.size():
-		var entry: Dictionary = _pose_catalog[i]
-		if entry.get("weapon") == weapon and entry.get("mode") == mode:
-			return i
-	return 0
-
-
-func _setup_dropdowns() -> void:
-	_build_pose_catalog()
-	if _anim_mode_option:
-		_anim_mode_option.clear()
-		for i in _pose_catalog.size():
-			_anim_mode_option.add_item(_pose_catalog[i]["label"] as String, i)
-		_anim_mode_option.select(_pose_catalog_index(_selected_weapon, _anim_mode))
-		_anim_mode_option.item_selected.connect(_on_pose_catalog_selected)
-
-
-func _on_pose_catalog_selected(index: int) -> void:
-	if _syncing_dropdown_ui:
+func _build_holdable_buttons() -> void:
+	if _holdable_grid == null:
 		return
-	if index < 0 or index >= _pose_catalog.size():
+	for child in _holdable_grid.get_children():
+		child.queue_free()
+	_holdable_button_map.clear()
+	for entry in AnimCatalog.HOLDABLES:
+		var weapon_type: ResourceData.ResourceType = entry["type"] as ResourceData.ResourceType
+		var short_label: String = entry.get("short", "?") as String
+		var btn := _make_picker_button(short_label, 96.0)
+		btn.pressed.connect(_on_holdable_button_pressed.bind(weapon_type))
+		_holdable_grid.add_child(btn)
+		_holdable_button_map[weapon_type] = btn
+
+
+func _build_category_buttons() -> void:
+	if _category_buttons == null:
 		return
-	var entry: Dictionary = _pose_catalog[index]
-	_apply_pose_catalog_entry(
-		entry["weapon"] as ResourceData.ResourceType,
-		entry["mode"] as AnimMode
-	)
+	for child in _category_buttons.get_children():
+		child.queue_free()
+	_category_button_map.clear()
+	for category in AnimCatalog.CATEGORY_ORDER:
+		var label: String = AnimCatalog.CATEGORY_LABELS.get(category, str(category)) as String
+		var btn := _make_picker_button(label, 52.0)
+		btn.pressed.connect(_on_category_button_pressed.bind(category))
+		_category_buttons.add_child(btn)
+		_category_button_map[category] = btn
+
+
+func _rebuild_variant_buttons() -> void:
+	if _variant_buttons == null:
+		return
+	for child in _variant_buttons.get_children():
+		child.queue_free()
+	_variant_button_map.clear()
+	var modes := AnimCatalog.modes_for_category(_selected_weapon, _selected_category)
+	for mode in modes:
+		var mode_enum := mode as AnimMode
+		var label := AnimCatalog.mode_label(mode_enum, _selected_weapon)
+		var btn := _make_picker_button(label, 72.0)
+		btn.pressed.connect(_on_variant_button_pressed.bind(mode_enum))
+		_variant_buttons.add_child(btn)
+		_variant_button_map[mode_enum] = btn
+	var variant_row: Control = get_node_or_null(
+		"UI/Panel/Margin/VBox/SelectSection/VariantRow"
+	) as Control
+	if variant_row:
+		variant_row.visible = modes.size() > 1
+
+
+func _on_holdable_button_pressed(weapon_type: ResourceData.ResourceType) -> void:
+	if _syncing_picker_ui:
+		return
+	_select_holdable(weapon_type)
+
+
+func _on_category_button_pressed(category: StringName) -> void:
+	if _syncing_picker_ui:
+		return
+	_select_category(category)
+
+
+func _on_variant_button_pressed(mode: AnimMode) -> void:
+	if _syncing_picker_ui:
+		return
+	_select_variant(mode)
+
+
+func _select_holdable(weapon_type: ResourceData.ResourceType) -> void:
+	if weapon_type == _selected_weapon:
+		_sync_animation_picker_ui()
+		return
+	_set_weapon(weapon_type)
+
+
+func _select_category(category: StringName) -> void:
+	if not AnimCatalog.category_has_modes(_selected_weapon, category):
+		_sync_animation_picker_ui()
+		return
+	if category == _selected_category and _anim_mode == AnimCatalog.default_mode_for_category(_selected_weapon, category):
+		_sync_animation_picker_ui()
+		return
+	_selected_category = category
+	var mode := AnimCatalog.default_mode_for_category(_selected_weapon, category)
+	_rebuild_variant_buttons()
+	_set_anim_mode(mode)
+	_sync_animation_picker_ui()
+
+
+func _select_variant(mode: AnimMode) -> void:
+	if mode == _anim_mode:
+		_sync_animation_picker_ui()
+		return
+	_selected_category = AnimCatalog.category_for_mode(_selected_weapon, mode)
+	_set_anim_mode(mode)
+	_sync_animation_picker_ui()
 
 
 func _apply_pose_catalog_entry(weapon: ResourceData.ResourceType, mode: AnimMode) -> void:
 	if weapon != _selected_weapon:
-		_set_weapon(weapon)
+		_set_weapon(weapon, false)
+	_selected_category = AnimCatalog.category_for_mode(weapon, mode)
 	if mode != _anim_mode:
 		_set_anim_mode(mode)
 	else:
-		_sync_pose_dropdown()
+		_rebuild_variant_buttons()
+		_sync_animation_picker_ui()
 	_recenter_character_only()
 
 
-func _set_weapon(weapon_type: ResourceData.ResourceType) -> void:
+func _set_weapon(weapon_type: ResourceData.ResourceType, reset_to_idle: bool = true) -> void:
 	if _anim_mode == AnimMode.IDLE_CLUB1 and weapon_type != ResourceData.ResourceType.WOOD:
-		_sync_pose_dropdown()
+		_sync_animation_picker_ui()
 		if _status_label:
-			_status_label.text = "Club grip / in-hand needs Club — pick a Club pose row."
+			_status_label.text = "Club grip needs Club holdable — pick Club first."
 		return
 	if weapon_type == _selected_weapon:
 		return
@@ -734,21 +800,38 @@ func _set_weapon(weapon_type: ResourceData.ResourceType) -> void:
 		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
 		_rig.refresh_weapon_combat_timing()
-	_refresh_rig_from_preset()
-	_sync_pose_dropdown()
 	_update_weapon_handle_visibility()
-	_recenter_character_only()
-	if _status_label:
-		_status_label.text = "Pose: %s — editing %s snapshot." % [_holdable_label(), _anim_mode_label()]
+	if reset_to_idle:
+		_selected_category = AnimCatalog.CATEGORY_IDLE
+		_set_anim_mode(AnimMode.IDLE)
+	else:
+		_refresh_rig_from_preset()
+		_rebuild_variant_buttons()
+		_sync_animation_picker_ui()
+		_recenter_character_only()
+		if _status_label:
+			_status_label.text = "Pose: %s — editing %s snapshot." % [_holdable_label(), _anim_mode_label()]
 
 
-func _sync_pose_dropdown() -> void:
-	if _anim_mode_option == null:
+func _sync_animation_picker_ui() -> void:
+	if _holdable_grid == null:
 		return
-	_syncing_dropdown_ui = true
-	var idx := _pose_catalog_index(_selected_weapon, _anim_mode)
-	_anim_mode_option.select(idx)
-	_syncing_dropdown_ui = false
+	_syncing_picker_ui = true
+	for weapon_type in _holdable_button_map:
+		var btn: Button = _holdable_button_map[weapon_type] as Button
+		if btn:
+			btn.button_pressed = weapon_type == _selected_weapon
+	for category in _category_button_map:
+		var cat_btn: Button = _category_button_map[category] as Button
+		if cat_btn:
+			var enabled := AnimCatalog.category_has_modes(_selected_weapon, category)
+			cat_btn.disabled = not enabled
+			cat_btn.button_pressed = enabled and category == _selected_category
+	for mode in _variant_button_map:
+		var var_btn: Button = _variant_button_map[mode] as Button
+		if var_btn:
+			var_btn.button_pressed = mode == _anim_mode
+	_syncing_picker_ui = false
 
 
 func _update_weapon_handle_visibility() -> void:
@@ -763,25 +846,7 @@ func _update_weapon_handle_visibility() -> void:
 
 
 func _anim_mode_label() -> String:
-	match _anim_mode:
-		AnimMode.IDLE1:
-			return "Idle 1"
-		AnimMode.WALK:
-			return "Walk"
-		AnimMode.WALK1:
-			return "Walk 1"
-		AnimMode.GATHER1:
-			return "Gather 1"
-		AnimMode.IDLE_CLUB1:
-			return "Idle Club 1"
-		AnimMode.ATTACK:
-			if _selected_weapon == ResourceData.ResourceType.WOOD:
-				return "Attack windup"
-			if _selected_weapon == ResourceData.ResourceType.SPEAR:
-				return "Attack windup"
-			return "Attack"
-		_:
-			return "Idle"
+	return AnimCatalog.mode_label(_anim_mode, _selected_weapon)
 
 
 func _is_walk_preview_active() -> bool:
@@ -942,7 +1007,9 @@ func _apply_ui_theme() -> void:
 		"UI/Panel/Margin/VBox/Title",
 		"UI/Panel/Margin/VBox/HelpLabel",
 		"UI/Panel/Margin/VBox/SelectSection/SelectHeader",
-		"UI/Panel/Margin/VBox/SelectSection/PoseRow/PoseLabel",
+		"UI/Panel/Margin/VBox/SelectSection/HoldableRow/HoldableLabel",
+		"UI/Panel/Margin/VBox/SelectSection/CategoryRow/CategoryLabel",
+		"UI/Panel/Margin/VBox/SelectSection/VariantRow/VariantLabel",
 		"UI/Panel/Margin/VBox/PreviewSection/PreviewHeader",
 		"UI/Panel/Margin/VBox/ActionsSection/ActionsHeader",
 		"UI/Panel/Margin/VBox/ArmsSection/ArmsHeader",
@@ -2238,7 +2305,9 @@ func _set_anim_mode(mode: AnimMode) -> void:
 		_idle_club_minimal_active = false
 		_apply_idle_club_minimal_view(false)
 	_apply_handle_number_labels()
-	_sync_pose_dropdown()
+	_selected_category = AnimCatalog.category_for_mode(_selected_weapon, mode)
+	_rebuild_variant_buttons()
+	_sync_animation_picker_ui()
 	_update_ui()
 	_sync_preview_playback()
 	if _status_label:
@@ -2644,10 +2713,11 @@ func _update_ui() -> void:
 	_update_idle_club_handle_visibility()
 	_sync_arm_length_fields_from_preset()
 	_sync_arm_thickness_field_from_preset()
-	_sync_pose_dropdown()
+	_sync_animation_picker_ui()
 	_apply_handle_draggable()
 	_apply_handle_number_labels()
 	_update_weapon_handle_visibility()
+	_sync_bake_button()
 
 
 func _format_pose_row(mode: AnimMode, for_editing: bool) -> Variant:

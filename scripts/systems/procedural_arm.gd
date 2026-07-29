@@ -5,8 +5,11 @@ const ProceduralArmConfigScript = preload("res://scripts/systems/procedural_arm_
 
 var _draw_root: Node2D
 var _line: Line2D
+var _line_outline: Line2D
 var _line_upper: Line2D
+var _line_upper_outline: Line2D
 var _line_lower: Line2D
+var _line_lower_outline: Line2D
 var _endpoint_root: Node2D
 var _endpoint_root_upper: Node2D
 var _endpoint_root_lower: Node2D
@@ -35,13 +38,16 @@ func setup(parent: Node2D, side_label: String, config: Resource) -> void:
 	var line_parent := _draw_root
 	if cfg.split_depth_at_elbow:
 		_line_upper = _create_arm_line(line_parent, "ArmUpper_%s" % side_label, line_z, line_relative, cfg)
+		_line_upper_outline = _line_upper.get_meta("outline_line") as Line2D
 		_line_lower = _create_arm_line(line_parent, "ArmLower_%s" % side_label, line_z, line_relative, cfg)
+		_line_lower_outline = _line_lower.get_meta("outline_line") as Line2D
 		_endpoint_root_upper = _create_endpoint_root(line_parent, "ArmEndpointsUpper_%s" % side_label, line_z, line_relative)
 		_endpoint_root_lower = _create_endpoint_root(line_parent, "ArmEndpointsLower_%s" % side_label, line_z, line_relative)
 		_shoulder_marker = _make_circle_marker(_endpoint_root_upper, cfg.shoulder_marker_color)
 		_hand_marker = _make_circle_marker(_endpoint_root_lower, cfg.hand_marker_color)
 	else:
 		_line = _create_arm_line(line_parent, "ArmLine_%s" % side_label, line_z, line_relative, cfg)
+		_line_outline = _line.get_meta("outline_line") as Line2D
 		_endpoint_root = _create_endpoint_root(line_parent, "ArmEndpoints_%s" % side_label, line_z, line_relative)
 		_shoulder_marker = _make_circle_marker(_endpoint_root, cfg.shoulder_marker_color)
 		_hand_marker = _make_circle_marker(_endpoint_root, cfg.hand_marker_color)
@@ -75,7 +81,7 @@ func _apply_draw_band_for_parent(parent: Node2D) -> void:
 	if _draw_root:
 		_draw_root.z_as_relative = relative
 		_draw_root.z_index = line_z
-	for line in [_line, _line_upper, _line_lower]:
+	for line in [_line, _line_upper, _line_lower, _line_outline, _line_upper_outline, _line_lower_outline]:
 		if line:
 			line.z_as_relative = relative
 			line.z_index = line_z
@@ -86,6 +92,15 @@ func _apply_draw_band_for_parent(parent: Node2D) -> void:
 
 
 func _create_arm_line(parent: Node2D, line_name: String, z: int, relative: bool, cfg: ProceduralArmConfigScript) -> Line2D:
+	var outline := Line2D.new()
+	outline.name = "%sOutline" % line_name
+	outline.z_as_relative = relative
+	outline.z_index = z
+	outline.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_apply_line_geometry(outline)
+	outline.antialiased = false
+	_apply_line_style(outline, cfg, true)
+	parent.add_child(outline)
 	var line := Line2D.new()
 	line.name = line_name
 	line.z_as_relative = relative
@@ -93,7 +108,8 @@ func _create_arm_line(parent: Node2D, line_name: String, z: int, relative: bool,
 	line.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_apply_line_geometry(line)
 	line.antialiased = false
-	_apply_line_style(line, cfg)
+	_apply_line_style(line, cfg, false)
+	line.set_meta("outline_line", outline)
 	parent.add_child(line)
 	return line
 
@@ -119,12 +135,9 @@ func set_endpoint_markers_visible(visible_markers: bool) -> void:
 
 
 func set_visible_arm(visible_arm: bool) -> void:
-	if _line:
-		_line.visible = visible_arm
-	if _line_upper:
-		_line_upper.visible = visible_arm
-	if _line_lower:
-		_line_lower.visible = visible_arm
+	for line in [_line, _line_upper, _line_lower, _line_outline, _line_upper_outline, _line_lower_outline]:
+		if line:
+			line.visible = visible_arm
 	if _endpoint_root:
 		_endpoint_root.visible = visible_arm and _endpoint_markers_visible
 	if _endpoint_root_upper:
@@ -141,10 +154,16 @@ func set_draw_z_index(z: int) -> void:
 		_draw_root.z_index = z
 	if _line:
 		_line.z_index = z
+	if _line_outline:
+		_line_outline.z_index = z
 	if _line_upper:
 		_line_upper.z_index = z
+	if _line_upper_outline:
+		_line_upper_outline.z_index = z
 	if _line_lower:
 		_line_lower.z_index = z
+	if _line_lower_outline:
+		_line_lower_outline.z_index = z
 	if _endpoint_root:
 		_endpoint_root.z_index = z
 	if _endpoint_root_upper:
@@ -181,7 +200,10 @@ func refresh_line_style(config: Resource) -> void:
 		return
 	for line in [_line, _line_upper, _line_lower]:
 		if line:
-			_apply_line_style(line, cfg)
+			_apply_line_style(line, cfg, false)
+			var outline: Line2D = line.get_meta("outline_line") as Line2D
+			if outline:
+				_apply_line_style(outline, cfg, true)
 
 
 func _update_debug_visibility() -> void:
@@ -239,10 +261,18 @@ func update_arm(
 	_points[2] = solved_hand
 	_trim_line_endpoints(cfg, sprite_scale)
 	if _line_upper and _line_lower:
-		_line_upper.points = PackedVector2Array([_points[0], _points[1]])
-		_line_lower.points = PackedVector2Array([_points[1], _points[2]])
+		var upper_pts := PackedVector2Array([_points[0], _points[1]])
+		var lower_pts := PackedVector2Array([_points[1], _points[2]])
+		_line_upper.points = upper_pts
+		_line_lower.points = lower_pts
+		if _line_upper_outline:
+			_line_upper_outline.points = upper_pts
+		if _line_lower_outline:
+			_line_lower_outline.points = lower_pts
 	elif _line:
 		_line.points = _points
+		if _line_outline:
+			_line_outline.points = _points
 
 	_last_shoulder = local_shoulder
 	_last_elbow = elbow
@@ -269,21 +299,25 @@ func _apply_line_geometry(line: Line2D) -> void:
 	line.end_cap_mode = Line2D.LINE_CAP_ROUND
 
 
-func _apply_line_style(line: Line2D, cfg: ProceduralArmConfigScript) -> void:
+func _apply_line_style(line: Line2D, cfg: ProceduralArmConfigScript, is_outline: bool) -> void:
 	_apply_line_geometry(line)
 	var width_mult: float = cfg.width_genetics_mult
-	line.width = cfg.arm_width * width_mult
-	line.default_color = cfg.arm_color
+	var outline_pad: float = cfg.arm_outline_width_px * 2.0 if is_outline else 0.0
+	var arm_w: float = cfg.arm_width * width_mult + outline_pad
+	var hand_w: float = cfg.hand_width * width_mult + outline_pad
+	line.width = arm_w
+	line.default_color = cfg.arm_outline_color if is_outline else cfg.arm_color
 	var curve := Curve.new()
-	curve.add_point(Vector2(0.0, cfg.arm_width * width_mult))
-	curve.add_point(Vector2(1.0, cfg.hand_width * width_mult))
+	curve.add_point(Vector2(0.0, arm_w))
+	curve.add_point(Vector2(1.0, hand_w))
 	line.width_curve = curve
-	var tex: Texture2D = cfg.arm_texture
-	if tex == null:
-		tex = _default_arm_texture()
-	if tex:
-		line.texture = tex
-		line.texture_mode = Line2D.LINE_TEXTURE_TILE
+	if is_outline:
+		line.texture = null
+		line.texture_mode = Line2D.LINE_TEXTURE_NONE
+		return
+	# Solid fill — texture × tint was darkening arms (e.g. #ecb58e × stripe → #c47243).
+	line.texture = null
+	line.texture_mode = Line2D.LINE_TEXTURE_NONE
 
 
 func _elbow_pole_hint(
@@ -412,9 +446,11 @@ static func _default_arm_texture() -> Texture2D:
 	if _cached_default_texture != null:
 		return _cached_default_texture
 	var img := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+	var fill := Color("#ecb58e")
+	var stripe := Color("#d4a078")
 	for y in range(8):
 		for x in range(8):
-			var stripe: bool = int(x / 2) % 2 == 0
-			img.set_pixel(x, y, Color(0.55, 0.42, 0.35) if stripe else Color(0.45, 0.32, 0.25))
+			var use_stripe: bool = int(x / 2) % 2 == 0
+			img.set_pixel(x, y, fill if use_stripe else stripe)
 	_cached_default_texture = ImageTexture.create_from_image(img)
 	return _cached_default_texture

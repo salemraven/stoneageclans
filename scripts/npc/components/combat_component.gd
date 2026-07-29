@@ -234,9 +234,13 @@ func _apply_overlay_ready_after_recovery(recovery_aim: Vector2) -> void:
 			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
 			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
 	_sync_overlay_facing_from_aim()
+	var overlay_already_ready: bool = (
+		WeaponOverlayCombat.get_overlay_state(npc) == WeaponOverlayCombat.OverlayState.READY
+	)
 	PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.READY)
 	if wt != ResourceData.ResourceType.NONE:
-		PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
+		if not overlay_already_ready:
+			PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
 		PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
 
 
@@ -1022,7 +1026,7 @@ func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> D
 				"recovery": 0.14,
 				"arc": PI / 5.0,  # Thrust cone (forward reach)
 				"stagger": 0.16,
-				"attack_range": 160.0  # Thrust — clearly longer than club/swing (100)
+				"attack_range": 200.0  # Thrust — matches long overlay reach + hold frame
 			}
 		_:
 			return {

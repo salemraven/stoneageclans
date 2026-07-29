@@ -43,6 +43,7 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [items_guide.md](items_guide.md) | Items, hotbar, resources |
 | [traits.md](traits.md) | Species, traits, stats |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
+| [environment_goal.md](environment_goal.md) | **Environment vision** — island map, water, lushness, ClanBrain resources (goals) |
 | [multiplayer.md](multiplayer.md) | MP roadmap + repo stubs |
 | [earlygame.md](earlygame.md) | Nomadic loop, territory tiers |
 | [nomad.md](nomad.md) | Nomadic playstyle overview |

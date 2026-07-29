@@ -48,7 +48,7 @@ var player_name: String = ""
 var _player_name_meta_key: String = "player_name"
 var card_index: int = 0
 var genetics_profile: Dictionary = {}
-var _card_foot_y: float = -128.0
+var _card_foot_y: float = -28.0
 var _card_bounce_time: float = 0.0
 
 func _ready() -> void:
@@ -419,7 +419,7 @@ func _physics_process(_delta: float) -> void:
 			sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
 		else:
 			_sync_card_weapon_overlay()
-			# Overlay bounce/sway for procedural mannequin runs inside tick_card_bounce above.
+			# Weapon overlay: legacy card offset path (layered body in game; full cards for women/babies).
 			if not PlaceholderCardService.uses_procedural_mannequin(self):
 				PlaceholderCardService.sync_weapon_overlay_flip(self)
 

@@ -47,7 +47,12 @@ func _build_meshes(points: Array, _chunk: Vector2i) -> void:
 func _make_mesh_for_texture(tex: Texture2D, points: Array) -> MultiMeshInstance2D:
 	var w: float = float(tex.get_width())
 	var h: float = float(tex.get_height())
-	var foot_off: Vector2 = YSortUtils.get_grass_sprite_position_for_texture(tex) if YSortUtils else Vector2(0, -h * 0.5)
+	var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
+	var foot_off: Vector2 = (
+		YSortUtils.get_grass_sprite_position_for_texture(tex, wps)
+		if YSortUtils
+		else Vector2(0, -h * wps * 0.5)
+	)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_2D
 	mm.use_colors = false
@@ -64,8 +69,9 @@ func _make_mesh_for_texture(tex: Texture2D, points: Array) -> MultiMeshInstance2
 		var pt: Dictionary = points[i] as Dictionary
 		var pos: Vector2 = pt.get("position", Vector2.ZERO) as Vector2
 		avg_foot_y += pos.y + foot_off.y
-		var xform := Transform2D.IDENTITY
-		xform.origin = pos + foot_off
+		# MultiMesh Y axis is flipped vs Sprite2D — match TreeBatch + legacy tallgrass Sprite2D.
+		var center := pos + foot_off
+		var xform := Transform2D(Vector2(wps, 0.0), Vector2(0.0, -wps), center)
 		mm.set_instance_transform_2d(i, xform)
 	if points.size() > 0:
 		avg_foot_y /= float(points.size())

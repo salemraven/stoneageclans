@@ -18,6 +18,7 @@ const TUNER_ARM2_Z_INDEX := 3
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
 const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
+const LimbAnimationBakerScript = preload("res://scripts/tools/limb_animation_baker.gd")
 
 ## Tuner handle 3 — grip on overlay texture (normalized Y from top). Spear = shaft midpoint.
 const WEAPON_HANDLE_Y_FRAC := PlaceholderCardRegistry.SPEAR_GRIP_TEXTURE_NY
@@ -444,6 +445,88 @@ func set_shoulder_from_global(preset: WeaponLimbPreset, global_pos: Vector2) -> 
 		return
 	var body_local := _body_local_from_shoulder_global(global_pos)
 	preset.shoulder_offset_px = _shoulder_display_px_from_body_local(body_local)
+
+
+## Deterministic pose for animation bake (no delta) — body + head + weapon layers only.
+func apply_bake_sample(clip: String, phase: float) -> void:
+	if sprite == null:
+		return
+	phase = clampf(phase, 0.0, 1.0)
+	_idle.set_playing(false)
+	_gather.set_playing(false)
+	_walk.set_direction(0)
+	match clip:
+		LimbAnimationBakerScript.CLIP_WALK:
+			sprite.flip_h = false
+			_walk.set_direction(1)
+			_walk.bounce_time = phase * TAU
+			_walk.walk_phase = phase * TAU
+			sprite.position.y = roundf(
+				_anchor_foot_y + sin(_walk.bounce_time) * PlaceholderCardRegistry.WALK_BOUNCE_AMPLITUDE
+			)
+			if body_visual and body_visual.has_method("set_walk_state"):
+				body_visual.call("set_walk_state", true, _walk.bounce_time, 1)
+			_sync_body_visual_head_draw()
+		LimbAnimationBakerScript.CLIP_GATHER1:
+			_gather.cycle_time = phase / GatherArmMotion.CYCLE_SPEED
+			var gather_phase := GatherArmMotion.cycle_phase_from_time(_gather.cycle_time)
+			var body_bend := GatherArmMotion.body_bend_rad(gather_phase)
+			var head_fwd := _display_to_local(GatherArmMotion.head_forward_display_px(gather_phase))
+			sprite.position.y = _anchor_foot_y + head_fwd * 0.35
+			if body_visual and body_visual.has_method("set_gather_state"):
+				body_visual.call("set_gather_state", body_bend, head_fwd)
+			_sync_body_visual_head_draw()
+		LimbAnimationBakerScript.CLIP_IDLE1:
+			_idle.set_variant(TunerIdlePreview.VARIANT_ID)
+			_apply_bake_idle_sample(phase)
+		_:
+			_idle.set_variant(TunerIdlePreview.VARIANT_BASE)
+			_apply_bake_idle_sample(phase)
+
+
+func _apply_bake_idle_sample(phase: float) -> void:
+	_idle.breath_time = phase * LimbAnimationBakerScript.IDLE_CYCLE_SEC
+	var body_amp := _display_to_local(TunerIdlePreview.BODY_BOUNCE_DISPLAY_PX)
+	var head_amp := _display_to_local(TunerIdlePreview.HEAD_BOB_DISPLAY_PX)
+	var weapon_amp := _display_to_local(TunerIdlePreview.WEAPON_EXTRA_BOUNCE_DISPLAY_PX)
+	var breath := _idle.breath_time
+	sprite.position.y = _anchor_foot_y + sin(breath * TunerIdlePreview.BREATH_SPEED) * body_amp
+	var head_bob := sin(breath * TunerIdlePreview.BREATH_SPEED * 1.15 - 0.4) * head_amp
+	var body_sway := sin(breath * TunerIdlePreview.SWAY_SPEED) * TunerIdlePreview.BODY_SWAY_RAD
+	var look_right := _idle.head_look_right() if _idle.get_variant_id() == TunerIdlePreview.VARIANT_ID else true
+	if body_visual and body_visual.has_method("set_idle_state"):
+		body_visual.call("set_idle_state", head_bob, body_sway, look_right)
+	var bounce_y := sin(breath * TunerIdlePreview.BREATH_SPEED - 0.55) * weapon_amp * 0.65
+	if weapon_overlay != null and sprite != null and weapon_overlay.visible:
+		var base_offset: Vector2 = weapon_overlay.get_meta("card_overlay_offset", _last_overlay_base)
+		if base_offset != Vector2.ZERO:
+			_last_overlay_base = base_offset
+		var mirror_tex: bool = WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
+		CardVisualController.sync_weapon_overlay_flip(sprite, weapon_overlay, base_offset, mirror_tex, bounce_y)
+	_sync_body_visual_head_draw()
+
+
+func sync_bake_weapon_overlay(
+	preset: WeaponLimbPreset,
+	grip_mode: WeaponLimbPreset.TunerAnimMode,
+	walk_swing: bool,
+	gather_motion: bool
+) -> void:
+	if preset == null or not has_weapon_overlay():
+		return
+	if weapon_type == ResourceData.ResourceType.SPEAR:
+		sync_spear_overlay_motion_preview(preset, grip_mode, walk_swing, gather_motion)
+		return
+	if not uses_weapon_grip_anchor_hand():
+		return
+	var grip_global: Vector2
+	if gather_motion:
+		grip_global = hand_grip_global_with_gather_motion(preset, grip_mode)
+	elif walk_swing:
+		grip_global = hand_grip_global_with_walk_swing(preset, grip_mode)
+	else:
+		grip_global = dominant_grip_global_from_preset(preset, grip_mode)
+	align_weapon_overlay_to_hand_grip_global(preset, grip_global, grip_mode)
 
 
 func _update_motion_preview(delta: float) -> void:

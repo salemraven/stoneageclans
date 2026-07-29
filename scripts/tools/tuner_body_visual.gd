@@ -6,6 +6,7 @@ class_name TunerBodyVisual
 const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const BODY_DRAW_Z_INDEX := 1
 const HEAD_DRAW_Z_INDEX := 2
+const WEAPON_DRAW_Z_INDEX := 3
 
 @export var body_texture_path: String = PartsRegistry.BLANK_BODY_PATH
 @export var head_texture_path: String = PartsRegistry.BLANK_HEAD_PATH
@@ -76,9 +77,43 @@ func apply_tuner_draw_layers() -> void:
 		_head_sprite.z_index = 0
 
 
-## In-game mannequin uses the same body/head z stack as the limb tuner.
+## In-game mannequin: stack body/head/weapon relative to card Sprite Y-sort z_index.
 func apply_runtime_draw_layers() -> void:
-	apply_tuner_draw_layers()
+	z_as_relative = true
+	z_index = 0
+	if _body_sprite:
+		_body_sprite.z_as_relative = true
+		_body_sprite.z_index = BODY_DRAW_Z_INDEX
+	if _head_pivot:
+		_head_pivot.z_as_relative = true
+		_head_pivot.z_index = HEAD_DRAW_Z_INDEX
+	if _head_sprite:
+		_head_sprite.z_as_relative = true
+		_head_sprite.z_index = 0
+	var sprite_root := get_parent() as Node2D
+	if sprite_root:
+		var weapon := sprite_root.get_node_or_null("WeaponOverlay") as Sprite2D
+		if weapon:
+			weapon.z_as_relative = true
+			weapon.z_index = WEAPON_DRAW_Z_INDEX
+			sprite_root.move_child(weapon, -1)
+
+
+func _uses_runtime_draw_layers() -> bool:
+	var sprite_root := get_parent() as Node2D
+	if sprite_root == null:
+		return false
+	var entity := sprite_root.get_parent()
+	if entity == null or not PlaceholderCardService:
+		return false
+	return PlaceholderCardService.uses_layered_body_mannequin(entity)
+
+
+func _apply_draw_layers() -> void:
+	if _uses_runtime_draw_layers():
+		apply_runtime_draw_layers()
+	else:
+		apply_tuner_draw_layers()
 
 
 func sync_head_draw_transform() -> void:
@@ -91,6 +126,8 @@ func sync_head_draw_transform() -> void:
 	var look_sign := 1.0 if _look_right else -1.0
 	# HeadPivot is parented under the card Sprite; scale comes from that parent once.
 	_head_pivot.scale = Vector2(look_sign, 1.0)
+	if _uses_runtime_draw_layers():
+		apply_runtime_draw_layers()
 
 
 func _apply_facing(look_right: bool) -> void:
@@ -201,7 +238,7 @@ func _build_layers() -> void:
 
 	if head_tex == null:
 		push_warning("TunerBodyVisual: missing head texture at %s" % head_texture_path)
-		apply_tuner_draw_layers()
+		_apply_draw_layers()
 		return
 
 	_head_pivot = Node2D.new()
@@ -218,7 +255,7 @@ func _build_layers() -> void:
 	_head_sprite.centered = true
 	_head_pivot.add_child(_head_sprite)
 	_apply_head_attachment()
-	apply_tuner_draw_layers()
+	_apply_draw_layers()
 
 
 func _clear_sprite_head_pivots(sprite_root: Node2D) -> void:
