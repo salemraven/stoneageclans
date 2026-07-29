@@ -26,11 +26,11 @@ var _chunk_loads: int = 0
 var _chunk_unloads: int = 0
 var _chunk_load_usec_total: int = 0
 var _chunk_load_usec_max: int = 0
+var _memory_rows: Array[Dictionary] = []
+const _MEMORY_ROW_CAP := 60
 
 
 func _ready() -> void:
-	if OS.get_name() == "Web":
-		return
 	call_deferred("_boot")
 
 
@@ -48,6 +48,40 @@ func _boot() -> void:
 
 func is_enabled() -> bool:
 	return _enabled
+
+
+func get_summary_dict() -> Dictionary:
+	if _memory_rows.is_empty():
+		return {}
+	var rows := _memory_rows.duplicate()
+	var steady: Array[Dictionary] = []
+	for row in rows:
+		if str(row.get("evt", "")) == "interval" and float(row.get("t", 0.0)) >= 3.0:
+			steady.append(row)
+	if steady.is_empty():
+		for row in rows:
+			if str(row.get("evt", "")) == "interval":
+				steady.append(row)
+	if steady.is_empty():
+		return {}
+	var n := steady.size()
+	var avg_frame := 0.0
+	var areas := 0.0
+	var pairs := 0.0
+	for row in steady:
+		avg_frame += float(row.get("frame_ms_avg", 0.0))
+		areas += float(row.get("areas_monitoring", 0.0))
+		pairs += float(row.get("physics_2d_collision_pairs", 0.0))
+	avg_frame /= float(n)
+	areas /= float(n)
+	pairs /= float(n)
+	return {
+		"interval_count": n,
+		"fps": snappedf(1000.0 / maxf(avg_frame, 0.001), 0.1),
+		"frame_ms_avg": snappedf(avg_frame, 0.1),
+		"areas_monitoring": snappedf(areas, 0.0),
+		"collision_pairs": snappedf(pairs, 0.0),
+	}
 
 
 func record_gatherable_process() -> void:
@@ -127,6 +161,19 @@ func _process(delta: float) -> void:
 
 
 func _open_log() -> void:
+	if OS.get_name() == "Web":
+		_memory_rows.clear()
+		_t0_sec = Time.get_ticks_msec() / 1000.0
+		_emit({
+			"evt": "lag_profile_start",
+			"path": "memory",
+			"interval_sec": _interval_sec,
+			"spike_ms": _spike_ms,
+			"profiler_version": 2,
+			"platform": "Web",
+		})
+		print("✓ Lag profiler (Web in-memory)")
+		return
 	var now: Dictionary = Time.get_datetime_dict_from_system()
 	_file_path = "user://lag_profile_%04d%02d%02d_%02d%02d%02d.jsonl" % [
 		now.year, now.month, now.day, now.hour, now.minute, now.second
@@ -145,9 +192,13 @@ func _open_log() -> void:
 
 
 func _emit(obj: Dictionary) -> void:
+	obj["t"] = (Time.get_ticks_msec() / 1000.0) - _t0_sec
+	if _enabled:
+		_memory_rows.append(obj.duplicate())
+		if _memory_rows.size() > _MEMORY_ROW_CAP:
+			_memory_rows.pop_front()
 	if _file == null or not _file.is_open():
 		return
-	obj["t"] = (Time.get_ticks_msec() / 1000.0) - _t0_sec
 	_file.store_string(JSON.stringify(obj) + "\n")
 	_file.flush()
 
@@ -346,7 +397,13 @@ func _reset_interval() -> void:
 
 
 func _exit_tree() -> void:
-	if _enabled and _file and _file.is_open():
-		_emit({"evt": "lag_profile_end"})
+	if not _enabled:
+		return
+	_emit({"evt": "lag_profile_end"})
+	if _file and _file.is_open():
 		_file.close()
 		print("✓ Lag profiler closed: %s" % ProjectSettings.globalize_path(_file_path))
+	elif OS.get_name() == "Web":
+		var summary := get_summary_dict()
+		print("✓ Lag profiler (Web) summary: %s" % JSON.stringify(summary))
+		print("ANALYZE_LAG_PROFILE_OK")

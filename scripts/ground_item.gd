@@ -28,7 +28,7 @@ var collection_start_position: Vector2 = Vector2.ZERO
 const MOVE_CANCEL_THRESHOLD: float = 20.0
 var last_gather_press_time := 0.0
 const GATHER_COOLDOWN := 0.2  # Small cooldown to prevent double-presses
-var _sim_monitoring_enabled: bool = true
+var _sim_monitoring_enabled: bool = false  # Player pickup uses ResourceIndex spatial queries.
 
 func _ready() -> void:
 	add_to_group("ground_items")
@@ -39,13 +39,8 @@ func _ready() -> void:
 	_setup_collision()
 	_setup_collection_progress()
 	
-	# Enable monitoring for body detection
-	monitoring = true
-	monitorable = false  # Ground items don't need to be detected by other areas
-	
-	# Connect signals
-	body_entered.connect(_on_body_entered)
-	body_exited.connect(_on_body_exited)
+	monitoring = false
+	monitorable = false
 	
 	# Manual z_index by sprite foot (draw_order.md)
 	if sprite:
@@ -58,11 +53,8 @@ func apply_sim_monitoring(enabled: bool) -> void:
 	if _sim_monitoring_enabled == enabled:
 		return
 	_sim_monitoring_enabled = enabled
-	if enabled:
-		monitoring = true
-		call_deferred("_refresh_player_overlap_after_monitor_wake")
-	else:
-		monitoring = false
+	monitoring = false
+	if not enabled:
 		if nearby_player != null:
 			nearby_player = null
 			var main := get_tree().get_first_node_in_group("main")
@@ -73,13 +65,37 @@ func apply_sim_monitoring(enabled: bool) -> void:
 		_sync_interaction_process()
 
 
-func _refresh_player_overlap_after_monitor_wake() -> void:
-	if not monitoring or not is_inside_tree() or is_picked_up:
+func get_gather_radius() -> float:
+	return 40.0
+
+
+func is_player_in_gather_range(player_pos: Vector2) -> bool:
+	return global_position.distance_to(player_pos) <= get_gather_radius()
+
+
+func set_player_proximity(player: Node2D) -> void:
+	if is_picked_up or player == null:
 		return
-	for body in get_overlapping_bodies():
-		if body is Node2D and body.is_in_group("player"):
-			_on_body_entered(body as Node2D)
-			return
+	nearby_player = player
+	_sync_interaction_process()
+
+
+func clear_player_proximity() -> void:
+	if is_collecting:
+		return
+	if nearby_player != null:
+		nearby_player = null
+		_sync_interaction_process()
+
+
+func player_left_gather_range() -> void:
+	var main := get_tree().get_first_node_in_group("main")
+	if main and main.get("active_collection_resource") == self:
+		main.active_collection_resource = null
+	if is_collecting:
+		_stop_collection(true)
+	else:
+		clear_player_proximity()
 
 
 func _sync_interaction_process() -> void:
@@ -135,9 +151,11 @@ func _setup_visuals() -> void:
 			var tex: Texture2D = loaded_texture as Texture2D
 			sprite.texture = tex
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.scale = Vector2(2.0 / 3.0, 2.0 / 3.0) if item_type == ResourceData.ResourceType.MUSHROOM else Vector2.ONE
 			sprite.centered = true
-			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
+			var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
+			var base_scale: float = (2.0 / 3.0 if item_type == ResourceData.ResourceType.MUSHROOM else 1.0) * wps
+			sprite.scale = Vector2(base_scale, base_scale)
+			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex, base_scale)
 			sprite.visible = true
 
 func _setup_collision() -> void:
@@ -199,9 +217,13 @@ func _on_body_exited(body: Node2D) -> void:
 func _process(_delta: float) -> void:
 	if is_picked_up:
 		return
-	if nearby_player:
-		var main: Node = get_tree().get_first_node_in_group("main")
-		_update_active_collection_target(main, nearby_player)
+	var main: Node = get_tree().get_first_node_in_group("main")
+	var range_player: Node2D = nearby_player
+	if range_player == null and main and main.get("player") != null:
+		range_player = main.get("player") as Node2D
+	if range_player and not is_player_in_gather_range(range_player.global_position):
+		player_left_gather_range()
+		return
 	if is_collecting and gathering_player:
 		var moved := gathering_player.global_position.distance_to(collection_start_position)
 		if moved > MOVE_CANCEL_THRESHOLD:
@@ -214,8 +236,12 @@ func _process(_delta: float) -> void:
 
 
 func try_player_gather_press(main: Node) -> void:
-	if is_picked_up or nearby_player == null:
+	var player_node: Node2D = main.get("player") as Node2D if main and main.get("player") != null else null
+	if is_picked_up or player_node == null:
 		return
+	if not is_player_in_gather_range(player_node.global_position):
+		return
+	nearby_player = player_node
 	if main == null or main.get("active_collection_resource") != self:
 		return
 	if Input.is_action_pressed("weapon_ready"):

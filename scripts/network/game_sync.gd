@@ -77,6 +77,56 @@ func receive_world_snapshot(snapshot: Dictionary) -> void:
 		ms.call("load_from_dict", snapshot["mutations"])
 
 
+## Client → server: authoritative gather by stable_id (spatial radius validated on server).
+@rpc("any_peer", "call_remote", "reliable")
+func request_gather(stable_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id: int = multiplayer.get_remote_sender_id()
+	var main_n: Node = get_tree().get_first_node_in_group("main")
+	if main_n == null or stable_id.is_empty():
+		return
+	var player_node: Node2D = _resolve_player_for_peer(main_n, sender_id)
+	if player_node == null:
+		return
+	var resource: Node2D = _find_resource_by_stable_id(stable_id)
+	if resource == null or not is_instance_valid(resource):
+		return
+	if not resource.has_method("is_player_in_gather_range"):
+		return
+	if not resource.is_player_in_gather_range(player_node.global_position):
+		return
+	if main_n.get("active_collection_resource") != resource:
+		main_n.active_collection_resource = resource
+	if resource.has_method("set_player_proximity"):
+		resource.set_player_proximity(player_node)
+	if resource.has_method("try_player_gather_press"):
+		resource.try_player_gather_press(main_n)
+
+
+func _resolve_player_for_peer(main_n: Node, peer_id: int) -> Node2D:
+	if peer_id == 0 or peer_id == multiplayer.get_unique_id():
+		return main_n.get("player") as Node2D if main_n.get("player") != null else null
+	for p in main_n.get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p) or not (p is Node2D):
+			continue
+		if int(p.get_multiplayer_authority()) == peer_id:
+			return p as Node2D
+	return main_n.get("player") as Node2D if main_n.get("player") != null else null
+
+
+func _find_resource_by_stable_id(stable_id: String) -> Node2D:
+	for node in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(node) or not (node is Node2D):
+			continue
+		if node.has_meta(&"stable_id") and str(node.get_meta(&"stable_id")) == stable_id:
+			return node as Node2D
+		var parent := node.get_parent()
+		if parent and parent.has_meta(&"stable_id") and str(parent.get_meta(&"stable_id")) == stable_id:
+			return node as Node2D
+	return null
+
+
 func _on_simulation_tick_sync(_delta: float) -> void:
 	if not multiplayer.is_server():
 		return

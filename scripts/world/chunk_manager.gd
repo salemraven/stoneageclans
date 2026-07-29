@@ -66,13 +66,19 @@ func update_streaming(player_world_pos: Vector2, delta: float) -> void:
 	var interest: Node = get_node_or_null("/root/WorldInterestManager")
 	if interest and interest.has_method("recompute"):
 		interest.call("recompute", _main)
-		if interest.has_method("get_primary_stream_position"):
-			player_world_pos = interest.call("get_primary_stream_position", _main) as Vector2
-	var center := ChunkUtils.get_chunk_coords(player_world_pos)
+	var stream_centers: Array[Vector2] = []
+	if interest and interest.has_method("get_stream_centers_for_main"):
+		for c in interest.call("get_stream_centers_for_main", _main) as Array:
+			if c is Vector2:
+				stream_centers.append(c as Vector2)
+	if stream_centers.is_empty():
+		stream_centers.append(player_world_pos)
 	var r: int = int(_wgc.call("get_effective_load_radius")) if _wgc.has_method("get_effective_load_radius") else 1
-	_queue_disk(center, r)
+	for center_pos in stream_centers:
+		var cc := ChunkUtils.get_chunk_coords(center_pos)
+		_queue_disk(cc, r)
 	_process_pending_loads(false)
-	_process_unloads(center, r, delta)
+	_process_unloads_multi(stream_centers, r, delta)
 	_process_density_timer(delta)
 	var dormancy: Node = get_node_or_null("/root/SimDormancyController")
 	if dormancy and dormancy.has_method("apply"):
@@ -100,13 +106,22 @@ func _process_pending_loads(immediate: bool) -> void:
 		budget -= 1
 
 
-func _process_unloads(center: Vector2i, radius: int, _delta: float) -> void:
+func _process_unloads(center: Vector2i, radius: int, delta: float) -> void:
+	var center_pos := ChunkUtils.get_chunk_center(center) if ChunkUtils else Vector2.ZERO
+	_process_unloads_multi([center_pos], radius, delta)
+
+
+func _process_unloads_multi(centers: Array[Vector2], radius: int, _delta: float) -> void:
 	var hysteresis: int = int(_wgc.chunk_unload_hysteresis) if _wgc else 1
 	var r_out: int = radius + maxi(hysteresis, 0)
 	var want: Dictionary = {}
-	for dx in range(-r_out, r_out + 1):
-		for dy in range(-r_out, r_out + 1):
-			want[center + Vector2i(dx, dy)] = true
+	for center_pos in centers:
+		if ChunkUtils == null:
+			continue
+		var center := ChunkUtils.get_chunk_coords(center_pos)
+		for dx in range(-r_out, r_out + 1):
+			for dy in range(-r_out, r_out + 1):
+				want[center + Vector2i(dx, dy)] = true
 	var now_ms: int = Time.get_ticks_msec()
 	var grace_ms: float = float(_wgc.chunk_unload_no_interest_grace_ms) if _wgc else 500.0
 	var to_unload: Array[Vector2i] = []

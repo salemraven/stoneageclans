@@ -14,7 +14,7 @@ func apply(main: Node) -> void:
 		return
 	_refresh_party_cache(main)
 	_apply_npc_dormancy(main)
-	_apply_resource_monitoring(main)
+	# Resources use ResourceIndex spatial gather — no Area2D monitoring to toggle.
 	_apply_land_claim_zones(main)
 
 
@@ -79,7 +79,12 @@ func _npc_should_sim_awake(npc: Node, main: Node) -> bool:
 		return true
 	if not (npc is Node2D):
 		return true
-	return _is_sim_hot_for_position((npc as Node2D).global_position, main)
+	# Idle NPCs wake on player proximity only — not the whole sim-active chunk ring.
+	var wake_r: float = 450.0
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc:
+		wake_r = float(wgc.get("sim_wake_player_radius_px"))
+	return _is_near_any_player((npc as Node2D).global_position, main, wake_r)
 
 
 func _is_sim_hot_for_position(pos: Vector2, main: Node) -> bool:

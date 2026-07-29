@@ -76,3 +76,32 @@ func get_primary_stream_position(main: Node) -> Vector2:
 	if player and is_instance_valid(player):
 		return player.global_position
 	return Vector2.ZERO
+
+
+func get_player_centers(main: Node) -> Array[Vector2]:
+	var centers: Array[Vector2] = []
+	if main == null:
+		return centers
+	var primary: Node2D = main.get("player") as Node2D if main.get("player") != null else null
+	if primary and is_instance_valid(primary):
+		centers.append(primary.global_position)
+	for p in main.get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p) or not (p is Node2D):
+			continue
+		if p == primary:
+			continue
+		centers.append((p as Node2D).global_position)
+	return centers
+
+
+## Server: union of all peer positions. Client: local player only.
+func get_stream_centers_for_main(main: Node) -> Array[Vector2]:
+	if main == null:
+		return []
+	var mp: MultiplayerAPI = main.get_tree().get_multiplayer()
+	if mp.has_multiplayer_peer() and mp.is_server():
+		return get_player_centers(main)
+	var local := get_primary_stream_position(main)
+	if local != Vector2.ZERO:
+		return [local]
+	return []

@@ -38,6 +38,12 @@ const AMBIENT_GRASS_FORAGE_RANGE := 52.0
 const AMBIENT_GRASS_STAY_RANGE := 62.0
 const AMBIENT_GRASS_FORAGE_SEC := 0.85
 const AMBIENT_FORAGE_MOVE_CANCEL := 20.0
+## Spatial gather (ResourceIndex) — no Area2D monitoring for player proximity.
+const GATHER_RADIUS_WOOD := 50.0
+const GATHER_RADIUS_DEFAULT := 40.0
+const GATHER_RADIUS_PICKUP := 40.0
+const GATHER_TARGET_REFRESH_SEC := 0.25  # 4 Hz while player exists
+var _gather_target_refresh_timer: float = 0.0
 var _player_is_eating: bool = false
 var _eating_slot_index: int = -1
 var _eat_start_position: Vector2 = Vector2.ZERO
@@ -1042,7 +1048,12 @@ func _process(delta: float) -> void:
 	# freed nodes break distance checks and block Space on berry bushes / trees.
 	if active_collection_resource != null and not is_instance_valid(active_collection_resource):
 		active_collection_resource = null
+	_gather_target_refresh_timer += delta
+	if player and _gather_target_refresh_timer >= GATHER_TARGET_REFRESH_SEC:
+		_gather_target_refresh_timer = 0.0
+		_update_player_gather_target()
 	if Input.is_action_just_pressed("gather"):
+		_update_player_gather_target()
 		_playtest_log_gather_space_pressed()
 	if _ambient_grass_forage_active and player:
 		if player.global_position.distance_to(_ambient_grass_forage_start) > AMBIENT_FORAGE_MOVE_CANCEL:
@@ -1842,7 +1853,9 @@ func _spawn_tallgrass() -> void:
 			sprite.texture = tex
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			sprite.centered = true
-			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
+			var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
+			sprite.scale = Vector2(wps, wps)
+			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex, wps)
 			sprite.name = "Sprite"
 			node.add_child(sprite)
 			node.global_position = pos
@@ -1983,6 +1996,76 @@ func _find_closest_grass_bug_patch(from_pos: Vector2, max_dist: float) -> Node2D
 			"forageable_only": true,
 		})
 	return null
+
+
+func _gather_radius_for_resource(node: Node2D) -> float:
+	if node is GroundItem:
+		return GATHER_RADIUS_PICKUP
+	if node is GatherableResource:
+		var gr: GatherableResource = node as GatherableResource
+		if gr.resource_type == ResourceData.ResourceType.WOOD:
+			return GATHER_RADIUS_WOOD
+		return GATHER_RADIUS_DEFAULT
+	if node.has_method("get_gather_radius"):
+		return float(node.call("get_gather_radius"))
+	return GATHER_RADIUS_DEFAULT
+
+
+func _find_nearest_gatherable(from_pos: Vector2) -> Node2D:
+	if not ResourceIndex:
+		return null
+	var max_r: float = maxf(GATHER_RADIUS_WOOD, maxf(GATHER_RADIUS_DEFAULT, GATHER_RADIUS_PICKUP))
+	var candidates: Array = ResourceIndex.query_near(from_pos, max_r, {
+		"exclude_cooldown": true,
+		"exclude_no_capacity": true,
+		"exclude_empty": true,
+	})
+	var best: Node2D = null
+	var best_dist: float = INF
+	for entry in candidates:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var node: Node2D = entry.get("node") as Node2D
+		if node == null or not is_instance_valid(node):
+			continue
+		var dist: float = float(entry.get("distance", INF))
+		var radius: float = _gather_radius_for_resource(node)
+		if dist <= radius and dist < best_dist:
+			best = node
+			best_dist = dist
+	return best
+
+
+func _clear_active_gather_target() -> void:
+	if active_collection_resource != null and is_instance_valid(active_collection_resource):
+		if active_collection_resource.has_method("clear_player_proximity"):
+			active_collection_resource.clear_player_proximity()
+	active_collection_resource = null
+
+
+func _update_player_gather_target() -> void:
+	if not player or not is_instance_valid(player):
+		_clear_active_gather_target()
+		return
+	if butchering_corpse or _ambient_grass_forage_active or _player_is_eating:
+		return
+	if active_collection_resource != null and is_instance_valid(active_collection_resource):
+		if bool(active_collection_resource.get("is_collecting")):
+			if active_collection_resource.has_method("is_player_in_gather_range"):
+				if not active_collection_resource.is_player_in_gather_range(player.global_position):
+					if active_collection_resource.has_method("player_left_gather_range"):
+						active_collection_resource.player_left_gather_range()
+					_clear_active_gather_target()
+			return
+	var nearest: Node2D = _find_nearest_gatherable(player.global_position)
+	if nearest == active_collection_resource:
+		if nearest and nearest.has_method("set_player_proximity"):
+			nearest.set_player_proximity(player)
+		return
+	_clear_active_gather_target()
+	active_collection_resource = nearest
+	if nearest and nearest.has_method("set_player_proximity"):
+		nearest.set_player_proximity(player)
 
 func _deferred_try_ambient_grass_forage() -> void:
 	if not player:
@@ -3597,35 +3680,38 @@ func _playtest_log_gather_space_pressed() -> void:
 		return
 	var ppos: Vector2 = player.global_position
 	var overlaps: Array = []
-	for n in get_tree().get_nodes_in_group("resources"):
-		if not is_instance_valid(n) or not (n is Area2D):
-			continue
-		var a: Area2D = n as Area2D
-		if not a.overlaps_body(player):
-			continue
-		var entry: Dictionary = {
-			"id": n.get_instance_id(),
-			"node_gx": snappedf(n.global_position.x, 1.0),
-			"node_gy": snappedf(n.global_position.y, 1.0),
-			"dist_to_node": snappedf(ppos.distance_to(n.global_position), 1.0),
-		}
-		if n is GatherableResource:
-			var g: GatherableResource = n as GatherableResource
-			entry["kind"] = "gatherable"
-			entry["resource"] = ResourceData.get_resource_name(g.resource_type)
-			var col: Node = g.get_node_or_null("CollisionShape2D")
-			if col and is_instance_valid(col) and col is CollisionShape2D:
-				var c2: CollisionShape2D = col as CollisionShape2D
-				entry["hitbox_center_gx"] = snappedf(c2.global_position.x, 1.0)
-				entry["hitbox_center_gy"] = snappedf(c2.global_position.y, 1.0)
-				entry["dist_player_to_hitbox"] = snappedf(ppos.distance_to(c2.global_position), 1.0)
-		elif n is GroundItem:
-			var gi: GroundItem = n as GroundItem
-			entry["kind"] = "ground_item"
-			entry["resource"] = ResourceData.get_resource_name(gi.item_type)
-		else:
-			entry["kind"] = "other_area"
-		overlaps.append(entry)
+	var max_r: float = maxf(GATHER_RADIUS_WOOD, maxf(GATHER_RADIUS_DEFAULT, GATHER_RADIUS_PICKUP))
+	if ResourceIndex:
+		for entry in ResourceIndex.query_near(ppos, max_r, {
+			"exclude_cooldown": false,
+			"exclude_no_capacity": false,
+			"exclude_empty": false,
+		}):
+			if typeof(entry) != TYPE_DICTIONARY:
+				continue
+			var n: Node2D = entry.get("node") as Node2D
+			if n == null or not is_instance_valid(n):
+				continue
+			var dist: float = float(entry.get("distance", INF))
+			if dist > _gather_radius_for_resource(n):
+				continue
+			var entry_dict: Dictionary = {
+				"id": n.get_instance_id(),
+				"node_gx": snappedf(n.global_position.x, 1.0),
+				"node_gy": snappedf(n.global_position.y, 1.0),
+				"dist_to_node": snappedf(dist, 1.0),
+			}
+			if n is GatherableResource:
+				var g: GatherableResource = n as GatherableResource
+				entry_dict["kind"] = "gatherable"
+				entry_dict["resource"] = ResourceData.get_resource_name(g.resource_type)
+			elif n is GroundItem:
+				var gi: GroundItem = n as GroundItem
+				entry_dict["kind"] = "ground_item"
+				entry_dict["resource"] = ResourceData.get_resource_name(gi.item_type)
+			else:
+				entry_dict["kind"] = "other"
+			overlaps.append(entry_dict)
 	var active_id: int = -1
 	if active_collection_resource != null and is_instance_valid(active_collection_resource):
 		active_id = active_collection_resource.get_instance_id()

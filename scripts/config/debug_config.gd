@@ -103,8 +103,15 @@ func _ready() -> void:
 	_apply_debug_settings()
 
 func _parse_command_line_args() -> void:
-	# Web: no CLI; optional URL query via JavaScriptBridge can be added later.
 	if OS.get_name() == "Web":
+		var search: String = ""
+		if typeof(JavaScriptBridge) != TYPE_NIL:
+			var raw: Variant = JavaScriptBridge.eval("window.location.search", true)
+			if raw != null:
+				search = str(raw)
+		if search.contains("lag_profile=1") or search.contains("lag-profile=1"):
+			enable_lag_profiling = true
+			print("✓ Lag profiler enabled (Web URL param)")
 		return
 	# User args (after --) need get_cmdline_user_args; engine args need get_cmdline_args
 	var args: PackedStringArray = OS.get_cmdline_args()

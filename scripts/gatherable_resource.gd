@@ -42,7 +42,7 @@ var _bush_off_texture: Texture2D = null
 var _wood_nut_search: bool = false
 # Throttle playtest logs when Space is pressed near this node but another target is active
 var _gather_diag_wrong_target_last_t: float = -100.0
-var _sim_monitoring_enabled: bool = true
+var _sim_monitoring_enabled: bool = false  # Player gather uses ResourceIndex spatial queries, not Area2D overlap.
 
 # OPTIMIZATION: Lock system removed - capacity/reservation system handles resource access
 # Old lock system (locked_by, lock_for, unlock) has been migrated to capacity system
@@ -53,13 +53,11 @@ func _ready() -> void:
 	add_to_group("resources")
 	if ResourceIndex:
 		ResourceIndex.register(self)
-	monitoring = true
+	monitoring = false
 	monitorable = false
 	_setup_visuals()
 	_setup_collision()
 	_setup_collection_progress()
-	body_entered.connect(_on_body_entered)
-	body_exited.connect(_on_body_exited)
 	
 	# Store original modulate color for cooldown visual
 	if sprite:
@@ -98,11 +96,9 @@ func apply_sim_monitoring(enabled: bool) -> void:
 	if _sim_monitoring_enabled == enabled:
 		return
 	_sim_monitoring_enabled = enabled
-	if enabled:
-		monitoring = true
-		call_deferred("_refresh_player_overlap_after_monitor_wake")
-	else:
-		monitoring = false
+	# Player gather is spatial (ResourceIndex) — never enable Area2D monitoring for overlap.
+	monitoring = false
+	if not enabled:
 		if nearby_player != null:
 			var exited := nearby_player
 			nearby_player = null
@@ -116,13 +112,40 @@ func apply_sim_monitoring(enabled: bool) -> void:
 		_sync_interaction_process()
 
 
-func _refresh_player_overlap_after_monitor_wake() -> void:
-	if not monitoring or not is_inside_tree() or gathered:
+func get_gather_radius() -> float:
+	if resource_type == ResourceData.ResourceType.WOOD:
+		return 50.0
+	return 40.0
+
+
+func is_player_in_gather_range(player_pos: Vector2) -> bool:
+	return global_position.distance_to(player_pos) <= get_gather_radius()
+
+
+func set_player_proximity(player: Node2D) -> void:
+	if gathered or player == null:
 		return
-	for body in get_overlapping_bodies():
-		if body is Node2D and body.is_in_group("player"):
-			_on_body_entered(body as Node2D)
-			return
+	nearby_player = player
+	_refresh_cooldown_if_expired()
+	_sync_interaction_process()
+
+
+func clear_player_proximity() -> void:
+	if is_collecting or _wood_nut_search:
+		return
+	if nearby_player != null:
+		nearby_player = null
+		_sync_interaction_process()
+
+
+func player_left_gather_range() -> void:
+	var main := get_tree().get_first_node_in_group("main")
+	if main and main.get("active_collection_resource") == self:
+		main.active_collection_resource = null
+	if is_collecting or _wood_nut_search:
+		_stop_collection("player_left_range")
+	else:
+		clear_player_proximity()
 
 func _setup_tree_from_sheet() -> void:
 	"""Load trees.png sprite sheet (5 cols x 3 rows = 15 trees) and pick random frame."""
@@ -145,7 +168,8 @@ func _setup_tree_from_sheet() -> void:
 	var row := tree_idx / cols
 	sprite.region_enabled = true
 	sprite.region_rect = Rect2(col * cell_w, row * cell_h, cell_w, cell_h)
-	sprite.scale = Vector2(1.15, 1.15)
+	var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
+	sprite.scale = Vector2(1.15, 1.15) * wps
 	sprite.position = YSortUtils.get_tree_sprite_position_for_cell_height(cell_h, sprite.scale.y)
 
 func _setup_visuals() -> void:
@@ -195,8 +219,10 @@ func _setup_visuals() -> void:
 				or resource_type == ResourceData.ResourceType.BUGS
 				or resource_type == ResourceData.ResourceType.NUTS
 			)
-			sprite.scale = Vector2(1.0 / 3.0, 1.0 / 3.0) if small_sprite else Vector2.ONE
-			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex)
+			var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
+			var base_scale: float = (1.0 / 3.0 if small_sprite else 1.0) * wps
+			sprite.scale = Vector2(base_scale, base_scale)
+			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex, base_scale)
 			return
 	
 	# Fallback: generate colored square if sprite not found
@@ -493,19 +519,13 @@ func _process(_delta: float) -> void:
 		LagProfiler.record_gatherable_process()
 	if gathered:
 		return
-	if nearby_player:
-		var main: Node = get_tree().get_first_node_in_group("main")
-		_update_active_collection_target(main, nearby_player)
-		var is_active: bool = main != null and main.get("active_collection_resource") == self
-		if Input.is_action_just_pressed("gather") and main and not is_active:
-			var now_sec: float = Time.get_ticks_msec() / 1000.0
-			if now_sec - _gather_diag_wrong_target_last_t >= 0.35:
-				_gather_diag_wrong_target_last_t = now_sec
-				_emit_gather_diagnostic("gather_space_wrong_active_target", nearby_player, main, {
-					"note": "Space while overlapping this hitbox but active_collection_resource is another node or null"
-				})
-				if main.has_method("show_gather_feedback"):
-					main.show_gather_feedback("Move closer to the resource you are gathering.")
+	var main: Node = get_tree().get_first_node_in_group("main")
+	var range_player: Node2D = nearby_player
+	if range_player == null and main and main.get("player") != null:
+		range_player = main.get("player") as Node2D
+	if range_player and not is_player_in_gather_range(range_player.global_position):
+		player_left_gather_range()
+		return
 	if is_collecting and gathering_player:
 		var moved := gathering_player.global_position.distance_to(collection_start_position)
 		if moved > MOVE_CANCEL_THRESHOLD:
@@ -515,8 +535,12 @@ func _process(_delta: float) -> void:
 
 
 func try_player_gather_press(main: Node) -> void:
-	if gathered or nearby_player == null:
+	var player_node: Node2D = main.get("player") as Node2D if main and main.get("player") != null else null
+	if gathered or player_node == null:
 		return
+	if not is_player_in_gather_range(player_node.global_position):
+		return
+	nearby_player = player_node
 	_refresh_cooldown_if_expired()
 	if main == null or main.get("active_collection_resource") != self:
 		return

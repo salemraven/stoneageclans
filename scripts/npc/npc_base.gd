@@ -38,7 +38,7 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light (visual only)
 var card_index: int = 0  # clansmen_card1-18 for caveman/clansman/player lineage
 var genetics_profile: Dictionary = {}  # conception profile; skin_modulate applied in PR3
-var _card_foot_y: float = -128.0
+var _card_foot_y: float = -64.0
 var _card_bounce_time: float = 0.0
 
 # Traits array (editable in inspector)
@@ -979,6 +979,8 @@ func set_sim_dormant(dormant: bool) -> void:
 		var hi_off: Node = get_node_or_null("HerdInfluenceArea")
 		if hi_off:
 			hi_off.set_physics_process(false)
+			if hi_off is Area2D:
+				(hi_off as Area2D).monitoring = false
 		return
 	var health_comp_wake: HealthComponent = get_node_or_null("HealthComponent")
 	if health_comp_wake and health_comp_wake.is_dead:
@@ -994,6 +996,8 @@ func set_sim_dormant(dormant: bool) -> void:
 	var hi_on: Node = get_node_or_null("HerdInfluenceArea")
 	if hi_on:
 		hi_on.set_physics_process(true)
+		if hi_on is Area2D:
+			(hi_on as Area2D).monitoring = true
 
 
 func _physics_process(delta: float) -> void:
@@ -1687,7 +1691,7 @@ func _physics_process(delta: float) -> void:
 					weapon_comp.force_apply_idle()
 		_walk_timer = 0.0
 	if uses_placeholder_cards() and PlaceholderCardService:
-		if not PlaceholderCardService.uses_procedural_mannequin(self):
+		if PlaceholderCardService.uses_layered_body_mannequin(self) or not PlaceholderCardService.uses_procedural_mannequin(self):
 			PlaceholderCardService.sync_weapon_overlay_flip(self)
 
 func _apply_woman_idle_once() -> void:
