@@ -360,11 +360,27 @@ Intent: support arm swings wider than weapon arm
 ### Agent side
 
 1. Read pose `.tres` + layout + baked manifest if relevant.
-2. Run `tools/test_limb_tuner.gd` (+ `test_limb_bake.gd` after bake changes).
-3. Wire Main playback when implementing `BakedPawnPlayer`.
+2. Run tuner verify (cloud-safe):
 
 ```bash
-cd "/Users/macbook/Desktop/stoneageclans"
+bash tools/run_limb_tuner.sh verify
+```
+
+After bake changes, also run a targeted bake:
+
+```bash
+bash tools/run_limb_tuner.sh bake --weapon none --clip idle
+```
+
+3. Wire Main playback when implementing `BakedPawnPlayer`.
+
+**Cloud agents (no Godot window):** use `verify`, `bake`, or `share-web` — not `gui`. See `.cursor/rules/cloud-agent-limb-tuner.mdc`.
+
+**Local GUI:**
+
+```bash
+bash tools/run_limb_tuner.sh gui
+# or:
 SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 ```
 

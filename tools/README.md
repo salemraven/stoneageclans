@@ -8,28 +8,24 @@ The player uses **2D spritesheets** (`scripts/player.gd`, `WalkAnimation`, asset
 godot --path . res://scenes/MovementVisualTest.tscn
 ```
 
-## Character Animation Tuner (windowed)
+## Character Animation Tuner (Godot + cloud agents)
 
-Tune procedural arms, weapon overlay, and layered mannequin (body + head) — **not** the old clansmen-card sprite. Saves limb presets to `assets/limb_presets/` and body/head layout to `assets/character_cards/layered_blank_1.tres` (game reads via `LimbPresetRegistry`).
+Tune procedural arms, weapon overlay, and layered mannequin — saves to `assets/limb_presets/` and `assets/character_cards/`.
 
 ```bash
-godot --path . res://scenes/tools/LimbTuner.tscn
+bash tools/run_limb_tuner.sh verify              # headless — use on cloud agents
+bash tools/run_limb_tuner.sh bake --weapon none --clip idle
+bash tools/run_limb_tuner.sh gui                 # local window (needs display)
+bash tools/run_limb_tuner.sh share-web           # browser preview + optional public link
 ```
 
-See **`scenes/tools/README.md`** for file map and controls.
+See **`guides/animation_tuner.md`** and **`scenes/tools/README.md`**.
 
-- **Assemble** — drag handles (H, 1/1e, 2/2e, 3); **Idle / Ready** tabs.
-- **Toggle walk / attack** — preview animation without leaving Assemble.
-- **Shift** — ready preview; **Shift + click** — one strike.
-- **Save** — writes preset `.tres` + layer layout.
-
-Headless smoke:
+Headless smoke (individual):
 
 ```bash
 SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_limb_tuner.gd
 ```
-
-WASD / arrows; mouse wheel or **+** / **-** zooms. Root export **`equip_wood_club_for_test`** toggles wood club equipment for 2D club walk frames.
 
 ## Headless smoke + logs
 

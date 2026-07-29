@@ -6,16 +6,29 @@
 
 ## Run
 
+**Cloud agent / CI (headless — preferred for agents):**
+
 ```bash
+bash tools/run_limb_tuner.sh verify
+bash tools/run_limb_tuner.sh bake --weapon none --clip idle
+bash tools/run_limb_tuner.sh share-web   # browser preview + optional public link
+```
+
+**Local windowed tuner:**
+
+```bash
+bash tools/run_limb_tuner.sh gui
+# or:
 godot --path . res://scenes/tools/LimbTuner.tscn
 ```
 
 Or in the editor: open `LimbTuner.tscn` → **F6** (Play Current Scene).
 
-Headless smoke:
+Headless smoke (individual scripts):
 
 ```bash
 SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_limb_tuner.gd
+SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/limb_tuner_cli.gd -- smoke
 ```
 
 ## Architecture

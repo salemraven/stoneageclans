@@ -187,6 +187,24 @@ func prepare_bake_sample(clip: String, phase: float) -> void:
 	_rig.sync_bake_weapon_overlay(_preset, grip_mode, walk_swing, gather_motion)
 
 
+## Headless / cloud agent: pick holdable + clip before bake_from_tuner().
+func configure_for_cli_bake(weapon_slug: String, clip: String) -> Dictionary:
+	var normalized_clip := clip.strip_edges().to_lower()
+	if normalized_clip.is_empty() or LimbAnimationBakerScript.anim_mode_for_clip(normalized_clip) < 0:
+		return {"ok": false, "error": "Unknown clip %r (idle, idle1, walk, gather1)." % clip}
+	if not LimbAnimationBakerScript.is_known_weapon_slug(weapon_slug):
+		return {"ok": false, "error": "Unknown weapon %r (none, club, spear, axe, pick, oldowan)." % weapon_slug}
+	var weapon_type: ResourceData.ResourceType = LimbAnimationBakerScript.weapon_type_from_slug(weapon_slug)
+	var anim_mode: AnimMode = LimbAnimationBakerScript.anim_mode_for_clip(normalized_clip) as AnimMode
+	_set_weapon(weapon_type, false)
+	_set_anim_mode(anim_mode)
+	return {
+		"ok": true,
+		"clip": normalized_clip,
+		"weapon": LimbAnimationBakerScript.weapon_slug(weapon_type),
+	}
+
+
 func _grip_mode_for_bake_clip(clip: String) -> AnimMode:
 	match clip:
 		LimbAnimationBakerScript.CLIP_WALK:

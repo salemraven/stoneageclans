@@ -61,6 +61,43 @@ static func weapon_slug(weapon_type: ResourceData.ResourceType) -> String:
 			return "unknown"
 
 
+static func weapon_type_from_slug(slug: String) -> ResourceData.ResourceType:
+	match slug.strip_edges().to_lower():
+		"none", "":
+			return ResourceData.ResourceType.NONE
+		"club", "wood":
+			return ResourceData.ResourceType.WOOD
+		"spear":
+			return ResourceData.ResourceType.SPEAR
+		"axe":
+			return ResourceData.ResourceType.AXE
+		"pick":
+			return ResourceData.ResourceType.PICK
+		"oldowan":
+			return ResourceData.ResourceType.OLDOWAN
+		_:
+			return ResourceData.ResourceType.NONE
+
+
+static func is_known_weapon_slug(slug: String) -> bool:
+	var s := slug.strip_edges().to_lower()
+	return s in ["none", "", "club", "wood", "spear", "axe", "pick", "oldowan"]
+
+
+static func anim_mode_for_clip(clip: String) -> int:
+	match clip.strip_edges().to_lower():
+		CLIP_IDLE:
+			return WeaponLimbPreset.TunerAnimMode.IDLE
+		CLIP_IDLE1:
+			return WeaponLimbPreset.TunerAnimMode.IDLE1
+		CLIP_WALK:
+			return WeaponLimbPreset.TunerAnimMode.WALK
+		CLIP_GATHER1:
+			return WeaponLimbPreset.TunerAnimMode.GATHER1
+		_:
+			return -1
+
+
 static func fps_for_clip(clip: String) -> int:
 	match clip:
 		CLIP_WALK:

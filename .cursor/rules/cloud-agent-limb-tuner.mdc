@@ -1,0 +1,44 @@
+---
+description: Cloud agents run limb tuner via bash tools/run_limb_tuner.sh (headless verify/bake/share-web)
+alwaysApply: true
+---
+
+# Cloud agent — Character Animation Tuner
+
+When tuning or verifying limb/animation presets on a **Cursor Cloud agent** (no Godot editor window):
+
+## Default commands (repo root)
+
+```bash
+bash tools/run_limb_tuner.sh verify
+```
+
+Runs headless: `test_limb_tuner.gd`, `test_limb_bake.gd`, and tuner smoke. Logs → `Tests/logs/`.
+
+```bash
+bash tools/run_limb_tuner.sh bake --weapon none --clip idle
+```
+
+Bakes PNG+JSON from on-disk `.tres` presets (no GUI).
+
+```bash
+bash tools/run_limb_tuner.sh share-web
+```
+
+Starts the **web card tuner** and prints a share link (cloudflared) so the human can preview in a browser.
+
+## Godot binary
+
+Set **`GODOT=/path/to/Godot`** if `godot` / `godot4` is not on PATH. Cloud Linux VMs need a downloaded Godot 4.x binary (standard or headless build).
+
+## Do not
+
+- Tell the user to open `LimbTuner.tscn` and press F6 as the **only** verification on cloud — run `verify` or `bake` yourself.
+- Use `gui` mode without `DISPLAY` — it will fail by design.
+
+## Human visual review
+
+- **Browser:** `share-web` (limited schema — walk/attack extras need Godot tuner).
+- **Desktop:** user runs `bash tools/run_limb_tuner.sh gui` locally.
+
+Full doc: `guides/animation_tuner.md` · scene: `scenes/tools/LimbTuner.tscn`
