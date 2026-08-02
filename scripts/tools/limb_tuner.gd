@@ -83,6 +83,7 @@ const _IDLE_CLUB_UI_HIDE_PATHS: Array[String] = [
 	"UI/Panel/Margin/VBox/ActionsSection/CopyBtn",
 ]
 const PIN_DRAG_MIN_PX := 10.0
+const WINDUP_IDLE_PREVIEW_AMP_SCALE := 0.72
 const TUNER_MOVE_SPEED_PX := 200.0
 const HANDLE_Z_INDEX := 64
 const TUNER_Z_ARM1 := 0
@@ -146,7 +147,7 @@ func _ready() -> void:
 
 func _finish_startup() -> void:
 	process_priority = -100
-	if _wants_idle_club1_edit_startup() or _wants_idle_club1_place_startup():
+	if _wants_club_windup_edit_startup() or _wants_idle_club1_edit_startup() or _wants_idle_club1_place_startup():
 		_selected_weapon = ResourceData.ResourceType.WOOD
 	if _rig:
 		_rig.weapon_type = _selected_weapon
@@ -163,6 +164,8 @@ func _finish_startup() -> void:
 	_sync_animation_picker_ui()
 	if _wants_gather1_edit_startup():
 		call_deferred("_begin_gather1_edit_session")
+	if _wants_club_windup_edit_startup():
+		call_deferred("_begin_club_windup_edit_session")
 	if _wants_idle_club1_edit_startup():
 		call_deferred("_begin_idle_club1_edit_session")
 	if _wants_idle_club1_place_startup():
@@ -340,11 +343,34 @@ func _is_idle_club_anim_mode() -> bool:
 	return _anim_mode == AnimMode.IDLE_CLUB1
 
 
+func _club_windup_handle_drag_active() -> bool:
+	return _is_club_windup_edit() and (
+		_active_drag_handle == _hand_handle or _active_drag_handle == _spear_handle
+	)
+
+
+func _ensure_tuner_arms_visible() -> void:
+	if _rig == null or _rig.arm_controller == null:
+		return
+	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
+		return
+	_rig.arm_controller.visible = true
+	_rig.arm_controller.enabled = true
+	_rig.arm_controller.force_show_arms = true
+	_rig.arm_controller.set_process(true)
+	if not _rig.arm_controller.is_tuner_arm_layers_ready():
+		_rig.arm_controller.initialize_tuner_arm_layers()
+	for arm_draw_name in ["Arm1Draw", "Arm2Draw"]:
+		var arm_draw := _rig.get_node_or_null(arm_draw_name) as CanvasItem
+		if arm_draw:
+			arm_draw.visible = true
+
+
 func _uses_decoupled_weapon_hand_pins() -> bool:
-	## Idle Club 1: club art locked; yellow 3 slides along art for grip.
+	## Idle Club 1 / Attack windup: club pose from overlay row — do not snap overlay to hand stack.
 	if _rig == null or not _rig.uses_weapon_grip_anchor_hand():
 		return false
-	return _is_idle_club_anim_mode()
+	return _is_idle_club_anim_mode() or _is_club_windup_edit()
 
 
 func _idle_club_pins_independent() -> bool:
@@ -509,7 +535,17 @@ func _sync_club_grip_pins_from_storage(storage_mode: AnimMode) -> void:
 		return
 	if _active_drag_handle == _hand_handle or _active_drag_handle == _spear_handle:
 		return
-	var grip_global := _rig.hand_grip_global_from_preset(_preset, storage_mode)
+	_stack_club_grip_pins(storage_mode)
+
+
+func _stack_club_grip_pins(storage_mode: AnimMode) -> void:
+	if _rig == null or _preset == null or not _rig.has_weapon_overlay():
+		return
+	var grip_global: Vector2
+	if _rig.is_windup_idle_sample_active():
+		grip_global = _rig.hand_grip_global_from_windup_sample()
+	else:
+		grip_global = _rig.hand_grip_global_from_preset(_preset, storage_mode)
 	_set_hand_handle_position(_hand_handle, grip_global)
 	_set_hand_handle_position(_spear_handle, grip_global)
 
@@ -578,6 +614,37 @@ func _wants_gather1_edit_startup() -> bool:
 	return "--gather1-edit" in OS.get_cmdline_user_args() or "--gather1-preview" in OS.get_cmdline_user_args()
 
 
+func _wants_club_windup_edit_startup() -> bool:
+	if "--club-windup-edit" in OS.get_cmdline_user_args():
+		return true
+	return "--club-windup-edit" in OS.get_cmdline_args()
+
+
+func _begin_club_windup_edit_session() -> void:
+	_apply_pose_catalog_entry(ResourceData.ResourceType.WOOD, AnimMode.ATTACK)
+	_load_preset_from_disk()
+	_refresh_rig_from_preset()
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
+	_anim_playing = true
+	_sync_preview_playback()
+	if _status_label:
+		if _preset and _preset.attack_pose_inherits_idle():
+			_status_label.text = (
+				"Club windup — starts from idle until Save all. "
+				+ "One hand on club (1h/3); off-hand on body (2h)."
+			)
+		else:
+			_status_label.text = (
+				"Club windup — drag 1h or 3 (club + pins move together) · off-hand on body (2h) · Save all."
+			)
+	if _status_label and _preset and _preset.has_club_windup_idle_loop():
+		_status_label.text = (
+			"Club windup idle loop — rest → A → B → rest (%.0fs). Pause or drag a pin to edit."
+			% _preset.club_windup_idle_loop_sec
+		)
+
+
 func _wants_gather1_preview_startup() -> bool:
 	return "--gather1-preview" in OS.get_cmdline_user_args()
 
@@ -604,15 +671,29 @@ func _idle_preview_variant() -> String:
 	return TunerIdlePreviewScript.VARIANT_ID if _is_idle1_anim_mode() else TunerIdlePreviewScript.VARIANT_BASE
 
 
+func _windup_idle_preview_active() -> bool:
+	return _windup_pose_edit_only()
+
+
 func _sync_preview_playback() -> void:
 	var idle_mode := _is_idle_anim_mode()
 	var gather_mode := _is_gather_anim_mode()
-	var can_loop := idle_mode or gather_mode
+	var windup_idle := _windup_idle_preview_active()
+	var use_windup_loop := (
+		windup_idle and _preset != null and _preset.has_club_windup_idle_loop()
+	)
+	var can_loop := idle_mode or gather_mode or windup_idle
 	if _rig:
-		_rig.set_preview_idle_mode(idle_mode)
+		_rig.set_preview_windup_mode(use_windup_loop)
+		_rig.set_preview_idle_mode(idle_mode or (windup_idle and not use_windup_loop))
 		_rig.set_preview_gather_mode(gather_mode)
 		if idle_mode:
 			_rig.set_preview_idle_variant(_idle_preview_variant())
+		elif windup_idle and not use_windup_loop:
+			_rig.set_preview_idle_variant(TunerIdlePreviewScript.VARIANT_BASE)
+			_rig.set_idle_preview_amplitude_scale(WINDUP_IDLE_PREVIEW_AMP_SCALE)
+		else:
+			_rig.set_idle_preview_amplitude_scale(1.0)
 		if not can_loop:
 			_anim_playing = false
 		_rig.set_preview_playing(_anim_playing and can_loop)
@@ -625,6 +706,11 @@ func _update_play_button() -> void:
 	if WeaponLimbPreset.is_walk_mode(_anim_mode):
 		_play_pause_btn.disabled = true
 		_play_pause_btn.text = "← → arrow keys to walk"
+	elif _anim_mode == AnimMode.ATTACK and _windup_idle_preview_active():
+		_play_pause_btn.disabled = false
+		_play_pause_btn.text = (
+			"⏸  Pause windup idle" if _anim_playing else "▶  Play windup idle"
+		)
 	elif _anim_mode == AnimMode.ATTACK:
 		_play_pause_btn.disabled = true
 		if _selected_weapon == ResourceData.ResourceType.WOOD:
@@ -658,7 +744,7 @@ func _update_play_button() -> void:
 
 
 func _on_play_pause_pressed() -> void:
-	if not _is_idle_anim_mode() and not _is_gather_anim_mode():
+	if not _is_idle_anim_mode() and not _is_gather_anim_mode() and not _windup_idle_preview_active():
 		return
 	_anim_playing = not _anim_playing
 	_sync_preview_playback()
@@ -666,6 +752,11 @@ func _on_play_pause_pressed() -> void:
 		if _anim_playing:
 			if _is_gather_anim_mode():
 				_status_label.text = "Gather playing — Pause or drag a pin to edit."
+			elif _windup_idle_preview_active():
+				if _preset and _preset.has_club_windup_idle_loop():
+					_status_label.text = "Windup idle loop playing — Pause or drag a pin to edit."
+				else:
+					_status_label.text = "Windup idle playing — Pause or drag a pin to edit."
 			else:
 				_status_label.text = "Idle playing — Pause or drag a pin to edit."
 		else:
@@ -1049,7 +1140,9 @@ func _input(event: InputEvent) -> void:
 			_drag_start_global = get_global_mouse_position()
 			_pending_elbow_click = _pick_elbow_at(get_global_mouse_position())
 			if _pending_elbow_click != null:
-				if _anim_playing and (_is_idle_anim_mode() or _is_gather_anim_mode()):
+				if _anim_playing and (
+					_is_idle_anim_mode() or _is_gather_anim_mode() or _windup_idle_preview_active()
+				):
 					_anim_playing = false
 					_sync_preview_playback()
 				get_viewport().set_input_as_handled()
@@ -1057,7 +1150,9 @@ func _input(event: InputEvent) -> void:
 			_pending_drag_handle = _pick_handle_at(get_global_mouse_position())
 			_handle_drag_active = false
 			if _pending_drag_handle != null:
-				if _anim_playing and (_is_idle_anim_mode() or _is_gather_anim_mode()):
+				if _anim_playing and (
+					_is_idle_anim_mode() or _is_gather_anim_mode() or _windup_idle_preview_active()
+				):
 					_anim_playing = false
 					_sync_preview_playback()
 				get_viewport().set_input_as_handled()
@@ -1091,11 +1186,15 @@ func _input(event: InputEvent) -> void:
 				_handle_drag_active = true
 				_active_drag_handle = _pending_drag_handle
 				if _active_drag_handle == _spear_handle and _rig.weapon_overlay:
-					var grab_global := _rig.spear_windup_dominant_grip_global(_preset) if _is_spear_windup_edit() else (
-						_rig.hand_grip_global_from_preset(_preset, _hand_storage_mode())
-						if _uses_club_walk_carry_pose() or _is_idle_club_anim_mode()
-						else _rig.weapon_handle_anchor_global()
-					)
+					var grab_global: Vector2
+					if _is_spear_windup_edit():
+						grab_global = _rig.spear_windup_dominant_grip_global(_preset)
+					elif _is_club_windup_edit():
+						grab_global = _rig.hand_grip_global_from_preset(_preset, AnimMode.ATTACK)
+					elif _uses_club_walk_carry_pose() or _is_idle_club_anim_mode():
+						grab_global = _rig.hand_grip_global_from_preset(_preset, _hand_storage_mode())
+					else:
+						grab_global = _rig.weapon_handle_anchor_global()
 					_spear_grab_offset = grab_global - get_global_mouse_position()
 					_dragging_spear = true
 				elif _active_drag_handle == _spear_grip_2_handle and _rig.weapon_overlay:
@@ -1120,6 +1219,15 @@ func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 	]
 	if _is_spear_windup_edit():
 		handle_order = [_spear_handle, _spear_grip_2_handle, _shoulder_handle, _support_shoulder_handle]
+	elif _is_club_windup_edit():
+		handle_order = [
+			_spear_handle,
+			_hand_handle,
+			_support_hand_handle,
+			_shoulder_handle,
+			_support_shoulder_handle,
+			_head_handle,
+		]
 	# Idle Club 1: only yellow grip pin — club art stays fixed.
 	if _is_idle_club_anim_mode() and _idle_club_minimal_active and _spear_handle != null:
 		handle_order = [_spear_handle]
@@ -1222,6 +1330,12 @@ func _update_idle_club_handle_visibility() -> void:
 	if not _is_idle_club_anim_mode() or not _idle_club_minimal_active:
 		return
 	_apply_idle_club_minimal_view(true)
+
+
+func _on_club_windup_grip_dragged(global_pos: Vector2) -> void:
+	## Windup pose edit: free 2D like spear windup — no arm-reach clamp, no shaft-axis slide.
+	_rig.align_weapon_overlay_to_hand_grip_global(_preset, global_pos, AnimMode.ATTACK)
+	_stack_club_grip_pins(AnimMode.ATTACK)
 
 
 func _on_idle_club_grip_dragged(global_pos: Vector2) -> void:
@@ -1673,7 +1787,9 @@ func _process(delta: float) -> void:
 			_sync_handles_from_live_arms()
 	_update_ui()
 	if _mode == AppMode.ASSEMBLE and _active_drag_handle == null:
-		if _anim_playing and (_is_idle_anim_mode() or _is_gather_anim_mode()):
+		if _anim_playing and (
+			_is_idle_anim_mode() or _is_gather_anim_mode() or _windup_idle_preview_active()
+		):
 			_sync_elbow_handles_from_arm_lines()
 		else:
 			call_deferred("_sync_elbow_handles_from_arm_lines")
@@ -1789,6 +1905,10 @@ func _windup_pose_edit_only() -> bool:
 
 func _is_spear_windup_edit() -> bool:
 	return _selected_weapon == ResourceData.ResourceType.SPEAR and _windup_pose_edit_only()
+
+
+func _is_club_windup_edit() -> bool:
+	return _selected_weapon == ResourceData.ResourceType.WOOD and _windup_pose_edit_only()
 
 
 func _combat_test_status_label() -> String:
@@ -1981,6 +2101,8 @@ func _sync_assemble_preview() -> void:
 		_rig.sync_spear_overlay_motion_preview(_preset, storage, walk_swing, gather_motion)
 	if _club_idle_handle_drag_active():
 		_sync_club_idle_handles_during_drag()
+	elif _club_windup_handle_drag_active():
+		_sync_club_windup_handles_during_drag()
 	else:
 		_sync_hands_with_spear()
 		_sync_spear_handle()
@@ -1990,6 +2112,11 @@ func _sync_assemble_preview() -> void:
 		_sync_spear_yellow_hand_stack_during_drag()
 	_lock_arm_lines_to_handles()
 	_sync_elbow_handles()
+
+
+func _sync_club_windup_handles_during_drag() -> void:
+	## Club windup: keep green 1h + yellow 3 on the saved grip on club art while dragging.
+	_stack_club_grip_pins(AnimMode.ATTACK)
 
 
 func _sync_club_idle_handles_during_drag() -> void:
@@ -2038,6 +2165,7 @@ func _sync_handle_positions() -> void:
 	_sync_hands_with_spear()
 	_sync_spear_handle()
 	_sync_elbow_handles()
+	_lock_arm_lines_to_handles()
 
 
 func _sync_elbow_handles() -> void:
@@ -2056,7 +2184,7 @@ func _sync_one_elbow_from_ik(dominant: bool, mode: AnimMode) -> void:
 	var hand_handle: LimbTunerHandle = _hand_handle if dominant else _support_hand_handle
 	if elbow_handle == null or shoulder_handle == null or hand_handle == null:
 		return
-	if _rig.arm_controller:
+	if _rig.arm_controller and not _is_club_windup_edit() and not _is_spear_windup_edit():
 		var live := _rig.elbow_joint_global_from_arms(dominant)
 		elbow_handle.global_position = live
 		return
@@ -2086,6 +2214,7 @@ func _lock_arm_lines_to_handles() -> void:
 		return
 	if _rig == null or _rig.arm_controller == null:
 		return
+	_ensure_tuner_arms_visible()
 	if _shoulder_handle and _hand_handle:
 		_rig.arm_controller.set_weapon_endpoints_from_global(
 			_shoulder_handle.global_position,
@@ -2118,6 +2247,8 @@ func _sync_hands_with_spear() -> void:
 	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		if _uses_club_walk_carry_pose():
 			_sync_club_grip_pins_from_storage(_hand_storage_mode())
+		elif _is_club_windup_edit():
+			_sync_club_grip_pins_from_storage(AnimMode.ATTACK)
 		elif _anim_mode == AnimMode.IDLE_CLUB1:
 			_sync_club_grip_pins_from_storage(AnimMode.IDLE_CLUB1)
 		else:
@@ -2151,7 +2282,9 @@ func _sync_hands_with_spear() -> void:
 			_set_hand_handle_position(_support_hand_handle, support_global)
 	elif _active_drag_handle != _support_hand_handle:
 		var support_global: Vector2
-		if (
+		if _rig.is_windup_idle_sample_active():
+			support_global = _rig.support_hand_global_from_windup_sample()
+		elif (
 			_is_idle1_anim_mode()
 			and _rig.is_preview_playing()
 			and not _use_ready_support_hand()
@@ -2236,6 +2369,7 @@ func _refresh_rig_from_preset() -> void:
 		_seed_elbow_poles_for_mode(_anim_mode)
 		_sync_handle_positions()
 	_apply_handle_draggable()
+	_lock_arm_lines_to_handles()
 	_update_weapon_handle_visibility()
 
 
@@ -2317,7 +2451,13 @@ func _set_anim_mode(mode: AnimMode) -> void:
 		_cancel_attack_mode_combat()
 	elif mode == AnimMode.ATTACK:
 		_exit_assemble_combat_ready()
-	_anim_playing = false
+	if mode == AnimMode.ATTACK and (
+		_selected_weapon == ResourceData.ResourceType.WOOD
+		or _selected_weapon == ResourceData.ResourceType.SPEAR
+	):
+		_anim_playing = true
+	else:
+		_anim_playing = false
 	_refresh_rig_from_preset()
 	if prev_mode == AnimMode.IDLE_CLUB1 and mode != AnimMode.IDLE_CLUB1:
 		_idle_club_minimal_active = false
@@ -2378,13 +2518,14 @@ func _apply_handle_draggable() -> void:
 	var can_drag := _mode == AppMode.ASSEMBLE
 	var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
 	var spear_windup := _is_spear_windup_edit()
+	var club_windup := _is_club_windup_edit()
 	_shoulder_handle.set_draggable(can_drag)
 	_hand_handle.set_draggable(
 		can_drag and not spear_windup and not (_is_idle_club_anim_mode() and _idle_club_minimal_active)
 	)
 	_support_shoulder_handle.set_draggable(can_drag)
 	_support_hand_handle.set_draggable(
-		can_drag and not spear_windup and (_anim_mode != AnimMode.ATTACK or two_hand)
+		can_drag and not spear_windup and (_anim_mode != AnimMode.ATTACK or two_hand or club_windup)
 	)
 	var weapon_drag := can_drag and _rig != null and _rig.has_weapon_overlay()
 	_spear_handle.set_draggable(weapon_drag)
@@ -2414,7 +2555,9 @@ func _clamp_dominant_hand_to_reach() -> void:
 		_shoulder_handle.global_position, _hand_handle.global_position
 	)
 	_set_hand_handle_position(_hand_handle, clamped)
-	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
+	if _is_club_windup_edit():
+		_on_club_windup_grip_dragged(_hand_handle.global_position)
+	elif _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
 		var stacked := _rig.hand_grip_global_from_preset(_preset, _hand_storage_mode())
 		_set_hand_handle_position(_hand_handle, stacked)
@@ -2441,7 +2584,9 @@ func _on_hand_dragged(global_pos: Vector2) -> void:
 		return
 	var mode := _hand_align_mode()
 	var clamped := _clamp_dominant_hand_global(_shoulder_handle.global_position, global_pos)
-	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
+	if _is_club_windup_edit():
+		_on_club_windup_grip_dragged(global_pos)
+	elif _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
 		var stacked := _rig.hand_grip_global_from_preset(_preset, _hand_storage_mode())
 		_set_hand_handle_position(_hand_handle, stacked)
@@ -2490,6 +2635,9 @@ func _on_spear_dragged(global_pos: Vector2) -> void:
 		return
 	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
 		_on_idle_club_grip_dragged(global_pos)
+		return
+	if _is_club_windup_edit():
+		_on_club_windup_grip_dragged(global_pos)
 		return
 	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		var mode := _hand_align_mode()
@@ -2699,9 +2847,13 @@ func _update_ui() -> void:
 			"\nIdle Club: drag yellow 3 on club art (grip). Club position locked."
 			if _is_idle_club_anim_mode()
 			else (
-				"\nSpear windup: Y1 moves spear + 1h · Y2 + 2h pinned together on shaft."
+				"\nSpear windup: Y1 moves spear + 1h · subtle idle loop · Pause to freeze."
 				if _is_spear_windup_edit()
-				else "\nPins: hold+drag · click 1e/2e flip elbow"
+				else (
+					"\nClub windup: drag 1h/3 · subtle idle loop · Pause to freeze pins."
+					if _is_club_windup_edit()
+					else "\nPins: hold+drag · click 1e/2e flip elbow"
+				)
 			)
 		)
 		_summary_label.text = (
@@ -2721,9 +2873,15 @@ func _update_ui() -> void:
 			_preset.upper_arm_length,
 			_preset.lower_arm_length,
 			_preset.arm_width,
-			"playing" if (_anim_playing and _is_idle_anim_mode()) else (
-				"playing" if (_anim_playing and _is_gather_anim_mode()) else (
-					"paused" if _is_idle_anim_mode() else ("paused" if _is_gather_anim_mode() else "n/a")
+			"playing" if (_anim_playing and _windup_idle_preview_active()) else (
+				"playing" if (_anim_playing and _is_idle_anim_mode()) else (
+					"playing" if (_anim_playing and _is_gather_anim_mode()) else (
+						"paused" if _is_idle_anim_mode() else (
+							"paused" if _is_gather_anim_mode() else (
+								"paused" if _windup_idle_preview_active() else "n/a"
+							)
+						)
+					)
 				)
 			),
 			pin_help + reach_line,

@@ -18,8 +18,8 @@ class_name ProceduralArmConfig
 @export var shoulder_offset_left := Vector2(-18.0, -20.0)
 
 # Segment lengths in display pixels (scaled by sprite.scale).
-@export var upper_arm_length := 120.0
-@export var lower_arm_length := 120.0
+@export var upper_arm_length := 140.0
+@export var lower_arm_length := 140.0
 @export var weapon_upper_arm_length := -1.0
 @export var weapon_lower_arm_length := -1.0
 @export var support_upper_arm_length := -1.0

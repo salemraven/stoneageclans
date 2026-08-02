@@ -25,6 +25,8 @@ func _run() -> void:
 	_test_walk_arm_swing()
 	_test_limb_tuner_scene()
 	_test_idle_club_drag_handles()
+	_test_club_windup_drag_handles()
+	_test_club_windup_idle_loop()
 	_test_spear_yellow_pinned_to_hand()
 	_test_spear_walk_grip_pinned_to_shaft()
 	_test_club_overlay_grip_fallback()
@@ -349,6 +351,114 @@ func _test_idle_club_drag_handles() -> void:
 	app.queue_free()
 
 
+func _test_club_windup_drag_handles() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for club windup drag test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	if not app.has_method("_begin_club_windup_edit_session"):
+		_fail("LimbTuner missing _begin_club_windup_edit_session")
+		app.queue_free()
+		return
+	app.call("_begin_club_windup_edit_session")
+	for _i in range(8):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	var spear: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SpearHandle") as Node2D
+	if rig == null or hand == null or spear == null:
+		_fail("club windup drag: rig or handles missing")
+		app.queue_free()
+		return
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		_fail("club windup drag: preset missing")
+		app.queue_free()
+		return
+	var attack_mode := WeaponLimbPresetScript.TunerAnimMode.ATTACK
+	var grip_on_art := rig.hand_grip_global_from_preset(preset, attack_mode)
+	if spear.global_position.distance_to(grip_on_art) > 1.5:
+		_fail(
+			"club windup: yellow pin off club grip by %.2f px"
+			% spear.global_position.distance_to(grip_on_art)
+		)
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail("club windup: green 1h not stacked on yellow 3")
+	app.set("_active_drag_handle", spear)
+	var overlay_before_club_drag := rig.weapon_overlay.global_position
+	var club_drag_target := grip_on_art + Vector2(36.0, -22.0)
+	app.call("_on_spear_dragged", club_drag_target)
+	for _i in range(3):
+		app.call("_sync_assemble_preview")
+	var grip_after_club_drag := rig.hand_grip_global_from_preset(preset, attack_mode)
+	if rig.weapon_overlay.global_position.distance_to(overlay_before_club_drag) < 1.5:
+		_fail("club windup: club art should move when dragging yellow 3")
+	if spear.global_position.distance_to(grip_after_club_drag) > 1.5:
+		_fail("club windup: yellow pin did not follow club after weapon drag")
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail("club windup: hand/spear not stacked after weapon drag")
+	app.set("_active_drag_handle", hand)
+	var overlay_before_hand_drag := rig.weapon_overlay.global_position
+	var hand_drag_target := grip_after_club_drag + Vector2(18.0, -12.0)
+	app.call("_on_hand_dragged", hand_drag_target)
+	for _i in range(3):
+		app.call("_sync_assemble_preview")
+	if rig.weapon_overlay.global_position.distance_to(overlay_before_hand_drag) < 1.5:
+		_fail("club windup: club art should move when dragging green 1h")
+	var grip_after_hand_drag := rig.hand_grip_global_from_preset(preset, attack_mode)
+	if spear.global_position.distance_to(grip_after_hand_drag) > 1.5:
+		_fail("club windup: yellow pin drifted from club grip during hand drag")
+	if hand.global_position.distance_to(spear.global_position) > 1.5:
+		_fail("club windup: hand/spear not stacked during hand drag")
+	var shoulder := app.get_node_or_null("World/HandleLayer/HandleStage/ShoulderHandle") as Node2D
+	if shoulder != null:
+		var far_target := shoulder.global_position + Vector2(400.0, -50.0)
+		app.call("_on_club_windup_grip_dragged", far_target)
+		var max_reach := preset.tuner_ik_max_reach_px(true)
+		if hand.global_position.distance_to(shoulder.global_position) <= max_reach + 2.0:
+			_fail("club windup: grip drag should not clamp to arm reach (max=%.1f got %.1f)" % [
+				max_reach,
+				shoulder.global_position.distance_to(hand.global_position),
+			])
+	app.queue_free()
+
+
+func _test_club_windup_idle_loop() -> void:
+	var preset: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
+	if preset == null:
+		_fail("club_clansmen_1 preset missing for windup idle loop test")
+		return
+	if not preset.has_club_windup_idle_loop():
+		_fail("club_clansmen_1 must have windup idle keyframes on disk")
+	var at_rest := preset.sample_club_windup_idle_loop(0.0)
+	if at_rest.get("ready_offset_px", Vector2.ZERO).distance_to(preset.ready_offset_px) > 0.5:
+		_fail("windup loop phase 0 must match rest ready_offset_px")
+	if at_rest.get("support_hand_idle_offset_px", Vector2.ZERO).distance_to(
+		preset.support_hand_idle_offset_px
+	) > 0.5:
+		_fail("windup loop phase 0 must match rest support_hand_idle_offset_px")
+	var at_a := preset.sample_club_windup_idle_loop(1.0 / 3.0)
+	if at_a.get("ready_offset_px", Vector2.ZERO).distance_to(
+		preset.club_windup_idle_key_a_ready_offset_px
+	) > 0.5:
+		_fail("windup loop phase 1/3 must match key A ready_offset_px")
+	var at_b := preset.sample_club_windup_idle_loop(2.0 / 3.0)
+	if at_b.get("ready_offset_px", Vector2.ZERO).distance_to(
+		preset.club_windup_idle_key_b_ready_offset_px
+	) > 0.5:
+		_fail("windup loop phase 2/3 must match key B ready_offset_px")
+	var mid := preset.sample_club_windup_idle_loop(5.0 / 6.0)
+	var rest_ready := preset.ready_offset_px
+	var key_b_ready := preset.club_windup_idle_key_b_ready_offset_px
+	var expected_mid := key_b_ready.lerp(rest_ready, 0.5)
+	if mid.get("ready_offset_px", Vector2.ZERO).distance_to(expected_mid) > 2.0:
+		_fail("windup loop late cycle should smoothstep between key B and rest")
+
+
 func _test_spear_yellow_pinned_to_hand() -> void:
 	var root := get_root()
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
@@ -525,6 +635,11 @@ func _test_pose_snapshot_isolation() -> void:
 		_fail("club_clansmen_1 preset missing for snapshot isolation test")
 		return
 	var idle_overlay := club.overlay_offset_idle_px
+	var club_attack_overlay := club.resolve_overlay_for_mode(
+		WeaponLimbPresetScript.TunerAnimMode.ATTACK
+	)
+	if not club.club_attack_inherits_idle() and club_attack_overlay.distance_to(idle_overlay) < 8.0:
+		_fail("saved club attack overlay must differ from idle standing on disk")
 	var club1_overlay := club.idle_club1_overlay_offset_px
 	if idle_overlay.distance_to(club1_overlay) < 8.0:
 		_fail("test needs distinct idle vs idle_club1 overlays on disk")
@@ -579,7 +694,7 @@ func _test_pose_snapshot_isolation() -> void:
 	var spear_strike_overlay := spear.strike_offset_px
 	var cases: Array[Dictionary] = [
 		{"weapon": ResourceData.ResourceType.WOOD, "mode": WeaponLimbPresetScript.TunerAnimMode.IDLE, "expect": idle_overlay},
-		{"weapon": ResourceData.ResourceType.WOOD, "mode": WeaponLimbPresetScript.TunerAnimMode.ATTACK, "expect": idle_overlay},
+		{"weapon": ResourceData.ResourceType.WOOD, "mode": WeaponLimbPresetScript.TunerAnimMode.ATTACK, "expect": club_attack_overlay},
 		{"weapon": ResourceData.ResourceType.SPEAR, "mode": WeaponLimbPresetScript.TunerAnimMode.IDLE, "expect": spear_idle_overlay},
 		{"weapon": ResourceData.ResourceType.SPEAR, "mode": WeaponLimbPresetScript.TunerAnimMode.ATTACK, "expect": spear_strike_overlay},
 	]

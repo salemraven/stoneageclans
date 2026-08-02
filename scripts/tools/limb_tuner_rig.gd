@@ -9,6 +9,7 @@ const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
 const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerIdlePreview = preload("res://scripts/tools/tuner_idle_preview.gd")
 const TunerGatherPreview = preload("res://scripts/tools/tuner_gather_preview.gd")
+const TunerWindupIdlePreview = preload("res://scripts/tools/tuner_windup_idle_preview.gd")
 const GatherArmMotion = preload("res://scripts/systems/gather_arm_motion.gd")
 const WalkArmSwing = preload("res://scripts/systems/walk_arm_swing.gd")
 const TUNER_ARM1_Z_INDEX := 0
@@ -38,12 +39,18 @@ var _mannequin_layout
 var _walk := TunerWalkPreview.new()
 var _idle := TunerIdlePreview.new()
 var _gather := TunerGatherPreview.new()
+var _windup_idle := TunerWindupIdlePreview.new()
 var _registry = PlaceholderCardRegistry.new()
 var _last_overlay_base := Vector2.ZERO
 var _preview_idle_mode := true
 var _preview_gather_mode := false
+var _preview_windup_mode := false
+var _windup_preview_preset: WeaponLimbPreset = null
+var _windup_idle_sample_active := false
+var _windup_idle_sample: Dictionary = {}
 var _walk_preview_preset: WeaponLimbPreset = null
 var _walk_preview_grip_mode: WeaponLimbPreset.TunerAnimMode = WeaponLimbPreset.TunerAnimMode.IDLE
+var _idle_preview_amp_scale: float = 1.0
 
 
 func _ready() -> void:
@@ -85,6 +92,24 @@ func set_walk_preview_context(
 ) -> void:
 	_walk_preview_preset = preset
 	_walk_preview_grip_mode = grip_mode
+	_windup_preview_preset = preset
+
+
+func set_preview_windup_mode(on: bool) -> void:
+	_preview_windup_mode = on
+	if not on:
+		clear_windup_idle_preview_sample()
+
+
+func set_windup_idle_playing(on: bool) -> void:
+	_windup_idle.set_playing(on and _preview_windup_mode)
+	if not on:
+		clear_windup_idle_preview_sample()
+
+
+func clear_windup_idle_preview_sample() -> void:
+	_windup_idle_sample_active = false
+	_windup_idle_sample = {}
 
 
 func sync_spear_overlay_motion_preview(
@@ -128,8 +153,34 @@ func _apply_spear_overlay_motion_delta(
 
 
 func set_preview_playing(on: bool) -> void:
-	_idle.set_playing(on and _preview_idle_mode)
+	var windup_on := on and _preview_windup_mode
+	if _windup_idle.playing and not windup_on:
+		clear_windup_idle_preview_sample()
+		if _windup_preview_preset != null:
+			apply_preset_overlay_ready(_windup_preview_preset, Vector2(1.0, 0.0))
+	_windup_idle.set_playing(windup_on)
 	_gather.set_playing(on and _preview_gather_mode)
+	_idle.set_playing(on and _preview_idle_mode)
+
+
+func is_windup_idle_loop_playing() -> bool:
+	return _windup_idle.playing and _preview_windup_mode
+
+
+func is_windup_idle_sample_active() -> bool:
+	return _windup_idle_sample_active and is_windup_idle_loop_playing()
+
+
+func hand_grip_global_from_windup_sample() -> Vector2:
+	var grip_px: Vector2 = _windup_idle_sample.get("hand_grip_ready_offset_px", Vector2.ZERO)
+	if not has_weapon_overlay():
+		return LimbPresetCoords.body_global_from_display(sprite, grip_px)
+	return LimbPresetCoords.overlay_grip_global(weapon_overlay, grip_px)
+
+
+func support_hand_global_from_windup_sample() -> Vector2:
+	var support_px: Vector2 = _windup_idle_sample.get("support_hand_idle_offset_px", Vector2.ZERO)
+	return LimbPresetCoords.body_global_from_display(sprite, support_px)
 
 
 func is_gather_preview_playing() -> bool:
@@ -167,6 +218,10 @@ func set_preview_gather_mode(on: bool) -> void:
 	_preview_gather_mode = on
 	if not on:
 		_gather.set_playing(false)
+
+
+func set_idle_preview_amplitude_scale(scale: float) -> void:
+	_idle_preview_amp_scale = maxf(scale, 0.0)
 
 
 func get_walk_swing_phase() -> float:
@@ -555,14 +610,24 @@ func _update_motion_preview(delta: float) -> void:
 			body_visual.call("set_gather_state", body_bend, head_fwd)
 		_sync_body_visual_head_draw()
 		return
+	if _windup_idle.playing and _preview_windup_mode and _windup_preview_preset != null:
+		_windup_idle.tick(delta)
+		if _windup_preview_preset.has_club_windup_idle_loop():
+			_windup_idle.set_cycle_sec(_windup_preview_preset.club_windup_idle_loop_sec)
+			apply_club_windup_idle_preview(
+				_windup_preview_preset, _windup_idle.cycle_phase()
+			)
+		_sync_body_visual_head_draw()
+		return
 	if _preview_gather_mode:
 		_apply_gather_edit_hold_pose()
 		return
 	if _idle.playing and _preview_idle_mode:
 		_idle.tick(delta)
-		var body_amp := _display_to_local(TunerIdlePreview.BODY_BOUNCE_DISPLAY_PX)
-		var head_amp := _display_to_local(TunerIdlePreview.HEAD_BOB_DISPLAY_PX)
-		var weapon_amp := _display_to_local(TunerIdlePreview.WEAPON_EXTRA_BOUNCE_DISPLAY_PX)
+		var amp_scale := _idle_preview_amp_scale
+		var body_amp := _display_to_local(TunerIdlePreview.BODY_BOUNCE_DISPLAY_PX * amp_scale)
+		var head_amp := _display_to_local(TunerIdlePreview.HEAD_BOB_DISPLAY_PX * amp_scale)
+		var weapon_amp := _display_to_local(TunerIdlePreview.WEAPON_EXTRA_BOUNCE_DISPLAY_PX * amp_scale)
 		sprite.position.y = _anchor_foot_y + _idle.body_bounce_offset(body_amp)
 		if body_visual and body_visual.has_method("set_idle_state"):
 			body_visual.call(
@@ -735,6 +800,16 @@ func apply_preset_overlay_idle(
 func apply_preset_overlay_ready(preset: WeaponLimbPreset, aim: Vector2) -> void:
 	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
 		return
+	apply_club_windup_overlay_at_ready_offset(preset, preset.resolve_overlay_for_mode(WeaponLimbPreset.TunerAnimMode.ATTACK), aim)
+
+
+func apply_club_windup_overlay_at_ready_offset(
+	preset: WeaponLimbPreset,
+	ready_display_px: Vector2,
+	aim: Vector2 = Vector2(1.0, 0.0)
+) -> void:
+	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
+		return
 	aim_dir = aim.normalized() if aim.length_squared() > 0.0001 else Vector2(1.0, 0.0)
 	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
 	if LimbPresetRegistry:
@@ -750,10 +825,17 @@ func apply_preset_overlay_ready(preset: WeaponLimbPreset, aim: Vector2) -> void:
 		WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
 		rot = deg_to_rad(WeaponOverlayCombat._swing_ready_degrees(sprite, profile))
 	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
-	_apply_tuner_overlay_pose(
-		preset.resolve_overlay_for_mode(WeaponLimbPreset.TunerAnimMode.ATTACK),
-		rot,
-		WeaponOverlayCombat.OverlayState.READY
+	_apply_tuner_overlay_pose(ready_display_px, rot, WeaponOverlayCombat.OverlayState.READY)
+
+
+func apply_club_windup_idle_preview(preset: WeaponLimbPreset, phase: float) -> void:
+	if preset == null or not preset.has_club_windup_idle_loop():
+		clear_windup_idle_preview_sample()
+		return
+	_windup_idle_sample = preset.sample_club_windup_idle_loop(phase)
+	_windup_idle_sample_active = true
+	apply_club_windup_overlay_at_ready_offset(
+		preset, _windup_idle_sample.get("ready_offset_px", preset.ready_offset_px)
 	)
 
 
