@@ -4,6 +4,8 @@ extends SceneTree
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
+const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+const CombatComponent = preload("res://scripts/npc/components/combat_component.gd")
 
 var _failures: Array[String] = []
 var _registry: Node
@@ -27,6 +29,15 @@ func _run() -> void:
 	_test_idle_club_drag_handles()
 	_test_club_windup_drag_handles()
 	_test_club_windup_idle_loop()
+	_test_elbow_bend_sign_flips_with_facing()
+	_test_body_head_flip_with_travel_facing()
+	_test_gather_motion_smooth()
+	_test_club_swing_facing_from_aim()
+	_test_idle_club_combat_ready()
+	_test_walk_preview_body_bounce()
+	_test_idle_travel_walk_on_ad()
+	_test_club_combat_ready_arm_pins()
+	_test_club_shift_windup_loop_plays()
 	_test_spear_yellow_pinned_to_hand()
 	_test_spear_walk_grip_pinned_to_shaft()
 	_test_club_overlay_grip_fallback()
@@ -459,6 +470,321 @@ func _test_club_windup_idle_loop() -> void:
 		_fail("windup loop late cycle should smoothstep between key B and rest")
 
 
+func _test_elbow_bend_sign_flips_with_facing() -> void:
+	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.WOOD, 1)
+	preset.weapon_elbow_bend_sign_override = 1.0
+	var east_auto := -WeaponLimbPresetScript.DOMINANT_ELBOW_BEND_SIGN
+	var west_auto := WeaponLimbPresetScript.DOMINANT_ELBOW_BEND_SIGN
+	var east_resolved := preset.resolve_elbow_bend_sign(
+		true, WeaponLimbPresetScript.TunerAnimMode.IDLE, east_auto
+	)
+	var west_resolved := preset.resolve_elbow_bend_sign(
+		true, WeaponLimbPresetScript.TunerAnimMode.IDLE, west_auto
+	)
+	if east_resolved != 1.0:
+		_fail("east-facing elbow override + should resolve to +1, got %s" % str(east_resolved))
+	if west_resolved != -1.0:
+		_fail("west-facing elbow override + should resolve to -1, got %s" % str(west_resolved))
+
+
+func _test_body_head_flip_with_travel_facing() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for body/head facing test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null:
+		_fail("TunerRig missing for body/head facing test")
+		app.queue_free()
+		return
+	var body_visual: Node = rig.get_node_or_null("Sprite/BodyVisual")
+	var sprite: Sprite2D = rig.get_node_or_null("Sprite") as Sprite2D
+	if body_visual == null or sprite == null:
+		_fail("body/head facing test missing BodyVisual or Sprite")
+		app.queue_free()
+		return
+	sprite.flip_h = false
+	body_visual.call("clear_motion_state")
+	var body_sprite: Sprite2D = body_visual.call("get_body_sprite") as Sprite2D
+	var head_sprite: Sprite2D = sprite.get_node_or_null("HeadPivot/HeadSprite") as Sprite2D
+	if body_sprite == null or head_sprite == null:
+		_fail("body/head facing test missing body or head sprite")
+		app.queue_free()
+		return
+	if body_sprite.flip_h or head_sprite.flip_h:
+		_fail("east-facing body/head should not flip_h at rest")
+	rig.apply_travel_facing_direction(-1)
+	if not sprite.flip_h:
+		_fail("apply_travel_facing_direction should set sprite.flip_h for west")
+	if not body_sprite.flip_h:
+		_fail("west-facing body sprite should flip_h=true")
+	if not head_sprite.flip_h:
+		_fail("west-facing head sprite should flip_h=true at default look")
+	rig.apply_travel_facing_direction(1)
+	if sprite.flip_h or body_sprite.flip_h:
+		_fail("east-facing body should flip_h=false after turn back")
+	if head_sprite.flip_h:
+		_fail("east-facing head should flip_h=false at default look")
+	app.queue_free()
+
+
+func _test_gather_motion_smooth() -> void:
+	const GatherArmMotionScript = preload("res://scripts/systems/gather_arm_motion.gd")
+	const STEPS := 240
+	var max_bend_step := 0.0
+	var max_pick_step := 0.0
+	var prev_bend := GatherArmMotionScript.body_bend_amount(0.0)
+	var prev_pick: Vector2 = Vector2.ZERO
+	var had_pick := false
+	for i in range(1, STEPS + 1):
+		var phase := float(i) / float(STEPS)
+		var bend := GatherArmMotionScript.body_bend_amount(phase)
+		max_bend_step = maxf(max_bend_step, absf(bend - prev_bend))
+		prev_bend = bend
+		var arm_work := GatherArmMotionScript.arm_work_phase(phase)
+		if arm_work >= 0.0:
+			var pick := GatherArmMotionScript.hand_offset_between_keyframes(
+				Vector2(40.0, 20.0), Vector2(10.0, 50.0), arm_work, true
+			)
+			if had_pick:
+				max_pick_step = maxf(max_pick_step, pick.distance_to(prev_pick))
+			prev_pick = pick
+			had_pick = true
+		else:
+			had_pick = false
+	# One step across full cycle — tighter than pre-smooth tuning (was ~0.05+ on pick snaps).
+	if max_bend_step > 0.035:
+		_fail("gather bend envelope step too large (%.4f)" % max_bend_step)
+	if max_pick_step > 4.5:
+		_fail("gather pick hand step too large (%.2f px)" % max_pick_step)
+
+
+func _test_club_swing_facing_from_aim() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for club swing facing test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if rig == null or preset == null:
+		_fail("club swing facing test missing rig or preset")
+		app.queue_free()
+		return
+	rig.aim_dir = Vector2(-1.0, -0.2)
+	rig.apply_preset_overlay_ready(preset, rig.aim_dir)
+	var sprite: Sprite2D = rig.get_node("Sprite") as Sprite2D
+	if not sprite.flip_h:
+		_fail("club ready overlay should flip_h when aim is left")
+	var body_visual: Node = rig.get_node("Sprite/BodyVisual")
+	var body_sprite: Sprite2D = body_visual.call("get_body_sprite") as Sprite2D
+	if body_sprite == null or not body_sprite.flip_h:
+		_fail("club ready should mirror body sprite when aim is left")
+	app.queue_free()
+
+
+func _test_idle_club_combat_ready() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for idle club combat ready test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null or rig.combat_component == null:
+		_fail("idle club combat ready: missing rig or combat component")
+		app.queue_free()
+		return
+	rig.combat_component.enter_ready(Vector2(1.0, 0.0))
+	for _i in range(2):
+		await process_frame
+	if rig.combat_component.state != CombatComponent.CombatState.READY:
+		_fail("idle club: enter_ready should set combat READY")
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(rig)
+	if ostate != WeaponOverlayCombat.OverlayState.READY:
+		_fail("idle club: overlay should be READY after enter_ready (got %d)" % ostate)
+	rig.set_shift_ready_windup_loop(true)
+	for _i in range(2):
+		await process_frame
+	# Tuner must not leave shift windup loop on during idle strike test — only Attack ▶ Play uses it.
+	app.call("_process", 0.016)
+	if rig.combat_component.state != CombatComponent.CombatState.READY:
+		_fail("idle club: combat READY should survive tuner process tick")
+	app.queue_free()
+
+
+func _test_walk_preview_body_bounce() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for walk bounce test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.WALK
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null:
+		_fail("walk bounce test: missing rig")
+		app.queue_free()
+		return
+	rig.set_walk_direction(1)
+	var min_y := INF
+	var max_y := -INF
+	for _i in range(40):
+		await process_frame
+		var y := rig.sprite.position.y
+		min_y = minf(min_y, y)
+		max_y = maxf(max_y, y)
+	if max_y - min_y < 0.15:
+		_fail("walk preview: sprite Y should bounce (range=%.3f)" % (max_y - min_y))
+	app.queue_free()
+
+
+func _test_idle_travel_walk_on_ad() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for idle travel walk test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call("_begin_club_preview_session")
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null:
+		_fail("idle travel walk: missing rig")
+		app.queue_free()
+		return
+	if app.get("_anim_mode") != WeaponLimbPresetScript.TunerAnimMode.IDLE:
+		_fail("idle travel walk: expected club idle startup mode")
+	rig.set_walk_direction(1)
+	var min_y := INF
+	var max_y := -INF
+	for _i in range(40):
+		await process_frame
+		var y := rig.sprite.position.y
+		min_y = minf(min_y, y)
+		max_y = maxf(max_y, y)
+	if max_y - min_y < 0.15:
+		_fail("idle travel walk: sprite Y should bounce (range=%.3f)" % (max_y - min_y))
+	if not rig.is_walking():
+		_fail("idle travel walk: rig should report walking when direction set")
+	app.queue_free()
+
+
+func _test_club_combat_ready_arm_pins() -> void:
+	var club: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.WOOD, 1)
+	club.mark_club_attack_pose_saved()
+	club.support_hand_offset_px = Vector2(-70.0, 56.0)
+	if club.resolve_support_hand_for_mode(WeaponLimbPresetScript.TunerAnimMode.ATTACK) != Vector2(-70.0, 56.0):
+		_fail("club attack support hand should use support_hand_offset_px when saved")
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for combat arm pin test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	if rig == null or hand == null or rig.combat_component == null:
+		_fail("combat arm pin test: missing rig/hand/combat")
+		app.queue_free()
+		return
+	rig.combat_component.enter_ready(Vector2(1.0, 0.0))
+	for _i in range(2):
+		await process_frame
+	app.call("_apply_club_tuner_windup_ready", Vector2(1.0, 0.0))
+	for _i in range(2):
+		await process_frame
+	var preset: WeaponLimbPreset = app.get("_preset")
+	var grip_global := rig.hand_grip_global_from_preset(
+		preset, WeaponLimbPresetScript.TunerAnimMode.ATTACK
+	)
+	if hand.global_position.distance_to(grip_global) > 3.0:
+		_fail(
+			"combat ready: hand should track overlay grip (drift=%.2f)"
+			% hand.global_position.distance_to(grip_global)
+		)
+	app.queue_free()
+
+
+func _test_club_shift_windup_loop_plays() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for shift windup loop test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.WOOD,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if rig == null or preset == null or not preset.has_club_windup_idle_loop():
+		_fail("shift windup loop test: missing rig or loop keyframes")
+		app.queue_free()
+		return
+	app.call("_apply_club_tuner_windup_ready", Vector2(1.0, 0.0))
+	for _i in range(6):
+		await process_frame
+	if not rig.is_shift_ready_windup_loop():
+		_fail("shift windup: loop should be active after apply_club_tuner_windup_ready")
+	var y0 := rig.weapon_overlay.position.y if rig.weapon_overlay else 0.0
+	for _i in range(30):
+		await process_frame
+	var y1 := rig.weapon_overlay.position.y if rig.weapon_overlay else 0.0
+	if absf(y1 - y0) < 0.05:
+		_fail("shift windup loop should animate overlay (y delta=%.3f)" % absf(y1 - y0))
+	app.queue_free()
+
+
 func _test_spear_yellow_pinned_to_hand() -> void:
 	var root := get_root()
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
@@ -887,13 +1213,17 @@ func _test_idle_arm2_raise_preview() -> void:
 		_fail("expected explicit idle arm2 raise pose")
 	if raised.distance_squared_to(rest) < 100.0:
 		_fail("raised and rest support hand should be far apart")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.0, 1.0) != 1.0:
-		_fail("support elbow at rest should use idle bend sign")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.25, 1.0) != 1.0:
-		_fail("support elbow should keep rest bend before halfway raise")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.75, 1.0) != -1.0:
+	var east_auto := -WeaponLimbPresetScript.SUPPORT_ELBOW_BEND_SIGN
+	var west_auto := WeaponLimbPresetScript.SUPPORT_ELBOW_BEND_SIGN
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.0, east_auto) != 1.0:
+		_fail("support elbow at rest should use idle bend sign (east-facing)")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.25, east_auto) != 1.0:
+		_fail("support elbow should keep rest bend before halfway raise (east-facing)")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.0, west_auto) != -1.0:
+		_fail("support elbow at rest should mirror when facing west")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.75, east_auto) != -1.0:
 		_fail("support elbow should flip bend after halfway raise")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(1.0, 1.0) != -1.0:
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(1.0, east_auto) != -1.0:
 		_fail("support elbow at full raise should use raised bend sign")
 
 

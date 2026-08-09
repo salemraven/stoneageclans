@@ -203,12 +203,11 @@ func update_ready_aim(new_aim: Vector2) -> void:
 func _sync_overlay_facing_from_aim() -> void:
 	if not npc or aim_dir.length_squared() < 0.0001:
 		return
-	if PlaceholderCardService and _uses_overlay_combat():
-		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
-		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
-			return
 	var sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
-	if sprite:
+	if sprite == null:
+		return
+	## Club swing + spear thrust: horizontal aim sets card facing (overlay arc mirrors via flip_h).
+	if absf(aim_dir.x) > 0.05:
 		sprite.flip_h = aim_dir.x < 0.0
 
 

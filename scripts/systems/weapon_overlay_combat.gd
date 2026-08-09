@@ -461,8 +461,16 @@ static func _swing_ready_degrees(body_sprite: Sprite2D, profile: Dictionary) -> 
 	return idle_deg - ready_offset_deg * facing
 
 
-static func sync_swing_body_facing(entity: Node, body_sprite: Sprite2D) -> void:
+static func sync_swing_body_facing(entity: Node, body_sprite: Sprite2D, aim_hint: Vector2 = Vector2.ZERO) -> void:
 	if entity == null or body_sprite == null:
+		return
+	var aim := aim_hint
+	if aim.length_squared() < 0.0001 and entity.get("aim_dir") != null:
+		var ad: Vector2 = entity.get("aim_dir") as Vector2
+		if ad.length_squared() > 0.0001:
+			aim = ad
+	if aim.length_squared() > 0.0001 and absf(aim.x) > 0.05:
+		body_sprite.flip_h = aim.x < 0.0
 		return
 	var vel: Vector2 = Vector2.ZERO
 	if entity is CharacterBody2D:

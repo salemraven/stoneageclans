@@ -58,6 +58,7 @@ const HOLDABLES: Array[Dictionary] = [
 		"type": ResourceData.ResourceType.WOOD,
 		"categories": {
 			CATEGORY_IDLE: [AnimMode.IDLE, AnimMode.IDLE_CLUB1],
+			CATEGORY_WALK: [AnimMode.WALK, AnimMode.WALK1],
 			CATEGORY_ATTACK: [AnimMode.ATTACK],
 		},
 	},

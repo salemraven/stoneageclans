@@ -406,15 +406,23 @@ func set_elbow_bend_sign_override(dominant: bool, mode: TunerAnimMode, sign: flo
 
 func resolve_elbow_bend_sign(dominant: bool, mode: TunerAnimMode, auto_from_facing: float) -> float:
 	var override := resolve_elbow_bend_sign_override(dominant, mode)
-	if absf(override) > 0.001:
-		return signf(override)
-	return auto_from_facing
+	if absf(override) < 0.001:
+		return auto_from_facing
+	## Stored override is the desired bend sign in east-facing (unflipped) display space.
+	var east_auto := -DOMINANT_ELBOW_BEND_SIGN if dominant else -SUPPORT_ELBOW_BEND_SIGN
+	var east_desired := signf(override)
+	if signf(auto_from_facing) == signf(east_auto):
+		return east_desired
+	return -east_desired
 
 
 func toggle_elbow_bend_sign(dominant: bool, mode: TunerAnimMode, auto_from_facing: float) -> float:
 	var current := resolve_elbow_bend_sign(dominant, mode, auto_from_facing)
 	var flipped := -current
-	set_elbow_bend_sign_override(dominant, mode, flipped)
+	var east_auto := -DOMINANT_ELBOW_BEND_SIGN if dominant else -SUPPORT_ELBOW_BEND_SIGN
+	var facing_east := signf(auto_from_facing) == signf(east_auto)
+	var new_east_desired := flipped if facing_east else -flipped
+	set_elbow_bend_sign_override(dominant, mode, new_east_desired)
 	return flipped
 
 
@@ -494,10 +502,17 @@ func set_hand_grip_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
 
 
 func resolve_support_hand_for_mode(mode: TunerAnimMode) -> Vector2:
-	if mode == TunerAnimMode.ATTACK and uses_two_hand_grip(weapon_type):
-		if attack_pose_inherits_idle():
+	if mode == TunerAnimMode.ATTACK:
+		if uses_two_hand_grip(weapon_type):
+			if attack_pose_inherits_idle():
+				return support_hand_idle_offset_px
+			return support_hand_offset_px
+		if weapon_type == ResourceData.ResourceType.WOOD:
+			if attack_pose_inherits_idle():
+				return support_hand_idle_offset_px
+			if support_hand_offset_px.length_squared() > 0.0001:
+				return support_hand_offset_px
 			return support_hand_idle_offset_px
-		return support_hand_offset_px
 	if is_gather_mode(mode):
 		if gather1_support_hand_offset_px.length_squared() > 0.0001:
 			return gather1_support_hand_offset_px

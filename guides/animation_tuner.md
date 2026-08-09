@@ -166,7 +166,7 @@ The old **single pose dropdown** is gone. Selection is three steps:
 | Holdable | Idle | Walk | Attack | Gather | Taunt / Ranged |
 |----------|------|------|--------|--------|----------------|
 | **None** | Idle, Idle 1 | Walk, Walk 1 | — | Gather | — |
-| **Club** | Idle, Club grip | — | Windup | — | — |
+| **Club** | Idle, Club grip | Walk, Walk 1 | Windup | — | — |
 | **Spear** | Idle | Walk, Walk 1 | Windup | — | — |
 | **Axe / Pick / Oldowan** | Idle, Idle 1 | Walk, Walk 1 | Attack | Gather | — |
 
@@ -336,8 +336,136 @@ Set morphology (reference) → pick holdable / category / variant
 | Variant | Preview |
 |---------|---------|
 | Idle / Idle 1 / Gather | **▶ Play** / **⏸ Pause** |
-| Walk / Walk 1 | **← / →** arrow keys |
+| Walk / Walk 1 | **A / D** or **← / →** |
 | Attack windup | **Shift** ready · **Shift + click** strike/thrust |
+
+### Practical combo (club strike test)
+
+Default tuner startup opens **Club · Idle standing** for windup/strike testing:
+
+1. **A / D** or **← / →** on **Idle** — walk bounce (like in-game; club carry: weapon arm idle, off-arm swings)
+2. **Shift (hold)** — **windup loop** plays (rest → A → B → rest from saved keyframes)
+3. **Shift + click** — attack swing (from current loop frame)
+
+Use **Idle standing** or **Club grip** — not Attack pin-edit (that mode is for dragging pins; test swings here on Idle). Attack category: **W/S/Q/E** pans the canvas; **A/D** still turns.
+
+**Notes:** Windup idle loop (Attack category **▶ Play**) is separate — it does not run on Shift during Idle/Walk, so strike testing stays stable. WASD pans the canvas in Attack category only; it is not walk.
+
+### Instrumentation (verify walk + strike)
+
+Run with **`--tuner-instrument`** to print a live HUD line and append JSONL to `Tests/logs/tuner_preview_instrument.jsonl`:
+
+```bash
+godot --path . res://scenes/tools/LimbTuner.tscn --tuner-instrument
+```
+
+| Check | Pass signal |
+|-------|-------------|
+| Walk | `walk=on`, `body_y` changes, no `walk_moving_but_sprite_y_flat` |
+| Shift ready | `combat=READY`, `handΔ` ≤ ~3 px, overlay near saved `ready_offset_px` |
+| Shift+click | `overlay=STRIKING`, hand tracks overlay during arc |
+
+Headless: `godot --headless -s res://tools/test_limb_tuner.gd` includes walk bounce + combat arm pin tests.
+
+---
+
+## Facing & mirror standards (canonical)
+
+**Goal:** one clear rule set so nobody double-flips a layer, stores coords in the wrong space, or expects draw order to swap when turning around.
+
+### Direction model
+
+| Rule | Value |
+|------|--------|
+| Facing count | **2** — East (right) and West (left) only |
+| Authoring direction | **Always East** — pins, `.tres` coords, baked clips |
+| West in-game / preview | **Mirror** via `Sprite.flip_h` on the card root — not separate west art (unless noted below) |
+
+This matches RimWorld / Stoneshard-style side view: one east-facing pose set, horizontal flip for the other side. **No 4/8-direction bakes** in v1.
+
+### Single facing authority
+
+```
+Card Sprite (root)
+  flip_h = false  →  facing East (stored pose reads as authored)
+  flip_h = true   →  facing West (mirror entire rig subtree)
+```
+
+**Only the card root `Sprite.flip_h` decides left/right.** Child layers must not independently `flip_h` or `scale.x = -1` when the parent is already flipped.
+
+| Layer | On facing change |
+|-------|------------------|
+| Card `Sprite` | **`flip_h`** toggles — **logical facing flag** (card texture is null on mannequin) |
+| Body texture (`BodySprite`) | **`flip_h = card Sprite.flip_h`** — sprite mirrors itself (parent flip does not affect children) |
+| Head texture (`HeadSprite`) | **`flip_h`** from travel facing + idle look-around (see `TunerBodyVisual._resolve_head_sprite_flip_h`) |
+| Head pivot position | Neck socket **X negated** when facing west so head stays on mirrored body |
+| Shoulder / hand / weapon pin positions | Stored in **east display space**; runtime applies `LimbPresetCoords.flip_display_x()` when `flip_h` |
+| Weapon overlay offset | Stored **unflipped**; `sync_weapon_overlay_flip()` mirrors on facing change |
+| Elbow bend sign (`1e` / `2e`) | Stored as east-facing override; **`resolve_elbow_bend_sign()` mirrors the sign** when `flip_h` |
+| Walk bounce / torso sway | **Sign inverts** with direction (`tilt_sign`, travel direction) — not a texture flip |
+| Pin labels **1 / 1h / 2 / 2h / 3** | **Fixed** — dominant arm is always “1”, support is “2”, weapon is “3”; labels do **not** swap when facing changes |
+
+### Draw order — fixed stack (recommended)
+
+```
+back arm (arm1) → body → head → front arm (arm2)
+```
+
+**Do not swap z-order when `flip_h` changes.**
+
+Why: industry default for 2-way flip sprites (RimWorld-style pawns, many pixel RPGs). Mirroring already moves each arm to the correct screen side; swapping layers adds flicker, complicates bake capture, and fights IK pin numbering. Tune poses so the crossing reads acceptably **both** ways — support arm in front (`arm2`) is intentional for club/spear grips.
+
+**Exception (future):** if a holdable must always draw in front (e.g. huge shield), bump **weapon overlay** z-index — not arm layer swap.
+
+### What gets mirrored vs what gets sign-flipped
+
+| Kind | Mirror (`flip_h` / flip X coord) | Sign flip only |
+|------|----------------------------------|----------------|
+| Body / head **silhouette** (symmetric blank) | Yes | — |
+| Pin positions (shoulders, hands, weapon) | Yes (via coord helper) | — |
+| Weapon overlay position | Yes | — |
+| Elbow bend direction | Yes (stored override mirrors) | Auto default from facing |
+| Walk sway, head bob phase | — | Yes (direction ±1) |
+| **Asymmetric** cosmetics (hair part, scar, one-shoulder cloak, text) | **No** — separate east-only art or runtime attach rules | — |
+
+### Asymmetric art policy (recommended)
+
+**Mirror is OK for most layers.** Add **separate east-authored** (or attach-side rules) only when mirror looks wrong: hair part, face markings, readable text, one-sided gear. Genetics/cosmetics stack on top per [pawn_goal.md](pawn_goal.md) — they inherit the same root `flip_h`; asymmetric pieces opt out of mirror individually later.
+
+### Facing during preview / gameplay (tuner = in-game rules)
+
+The tuner must mirror **CombatComponent** / **WeaponOverlayCombat** — not a separate “editor only” facing model.
+
+| State | What sets facing | In-game same? |
+|-------|------------------|---------------|
+| Idle / idle club | **A/D** — walk while held; release → idle bob | Yes |
+| Walk / Walk 1 (pin edit row) | **A/D** — same walk preview | Yes |
+| Gather (`Gather 1`) | **A/D** — turn facing; gather bend preserved | Yes |
+| Attack — **editing pins** (no Shift) | **A/D** — flip to verify windup pose east **and** west | Yes (manual aim left/right) |
+| Attack — **Shift ready** | **Cursor aim** updates `flip_h` + overlay ready pose | Yes (`enter_ready` / `update_ready_aim`) |
+| Attack — **mid swing / thrust / recovery** | **Locked** to strike aim for that swing | Yes (`commit_strike` locks direction) |
+| Idle/walk — **Shift ready** | **Cursor aim** (or velocity if moving) | Yes |
+
+**Not in-game:** WASD during Attack category moves the **mannequin on the canvas** for framing only — it does not change pawn facing in Main.
+
+Process order: rig updates `flip_h` first (`process_priority -1`); tuner syncs handles after (`0`).
+
+### Storage & bake contract
+
+1. All pin offsets in `WeaponLimbPreset` / pose snapshots = **east-facing display pixels** (unmirrored).
+2. Baked clips = **east only**, 128×128 (see Bake pipeline above).
+3. Never save world/global positions into `.tres` — always display-local east space.
+4. Elbow **1e/2e** clicks store an east-facing bend override; facing change applies mirror math at read time.
+
+### Common mistakes (avoid)
+
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| Expecting parent `Sprite.flip_h` to mirror `BodyVisual` | Body/head never turn — arms still flip | Set **`BodySprite.flip_h`** / **`HeadSprite.flip_h`** from card facing |
+| Head `scale.x = -1` **and** sprite `flip_h` | Head double-flips | Head pivot scale stays `(1, 1)`; use **`HeadSprite.flip_h`** only |
+| Storing west coords in `.tres` | Pins jump when facing changes | Save east space only |
+| Expecting pin **1** to become support arm when west | Confusion in UI | Labels are role-based, not screen-left/right |
+| Swapping arm z-index on flip | Flicker, bake mismatch | Keep fixed arm1 → body → head → arm2 |
 
 ---
 

@@ -120,20 +120,58 @@ func sync_head_draw_transform() -> void:
 	if _head_pivot == null or _layer_layout == null or _body_tex == null:
 		return
 	var neck_local := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
+	if _facing_left():
+		neck_local.x = -neck_local.x
 	neck_local.y += _head_bob_y
 	_head_pivot.global_position = to_global(neck_local)
 	_head_pivot.global_rotation = global_rotation
-	var look_sign := 1.0 if _look_right else -1.0
-	# HeadPivot is parented under the card Sprite; scale comes from that parent once.
-	_head_pivot.scale = Vector2(look_sign, 1.0)
+	if _head_pivot:
+		_head_pivot.scale = Vector2.ONE
+	_apply_layer_facing_flips()
 	if _uses_runtime_draw_layers():
 		apply_runtime_draw_layers()
 
 
+func _card_sprite_root() -> Sprite2D:
+	return get_parent() as Sprite2D
+
+
+func _facing_left() -> bool:
+	var root := _card_sprite_root()
+	return root != null and root.flip_h
+
+
+func _resolve_head_sprite_flip_h() -> bool:
+	## Card Sprite.flip_h is logical facing only — body/head sprites mirror themselves.
+	var facing_left := _facing_left()
+	## Default travel look (in-game): look_right == (not facing_left) → head mirrors with body.
+	if _look_right == (not facing_left):
+		return facing_left
+	## Idle1 look-around on top of travel facing.
+	if not facing_left:
+		return not _look_right
+	return _look_right
+
+
+func _apply_layer_facing_flips() -> void:
+	var facing_left := _facing_left()
+	if _body_sprite:
+		_body_sprite.flip_h = facing_left
+	if _head_sprite:
+		_head_sprite.flip_h = _resolve_head_sprite_flip_h()
+
+
+func layer_facing_in_sync() -> bool:
+	if _body_sprite == null:
+		return true
+	return _body_sprite.flip_h == _facing_left() and (
+		_head_sprite == null or _head_sprite.flip_h == _resolve_head_sprite_flip_h()
+	)
+
+
 func _apply_facing(look_right: bool) -> void:
 	_look_right = look_right
-	if _body_sprite:
-		_body_sprite.flip_h = not look_right
+	_apply_layer_facing_flips()
 
 
 func _body_pivot_local() -> Vector2:
@@ -175,6 +213,10 @@ func set_neck_socket_from_global(global_pos: Vector2) -> void:
 	_apply_head_attachment()
 
 
+func is_facing_right() -> bool:
+	return not _facing_left()
+
+
 func set_walk_state(moving: bool, bounce_time: float, direction: int) -> void:
 	_apply_facing(direction > 0)
 	var tilt_sign := -1.0 if direction < 0 else 1.0
@@ -204,7 +246,8 @@ func clear_motion_state() -> void:
 	rotation = 0.0
 	position = Vector2.ZERO
 	_head_bob_y = 0.0
-	_look_right = true
+	var sprite_root := _card_sprite_root()
+	_look_right = not sprite_root.flip_h if sprite_root else true
 	sync_head_draw_transform()
 
 

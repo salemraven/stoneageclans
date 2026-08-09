@@ -7,6 +7,9 @@ const AnimMode = WeaponLimbPreset.TunerAnimMode
 const TunerIdlePreviewScript = preload("res://scripts/tools/tuner_idle_preview.gd")
 const WalkArmSwingScript = preload("res://scripts/systems/walk_arm_swing.gd")
 const GatherArmMotionScript = preload("res://scripts/systems/gather_arm_motion.gd")
+const TunerPreviewInstrumentationScript = preload(
+	"res://scripts/tools/tuner_preview_instrumentation.gd"
+)
 const AnimCatalog = preload("res://scripts/config/character_animation_catalog.gd")
 const HOLDABLE_MENU: Array[Dictionary] = [
 	{"label": "Nothing (empty hands)", "type": ResourceData.ResourceType.NONE},
@@ -110,6 +113,7 @@ var _holdable_button_map: Dictionary = {}
 var _category_button_map: Dictionary = {}
 var _variant_button_map: Dictionary = {}
 var _stage_view_initialized: bool = false
+var _preview_instrumentation: RefCounted
 
 
 func _ready() -> void:
@@ -146,7 +150,7 @@ func _ready() -> void:
 
 
 func _finish_startup() -> void:
-	process_priority = -100
+	process_priority = 0
 	if _wants_club_windup_edit_startup() or _wants_idle_club1_edit_startup() or _wants_idle_club1_place_startup():
 		_selected_weapon = ResourceData.ResourceType.WOOD
 	if _rig:
@@ -170,12 +174,21 @@ func _finish_startup() -> void:
 		call_deferred("_begin_idle_club1_edit_session")
 	if _wants_idle_club1_place_startup():
 		call_deferred("_begin_idle_club1_place_session")
+	elif not _has_special_startup():
+		call_deferred("_begin_club_preview_session")
 	_update_ui()
 	_sync_preview_playback()
 	call_deferred("_apply_fixed_stage_view")
 	call_deferred("_ensure_handles_on_overlay")
 	_baker = LimbAnimationBakerScript.new()
 	_bake_review = get_node_or_null("BakeReviewWindow") as Window
+	_preview_instrumentation = TunerPreviewInstrumentationScript.new()
+	if TunerPreviewInstrumentationScript.wants_cli_instrument():
+		_preview_instrumentation.enabled = true
+		_preview_instrumentation.log_to_file = true
+		_preview_instrumentation.reset_session()
+		if _status_label:
+			_status_label.text = "Instrumentation ON — log: Tests/logs/tuner_preview_instrument.jsonl"
 
 
 func prepare_bake_sample(clip: String, phase: float) -> void:
@@ -475,11 +488,33 @@ func _hand_storage_mode() -> AnimMode:
 	return WeaponLimbPreset.tuner_hand_grip_storage_mode(_anim_mode, _selected_weapon)
 
 
+func _travel_walk_input_allowed() -> bool:
+	## Idle / walk rows: A/D or arrows start in-place walk preview (like in-game travel).
+	return (
+		_is_idle_anim_mode()
+		or _anim_mode == AnimMode.IDLE_CLUB1
+		or WeaponLimbPreset.is_walk_mode(_anim_mode)
+	)
+
+
+func _travel_walk_swing_active() -> bool:
+	return _rig != null and _rig.is_walking() and _travel_walk_input_allowed()
+
+
+func _walk_swing_mode() -> AnimMode:
+	if WeaponLimbPreset.is_walk_mode(_anim_mode):
+		return _anim_mode
+	if _travel_walk_swing_active():
+		return AnimMode.WALK
+	return _anim_mode
+
+
 func _uses_club_walk_carry_pose() -> bool:
 	## Walk + club: weapon arm uses the idle standing snapshot; support arm still swings.
 	return (
 		_selected_weapon == ResourceData.ResourceType.WOOD
-		and WeaponLimbPreset.is_walk_mode(_anim_mode)
+		and _travel_walk_input_allowed()
+		and (_travel_walk_swing_active() or WeaponLimbPreset.is_walk_mode(_anim_mode))
 		and not _idle_club_minimal_active
 	)
 
@@ -620,6 +655,40 @@ func _wants_club_windup_edit_startup() -> bool:
 	return "--club-windup-edit" in OS.get_cmdline_args()
 
 
+func _has_special_startup() -> bool:
+	return (
+		_wants_gather1_edit_startup()
+		or _wants_club_windup_edit_startup()
+		or _wants_idle_club1_edit_startup()
+		or _wants_idle_club1_place_startup()
+	)
+
+
+func _is_club_combat_preview_mode() -> bool:
+	return (
+		_selected_weapon == ResourceData.ResourceType.WOOD
+		and (_is_idle_anim_mode() or _anim_mode == AnimMode.IDLE_CLUB1)
+	)
+
+
+func _club_combat_controls_hint() -> String:
+	return "A/D walk · Shift windup loop · Shift+click attack"
+
+
+func _begin_club_preview_session() -> void:
+	## Default entry: club combat preview on idle standing (tune before lock-in).
+	_set_weapon(ResourceData.ResourceType.WOOD, false)
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	_sync_preview_playback()
+	_refresh_rig_from_preset()
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
+	_update_ui()
+	if _status_label:
+		_status_label.text = "Club · Idle — %s" % _club_combat_controls_hint()
+
+
 func _begin_club_windup_edit_session() -> void:
 	_apply_pose_catalog_entry(ResourceData.ResourceType.WOOD, AnimMode.ATTACK)
 	_load_preset_from_disk()
@@ -705,7 +774,7 @@ func _update_play_button() -> void:
 		return
 	if WeaponLimbPreset.is_walk_mode(_anim_mode):
 		_play_pause_btn.disabled = true
-		_play_pause_btn.text = "← → arrow keys to walk"
+		_play_pause_btn.text = "A/D or ← → to walk"
 	elif _anim_mode == AnimMode.ATTACK and _windup_idle_preview_active():
 		_play_pause_btn.disabled = false
 		_play_pause_btn.text = (
@@ -727,8 +796,9 @@ func _update_play_button() -> void:
 	elif _is_idle_anim_mode():
 		_play_pause_btn.disabled = false
 		if _selected_weapon == ResourceData.ResourceType.WOOD:
+			var ctrl := _club_combat_controls_hint()
 			_play_pause_btn.text = (
-				"⏸  Pause · Shift+click swing" if _anim_playing else "▶  Play idle · Shift+click swing"
+				"⏸  Pause · %s" % ctrl if _anim_playing else "▶  Play idle · %s" % ctrl
 			)
 		elif _selected_weapon == ResourceData.ResourceType.SPEAR:
 			_play_pause_btn.text = (
@@ -964,6 +1034,17 @@ func _is_walk_preview_active() -> bool:
 
 func _is_attack_preview_active() -> bool:
 	return _anim_mode == AnimMode.ATTACK
+
+
+func _attack_edit_facing_allowed() -> bool:
+	## Match in-game: cursor owns facing during Shift ready and mid-swing; A/D when editing pins only.
+	if not _is_attack_preview_active():
+		return false
+	if _combat_animation_busy():
+		return false
+	if _rig == null or _rig.combat_component == null:
+		return true
+	return _rig.combat_component.state != CombatComponent.CombatState.READY
 
 
 func _notification(what: int) -> void:
@@ -1764,13 +1845,20 @@ func _process(delta: float) -> void:
 		_rig.set_walk_preview_context(_preset, _hand_storage_mode())
 	_poll_tuner_movement(delta)
 	_poll_walk_input()
+	if _rig.has_method("sync_travel_facing"):
+		_rig.sync_travel_facing()
 	_process_combat_input()
+	_sync_shift_ready_windup_loop()
 	_push_preset_to_arms()
 	var combat_busy := _combat_animation_busy()
 	if _mode == AppMode.ASSEMBLE and _was_combat_preview_busy and not combat_busy:
 		_restore_tuner_pose_after_combat_preview()
 	_was_combat_preview_busy = combat_busy
 	if _mode == AppMode.ASSEMBLE:
+		if _combat_preview_needs_arm_pins():
+			_sync_combat_overlay_arm_pins()
+			if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.is_shift_ready_windup_loop():
+				_apply_club_tuner_windup_aim(_rig._get_cursor_aim_direction())
 		if _combat_animation_busy():
 			_sync_combat_strike_preview()
 		elif _is_shift_ready_preview():
@@ -1793,6 +1881,7 @@ func _process(delta: float) -> void:
 			_sync_elbow_handles_from_arm_lines()
 		else:
 			call_deferred("_sync_elbow_handles_from_arm_lines")
+	_tick_preview_instrumentation()
 
 
 func _sync_elbow_handles_from_arm_lines() -> void:
@@ -1814,16 +1903,62 @@ func _poll_walk_input() -> void:
 	if _is_thrust_animating() or _combat_animation_busy():
 		_rig.set_walk_direction(0)
 		return
-	if _is_attack_preview_active():
-		return
+	var combat_ready := (
+		_rig.combat_component != null
+		and _rig.combat_component.state == CombatComponent.CombatState.READY
+	)
 	var dir := 0
-	if _is_walk_preview_active():
-		dir = 1
-	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
+	if Input.is_action_pressed("move_left") or Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
 		dir = -1
-	elif Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
+	elif Input.is_action_pressed("move_right") or Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
 		dir = 1
-	_rig.set_walk_direction(dir)
+	if combat_ready:
+		_rig.set_walk_direction(0)
+		if dir != 0 and _travel_facing_input_allowed():
+			_rig.apply_travel_facing_direction(dir)
+			var aim := Vector2(float(dir), 0.0)
+			if _selected_weapon == ResourceData.ResourceType.WOOD:
+				_apply_club_tuner_windup_ready(aim)
+			else:
+				_rig.aim_dir = aim
+				_rig.combat_component.update_ready_aim(aim)
+		return
+	if _travel_walk_input_allowed():
+		if dir != 0 and _preset != null:
+			_preset.seed_walk_from_idle_if_unset()
+		_rig.set_walk_direction(dir)
+		return
+	if _travel_facing_input_allowed():
+		_rig.set_walk_direction(0)
+		if dir != 0:
+			_rig.apply_travel_facing_direction(dir)
+			if _attack_edit_facing_allowed():
+				_sync_attack_windup_facing(dir)
+	else:
+		_rig.set_walk_direction(0)
+
+
+func _travel_facing_input_allowed() -> bool:
+	return (
+		_is_idle_anim_mode()
+		or _anim_mode == AnimMode.IDLE_CLUB1
+		or _is_gather_anim_mode()
+		or WeaponLimbPreset.is_walk_mode(_anim_mode)
+		or _attack_edit_facing_allowed()
+	)
+
+
+func _sync_attack_windup_facing(dir: int) -> void:
+	if _rig == null or _preset == null or dir == 0:
+		return
+	var aim := Vector2(float(dir), 0.0)
+	if _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_rig.apply_tuner_spear_windup_overlay(_preset, aim)
+	elif not _preset.attack_pose_inherits_idle():
+		_rig.apply_preset_overlay_ready(_preset, aim)
+	_seed_elbow_poles_for_mode(AnimMode.ATTACK)
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
 
 
 func _poll_tuner_movement(delta: float) -> void:
@@ -1831,25 +1966,20 @@ func _poll_tuner_movement(delta: float) -> void:
 		return
 	if not _is_attack_preview_active():
 		return
+	## Attack pin-edit: W/S/Q/E pan canvas — A/D stay reserved for facing (see _poll_walk_input).
 	var move := Vector2.ZERO
-	if Input.is_action_pressed("move_up"):
+	if Input.is_action_pressed("move_up") or Input.is_key_pressed(KEY_W):
 		move.y -= 1.0
-	if Input.is_action_pressed("move_down"):
+	if Input.is_action_pressed("move_down") or Input.is_key_pressed(KEY_S):
 		move.y += 1.0
-	if Input.is_action_pressed("move_left"):
+	if Input.is_key_pressed(KEY_Q):
 		move.x -= 1.0
-	if Input.is_action_pressed("move_right"):
+	if Input.is_key_pressed(KEY_E):
 		move.x += 1.0
 	if move.length_squared() < 0.001:
-		if not Input.is_action_pressed("ui_left") and not Input.is_action_pressed("ui_right"):
-			_rig.set_walk_direction(0)
 		return
 	move = move.normalized()
 	_rig.position += move * TUNER_MOVE_SPEED_PX * delta
-	if absf(move.x) > 0.05:
-		_rig.set_walk_direction(-1 if move.x < 0.0 else 1)
-	elif not _is_walk_preview_active():
-		_rig.set_walk_direction(0)
 
 
 func _combat_animation_busy() -> bool:
@@ -1918,6 +2048,8 @@ func _combat_test_status_label() -> String:
 
 
 func _process_combat_input_assemble() -> void:
+	if _selected_weapon == ResourceData.ResourceType.NONE:
+		return
 	if _active_drag_handle == _spear_handle or _dragging_spear:
 		return
 	if _active_drag_handle == _spear_grip_2_handle or _dragging_spear_grip_2:
@@ -1955,21 +2087,24 @@ func _process_attack_mode_combat() -> void:
 		var aim := _rig._get_cursor_aim_direction()
 		if aim.length_squared() < 0.0001:
 			aim = Vector2(1.0, 0.0)
-		_rig.aim_dir = aim.normalized()
-		cc.enter_ready(aim)
+		if _selected_weapon == ResourceData.ResourceType.WOOD:
+			_apply_club_tuner_windup_ready(aim)
+		else:
+			_rig.aim_dir = aim.normalized()
+			cc.enter_ready(aim)
 		if _status_label:
 			_status_label.text = "Windup stance (Shift) — click to swing."
 	elif Input.is_action_just_released("weapon_ready"):
 		if cc.state == CombatComponent.CombatState.READY:
-			cc.cancel_ready()
-			_refresh_rig_from_preset()
-			_sync_handle_positions()
-			_lock_arm_lines_to_handles()
+			_exit_club_tuner_combat_ready()
 	elif cc.state == CombatComponent.CombatState.READY:
 		var aim := _rig._get_cursor_aim_direction()
 		if aim.length_squared() > 0.0001:
-			_rig.aim_dir = aim.normalized()
-		_rig.sync_combat_overlay(true)
+			if _selected_weapon == ResourceData.ResourceType.WOOD:
+				_apply_club_tuner_windup_ready(aim)
+			else:
+				_rig.aim_dir = aim.normalized()
+				_rig.sync_combat_overlay(true)
 		if Input.is_action_pressed("weapon_ready") and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not busy:
 			var strike_aim := _rig._get_cursor_aim_direction()
 			if strike_aim.length_squared() < 0.0001:
@@ -1991,7 +2126,12 @@ func _cancel_attack_mode_combat() -> void:
 func _enter_assemble_combat_ready() -> void:
 	if _rig == null or _rig.combat_component == null:
 		return
+	if _selected_weapon == ResourceData.ResourceType.NONE:
+		return
 	var aim := _rig._get_cursor_aim_direction()
+	if _selected_weapon == ResourceData.ResourceType.WOOD:
+		_apply_club_tuner_windup_ready(aim)
+		return
 	if aim.length_squared() > 0.0001:
 		_rig.aim_dir = aim.normalized()
 	if _rig.combat_component.state == CombatComponent.CombatState.IDLE:
@@ -2001,11 +2141,96 @@ func _enter_assemble_combat_ready() -> void:
 func _exit_assemble_combat_ready() -> void:
 	if _rig == null or _rig.combat_component == null:
 		return
+	if _selected_weapon == ResourceData.ResourceType.WOOD:
+		_exit_club_tuner_combat_ready()
+		return
 	if _rig.combat_component.state == CombatComponent.CombatState.READY:
 		_rig.combat_component.cancel_ready()
 	_refresh_rig_from_preset()
 	_sync_handle_positions()
 	_lock_arm_lines_to_handles()
+
+
+func _apply_club_tuner_windup_ready(raw_aim: Vector2) -> void:
+	## Club Shift: play saved windup idle loop (rest→A→B→rest) when keyframes exist.
+	if _rig == null or _preset == null or _rig.combat_component == null:
+		return
+	var aim := raw_aim
+	if aim.length_squared() < 0.0001:
+		if _rig.aim_dir.length_squared() > 0.0001:
+			aim = _rig.aim_dir
+		else:
+			aim = Vector2(1.0, 0.0)
+	aim = aim.normalized()
+	_rig.aim_dir = aim
+	_rig.combat_component.aim_dir = aim
+	if absf(aim.x) > 0.05:
+		_rig.apply_travel_facing_direction(-1 if aim.x < 0.0 else 1)
+	if _rig.combat_component.state == CombatComponent.CombatState.IDLE:
+		_rig.combat_component.state = CombatComponent.CombatState.READY
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.READY)
+	if _preset.has_club_windup_idle_loop():
+		_rig.set_shift_ready_windup_loop(true)
+	else:
+		_rig.apply_preset_overlay_ready(_preset, aim)
+	_sync_combat_overlay_arm_pins()
+
+
+func _apply_club_tuner_windup_aim(raw_aim: Vector2) -> void:
+	if _rig == null or _rig.combat_component == null:
+		return
+	var aim := raw_aim
+	if aim.length_squared() < 0.0001:
+		return
+	aim = aim.normalized()
+	_rig.aim_dir = aim
+	_rig.combat_component.aim_dir = aim
+	if absf(aim.x) > 0.05:
+		_rig.apply_travel_facing_direction(-1 if aim.x < 0.0 else 1)
+
+
+func _club_shift_windup_loop_wanted() -> bool:
+	return (
+		_selected_weapon == ResourceData.ResourceType.WOOD
+		and _preset != null
+		and _preset.has_club_windup_idle_loop()
+		and Input.is_action_pressed("weapon_ready")
+		and not _combat_animation_busy()
+		and _active_drag_handle == null
+		and (_is_club_combat_preview_mode() or _anim_mode == AnimMode.ATTACK)
+	)
+
+
+func _sync_shift_ready_windup_loop() -> void:
+	if _rig == null:
+		return
+	if _selected_weapon != ResourceData.ResourceType.WOOD:
+		_rig.set_shift_ready_windup_loop(false)
+		return
+	_rig.set_shift_ready_windup_loop(_club_shift_windup_loop_wanted())
+
+
+func _exit_club_tuner_combat_ready() -> void:
+	if _rig == null or _rig.combat_component == null:
+		return
+	_rig.set_shift_ready_windup_loop(false)
+	if _rig.combat_component.state == CombatComponent.CombatState.READY:
+		_rig.combat_component.state = CombatComponent.CombatState.IDLE
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.IDLE)
+	_refresh_rig_from_preset()
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
+
+
+func _club_combat_support_global() -> Vector2:
+	if _rig == null or _preset == null or _rig.sprite == null:
+		return Vector2.ZERO
+	if _preset.has_club_windup_idle_loop():
+		var loop_support: Vector2 = _preset.club_windup_idle_key_a_support_hand_offset_px
+		if loop_support.length_squared() > 0.0001:
+			return LimbPresetCoords.body_global_from_display(_rig.sprite, loop_support)
+	var attack_support: Vector2 = _preset.resolve_support_hand_for_mode(AnimMode.ATTACK)
+	return LimbPresetCoords.body_global_from_display(_rig.sprite, attack_support)
 
 
 func _holdable_label() -> String:
@@ -2048,26 +2273,105 @@ func _is_shift_ready_preview() -> bool:
 
 
 func _apply_shift_ready_preview() -> void:
-	## Hold Shift on idle/walk: same ready pose path as in-game (PlaceholderCardService).
+	## Hold Shift: club windup loop or spear/in-game ready overlay.
 	if _rig == null or _preset == null or _rig.combat_component == null:
 		return
 	var aim := _rig._get_cursor_aim_direction()
+	if _selected_weapon == ResourceData.ResourceType.WOOD:
+		if _rig.is_shift_ready_windup_loop():
+			_apply_club_tuner_windup_aim(aim)
+			_sync_combat_overlay_arm_pins()
+		else:
+			_apply_club_tuner_windup_ready(aim)
+		return
 	if aim.length_squared() > 0.0001:
 		_rig.aim_dir = aim.normalized()
 	if _rig.combat_component.state == CombatComponent.CombatState.IDLE:
 		_rig.combat_component.enter_ready(aim)
 	else:
 		_rig.sync_combat_overlay(true)
+	_sync_combat_overlay_arm_pins()
+
+
+func _combat_preview_needs_arm_pins() -> bool:
+	return (
+		_combat_animation_busy()
+		or _is_combat_ready_preview()
+		or (_rig != null and _rig.is_shift_ready_windup_loop())
+	)
+
+
+func _is_combat_ready_preview() -> bool:
+	return (
+		_rig != null
+		and _rig.combat_component != null
+		and _rig.combat_component.state == CombatComponent.CombatState.READY
+	)
+
+
+func _sync_combat_overlay_arm_pins() -> void:
+	## Club strike test: hands follow live overlay + saved attack row (not idle pins).
+	if _rig == null or _preset == null or _active_drag_handle != null:
+		return
+	if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.has_weapon_overlay():
+		var grip_global: Vector2
+		var support_global: Vector2
+		if _rig.is_windup_idle_sample_active():
+			grip_global = _rig.hand_grip_global_from_windup_sample()
+			support_global = _rig.support_hand_global_from_windup_sample()
+		else:
+			var grip_px := _preset.resolve_club_overlay_grip_px(AnimMode.ATTACK)
+			grip_global = LimbPresetCoords.overlay_grip_global(_rig.weapon_overlay, grip_px)
+			support_global = _club_combat_support_global()
+		_set_hand_handle_position(_hand_handle, grip_global)
+		_set_hand_handle_position(_spear_handle, grip_global)
+		if _support_hand_handle and _active_drag_handle != _support_hand_handle:
+			_set_hand_handle_position(_support_hand_handle, support_global)
+		_sync_body_pinned_handles()
+		_seed_elbow_poles_for_mode(AnimMode.ATTACK)
+		_lock_arm_lines_to_handles()
+		_sync_elbow_handles()
+	elif _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_sync_spear_grip_handles()
+
+
+func _tick_preview_instrumentation() -> void:
+	if _preview_instrumentation == null or not _preview_instrumentation.enabled:
+		return
+	var snap: Dictionary = _preview_instrumentation.tick(
+		_anim_mode,
+		_selected_weapon,
+		_rig,
+		_preset,
+		_hand_handle,
+		_support_hand_handle
+	)
+	if snap.is_empty() or _status_label == null:
+		return
+	var base := _walk_or_combat_status_hint()
+	var hud: String = _preview_instrumentation.hud_line(snap)
+	if not hud.is_empty():
+		_status_label.text = base + "\n" + hud
+	var viol: Array = _preview_instrumentation.violations
+	if not viol.is_empty() and int(snap.get("frame", 0)) % 30 == 0:
+		print("[TunerInstrument] ", viol)
+
+
+func _walk_or_combat_status_hint() -> String:
+	if _is_club_combat_preview_mode() and not _combat_preview_needs_arm_pins():
+		return "Club · %s" % _club_combat_controls_hint()
+	if _travel_walk_input_allowed() and _rig and not _rig.is_walking():
+		return "Hold A/D or ← → to walk."
+	if _is_combat_ready_preview() and _selected_weapon == ResourceData.ResourceType.WOOD:
+		return "Shift ready — %s" % _club_combat_controls_hint()
+	if _combat_animation_busy() and _selected_weapon == ResourceData.ResourceType.WOOD:
+		return "Striking — release Shift after swing to exit ready."
+	return "Tuner instrumentation active."
 
 
 func _sync_combat_strike_preview() -> void:
-	## During overlay swing/recovery: arms follow live combat IK, not static edit pins.
-	if _rig == null or _rig.arm_controller == null:
-		return
-	_rig.arm_controller.clear_all_endpoint_overrides()
-	_sync_body_pinned_handles()
-	_sync_handles_from_live_arms()
-	_sync_elbow_handles()
+	## During overlay swing/recovery: arms follow live overlay grip, not stale idle pins.
+	_sync_combat_overlay_arm_pins()
 	if _spear_handle and _hand_handle and _active_drag_handle != _spear_handle and not _is_spear_windup_edit():
 		_spear_handle.global_position = _hand_handle.global_position
 
@@ -2090,11 +2394,16 @@ func _restore_tuner_pose_after_combat_preview() -> void:
 func _sync_assemble_preview() -> void:
 	if _combat_animation_busy():
 		return
+	if (
+		_rig.combat_component != null
+		and _rig.combat_component.state == CombatComponent.CombatState.READY
+	):
+		return
 	_sync_body_pinned_handles()
 	_sync_weapon_pin_parenting()
 	if _uses_spear_grip_on_art_pins():
 		var storage := _hand_storage_mode()
-		var walk_swing := WeaponLimbPreset.is_walk_mode(_anim_mode) and _rig.is_walking()
+		var walk_swing := _travel_walk_swing_active()
 		var gather_motion := (
 			WeaponLimbPreset.is_gather_mode(_anim_mode) and _rig.is_gather_preview_playing()
 		)
@@ -2243,7 +2552,8 @@ func _sync_hands_with_spear() -> void:
 	var mode := _hand_sync_mode()
 	var ready_hands := _use_ready_support_hand()
 	var gather_motion := WeaponLimbPreset.is_gather_mode(mode) and _rig.is_gather_preview_playing()
-	var walk_swing := WeaponLimbPreset.is_walk_mode(mode) and _rig.is_walking()
+	var walk_swing := _travel_walk_swing_active()
+	var swing_mode := _walk_swing_mode() if walk_swing else mode
 	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		if _uses_club_walk_carry_pose():
 			_sync_club_grip_pins_from_storage(_hand_storage_mode())
@@ -2260,7 +2570,7 @@ func _sync_hands_with_spear() -> void:
 		if gather_motion:
 			hand_global = _rig.hand_grip_global_with_gather_motion(_preset, mode)
 		elif walk_swing:
-			hand_global = _rig.hand_grip_global_with_walk_swing(_preset, mode)
+			hand_global = _rig.hand_grip_global_with_walk_swing(_preset, swing_mode)
 		else:
 			hand_global = _rig.hand_grip_global_from_preset(_preset, mode)
 		hand_global = _clamp_dominant_hand_global(
@@ -2273,7 +2583,7 @@ func _sync_hands_with_spear() -> void:
 			if gather_motion:
 				support_global = _rig.support_hand_global_with_gather_motion(_preset, mode)
 			elif walk_swing:
-				support_global = _rig.support_hand_global_with_walk_swing(_preset, mode)
+				support_global = _rig.support_hand_global_with_walk_swing(_preset, swing_mode)
 			else:
 				support_global = _rig.support_hand_global_for_mode(_preset, mode)
 			support_global = _clamp_support_hand_global(
@@ -2298,7 +2608,7 @@ func _sync_hands_with_spear() -> void:
 		elif gather_motion:
 			support_global = _rig.support_hand_global_with_gather_motion(_preset, mode)
 		elif walk_swing:
-			support_global = _rig.support_hand_global_with_walk_swing(_preset, mode)
+			support_global = _rig.support_hand_global_with_walk_swing(_preset, swing_mode)
 		else:
 			support_global = _rig.support_hand_global_for_mode(_preset, mode)
 		support_global = _clamp_support_hand_global(
@@ -2495,13 +2805,13 @@ func _set_anim_mode(mode: AnimMode) -> void:
 			else:
 				_status_label.text = "Attack ready — drag pins · Shift+click to test swing."
 		elif WeaponLimbPreset.is_walk_mode(_anim_mode):
-			_status_label.text = "Walk pose — drag pins · ← → to preview walk."
+			_status_label.text = "Walk pose — drag pins · A/D or ← → to preview walk."
 		elif _is_gather_anim_mode():
 			_status_label.text = "Gather pose — Play to preview cycle, Pause to edit pins."
 		elif _is_idle_anim_mode():
 			if _selected_weapon == ResourceData.ResourceType.WOOD:
 				_status_label.text = (
-					"Idle standing — Shift = windup · Shift+click = test swing · drag pins to edit carry."
+					"Idle standing — A/D walk · Shift = windup · Shift+click = test swing · drag pins."
 				)
 			elif _selected_weapon == ResourceData.ResourceType.SPEAR:
 				_status_label.text = (
@@ -2894,6 +3204,22 @@ func _update_ui() -> void:
 	_apply_handle_number_labels()
 	_update_weapon_handle_visibility()
 	_sync_bake_button()
+	if (
+		_status_label
+		and _is_club_combat_preview_mode()
+		and not _combat_preview_needs_arm_pins()
+		and (_preview_instrumentation == null or not _preview_instrumentation.enabled)
+	):
+		_status_label.text = "Club · Idle — %s" % _club_combat_controls_hint()
+	elif (
+		_status_label
+		and _travel_walk_input_allowed()
+		and _rig
+		and not _rig.is_walking()
+		and not _combat_preview_needs_arm_pins()
+		and (_preview_instrumentation == null or not _preview_instrumentation.enabled)
+	):
+		_status_label.text = "Hold A/D or ← → to walk."
 
 
 func _format_pose_row(mode: AnimMode, for_editing: bool) -> Variant:
