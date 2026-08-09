@@ -147,14 +147,21 @@ func apply_combat_profile_overrides(profile: Dictionary, weapon_type: ResourceDa
 	out["strike_offset_px"] = preset.strike_offset_px
 	out["ready_forward_px"] = preset.ready_forward_px
 	out["idle_rotation_deg"] = preset.idle_rotation_deg
+	if absf(preset.ready_rotation_offset_deg) > 0.001:
+		out["ready_rotation_offset_deg"] = preset.ready_rotation_offset_deg
+	if absf(preset.swing_windup_deg) > 0.001:
+		out["swing_windup_deg"] = preset.swing_windup_deg
 	return out
 
 
 func get_overlay_offset_idle_px(weapon_type: ResourceData.ResourceType) -> Vector2:
 	var preset := get_preset(weapon_type)
-	if preset:
-		return preset.overlay_offset_idle_px
-	return Vector2.ZERO
+	if preset == null:
+		return Vector2.ZERO
+	if weapon_type == ResourceData.ResourceType.WOOD:
+		if preset.idle_club1_grip_authoritative or preset.idle_club1_overlay_is_plausible():
+			return preset.idle_club1_overlay_offset_px
+	return preset.overlay_offset_idle_px
 
 
 func _weapon_slug(weapon_type: ResourceData.ResourceType) -> String:
