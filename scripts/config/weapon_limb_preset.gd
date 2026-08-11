@@ -95,6 +95,13 @@ func verify_tuner_overlay_matches(
 ## Spear overlay idle placement (offset from body sprite origin, pre-flip display px).
 @export var overlay_offset_idle_px: Vector2 = Vector2(22.0, -34.0)
 @export var idle_rotation_deg: float = 0.0
+## Weapon overlay compass angle (0–360°) per pose row. ROTATION_UNSET = use combat profile default.
+const ROTATION_UNSET := -1000.0
+@export var attack_rotation_deg: float = ROTATION_UNSET
+@export var walk_rotation_deg: float = ROTATION_UNSET
+@export var walk1_rotation_deg: float = ROTATION_UNSET
+@export var gather1_rotation_deg: float = ROTATION_UNSET
+@export var idle_club1_rotation_deg: float = ROTATION_UNSET
 
 ## Walk animation arm + overlay snapshot (tuner). Zero = fall back to idle fields on load.
 @export var walk_hand_grip_offset_px: Vector2 = Vector2.ZERO
@@ -137,6 +144,7 @@ func verify_tuner_overlay_matches(
 ## Club attack row: false = tuner + resolve use idle standing until user commits attack pose.
 @export var club_attack_pose_saved: bool = false
 ## Club windup idle loop: rest pose = ready_offset_px + hand_grip_ready + support_hand_idle.
+## Off-hand loop uses support_hand_idle + optional key B only (key A support ignored at runtime).
 @export var club_windup_idle_loop_sec: float = 5.0
 @export var club_windup_idle_key_a_ready_offset_px: Vector2 = Vector2.ZERO
 @export var club_windup_idle_key_a_hand_grip_offset_px: Vector2 = Vector2.ZERO
@@ -144,6 +152,13 @@ func verify_tuner_overlay_matches(
 @export var club_windup_idle_key_b_ready_offset_px: Vector2 = Vector2.ZERO
 @export var club_windup_idle_key_b_hand_grip_offset_px: Vector2 = Vector2.ZERO
 @export var club_windup_idle_key_b_support_hand_offset_px: Vector2 = Vector2.ZERO
+@export var club_windup_idle_key_a_rotation_deg: float = ROTATION_UNSET
+@export var club_windup_idle_key_b_rotation_deg: float = ROTATION_UNSET
+@export var club_windup_idle_rest_rotation_deg: float = ROTATION_UNSET
+## Off-hand travel during windup loop (1 = full authored keyframes, lower = subtler).
+@export_range(0.0, 1.0, 0.05) var club_windup_support_motion_scale: float = 0.25
+## Off-hand extension at strike peak as fraction of authored attack row (loop seam → peak).
+@export_range(0.0, 1.0, 0.05) var club_strike_support_motion_frac: float = 0.15
 ## Spear attack windup row: false = inherit idle standing until user saves windup pose.
 @export var spear_attack_pose_saved: bool = false
 
@@ -201,6 +216,78 @@ static func uses_two_hand_grip(weapon_type: ResourceData.ResourceType) -> bool:
 	return weapon_type == ResourceData.ResourceType.SPEAR
 
 
+static func normalize_rotation_deg(deg: float) -> float:
+	var d := fmod(deg, 360.0)
+	if d < 0.0:
+		d += 360.0
+	return d
+
+
+static func signed_rotation_deg(deg: float) -> float:
+	var d := normalize_rotation_deg(deg)
+	if d > 180.0:
+		d -= 360.0
+	return d
+
+
+func rotation_deg_is_custom(mode: TunerAnimMode) -> bool:
+	match mode:
+		TunerAnimMode.ATTACK:
+			return attack_rotation_deg > ROTATION_UNSET + 1.0
+		TunerAnimMode.WALK:
+			return walk_rotation_deg > ROTATION_UNSET + 1.0
+		TunerAnimMode.WALK1:
+			return walk1_rotation_deg > ROTATION_UNSET + 1.0
+		TunerAnimMode.GATHER1:
+			return gather1_rotation_deg > ROTATION_UNSET + 1.0
+		TunerAnimMode.IDLE_CLUB1:
+			return idle_club1_rotation_deg > ROTATION_UNSET + 1.0
+		TunerAnimMode.IDLE, TunerAnimMode.IDLE1:
+			return absf(idle_rotation_deg) > 0.001
+	return false
+
+
+func get_rotation_deg_for_mode(mode: TunerAnimMode) -> float:
+	match mode:
+		TunerAnimMode.ATTACK:
+			return attack_rotation_deg
+		TunerAnimMode.WALK:
+			return walk_rotation_deg
+		TunerAnimMode.WALK1:
+			return walk1_rotation_deg
+		TunerAnimMode.GATHER1:
+			return gather1_rotation_deg
+		TunerAnimMode.IDLE_CLUB1:
+			return idle_club1_rotation_deg
+		_:
+			return idle_rotation_deg
+
+
+func set_rotation_deg_for_mode(mode: TunerAnimMode, deg: float) -> void:
+	var norm := normalize_rotation_deg(deg)
+	match mode:
+		TunerAnimMode.ATTACK:
+			attack_rotation_deg = norm
+		TunerAnimMode.WALK:
+			walk_rotation_deg = norm
+		TunerAnimMode.WALK1:
+			walk1_rotation_deg = norm
+		TunerAnimMode.GATHER1:
+			gather1_rotation_deg = norm
+		TunerAnimMode.IDLE_CLUB1:
+			idle_club1_rotation_deg = norm
+		_:
+			idle_rotation_deg = norm
+
+
+func resolve_swing_stored_rotation_deg(stored_ready_deg: float, facing_sign: float, profile: Dictionary) -> float:
+	var idle_deg: float = idle_rotation_deg
+	if absf(idle_deg) < 0.001:
+		idle_deg = float(profile.get("idle_rotation_deg", 0.0))
+	var offset: float = stored_ready_deg - idle_deg
+	return idle_deg + offset * facing_sign
+
+
 func attack_pose_inherits_idle() -> bool:
 	if weapon_type == ResourceData.ResourceType.WOOD:
 		return not club_attack_pose_saved
@@ -233,6 +320,94 @@ func has_club_windup_idle_loop() -> bool:
 	)
 
 
+func resolve_club_windup_rotation_deg(segment: StringName, profile: Dictionary) -> float:
+	## segment: rest | a | b — east-facing degrees; UNSET falls back to combat profile ready cock.
+	var stored: float = ROTATION_UNSET
+	match segment:
+		&"a":
+			stored = club_windup_idle_key_a_rotation_deg
+		&"b":
+			stored = club_windup_idle_key_b_rotation_deg
+		_:
+			stored = club_windup_idle_rest_rotation_deg
+	if stored > ROTATION_UNSET + 1.0:
+		return stored
+	if attack_rotation_deg > ROTATION_UNSET + 1.0 and segment == &"a":
+		return attack_rotation_deg
+	# Windup cock uses combat ready offset only — not idle carry rotation (e.g. 107° hang).
+	var ready_offset_deg: float = float(profile.get("ready_rotation_offset_deg", 42.0))
+	return -ready_offset_deg
+
+
+func club_strike_windup_keyframe() -> Dictionary:
+	return {
+		"overlay_px": club_windup_idle_key_b_ready_offset_px,
+		"hand_grip_px": club_windup_idle_key_b_hand_grip_offset_px,
+		"support_hand_px": resolve_club_strike_loop_seam_support_px(),
+	}
+
+
+## Idle / walk off-hand rest (body display px). Single anchor for club carry + loop wrap.
+func club_support_rest_px() -> Vector2:
+	return support_hand_idle_offset_px
+
+
+func resolve_club_strike_loop_seam_support_px() -> Vector2:
+	## Windup/strike join: rest → optional key B (scaled). Zero key B = rest only.
+	var rest := club_support_rest_px()
+	if club_windup_idle_key_b_support_hand_offset_px.length_squared() < 0.0001:
+		return rest
+	var scale := clampf(club_windup_support_motion_scale, 0.0, 1.0)
+	return rest.lerp(club_windup_idle_key_b_support_hand_offset_px, scale)
+
+
+func resolve_club_strike_peak_support_hand_px() -> Vector2:
+	## Attack row 2h at strike peak, blended from loop seam (see club_strike_support_motion_frac).
+	var rest := club_support_rest_px()
+	var authored := support_hand_offset_px
+	if authored.length_squared() < 0.0001 or authored.distance_to(rest) < 0.5:
+		return resolve_club_strike_loop_seam_support_px()
+	var seam := resolve_club_strike_loop_seam_support_px()
+	var frac := clampf(club_strike_support_motion_frac, 0.0, 1.0)
+	return seam.lerp(authored, frac)
+
+
+func reset_club_off_hand_authoring() -> void:
+	## Clear stale windup/attack 2h rows; keep idle rest. Call before re-posing pin 2h.
+	if weapon_type != ResourceData.ResourceType.WOOD:
+		return
+	var rest := club_support_rest_px()
+	support_hand_offset_px = rest
+	club_windup_idle_key_a_support_hand_offset_px = Vector2.ZERO
+	club_windup_idle_key_b_support_hand_offset_px = Vector2.ZERO
+	idle_club1_support_hand_offset_px = rest
+	if walk_support_hand_offset_px.length_squared() < 0.0001:
+		walk_support_hand_offset_px = rest
+
+
+func club_strike_peak_keyframe() -> Dictionary:
+	## Attack row — maximum extension at strike peak.
+	var overlay_px := strike_offset_px
+	if overlay_px.length_squared() < 0.0001:
+		overlay_px = ready_offset_px
+	return {
+		"overlay_px": overlay_px,
+		"hand_grip_px": hand_grip_ready_offset_px,
+		"support_hand_px": resolve_club_strike_peak_support_hand_px(),
+	}
+
+
+func has_club_keyframed_strike() -> bool:
+	return (
+		weapon_type == ResourceData.ResourceType.WOOD
+		and has_club_windup_idle_loop()
+		and club_attack_pose_saved
+		and strike_offset_px.length_squared() > 0.0001
+		and club_windup_idle_key_b_ready_offset_px.length_squared() > 0.0001
+		and strike_offset_px.distance_to(club_windup_idle_key_b_ready_offset_px) > 2.0
+	)
+
+
 func sample_club_windup_idle_loop(phase: float) -> Dictionary:
 	## Smooth rest → A → B → rest loop (phase 0..1).
 	var p := fposmod(phase, 1.0)
@@ -241,40 +416,45 @@ func sample_club_windup_idle_loop(phase: float) -> Dictionary:
 	var local := _smoothstep01(t - float(seg))
 	var rest_ready := ready_offset_px
 	var rest_grip := hand_grip_ready_offset_px
-	var rest_support := support_hand_idle_offset_px
 	var from_ready: Vector2
 	var to_ready: Vector2
 	var from_grip: Vector2
 	var to_grip: Vector2
-	var from_support: Vector2
-	var to_support: Vector2
 	match seg:
 		0:
 			from_ready = rest_ready
 			to_ready = club_windup_idle_key_a_ready_offset_px
 			from_grip = rest_grip
 			to_grip = club_windup_idle_key_a_hand_grip_offset_px
-			from_support = rest_support
-			to_support = club_windup_idle_key_a_support_hand_offset_px
 		1:
 			from_ready = club_windup_idle_key_a_ready_offset_px
 			to_ready = club_windup_idle_key_b_ready_offset_px
 			from_grip = club_windup_idle_key_a_hand_grip_offset_px
 			to_grip = club_windup_idle_key_b_hand_grip_offset_px
-			from_support = club_windup_idle_key_a_support_hand_offset_px
-			to_support = club_windup_idle_key_b_support_hand_offset_px
 		_:
 			from_ready = club_windup_idle_key_b_ready_offset_px
 			to_ready = rest_ready
 			from_grip = club_windup_idle_key_b_hand_grip_offset_px
 			to_grip = rest_grip
-			from_support = club_windup_idle_key_b_support_hand_offset_px
-			to_support = rest_support
 	return {
 		"ready_offset_px": from_ready.lerp(to_ready, local),
 		"hand_grip_ready_offset_px": from_grip.lerp(to_grip, local),
-		"support_hand_idle_offset_px": from_support.lerp(to_support, local),
+		"support_hand_idle_offset_px": _sample_club_windup_support_loop(seg, local),
 	}
+
+
+func _sample_club_windup_support_loop(seg: int, local_t: float) -> Vector2:
+	## Off-hand only: rest → hold loop seam → rest (club overlay still uses A/B keys).
+	var rest := club_support_rest_px()
+	var seam := resolve_club_strike_loop_seam_support_px()
+	var ease := _smoothstep01(local_t)
+	match seg:
+		0:
+			return rest.lerp(seam, ease)
+		1:
+			return seam
+		_:
+			return seam.lerp(rest, ease)
 
 
 static func _smoothstep01(t: float) -> float:
@@ -560,7 +740,7 @@ func resolve_support_elbow_bend_sign_for_idle_raise(raise_blend: float, auto_fro
 
 
 func set_support_hand_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
-	if mode == TunerAnimMode.ATTACK and uses_two_hand_grip(weapon_type):
+	if mode == TunerAnimMode.ATTACK:
 		support_hand_offset_px = display_px
 	elif is_gather_mode(mode):
 		gather1_support_hand_offset_px = display_px
@@ -599,6 +779,10 @@ func resolve_overlay_for_mode(mode: TunerAnimMode) -> Vector2:
 			if weapon_type == ResourceData.ResourceType.SPEAR and spear_attack_pose_saved:
 				if strike_offset_px.length_squared() > 0.0001:
 					return strike_offset_px
+			if weapon_type == ResourceData.ResourceType.WOOD and club_attack_pose_saved:
+				if strike_offset_px.length_squared() > 0.0001:
+					return strike_offset_px
+				return ready_offset_px
 			if attack_pose_inherits_idle():
 				return overlay_offset_idle_px
 			return ready_offset_px
@@ -617,7 +801,7 @@ func set_overlay_for_mode(mode: TunerAnimMode, display_px: Vector2) -> void:
 		TunerAnimMode.WALK1:
 			walk1_overlay_offset_px = display_px
 		TunerAnimMode.ATTACK:
-			if weapon_type == ResourceData.ResourceType.SPEAR:
+			if weapon_type == ResourceData.ResourceType.SPEAR or weapon_type == ResourceData.ResourceType.WOOD:
 				strike_offset_px = display_px
 			else:
 				ready_offset_px = display_px
@@ -883,8 +1067,12 @@ func resolve_tuner_spear_windup_overlay_px() -> Vector2:
 
 
 func resolve_tuner_spear_attack_overlay_px() -> Vector2:
-	## Tuner attack row + thrust peak overlay.
-	if spear_attack_pose_saved and strike_offset_px.length_squared() > 0.0001:
+	## Legacy alias — prefer windup vs strike helpers below.
+	return resolve_tuner_spear_windup_overlay_px()
+
+
+func resolve_tuner_spear_strike_overlay_px() -> Vector2:
+	if strike_offset_px.length_squared() > 0.0001:
 		return strike_offset_px
 	return resolve_tuner_spear_windup_overlay_px()
 
@@ -940,6 +1128,7 @@ func reset_mode_to_defaults(mode: TunerAnimMode) -> void:
 			support_hand_offset_px = d.support_hand_offset_px
 			ready_offset_px = d.ready_offset_px
 			ready_forward_px = d.ready_forward_px
+			attack_rotation_deg = ROTATION_UNSET
 			weapon_elbow_bend_sign_ready_override = 0.0
 			support_elbow_bend_sign_ready_override = 0.0
 			weapon_elbow_pole_ready_px = Vector2.ZERO
@@ -1110,6 +1299,19 @@ func chat_summary_line(mode: TunerAnimMode, weapon_slug: String) -> String:
 		hand = resolve_club_overlay_grip_px(mode)
 	var dom_bend := resolve_elbow_bend_sign_override(true, mode)
 	var off_bend := resolve_elbow_bend_sign_override(false, mode)
+	if weapon_type == ResourceData.ResourceType.SPEAR and mode == TunerAnimMode.ATTACK:
+		return (
+			"%s attack windup — Y1 %s | Y2 %s | overlay ready %s | strike %s | 1e %s | 2e %s"
+			% [
+				weapon_slug,
+				str(hand_grip_ready_offset_px),
+				str(support_hand_offset_px),
+				str(ready_offset_px),
+				str(strike_offset_px),
+				bend_sign_chat_label(dom_bend),
+				bend_sign_chat_label(off_bend),
+			]
+		)
 	return (
 		"%s %s — hand %s | overlay %s | 1e %s | 2e %s"
 		% [
@@ -1133,9 +1335,42 @@ func to_chat_handoff(weapon_slug: String) -> String:
 	lines.append(chat_summary_line(TunerAnimMode.GATHER1, weapon_slug))
 	lines.append(chat_summary_line(TunerAnimMode.IDLE_CLUB1, weapon_slug))
 	lines.append(chat_summary_line(TunerAnimMode.ATTACK, weapon_slug))
+	if weapon_type == ResourceData.ResourceType.SPEAR:
+		for line in spear_windup_handoff_lines():
+			lines.append(line)
 	lines.append("arm length: %.0f / %.0f px" % [upper_arm_length, lower_arm_length])
 	lines.append("arm thickness: %.0f px (hand end %.0f px)" % [arm_width, hand_width])
 	return "\n".join(lines)
+
+
+func spear_windup_handoff_lines() -> PackedStringArray:
+	## Copy/Save handoff: every Attack-row field for spear windup + thrust.
+	if weapon_type != ResourceData.ResourceType.SPEAR:
+		return PackedStringArray()
+	var rot_label := (
+		"%.1f" % attack_rotation_deg
+		if attack_rotation_deg > ROTATION_UNSET + 1.0
+		else "unset (overlay thrust path)"
+	)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("--- spear windup (Attack) ---")
+	lines.append("spear_attack_pose_saved: %s" % spear_attack_pose_saved)
+	lines.append("ready_offset_px (windup overlay): %s" % str(ready_offset_px))
+	lines.append("hand_grip_ready_offset_px (Y1 shaft): %s" % str(hand_grip_ready_offset_px))
+	lines.append("support_hand_offset_px (Y2 shaft): %s" % str(support_hand_offset_px))
+	lines.append("strike_offset_px (thrust peak): %s" % str(strike_offset_px))
+	lines.append("attack_rotation_deg: %s" % rot_label)
+	lines.append("weapon_elbow_pole_ready_px (1e): %s" % str(weapon_elbow_pole_ready_px))
+	lines.append("support_elbow_pole_ready_px (2e): %s" % str(support_elbow_pole_ready_px))
+	lines.append(
+		"weapon_elbow_bend_sign_ready (1e): %s"
+		% bend_sign_chat_label(weapon_elbow_bend_sign_ready_override)
+	)
+	lines.append(
+		"support_elbow_bend_sign_ready (2e): %s"
+		% bend_sign_chat_label(support_elbow_bend_sign_ready_override)
+	)
+	return lines
 
 
 func to_export_dict() -> Dictionary:
@@ -1153,6 +1388,11 @@ func to_export_dict() -> Dictionary:
 		"support_hand_offset_px": support_hand_offset_px,
 		"overlay_offset_idle_px": overlay_offset_idle_px,
 		"idle_rotation_deg": idle_rotation_deg,
+		"attack_rotation_deg": attack_rotation_deg,
+		"walk_rotation_deg": walk_rotation_deg,
+		"walk1_rotation_deg": walk1_rotation_deg,
+		"gather1_rotation_deg": gather1_rotation_deg,
+		"idle_club1_rotation_deg": idle_club1_rotation_deg,
 		"walk_hand_grip_offset_px": walk_hand_grip_offset_px,
 		"walk_support_hand_offset_px": walk_support_hand_offset_px,
 		"walk_overlay_offset_px": walk_overlay_offset_px,
@@ -1190,6 +1430,11 @@ func to_export_dict() -> Dictionary:
 		"club_windup_idle_key_b_ready_offset_px": club_windup_idle_key_b_ready_offset_px,
 		"club_windup_idle_key_b_hand_grip_offset_px": club_windup_idle_key_b_hand_grip_offset_px,
 		"club_windup_idle_key_b_support_hand_offset_px": club_windup_idle_key_b_support_hand_offset_px,
+		"club_windup_idle_key_a_rotation_deg": club_windup_idle_key_a_rotation_deg,
+		"club_windup_idle_key_b_rotation_deg": club_windup_idle_key_b_rotation_deg,
+		"club_windup_idle_rest_rotation_deg": club_windup_idle_rest_rotation_deg,
+		"club_windup_support_motion_scale": club_windup_support_motion_scale,
+		"club_strike_support_motion_frac": club_strike_support_motion_frac,
 		"spear_attack_pose_saved": spear_attack_pose_saved,
 		"ready_offset_px": ready_offset_px,
 		"strike_offset_px": strike_offset_px,

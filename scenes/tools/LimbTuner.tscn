@@ -165,6 +165,38 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "▶  Play idle"
 
+[node name="WeaponSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WeaponHeader" type="Label" parent="UI/Panel/Margin/VBox/WeaponSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Weapon angle"
+
+[node name="WeaponHelp" type="Label" parent="UI/Panel/Margin/VBox/WeaponSection"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+text = "Compass rotation around the grip pivot (0–360°). Saved with the active pose row."
+
+[node name="WeaponRotationRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/WeaponSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="WeaponRotationSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/WeaponSection/WeaponRotationRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+prefix = "Angle "
+suffix = "°"
+min_value = 0.0
+max_value = 360.0
+step = 1.0
+value = 0.0
+rounded = true
+
 [node name="Sep2b" type="HSeparator" parent="UI/Panel/Margin/VBox"]
 layout_mode = 2
 

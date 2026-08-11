@@ -547,7 +547,15 @@ func _weapon_shoulder_local(sprite: Sprite2D, sprite_scale: Vector2) -> Vector2:
 
 func _hand_grip_local(sprite: Sprite2D, overlay: Sprite2D, sprite_scale: Vector2) -> Vector2:
 	var grip_px := config.hand_grip_offset_px
-	if is_overlay_hand_tracking_active() and config.hand_grip_ready_offset_px.length_squared() > 0.0001:
+	if (
+		_player != null
+		and _player.has_meta(WeaponOverlayCombat.CLUB_STRIKE_HAND_META)
+		and _get_weapon_type() == ResourceData.ResourceType.WOOD
+	):
+		var live_grip: Variant = _player.get_meta(WeaponOverlayCombat.CLUB_STRIKE_HAND_META)
+		if live_grip is Vector2:
+			grip_px = live_grip
+	elif is_overlay_hand_tracking_active() and config.hand_grip_ready_offset_px.length_squared() > 0.0001:
 		grip_px = config.hand_grip_ready_offset_px
 	elif _is_walking_for_swing(sprite):
 		grip_px = _resolve_walk_rest_hand_grip()
@@ -566,6 +574,15 @@ func _support_hand_idle_local(sprite: Sprite2D, sprite_scale: Vector2) -> Vector
 func _support_hand_target_local(sprite: Sprite2D, overlay: Sprite2D, sprite_scale: Vector2) -> Vector2:
 	if _use_two_hand_spear_grip():
 		return _support_hand_grip_local(sprite, overlay, sprite_scale)
+	if (
+		_player != null
+		and _get_weapon_type() == ResourceData.ResourceType.WOOD
+		and WeaponOverlayCombat.get_overlay_state(_player) == WeaponOverlayCombat.OverlayState.STRIKING
+		and _player.has_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META)
+	):
+		var display_px: Vector2 = _player.get_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META) as Vector2
+		var offset := _flip_offset_x(display_px, sprite.flip_h)
+		return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
 	if _is_walking_for_swing(sprite):
 		var offset := _flip_offset_x(_resolve_walk_rest_support_hand(), sprite.flip_h)
 		return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)

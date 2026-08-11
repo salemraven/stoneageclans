@@ -242,8 +242,20 @@ func _run() -> void:
 	if club_overlay == null or club_overlay.texture == null:
 		_fail("Club WeaponOverlay missing")
 	var wood_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.WOOD)
+	var limb_registry = get_root().get_node_or_null("LimbPresetRegistry")
+	var tuned_profile: Dictionary = wood_profile
+	if limb_registry:
+		tuned_profile = limb_registry.apply_combat_profile_overrides(wood_profile, ResourceData.ResourceType.WOOD)
+	var uses_tuned_club := WeaponOverlayCombat.use_tuned_swing(tuned_profile)
 	WeaponOverlayCombat.apply_idle_pose(player_sprite, club_overlay, registry, ResourceData.ResourceType.WOOD)
-	if absf(club_overlay.rotation) > 0.05:
+	if uses_tuned_club:
+		var expected_idle_deg: float = float(tuned_profile.get("idle_rotation_deg", 0.0))
+		if absf(rad_to_deg(club_overlay.rotation) - expected_idle_deg) > 1.5:
+			_fail(
+				"Tuned club idle rotation should be %.1f° got %.1f°"
+				% [expected_idle_deg, rad_to_deg(club_overlay.rotation)]
+			)
+	elif absf(club_overlay.rotation) > 0.05:
 		_fail("Club idle rotation should be ~0 got %.1f°" % rad_to_deg(club_overlay.rotation))
 	var club_h: float = float(club_overlay.texture.get_height()) * absf(club_overlay.scale.y)
 	if club_overlay.offset.y >= 0.0:
@@ -254,15 +266,32 @@ func _run() -> void:
 		_fail("Club handle pivot offset wrong got %.1f expected ~%.1f" % [club_overlay.offset.y, expected_pivot_y])
 	player_sprite.flip_h = false
 	WeaponOverlayCombat.apply_ready_pose(player_sprite, club_overlay, registry, ResourceData.ResourceType.WOOD, Vector2(1, 0))
-	if club_overlay.rotation >= 0.0:
+	if uses_tuned_club:
+		var tuned_ready: Dictionary = WeaponOverlayCombat.compute_tuned_swing_strike_targets(
+			player_sprite, tuned_profile
+		)
+		if absf(club_overlay.rotation - tuned_ready["ready_rot"]) > 0.08:
+			_fail(
+				"Tuned club ready rot should match preset windup got %.1f° expected %.1f°"
+				% [rad_to_deg(club_overlay.rotation), rad_to_deg(tuned_ready["ready_rot"])]
+			)
+		if tuned_ready["hit_pos"].y <= tuned_ready["ready_pos"].y:
+			_fail("Tuned club strike peak should extend lower than windup ready")
+	elif club_overlay.rotation >= 0.0:
 		_fail("Club ready facing right should be ~-42° (10 o'clock) got %.1f°" % rad_to_deg(club_overlay.rotation))
 	if club_overlay.flip_h:
 		_fail("Club overlay should not mirror texture on swing weapons")
 	player_sprite.flip_h = true
 	WeaponOverlayCombat.apply_ready_pose(player_sprite, club_overlay, registry, ResourceData.ResourceType.WOOD, Vector2(-1, 0))
-	if not player_sprite.flip_h:
+	if uses_tuned_club:
+		var tuned_left: Dictionary = WeaponOverlayCombat.compute_tuned_swing_strike_targets(
+			player_sprite, tuned_profile
+		)
+		if absf(club_overlay.rotation - tuned_left["ready_rot"]) > 0.08:
+			_fail("Tuned club ready facing left should mirror windup rotation")
+	elif not player_sprite.flip_h:
 		_fail("Club ready should keep movement flip_h when aim differs")
-	if club_overlay.rotation <= 0.0:
+	if not uses_tuned_club and club_overlay.rotation <= 0.0:
 		_fail("Club ready facing left should be ~+42° (2 o'clock) got %.1f°" % rad_to_deg(club_overlay.rotation))
 	if club_overlay.flip_h:
 		_fail("Club overlay should not mirror texture when facing left")
@@ -271,37 +300,53 @@ func _run() -> void:
 		player_sprite, registry, ResourceData.ResourceType.WOOD, wood_profile, true
 	)
 	player_sprite.flip_h = false
-	var right_targets: Dictionary = WeaponOverlayCombat.compute_swing_strike_targets(
-		player_sprite, ready_base, wood_profile
-	)
-	if right_targets["windup_pos"].y >= right_targets["ready_pos"].y:
-		_fail("Club windup facing right should move up (lower Y)")
-	if right_targets["hit_pos"].y <= right_targets["ready_pos"].y:
-		_fail("Club hit facing right should move down (higher Y)")
-	if right_targets["hit_pos"].x <= right_targets["ready_pos"].x:
-		_fail("Club hit facing right should lunge forward (+X)")
-	if right_targets["windup_pos"].x >= right_targets["ready_pos"].x:
-		_fail("Club windup facing right should pull back (-X)")
-	if right_targets["windup_rot"] >= right_targets["ready_rot"]:
-		_fail("Club windup facing right should rotate further back (more negative)")
-	if right_targets["end_rot"] <= right_targets["ready_rot"]:
-		_fail("Club downswing facing right should rotate forward (more positive)")
+	if uses_tuned_club:
+		var tuned_right: Dictionary = WeaponOverlayCombat.compute_tuned_swing_strike_targets(
+			player_sprite, tuned_profile
+		)
+		if tuned_right["hit_pos"].y <= tuned_right["ready_pos"].y:
+			_fail("Tuned club strike peak should extend lower than windup key B")
+		if tuned_right["hit_pos"].distance_to(tuned_right["ready_pos"]) < 4.0:
+			_fail("Tuned club keyframe strike should separate windup B from peak")
+	else:
+		var right_targets: Dictionary = WeaponOverlayCombat.compute_swing_strike_targets(
+			player_sprite, ready_base, wood_profile
+		)
+		if right_targets["windup_pos"].y >= right_targets["ready_pos"].y:
+			_fail("Club windup facing right should move up (lower Y)")
+		if right_targets["hit_pos"].y <= right_targets["ready_pos"].y:
+			_fail("Club hit facing right should move down (higher Y)")
+		if right_targets["hit_pos"].x <= right_targets["ready_pos"].x:
+			_fail("Club hit facing right should lunge forward (+X)")
+		if right_targets["windup_pos"].x >= right_targets["ready_pos"].x:
+			_fail("Club windup facing right should pull back (-X)")
+		if right_targets["windup_rot"] >= right_targets["ready_rot"]:
+			_fail("Club windup facing right should rotate further back (more negative)")
+		if right_targets["end_rot"] <= right_targets["ready_rot"]:
+			_fail("Club downswing facing right should rotate forward (more positive)")
 	player_sprite.flip_h = true
-	var left_targets: Dictionary = WeaponOverlayCombat.compute_swing_strike_targets(
-		player_sprite, ready_base, wood_profile
-	)
-	if left_targets["windup_pos"].y >= left_targets["ready_pos"].y:
-		_fail("Club windup facing left should move up (lower Y)")
-	if left_targets["hit_pos"].y <= left_targets["ready_pos"].y:
-		_fail("Club hit facing left should move down (higher Y)")
-	if left_targets["hit_pos"].x >= left_targets["ready_pos"].x:
-		_fail("Club hit facing left should lunge forward (-X)")
-	if left_targets["windup_pos"].x <= left_targets["ready_pos"].x:
-		_fail("Club windup facing left should pull back (+X)")
-	if left_targets["windup_rot"] <= left_targets["ready_rot"]:
-		_fail("Club windup facing left should rotate further back (mirrored +local)")
-	if left_targets["end_rot"] >= left_targets["ready_rot"]:
-		_fail("Club downswing facing left should rotate forward (mirrored -local)")
+	if uses_tuned_club:
+		var tuned_left: Dictionary = WeaponOverlayCombat.compute_tuned_swing_strike_targets(
+			player_sprite, tuned_profile
+		)
+		if tuned_left["hit_pos"].distance_to(tuned_left["ready_pos"]) < 4.0:
+			_fail("Tuned club strike peak should be separated from windup ready")
+	else:
+		var left_targets: Dictionary = WeaponOverlayCombat.compute_swing_strike_targets(
+			player_sprite, ready_base, wood_profile
+		)
+		if left_targets["windup_pos"].y >= left_targets["ready_pos"].y:
+			_fail("Club windup facing left should move up (lower Y)")
+		if left_targets["hit_pos"].y <= left_targets["ready_pos"].y:
+			_fail("Club hit facing left should move down (higher Y)")
+		if left_targets["hit_pos"].x >= left_targets["ready_pos"].x:
+			_fail("Club hit facing left should lunge forward (-X)")
+		if left_targets["windup_pos"].x <= left_targets["ready_pos"].x:
+			_fail("Club windup facing left should pull back (+X)")
+		if left_targets["windup_rot"] <= left_targets["ready_rot"]:
+			_fail("Club windup facing left should rotate further back (mirrored +local)")
+		if left_targets["end_rot"] >= left_targets["ready_rot"]:
+			_fail("Club downswing facing left should rotate forward (mirrored -local)")
 
 	# Son inherits father's card_index (player as father when father node is null)
 	player.add_to_group("player")

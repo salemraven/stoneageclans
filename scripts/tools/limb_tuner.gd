@@ -36,6 +36,8 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _category_buttons: HBoxContainer = $UI/Panel/Margin/VBox/SelectSection/CategoryRow/CategoryButtons
 @onready var _variant_buttons: HBoxContainer = $UI/Panel/Margin/VBox/SelectSection/VariantRow/VariantButtons
 @onready var _play_pause_btn: Button = $UI/Panel/Margin/VBox/PreviewSection/PlayPauseBtn
+@onready var _weapon_section: VBoxContainer = $UI/Panel/Margin/VBox/WeaponSection
+@onready var _weapon_rotation_spin: SpinBox = $UI/Panel/Margin/VBox/WeaponSection/WeaponRotationRow/WeaponRotationSpin
 @onready var _summary_label: Label = $UI/Panel/Margin/VBox/SummaryLabel
 @onready var _status_label: Label = $UI/Panel/Margin/VBox/StatusLabel
 @onready var _upper_arm_length_spin: SpinBox = $UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow/UpperArmLengthSpin
@@ -66,6 +68,9 @@ var _weapon_elbow_handle: LimbTunerHandle
 var _support_elbow_handle: LimbTunerHandle
 var _head_handle: LimbTunerHandle
 var _was_combat_preview_busy: bool = false
+var _club_combat_pins_sync_queued: bool = false
+## Attack row spear: "windup" | "strike" — which overlay row Save all writes.
+var _spear_attack_edit_target: String = ""
 var _baker
 var _bake_review: Window
 var _bake_in_progress: bool = false
@@ -103,6 +108,7 @@ var _drag_start_global: Vector2 = Vector2.ZERO
 var _spear_grab_offset: Vector2 = Vector2.ZERO
 var _spear_grip_2_grab_offset: Vector2 = Vector2.ZERO
 var _syncing_arm_length_ui: bool = false
+var _syncing_weapon_rotation_ui: bool = false
 var _syncing_arm_thickness_ui: bool = false
 var _syncing_picker_ui: bool = false
 var _idle_club_minimal_active: bool = false
@@ -123,6 +129,7 @@ func _ready() -> void:
 	_setup_animation_picker()
 	_setup_arm_length_fields()
 	_setup_arm_thickness_fields()
+	_setup_weapon_rotation_field()
 	_spawn_handles()
 	call_deferred("_finish_startup")
 	if _status_label:
@@ -150,9 +157,12 @@ func _ready() -> void:
 
 
 func _finish_startup() -> void:
-	process_priority = 0
+	# Run after TunerRig + strike tweens so yellow grip pin reads the live club pose.
+	process_priority = -128
 	if _wants_club_windup_edit_startup() or _wants_idle_club1_edit_startup() or _wants_idle_club1_place_startup():
 		_selected_weapon = ResourceData.ResourceType.WOOD
+	if _wants_spear_preview_startup() or _wants_spear_windup_edit_startup():
+		_selected_weapon = ResourceData.ResourceType.SPEAR
 	if _rig:
 		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
@@ -174,6 +184,12 @@ func _finish_startup() -> void:
 		call_deferred("_begin_idle_club1_edit_session")
 	if _wants_idle_club1_place_startup():
 		call_deferred("_begin_idle_club1_place_session")
+	elif _wants_spear_windup_edit_startup():
+		call_deferred("_begin_spear_windup_edit_session")
+	elif _wants_spear_strike_edit_startup():
+		call_deferred("_begin_spear_strike_edit_session")
+	elif _wants_spear_preview_startup():
+		call_deferred("_begin_spear_preview_session")
 	elif not _has_special_startup():
 		call_deferred("_begin_club_preview_session")
 	_update_ui()
@@ -362,6 +378,15 @@ func _club_windup_handle_drag_active() -> bool:
 	)
 
 
+func _spear_windup_handle_drag_active() -> bool:
+	return _is_spear_shaft_pose_edit() and _active_drag_handle != null and (
+		_active_drag_handle == _hand_handle
+		or _active_drag_handle == _spear_handle
+		or _active_drag_handle == _spear_grip_2_handle
+		or _active_drag_handle == _support_hand_handle
+	)
+
+
 func _ensure_tuner_arms_visible() -> void:
 	if _rig == null or _rig.arm_controller == null:
 		return
@@ -393,13 +418,26 @@ func _idle_club_pins_independent() -> bool:
 func _uses_spear_grip_on_art_pins() -> bool:
 	if _selected_weapon != ResourceData.ResourceType.SPEAR:
 		return false
-	if _is_spear_windup_edit():
+	if _is_spear_windup_pin_mode():
 		return false
 	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
 		return false
 	if _is_thrust_animating():
 		return false
 	return true
+
+
+func _is_spear_windup_pin_mode() -> bool:
+	## Two-hand shaft grips: Y1/Y2 on art, 1h/2h stacked (edit row or Shift-ready preview).
+	if _selected_weapon != ResourceData.ResourceType.SPEAR:
+		return false
+	if _is_spear_windup_edit() or _is_spear_strike_edit():
+		return true
+	if _mode != AppMode.ASSEMBLE:
+		return false
+	if _is_combat_ready_preview() or _combat_animation_busy() or _is_shift_ready_preview():
+		return true
+	return false
 
 
 func _sync_spear_grip_pin_on_art() -> void:
@@ -581,8 +619,8 @@ func _stack_club_grip_pins(storage_mode: AnimMode) -> void:
 		grip_global = _rig.hand_grip_global_from_windup_sample()
 	else:
 		grip_global = _rig.hand_grip_global_from_preset(_preset, storage_mode)
-	_set_hand_handle_position(_hand_handle, grip_global)
 	_set_hand_handle_position(_spear_handle, grip_global)
+	_set_hand_handle_position(_hand_handle, grip_global)
 
 
 func _sync_club_idle_grip_pins_from_overlay() -> void:
@@ -655,12 +693,33 @@ func _wants_club_windup_edit_startup() -> bool:
 	return "--club-windup-edit" in OS.get_cmdline_args()
 
 
+func _wants_spear_preview_startup() -> bool:
+	if "--spear-preview" in OS.get_cmdline_user_args():
+		return true
+	return "--spear-preview" in OS.get_cmdline_args()
+
+
+func _wants_spear_windup_edit_startup() -> bool:
+	if "--spear-windup-edit" in OS.get_cmdline_user_args():
+		return true
+	return "--spear-windup-edit" in OS.get_cmdline_args()
+
+
+func _wants_spear_strike_edit_startup() -> bool:
+	if "--spear-strike-edit" in OS.get_cmdline_user_args():
+		return true
+	return "--spear-strike-edit" in OS.get_cmdline_args()
+
+
 func _has_special_startup() -> bool:
 	return (
 		_wants_gather1_edit_startup()
 		or _wants_club_windup_edit_startup()
 		or _wants_idle_club1_edit_startup()
 		or _wants_idle_club1_place_startup()
+		or _wants_spear_preview_startup()
+		or _wants_spear_windup_edit_startup()
+		or _wants_spear_strike_edit_startup()
 	)
 
 
@@ -672,7 +731,47 @@ func _is_club_combat_preview_mode() -> bool:
 
 
 func _club_combat_controls_hint() -> String:
-	return "A/D walk · Shift windup loop · Shift+click attack"
+	if _preset != null and _preset.has_club_keyframed_strike():
+		return "A/D walk · Shift windup · Shift+click swing"
+	return "A/D walk · Shift = windup loop"
+
+
+func _club_strike_input_blocked() -> bool:
+	if _selected_weapon != ResourceData.ResourceType.WOOD or _preset == null:
+		return false
+	return not _preset.has_club_keyframed_strike()
+
+
+func _apply_club_idle_carry_pose() -> void:
+	## Established club idle row: overlay_offset_idle_px + hand_grip_offset_px @ 0° carry.
+	if _rig == null or _preset == null:
+		return
+	_rig.set_shift_ready_windup_loop(false)
+	_rig.clear_windup_idle_preview_sample()
+	if _rig.combat_component:
+		_rig.combat_component.state = CombatComponent.CombatState.IDLE
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.IDLE)
+	if _is_club_combat_preview_mode() and _anim_mode != AnimMode.IDLE:
+		_set_anim_mode(AnimMode.IDLE)
+	_refresh_rig_from_preset()
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
+
+
+func _apply_spear_idle_carry_pose() -> void:
+	## Established spear idle row: overlay_offset_idle_px + hand_grip on shaft; yellow 3 + 1h stacked.
+	if _rig == null or _preset == null:
+		return
+	if _preset:
+		_preset.ensure_spear_grip_defaults()
+	if _rig.combat_component:
+		_rig.combat_component.state = CombatComponent.CombatState.IDLE
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.IDLE)
+	if _is_spear_combat_preview_mode() and _anim_mode != AnimMode.IDLE:
+		_set_anim_mode(AnimMode.IDLE)
+	_refresh_rig_from_preset()
+	_sync_handle_positions()
+	_lock_arm_lines_to_handles()
 
 
 func _begin_club_preview_session() -> void:
@@ -680,13 +779,78 @@ func _begin_club_preview_session() -> void:
 	_set_weapon(ResourceData.ResourceType.WOOD, false)
 	_set_anim_mode(AnimMode.IDLE)
 	_anim_playing = false
+	_apply_club_idle_carry_pose()
 	_sync_preview_playback()
-	_refresh_rig_from_preset()
-	_sync_handle_positions()
-	_lock_arm_lines_to_handles()
 	_update_ui()
 	if _status_label:
-		_status_label.text = "Club · Idle — %s" % _club_combat_controls_hint()
+		_status_label.text = (
+			"Club eval · Idle — %s · yellow 3 on grip, 1h+arms follow"
+			% _club_combat_controls_hint()
+		)
+
+
+func _begin_spear_preview_session() -> void:
+	## Entry for spear tuning: idle standing + Shift ready thrust test.
+	_set_weapon(ResourceData.ResourceType.SPEAR, false)
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	_apply_spear_idle_carry_pose()
+	_sync_preview_playback()
+	_update_ui()
+	if _status_label:
+		_status_label.text = (
+			"Spear eval · Idle — %s · yellow 3 on shaft, 1h stacked"
+			% _spear_combat_controls_hint()
+		)
+
+
+func _begin_spear_windup_edit_session() -> void:
+	_spear_attack_edit_target = "windup"
+	_apply_pose_catalog_entry(ResourceData.ResourceType.SPEAR, AnimMode.ATTACK)
+	_load_preset_from_disk()
+	if _preset:
+		_preset.seed_spear_attack_windup_if_unset()
+		_preset.ensure_spear_grip_defaults()
+	_refresh_rig_from_preset()
+	_sync_spear_windup_handles()
+	_sync_elbow_handles()
+	_anim_playing = false
+	_sync_preview_playback()
+	_update_ui()
+	if _status_label:
+		_status_label.text = (
+			"Spear windup edit — drag green 1h OR yellow Y1 (move spear) · Y2/2h off-hand · "
+			+ "Copy = handoff · Save all = .tres"
+		)
+
+
+func _begin_spear_strike_edit_session() -> void:
+	## Thrust peak / furthest extension — Attack row overlay writes strike_offset_px on Save all.
+	_spear_attack_edit_target = "strike"
+	_apply_pose_catalog_entry(ResourceData.ResourceType.SPEAR, AnimMode.ATTACK)
+	_load_preset_from_disk()
+	if _preset:
+		_preset.seed_spear_attack_windup_if_unset()
+		_preset.ensure_spear_grip_defaults()
+	_refresh_rig_from_preset()
+	_sync_spear_windup_handles()
+	_sync_elbow_handles()
+	_anim_playing = false
+	_sync_preview_playback()
+	_update_ui()
+	if _status_label:
+		_status_label.text = (
+			"Spear strike peak — drag 1h/Y1 to set furthest extension · rotation spin = attack angle · "
+			+ "Copy = handoff · Save all = strike_offset_px"
+		)
+
+
+func _spear_combat_controls_hint() -> String:
+	return "A/D walk · Shift ready · Shift+click thrust"
+
+
+func _is_spear_combat_preview_mode() -> bool:
+	return _selected_weapon == ResourceData.ResourceType.SPEAR and _is_idle_anim_mode()
 
 
 func _begin_club_windup_edit_session() -> void:
@@ -754,7 +918,13 @@ func _sync_preview_playback() -> void:
 	var can_loop := idle_mode or gather_mode or windup_idle
 	if _rig:
 		_rig.set_preview_windup_mode(use_windup_loop)
-		_rig.set_preview_idle_mode(idle_mode or (windup_idle and not use_windup_loop))
+		if windup_idle and not use_windup_loop and _selected_weapon == ResourceData.ResourceType.SPEAR:
+			## Spear windup edit: static pose while paused (no idle bob fighting pin drags).
+			_rig.set_preview_idle_mode(_anim_playing)
+			_rig.set_preview_idle_variant(TunerIdlePreviewScript.VARIANT_BASE)
+			_rig.set_idle_preview_amplitude_scale(WINDUP_IDLE_PREVIEW_AMP_SCALE)
+		else:
+			_rig.set_preview_idle_mode(idle_mode or (windup_idle and not use_windup_loop))
 		_rig.set_preview_gather_mode(gather_mode)
 		if idle_mode:
 			_rig.set_preview_idle_variant(_idle_preview_variant())
@@ -1268,7 +1438,7 @@ func _input(event: InputEvent) -> void:
 				_active_drag_handle = _pending_drag_handle
 				if _active_drag_handle == _spear_handle and _rig.weapon_overlay:
 					var grab_global: Vector2
-					if _is_spear_windup_edit():
+					if _is_spear_shaft_pose_edit():
 						grab_global = _rig.spear_windup_dominant_grip_global(_preset)
 					elif _is_club_windup_edit():
 						grab_global = _rig.hand_grip_global_from_preset(_preset, AnimMode.ATTACK)
@@ -1298,8 +1468,15 @@ func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 		_head_handle,
 		_spear_handle,
 	]
-	if _is_spear_windup_edit():
-		handle_order = [_spear_handle, _spear_grip_2_handle, _shoulder_handle, _support_shoulder_handle]
+	if _is_spear_shaft_pose_edit():
+		handle_order = [
+			_spear_handle,
+			_hand_handle,
+			_spear_grip_2_handle,
+			_support_hand_handle,
+			_shoulder_handle,
+			_support_shoulder_handle,
+		]
 	elif _is_club_windup_edit():
 		handle_order = [
 			_spear_handle,
@@ -1411,6 +1588,33 @@ func _update_idle_club_handle_visibility() -> void:
 	if not _is_idle_club_anim_mode() or not _idle_club_minimal_active:
 		return
 	_apply_idle_club_minimal_view(true)
+
+
+func _stack_spear_windup_dominant_pins() -> void:
+	## After moving horizontal spear art, refresh Y1 + green 1h from overlay (same idea as club windup 3/1h).
+	if _rig == null or _preset == null:
+		return
+	var y1 := _rig.spear_windup_dominant_grip_global(_preset)
+	_set_hand_handle_position(_spear_handle, y1)
+	_set_hand_handle_position(_hand_handle, y1)
+
+
+func _stack_spear_windup_support_pins() -> void:
+	if _rig == null or _preset == null:
+		return
+	var y2 := _rig.spear_windup_support_grip_global(_preset)
+	if _spear_grip_2_handle:
+		_set_hand_handle_position(_spear_grip_2_handle, y2)
+	if _support_hand_handle:
+		_set_hand_handle_position(_support_hand_handle, y2)
+
+
+func _on_spear_windup_grip_dragged(global_pos: Vector2) -> void:
+	## Windup edit: move spear overlay so Y1 shaft grip follows (free 2D, no reach clamp).
+	if _rig == null or _preset == null or not _rig.has_weapon_overlay():
+		return
+	_rig.align_spear_windup_overlay_to_grip_global(_preset, global_pos, true)
+	_stack_spear_windup_dominant_pins()
 
 
 func _on_club_windup_grip_dragged(global_pos: Vector2) -> void:
@@ -1538,6 +1742,79 @@ func _move_active_handle(global_pos: Vector2) -> void:
 	_lock_arm_lines_to_handles()
 	_push_preset_to_arms()
 	_sync_elbow_handles()
+
+
+func _setup_weapon_rotation_field() -> void:
+	if _weapon_rotation_spin == null:
+		return
+	_weapon_rotation_spin.min_value = 0.0
+	_weapon_rotation_spin.max_value = 360.0
+	_weapon_rotation_spin.step = 1.0
+	_weapon_rotation_spin.rounded = true
+	_weapon_rotation_spin.value_changed.connect(_on_weapon_rotation_changed)
+
+
+func _live_weapon_rotation_deg() -> float:
+	if _rig == null or _rig.weapon_overlay == null:
+		return 0.0
+	return WeaponLimbPreset.normalize_rotation_deg(rad_to_deg(_rig.weapon_overlay.rotation))
+
+
+func _sync_weapon_rotation_spin_from_rig() -> void:
+	if _weapon_rotation_spin == null or _rig == null:
+		return
+	_syncing_weapon_rotation_ui = true
+	if _preset != null and _selected_weapon == ResourceData.ResourceType.WOOD and _rig != null and _rig.is_shift_ready_windup_loop():
+		if _preset.club_windup_idle_key_b_rotation_deg > WeaponLimbPreset.ROTATION_UNSET + 1.0:
+			_weapon_rotation_spin.value = WeaponLimbPreset.signed_rotation_deg(
+				_preset.club_windup_idle_key_b_rotation_deg
+			)
+		else:
+			_weapon_rotation_spin.value = _live_weapon_rotation_deg()
+	elif _preset != null and _preset.rotation_deg_is_custom(_anim_mode):
+		_weapon_rotation_spin.value = WeaponLimbPreset.normalize_rotation_deg(
+			_preset.get_rotation_deg_for_mode(_anim_mode)
+		)
+	else:
+		_weapon_rotation_spin.value = _live_weapon_rotation_deg()
+	_syncing_weapon_rotation_ui = false
+
+
+func _on_weapon_rotation_changed(value: float) -> void:
+	if _syncing_weapon_rotation_ui or _preset == null or _rig == null:
+		return
+	if _combat_animation_busy():
+		return
+	if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.is_shift_ready_windup_loop():
+		_preset.club_windup_idle_key_b_rotation_deg = WeaponLimbPreset.normalize_rotation_deg(value)
+	elif _anim_mode == AnimMode.ATTACK:
+		_preset.set_rotation_deg_for_mode(AnimMode.ATTACK, value)
+	else:
+		_preset.set_rotation_deg_for_mode(_anim_mode, value)
+	_apply_weapon_rotation_preview()
+
+
+func _apply_weapon_rotation_preview() -> void:
+	if _rig == null or _preset == null or not _rig.has_weapon_overlay():
+		return
+	var aim := _rig.aim_from_facing() if _rig.has_method("aim_from_facing") else Vector2(1.0, 0.0)
+	_rig.apply_weapon_rotation_for_mode(_preset, _anim_mode, aim)
+	if _mode == AppMode.ASSEMBLE:
+		if _combat_preview_needs_arm_pins():
+			_sync_combat_overlay_arm_pins()
+		else:
+			_sync_hands_with_spear()
+			_sync_spear_handle()
+		_lock_arm_lines_to_handles()
+
+
+func _update_weapon_rotation_section_visibility() -> void:
+	if _weapon_section == null:
+		return
+	var show := _rig != null and _rig.has_weapon_overlay() and _mode == AppMode.ASSEMBLE
+	_weapon_section.visible = show
+	if _weapon_rotation_spin:
+		_weapon_rotation_spin.editable = show and not _combat_animation_busy()
 
 
 func _setup_arm_length_fields() -> void:
@@ -1744,10 +2021,10 @@ func _apply_handle_number_labels() -> void:
 	if _support_elbow_handle:
 		_support_elbow_handle.set_side_label("2e")
 	if _spear_handle:
-		_spear_handle.set_side_label("Y1" if _is_spear_windup_edit() else "3")
+		_spear_handle.set_side_label("Y1" if _is_spear_windup_pin_mode() else "3")
 	if _spear_grip_2_handle:
 		_spear_grip_2_handle.set_side_label("Y2")
-		_spear_grip_2_handle.visible = _is_spear_windup_edit() and (
+		_spear_grip_2_handle.visible = _is_spear_windup_pin_mode() and (
 			_rig != null and _rig.has_weapon_overlay()
 		)
 	if _head_handle:
@@ -1755,34 +2032,38 @@ func _apply_handle_number_labels() -> void:
 
 
 func _sync_spear_windup_handles() -> void:
-	if _rig == null or _preset == null or not _is_spear_windup_edit():
+	if _rig == null or _preset == null or not _is_spear_windup_pin_mode():
+		return
+	if _spear_windup_handle_drag_active():
+		_sync_spear_windup_handles_during_drag()
 		return
 	_ensure_handle_on_stage(_spear_handle)
-	_ensure_handle_on_stage(_spear_grip_2_handle)
+	if _spear_grip_2_handle:
+		_ensure_handle_on_stage(_spear_grip_2_handle)
 	## Yellow pins stay on spear art; green hands stack on yellow (never clamp yellow to reach).
 	var y1 := _rig.spear_windup_dominant_grip_global(_preset)
 	var y2 := _rig.spear_windup_support_grip_global(_preset)
-	if _active_drag_handle != _spear_handle:
-		_set_hand_handle_position(_spear_handle, y1)
-	if _active_drag_handle != _spear_grip_2_handle and _spear_grip_2_handle:
+	_set_hand_handle_position(_spear_handle, y1)
+	_set_hand_handle_position(_hand_handle, y1)
+	if _spear_grip_2_handle:
 		_set_hand_handle_position(_spear_grip_2_handle, y2)
-	if _active_drag_handle != _hand_handle and _active_drag_handle != _spear_handle:
-		_set_hand_handle_position(_hand_handle, y1)
-	elif _active_drag_handle == _spear_handle:
-		_set_hand_handle_position(_hand_handle, y1)
-	## Y2 = hand-2 snap on spear art; green 2h pinned on Y2.
-	if _active_drag_handle != _spear_grip_2_handle and _spear_grip_2_handle:
-		_set_hand_handle_position(_spear_grip_2_handle, y2)
-	if _active_drag_handle != _support_hand_handle and _active_drag_handle != _spear_grip_2_handle:
+	if _support_hand_handle:
 		_set_hand_handle_position(_support_hand_handle, y2)
-	elif _active_drag_handle == _spear_grip_2_handle:
-		_set_hand_handle_position(_support_hand_handle, y2)
+	_seed_elbow_poles_for_mode(AnimMode.ATTACK)
+	_lock_arm_lines_to_handles()
+
+
+func _sync_spear_windup_handles_during_drag() -> void:
+	## While dragging: read pin positions from spear art — handle nodes are not moved by overlay align alone.
+	_stack_spear_windup_dominant_pins()
+	_stack_spear_windup_support_pins()
+	_lock_arm_lines_to_handles()
 
 
 func _sync_spear_handle() -> void:
 	if _rig == null or _spear_handle == null:
 		return
-	if _is_spear_windup_edit():
+	if _is_spear_windup_pin_mode():
 		_sync_spear_windup_handles()
 		return
 	if _is_idle_club_anim_mode() and _idle_club_minimal_active:
@@ -1856,10 +2137,19 @@ func _process(delta: float) -> void:
 	_was_combat_preview_busy = combat_busy
 	if _mode == AppMode.ASSEMBLE:
 		if _combat_preview_needs_arm_pins():
-			_sync_combat_overlay_arm_pins()
-			if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.is_shift_ready_windup_loop():
+			if _selected_weapon == ResourceData.ResourceType.WOOD:
+				_queue_club_combat_grip_pin_sync()
+			elif _is_spear_windup_pin_mode():
+				_sync_spear_windup_handles()
+			else:
+				_sync_combat_overlay_arm_pins()
+			if (
+				_selected_weapon == ResourceData.ResourceType.WOOD
+				and _rig.is_shift_ready_windup_loop()
+				and not _combat_animation_busy()
+			):
 				_apply_club_tuner_windup_aim(_rig._get_cursor_aim_direction())
-		if _combat_animation_busy():
+		elif _combat_animation_busy():
 			_sync_combat_strike_preview()
 		elif _is_shift_ready_preview():
 			_apply_shift_ready_preview()
@@ -2019,8 +2309,7 @@ func _process_combat_input() -> void:
 			if _active_drag_handle == _spear_handle or _dragging_spear:
 				return
 			var aim := _rig._get_cursor_aim_direction()
-			_rig.aim_dir = aim
-			_rig.combat_component.commit_strike(aim)
+			_commit_club_strike(aim)
 
 
 func _windup_pose_edit_only() -> bool:
@@ -2033,8 +2322,24 @@ func _windup_pose_edit_only() -> bool:
 	)
 
 
+func _is_spear_strike_edit() -> bool:
+	return (
+		_selected_weapon == ResourceData.ResourceType.SPEAR
+		and _windup_pose_edit_only()
+		and _spear_attack_edit_target == "strike"
+	)
+
+
+func _is_spear_shaft_pose_edit() -> bool:
+	return _is_spear_windup_edit() or _is_spear_strike_edit()
+
+
 func _is_spear_windup_edit() -> bool:
-	return _selected_weapon == ResourceData.ResourceType.SPEAR and _windup_pose_edit_only()
+	return (
+		_selected_weapon == ResourceData.ResourceType.SPEAR
+		and _windup_pose_edit_only()
+		and _spear_attack_edit_target != "strike"
+	)
 
 
 func _is_club_windup_edit() -> bool:
@@ -2059,21 +2364,45 @@ func _process_combat_input_assemble() -> void:
 	if _anim_mode == AnimMode.ATTACK:
 		_process_attack_mode_combat()
 		return
-	## Idle/walk: Shift = in-game windup · Shift+click = full swing (uses saved windup preset).
+	## Idle/walk: Shift = windup loop only (club strike disabled until re-authored).
 	if Input.is_action_just_pressed("weapon_ready"):
 		_enter_assemble_combat_ready()
 	elif Input.is_action_just_released("weapon_ready"):
 		_exit_assemble_combat_ready()
 	elif Input.is_action_pressed("weapon_ready") and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		if _club_strike_input_blocked():
+			return
 		if _rig.combat_component.state != CombatComponent.CombatState.READY:
 			_enter_assemble_combat_ready()
 		if _rig.combat_component.state != CombatComponent.CombatState.READY:
 			return
 		var aim := _rig._get_cursor_aim_direction()
-		_rig.aim_dir = aim
-		_rig.combat_component.commit_strike(aim)
+		_commit_combat_strike(aim)
 		if _status_label:
 			_status_label.text = _combat_test_status_label()
+
+
+func _commit_combat_strike(aim: Vector2) -> void:
+	if _rig == null or _rig.combat_component == null:
+		return
+	if _selected_weapon == ResourceData.ResourceType.WOOD:
+		_commit_club_strike(aim)
+		return
+	_rig.aim_dir = aim
+	_rig.combat_component.commit_strike(aim)
+
+
+func _prepare_club_strike_from_windup() -> void:
+	if _rig == null or _selected_weapon != ResourceData.ResourceType.WOOD:
+		return
+	if _rig.has_method("seed_club_strike_start_from_windup"):
+		_rig.seed_club_strike_start_from_windup()
+
+
+func _commit_club_strike(aim: Vector2) -> void:
+	_prepare_club_strike_from_windup()
+	_rig.aim_dir = aim
+	_rig.combat_component.commit_strike(aim)
 
 
 func _process_attack_mode_combat() -> void:
@@ -2089,27 +2418,37 @@ func _process_attack_mode_combat() -> void:
 			aim = Vector2(1.0, 0.0)
 		if _selected_weapon == ResourceData.ResourceType.WOOD:
 			_apply_club_tuner_windup_ready(aim)
+		elif _selected_weapon == ResourceData.ResourceType.SPEAR:
+			_apply_spear_tuner_windup_ready(aim)
 		else:
 			_rig.aim_dir = aim.normalized()
 			cc.enter_ready(aim)
 		if _status_label:
-			_status_label.text = "Windup stance (Shift) — click to swing."
+			_status_label.text = (
+				"Windup stance (Shift) — Shift+click to test swing."
+				if _selected_weapon == ResourceData.ResourceType.WOOD
+				else "Windup stance (Shift) — click to swing."
+			)
 	elif Input.is_action_just_released("weapon_ready"):
 		if cc.state == CombatComponent.CombatState.READY:
-			_exit_club_tuner_combat_ready()
+			_exit_assemble_combat_ready()
 	elif cc.state == CombatComponent.CombatState.READY:
 		var aim := _rig._get_cursor_aim_direction()
 		if aim.length_squared() > 0.0001:
 			if _selected_weapon == ResourceData.ResourceType.WOOD:
 				_apply_club_tuner_windup_ready(aim)
+			elif _selected_weapon == ResourceData.ResourceType.SPEAR:
+				_apply_spear_tuner_windup_ready(aim)
 			else:
 				_rig.aim_dir = aim.normalized()
 				_rig.sync_combat_overlay(true)
 		if Input.is_action_pressed("weapon_ready") and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not busy:
+			if _club_strike_input_blocked():
+				return
 			var strike_aim := _rig._get_cursor_aim_direction()
 			if strike_aim.length_squared() < 0.0001:
 				strike_aim = _rig.aim_dir
-			cc.commit_strike(strike_aim)
+			_commit_combat_strike(strike_aim)
 			if _status_label:
 				_status_label.text = _combat_test_status_label()
 
@@ -2123,6 +2462,33 @@ func _cancel_attack_mode_combat() -> void:
 	_refresh_rig_from_preset()
 
 
+func _apply_spear_tuner_windup_ready(raw_aim: Vector2) -> void:
+	## Spear Shift: preset windup row + Y1/Y2 shaft pins (same overlay path as windup edit).
+	if _rig == null or _preset == null or _rig.combat_component == null:
+		return
+	var aim := raw_aim
+	if aim.length_squared() < 0.0001:
+		if _rig.aim_dir.length_squared() > 0.0001:
+			aim = _rig.aim_dir
+		else:
+			aim = Vector2(1.0, 0.0)
+	aim = aim.normalized()
+	_rig.aim_dir = aim
+	_rig.combat_component.aim_dir = aim
+	if absf(aim.x) > 0.05:
+		_rig.apply_travel_facing_direction(-1 if aim.x < 0.0 else 1)
+	if _rig.combat_component.state == CombatComponent.CombatState.IDLE:
+		_rig.combat_component.state = CombatComponent.CombatState.READY
+	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.READY)
+	_preset.seed_spear_attack_windup_if_unset()
+	_rig.apply_tuner_spear_windup_overlay(_preset, aim)
+	_sync_spear_windup_handles()
+
+
+func _exit_spear_tuner_combat_ready() -> void:
+	_apply_spear_idle_carry_pose()
+
+
 func _enter_assemble_combat_ready() -> void:
 	if _rig == null or _rig.combat_component == null:
 		return
@@ -2131,6 +2497,9 @@ func _enter_assemble_combat_ready() -> void:
 	var aim := _rig._get_cursor_aim_direction()
 	if _selected_weapon == ResourceData.ResourceType.WOOD:
 		_apply_club_tuner_windup_ready(aim)
+		return
+	if _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_apply_spear_tuner_windup_ready(aim)
 		return
 	if aim.length_squared() > 0.0001:
 		_rig.aim_dir = aim.normalized()
@@ -2143,6 +2512,9 @@ func _exit_assemble_combat_ready() -> void:
 		return
 	if _selected_weapon == ResourceData.ResourceType.WOOD:
 		_exit_club_tuner_combat_ready()
+		return
+	if _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_exit_spear_tuner_combat_ready()
 		return
 	if _rig.combat_component.state == CombatComponent.CombatState.READY:
 		_rig.combat_component.cancel_ready()
@@ -2195,7 +2567,6 @@ func _club_shift_windup_loop_wanted() -> bool:
 		and _preset != null
 		and _preset.has_club_windup_idle_loop()
 		and Input.is_action_pressed("weapon_ready")
-		and not _combat_animation_busy()
 		and _active_drag_handle == null
 		and (_is_club_combat_preview_mode() or _anim_mode == AnimMode.ATTACK)
 	)
@@ -2213,24 +2584,20 @@ func _sync_shift_ready_windup_loop() -> void:
 func _exit_club_tuner_combat_ready() -> void:
 	if _rig == null or _rig.combat_component == null:
 		return
-	_rig.set_shift_ready_windup_loop(false)
-	if _rig.combat_component.state == CombatComponent.CombatState.READY:
-		_rig.combat_component.state = CombatComponent.CombatState.IDLE
-	WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.IDLE)
-	_refresh_rig_from_preset()
-	_sync_handle_positions()
-	_lock_arm_lines_to_handles()
+	_apply_club_idle_carry_pose()
 
 
 func _club_combat_support_global() -> Vector2:
 	if _rig == null or _preset == null or _rig.sprite == null:
 		return Vector2.ZERO
-	if _preset.has_club_windup_idle_loop():
-		var loop_support: Vector2 = _preset.club_windup_idle_key_a_support_hand_offset_px
-		if loop_support.length_squared() > 0.0001:
-			return LimbPresetCoords.body_global_from_display(_rig.sprite, loop_support)
-	var attack_support: Vector2 = _preset.resolve_support_hand_for_mode(AnimMode.ATTACK)
-	return LimbPresetCoords.body_global_from_display(_rig.sprite, attack_support)
+	if _rig.has_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META):
+		var strike_support: Variant = _rig.get_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META)
+		if strike_support is Vector2:
+			return LimbPresetCoords.body_global_from_display(_rig.sprite, strike_support)
+	if _rig.is_windup_idle_sample_active():
+		return _rig.support_hand_global_from_windup_sample()
+	var support_px := _preset.resolve_club_strike_loop_seam_support_px()
+	return LimbPresetCoords.body_global_from_display(_rig.sprite, support_px)
 
 
 func _holdable_label() -> String:
@@ -2273,7 +2640,7 @@ func _is_shift_ready_preview() -> bool:
 
 
 func _apply_shift_ready_preview() -> void:
-	## Hold Shift: club windup loop or spear/in-game ready overlay.
+	## Hold Shift: club windup loop or spear preset windup overlay.
 	if _rig == null or _preset == null or _rig.combat_component == null:
 		return
 	var aim := _rig._get_cursor_aim_direction()
@@ -2283,6 +2650,9 @@ func _apply_shift_ready_preview() -> void:
 			_sync_combat_overlay_arm_pins()
 		else:
 			_apply_club_tuner_windup_ready(aim)
+		return
+	if _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_apply_spear_tuner_windup_ready(aim)
 		return
 	if aim.length_squared() > 0.0001:
 		_rig.aim_dir = aim.normalized()
@@ -2309,28 +2679,74 @@ func _is_combat_ready_preview() -> bool:
 	)
 
 
+func _resolve_club_live_grip_global() -> Vector2:
+	if _rig == null or _preset == null or not _rig.has_weapon_overlay():
+		return Vector2.ZERO
+	var strike_active := (
+		_combat_animation_busy()
+		or WeaponOverlayCombat.get_overlay_state(_rig) == WeaponOverlayCombat.OverlayState.STRIKING
+	)
+	if _rig.is_windup_idle_sample_active() and not strike_active:
+		return _rig.hand_grip_global_from_windup_sample()
+	var grip_px := _preset.resolve_club_overlay_grip_px(AnimMode.ATTACK)
+	if _rig.has_meta(WeaponOverlayCombat.CLUB_STRIKE_HAND_META):
+		var live_grip: Variant = _rig.get_meta(WeaponOverlayCombat.CLUB_STRIKE_HAND_META)
+		if live_grip is Vector2:
+			grip_px = live_grip
+	return LimbPresetCoords.overlay_grip_global(_rig.weapon_overlay, grip_px)
+
+
+func _resolve_club_live_support_global() -> Vector2:
+	if _rig == null or _preset == null:
+		return Vector2.ZERO
+	var strike_active := (
+		_combat_animation_busy()
+		or WeaponOverlayCombat.get_overlay_state(_rig) == WeaponOverlayCombat.OverlayState.STRIKING
+	)
+	if _rig.is_windup_idle_sample_active() and not strike_active:
+		return _rig.support_hand_global_from_windup_sample()
+	return _club_combat_support_global()
+
+
+func _sync_club_combat_grip_pins_from_overlay() -> void:
+	## Yellow 3 stays on saved grip px on club art; green 1h + arms follow.
+	if _rig == null or _preset == null or _active_drag_handle != null:
+		return
+	if _selected_weapon != ResourceData.ResourceType.WOOD or not _rig.has_weapon_overlay():
+		return
+	var grip_global := _resolve_club_live_grip_global()
+	_set_hand_handle_position(_spear_handle, grip_global)
+	_set_hand_handle_position(_hand_handle, grip_global)
+	if _support_hand_handle and _active_drag_handle != _support_hand_handle:
+		_set_hand_handle_position(_support_hand_handle, _resolve_club_live_support_global())
+	_sync_body_pinned_handles()
+	_seed_elbow_poles_for_mode(AnimMode.ATTACK)
+	_lock_arm_lines_to_handles()
+	_sync_elbow_handles()
+
+
+func _queue_club_combat_grip_pin_sync() -> void:
+	if _club_combat_pins_sync_queued:
+		return
+	_club_combat_pins_sync_queued = true
+	call_deferred("_flush_club_combat_grip_pin_sync")
+
+
+func _flush_club_combat_grip_pin_sync() -> void:
+	_club_combat_pins_sync_queued = false
+	if not is_inside_tree() or _active_drag_handle != null:
+		return
+	_sync_club_combat_grip_pins_from_overlay()
+
+
 func _sync_combat_overlay_arm_pins() -> void:
 	## Club strike test: hands follow live overlay + saved attack row (not idle pins).
 	if _rig == null or _preset == null or _active_drag_handle != null:
 		return
 	if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.has_weapon_overlay():
-		var grip_global: Vector2
-		var support_global: Vector2
-		if _rig.is_windup_idle_sample_active():
-			grip_global = _rig.hand_grip_global_from_windup_sample()
-			support_global = _rig.support_hand_global_from_windup_sample()
-		else:
-			var grip_px := _preset.resolve_club_overlay_grip_px(AnimMode.ATTACK)
-			grip_global = LimbPresetCoords.overlay_grip_global(_rig.weapon_overlay, grip_px)
-			support_global = _club_combat_support_global()
-		_set_hand_handle_position(_hand_handle, grip_global)
-		_set_hand_handle_position(_spear_handle, grip_global)
-		if _support_hand_handle and _active_drag_handle != _support_hand_handle:
-			_set_hand_handle_position(_support_hand_handle, support_global)
-		_sync_body_pinned_handles()
-		_seed_elbow_poles_for_mode(AnimMode.ATTACK)
-		_lock_arm_lines_to_handles()
-		_sync_elbow_handles()
+		_sync_club_combat_grip_pins_from_overlay()
+	elif _selected_weapon == ResourceData.ResourceType.SPEAR and _is_spear_windup_pin_mode():
+		_sync_spear_windup_handles()
 	elif _selected_weapon == ResourceData.ResourceType.SPEAR:
 		_sync_spear_grip_handles()
 
@@ -2364,6 +2780,8 @@ func _walk_or_combat_status_hint() -> String:
 		return "Hold A/D or ← → to walk."
 	if _is_combat_ready_preview() and _selected_weapon == ResourceData.ResourceType.WOOD:
 		return "Shift ready — %s" % _club_combat_controls_hint()
+	if _is_combat_ready_preview() and _selected_weapon == ResourceData.ResourceType.SPEAR:
+		return "Shift ready — %s · Y1+Y2 on shaft, 1h+2h stacked" % _spear_combat_controls_hint()
 	if _combat_animation_busy() and _selected_weapon == ResourceData.ResourceType.WOOD:
 		return "Striking — release Shift after swing to exit ready."
 	return "Tuner instrumentation active."
@@ -2371,24 +2789,50 @@ func _walk_or_combat_status_hint() -> String:
 
 func _sync_combat_strike_preview() -> void:
 	## During overlay swing/recovery: arms follow live overlay grip, not stale idle pins.
+	if _selected_weapon == ResourceData.ResourceType.WOOD:
+		_sync_club_combat_grip_pins_from_overlay()
+		return
+	if _selected_weapon == ResourceData.ResourceType.SPEAR and _is_spear_windup_pin_mode():
+		_sync_spear_windup_handles()
+		return
 	_sync_combat_overlay_arm_pins()
-	if _spear_handle and _hand_handle and _active_drag_handle != _spear_handle and not _is_spear_windup_edit():
-		_spear_handle.global_position = _hand_handle.global_position
 
 
 func _restore_tuner_pose_after_combat_preview() -> void:
 	if _rig == null or _rig.combat_component == null or _preset == null:
+		return
+	## Shift still held after strike → resume windup, not idle.
+	if (
+		_selected_weapon == ResourceData.ResourceType.WOOD
+		and _is_club_combat_preview_mode()
+		and Input.is_action_pressed("weapon_ready")
+	):
+		_apply_club_tuner_windup_ready(_rig._get_cursor_aim_direction())
+		_sync_windup_loop_phase_after_strike()
+		return
+	if (
+		_selected_weapon == ResourceData.ResourceType.SPEAR
+		and _is_spear_combat_preview_mode()
+		and Input.is_action_pressed("weapon_ready")
+	):
+		_apply_spear_tuner_windup_ready(_rig._get_cursor_aim_direction())
 		return
 	var cc := _rig.combat_component
 	if cc.state == CombatComponent.CombatState.READY:
 		cc.cancel_ready()
 	elif cc.state != CombatComponent.CombatState.IDLE:
 		cc.state = CombatComponent.CombatState.IDLE
-	if WeaponOverlayCombat.get_overlay_state(_rig) != WeaponOverlayCombat.OverlayState.IDLE:
-		WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.IDLE)
-	_refresh_rig_from_preset()
-	_sync_handle_positions()
-	_lock_arm_lines_to_handles()
+	if _selected_weapon == ResourceData.ResourceType.SPEAR:
+		_apply_spear_idle_carry_pose()
+	else:
+		_apply_club_idle_carry_pose()
+
+
+func _sync_windup_loop_phase_after_strike() -> void:
+	## Strike recovery ends on windup key B — continue loop from there.
+	if _rig == null or _preset == null or not _preset.has_club_windup_idle_loop():
+		return
+	_rig.seek_windup_idle_loop_phase(2.0 / 3.0)
 
 
 func _sync_assemble_preview() -> void:
@@ -2397,6 +2841,8 @@ func _sync_assemble_preview() -> void:
 	if (
 		_rig.combat_component != null
 		and _rig.combat_component.state == CombatComponent.CombatState.READY
+		and not _is_spear_shaft_pose_edit()
+		and not _is_club_windup_edit()
 	):
 		return
 	_sync_body_pinned_handles()
@@ -2412,6 +2858,8 @@ func _sync_assemble_preview() -> void:
 		_sync_club_idle_handles_during_drag()
 	elif _club_windup_handle_drag_active():
 		_sync_club_windup_handles_during_drag()
+	elif _spear_windup_handle_drag_active():
+		_sync_spear_windup_handles_during_drag()
 	else:
 		_sync_hands_with_spear()
 		_sync_spear_handle()
@@ -2493,7 +2941,7 @@ func _sync_one_elbow_from_ik(dominant: bool, mode: AnimMode) -> void:
 	var hand_handle: LimbTunerHandle = _hand_handle if dominant else _support_hand_handle
 	if elbow_handle == null or shoulder_handle == null or hand_handle == null:
 		return
-	if _rig.arm_controller and not _is_club_windup_edit() and not _is_spear_windup_edit():
+	if _rig.arm_controller and not _is_club_windup_edit() and not _is_spear_shaft_pose_edit():
 		var live := _rig.elbow_joint_global_from_arms(dominant)
 		elbow_handle.global_position = live
 		return
@@ -2546,7 +2994,7 @@ func _set_hand_handle_position(handle: LimbTunerHandle, global_pos: Vector2) -> 
 func _sync_hands_with_spear() -> void:
 	if _rig == null or _preset == null:
 		return
-	if _is_spear_windup_edit():
+	if _is_spear_windup_pin_mode():
 		_sync_spear_windup_handles()
 		return
 	var mode := _hand_sync_mode()
@@ -2620,6 +3068,8 @@ func _sync_hands_with_spear() -> void:
 func _use_ready_support_hand() -> bool:
 	if not WeaponLimbPreset.uses_two_hand_grip(_selected_weapon):
 		return false
+	if _is_spear_windup_pin_mode():
+		return true
 	if _rig and _rig.arm_controller and _rig.arm_controller.is_combat_pose_active():
 		return true
 	return _anim_mode == AnimMode.ATTACK
@@ -2654,7 +3104,12 @@ func _refresh_rig_from_preset() -> void:
 	if _rig == null or _preset == null:
 		return
 	var overlay_mode := _overlay_storage_mode()
-	if _is_spear_windup_edit():
+	if _is_spear_strike_edit():
+		_preset.seed_spear_attack_windup_if_unset()
+		_rig.apply_tuner_spear_strike_overlay(_preset, Vector2(1.0, 0.0))
+	elif _is_spear_windup_edit() or (
+		_selected_weapon == ResourceData.ResourceType.SPEAR and _anim_mode == AnimMode.ATTACK
+	):
 		_preset.seed_spear_attack_windup_if_unset()
 		_rig.apply_tuner_spear_windup_overlay(_preset, Vector2(1.0, 0.0))
 	else:
@@ -2781,16 +3236,9 @@ func _set_anim_mode(mode: AnimMode) -> void:
 	if _status_label:
 		if _anim_mode == AnimMode.ATTACK:
 			if _selected_weapon == ResourceData.ResourceType.WOOD:
-				if _preset and _preset.attack_pose_inherits_idle():
-					_status_label.text = (
-						"Attack windup — position only (starts from idle until Save all). "
-						+ "Test swing on Club · Idle standing: Shift+click."
-					)
-				else:
-					_status_label.text = (
-						"Attack windup — drag pins to position. "
-						+ "Test swing on Club · Idle standing: Shift+click."
-					)
+				_status_label.text = (
+					"Attack peak — drag pins · Shift+click test swing on Club · Idle standing."
+				)
 			elif _selected_weapon == ResourceData.ResourceType.SPEAR:
 				if _preset and _preset.attack_pose_inherits_idle():
 					_status_label.text = (
@@ -2811,7 +3259,7 @@ func _set_anim_mode(mode: AnimMode) -> void:
 		elif _is_idle_anim_mode():
 			if _selected_weapon == ResourceData.ResourceType.WOOD:
 				_status_label.text = (
-					"Idle standing — A/D walk · Shift = windup · Shift+click = test swing · drag pins."
+					"Idle standing — A/D walk · Shift = windup · Shift+click = swing · drag pins."
 				)
 			elif _selected_weapon == ResourceData.ResourceType.SPEAR:
 				_status_label.text = (
@@ -2827,21 +3275,29 @@ func _set_anim_mode(mode: AnimMode) -> void:
 func _apply_handle_draggable() -> void:
 	var can_drag := _mode == AppMode.ASSEMBLE
 	var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
-	var spear_windup := _is_spear_windup_edit()
+	var spear_windup_edit := _is_spear_shaft_pose_edit()
+	var spear_windup_pins := _is_spear_windup_pin_mode()
 	var club_windup := _is_club_windup_edit()
 	_shoulder_handle.set_draggable(can_drag)
 	_hand_handle.set_draggable(
-		can_drag and not spear_windup and not (_is_idle_club_anim_mode() and _idle_club_minimal_active)
+		can_drag and not (_is_idle_club_anim_mode() and _idle_club_minimal_active)
 	)
 	_support_shoulder_handle.set_draggable(can_drag)
 	_support_hand_handle.set_draggable(
-		can_drag and not spear_windup and (_anim_mode != AnimMode.ATTACK or two_hand or club_windup)
+		can_drag
+		and (
+			spear_windup_edit
+			or (
+				not spear_windup_edit
+				and (_anim_mode != AnimMode.ATTACK or two_hand or club_windup)
+			)
+		)
 	)
 	var weapon_drag := can_drag and _rig != null and _rig.has_weapon_overlay()
-	_spear_handle.set_draggable(weapon_drag)
+	_spear_handle.set_draggable(weapon_drag and (spear_windup_edit or club_windup))
 	if _spear_grip_2_handle:
-		_spear_grip_2_handle.set_draggable(weapon_drag and spear_windup)
-		_spear_grip_2_handle.visible = weapon_drag and spear_windup
+		_spear_grip_2_handle.set_draggable(weapon_drag and spear_windup_edit)
+		_spear_grip_2_handle.visible = weapon_drag and spear_windup_pins
 	if _weapon_elbow_handle:
 		_weapon_elbow_handle.set_draggable(false)
 	if _support_elbow_handle:
@@ -2893,10 +3349,14 @@ func _on_hand_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
 	var mode := _hand_align_mode()
-	var clamped := _clamp_dominant_hand_global(_shoulder_handle.global_position, global_pos)
+	if _is_spear_shaft_pose_edit():
+		_on_spear_windup_grip_dragged(global_pos)
+		return
 	if _is_club_windup_edit():
 		_on_club_windup_grip_dragged(global_pos)
-	elif _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
+		return
+	var clamped := _clamp_dominant_hand_global(_shoulder_handle.global_position, global_pos)
+	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		_rig.align_weapon_overlay_to_hand_grip_global(_preset, clamped, mode)
 		var stacked := _rig.hand_grip_global_from_preset(_preset, _hand_storage_mode())
 		_set_hand_handle_position(_hand_handle, stacked)
@@ -2924,9 +3384,12 @@ func _on_support_hand_dragged(global_pos: Vector2) -> void:
 	if _anim_mode == AnimMode.ATTACK and WeaponLimbPreset.uses_two_hand_grip(_selected_weapon):
 		var adjusted := _rig.project_support_hand_grip_drag_global(clamped, _preset)
 		_rig.set_support_hand_from_global(_preset, adjusted)
-		_set_hand_handle_position(
-			_support_hand_handle, _rig.support_hand_global_from_preset(_preset)
-		)
+		if _is_spear_shaft_pose_edit():
+			_sync_spear_windup_handles_during_drag()
+		else:
+			_set_hand_handle_position(
+				_support_hand_handle, _rig.support_hand_global_from_preset(_preset)
+			)
 	else:
 		_rig.set_support_hand_for_mode(_preset, _anim_mode, clamped)
 		_set_hand_handle_position(_support_hand_handle, clamped)
@@ -2958,9 +3421,8 @@ func _on_spear_dragged(global_pos: Vector2) -> void:
 		_set_hand_handle_position(_spear_handle, stacked)
 		return
 	if _selected_weapon == ResourceData.ResourceType.SPEAR:
-		if _is_spear_windup_edit():
-			_rig.align_spear_windup_overlay_to_grip_global(_preset, global_pos, true)
-			_sync_spear_windup_handles()
+		if _is_spear_shaft_pose_edit():
+			_on_spear_windup_grip_dragged(global_pos)
 			return
 		var grip_mode := _hand_storage_mode()
 		var clamped_spear := _clamp_dominant_hand_global(_shoulder_handle.global_position, global_pos)
@@ -2975,17 +3437,13 @@ func _on_spear_dragged(global_pos: Vector2) -> void:
 
 
 func _on_spear_grip_2_dragged(global_pos: Vector2) -> void:
-	if _mode != AppMode.ASSEMBLE or not _is_spear_windup_edit():
+	if _mode != AppMode.ASSEMBLE or not _is_spear_shaft_pose_edit():
 		return
 	if _rig.weapon_overlay == null or not _rig.has_weapon_overlay():
 		return
 	## Free placement on spear art — no shaft-axis lock (horizontal windup needs 2D tuning).
 	_rig.set_support_hand_from_global(_preset, global_pos)
-	var y2 := _rig.spear_windup_support_grip_global(_preset)
-	if _spear_grip_2_handle:
-		_set_hand_handle_position(_spear_grip_2_handle, y2)
-	if _support_hand_handle:
-		_set_hand_handle_position(_support_hand_handle, y2)
+	_stack_spear_windup_support_pins()
 
 
 func _commit_anim_mode(mode: AnimMode) -> void:
@@ -3008,6 +3466,14 @@ func _commit_anim_mode(mode: AnimMode) -> void:
 			_rig.set_support_shoulder_from_global(_preset, _support_shoulder_handle.global_position)
 	if mode == AnimMode.IDLE_CLUB1 and _idle_club_minimal_active and _spear_handle and _rig.has_weapon_overlay():
 		_rig.set_hand_grip_from_global(_preset, _spear_handle.global_position, mode)
+	elif (
+		mode == AnimMode.ATTACK
+		and _selected_weapon == ResourceData.ResourceType.SPEAR
+		and _spear_handle
+		and _rig.has_weapon_overlay()
+	):
+		## Y1 on shaft art is authoritative for dominant windup grip.
+		_rig.set_hand_grip_from_global(_preset, _spear_handle.global_position, AnimMode.ATTACK)
 	elif _hand_handle and not (mode == AnimMode.IDLE_CLUB1):
 		_rig.set_hand_grip_from_global(_preset, _hand_handle.global_position, grip_mode)
 	if _support_hand_handle:
@@ -3024,7 +3490,26 @@ func _commit_anim_mode(mode: AnimMode) -> void:
 			_rig.set_support_hand_for_mode(_preset, mode, _support_hand_handle.global_position)
 	if _rig.has_weapon_overlay():
 		var display_px := _rig.display_px_from_overlay_position()
-		_preset.set_overlay_for_mode(grip_mode, display_px)
+		if (
+			mode == AnimMode.ATTACK
+			and _selected_weapon == ResourceData.ResourceType.SPEAR
+			and _spear_attack_edit_target == "windup"
+		):
+			_preset.ready_offset_px = display_px
+		elif (
+			mode == AnimMode.ATTACK
+			and _selected_weapon == ResourceData.ResourceType.SPEAR
+			and _spear_attack_edit_target == "strike"
+		):
+			_preset.strike_offset_px = display_px
+		else:
+			_preset.set_overlay_for_mode(grip_mode, display_px)
+		if _weapon_rotation_spin:
+			_preset.set_rotation_deg_for_mode(mode, float(_weapon_rotation_spin.value))
+	if _weapon_elbow_handle:
+		_rig.set_elbow_pole_from_global(_preset, true, grip_mode, _weapon_elbow_handle.global_position)
+	if _support_elbow_handle:
+		_rig.set_elbow_pole_from_global(_preset, false, grip_mode, _support_elbow_handle.global_position)
 	if committed_attack:
 		_preset.mark_attack_windup_pose_saved()
 
@@ -3140,10 +3625,14 @@ func _on_copy_pressed() -> void:
 	_commit_all_poses_to_preset()
 	var summary := _preset.to_chat_handoff(_holdable_label())
 	var json := JSON.stringify(_preset.to_export_dict(), "\t")
-	var clipboard := summary + "\n\n--- JSON ---\n" + json
+	var clipboard := summary + "\n\n--- JSON (paste to agent / lock-in script) ---\n" + json
 	DisplayServer.clipboard_set(clipboard)
 	if _status_label:
-		_status_label.text = "Copied summary + JSON to clipboard."
+		var hint := "Copied summary + JSON."
+		if _is_spear_shaft_pose_edit():
+			hint += " Spear attack block includes Y1/Y2, ready, strike, elbows."
+		hint += " Use Save all to write .tres."
+		_status_label.text = hint
 
 
 func _update_ui() -> void:
@@ -3157,12 +3646,16 @@ func _update_ui() -> void:
 			"\nIdle Club: drag yellow 3 on club art (grip). Club position locked."
 			if _is_idle_club_anim_mode()
 			else (
-				"\nSpear windup: Y1 moves spear + 1h · subtle idle loop · Pause to freeze."
-				if _is_spear_windup_edit()
+				"\nSpear attack edit: Y1 moves spear + 1h · strike row = furthest extension."
+				if _is_spear_strike_edit()
 				else (
-					"\nClub windup: drag 1h/3 · subtle idle loop · Pause to freeze pins."
-					if _is_club_windup_edit()
-					else "\nPins: hold+drag · click 1e/2e flip elbow"
+					"\nSpear windup: Y1 moves spear + 1h · Pause to freeze."
+					if _is_spear_windup_edit()
+					else (
+						"\nClub windup: drag 1h/3 · subtle idle loop · Pause to freeze pins."
+						if _is_club_windup_edit()
+						else "\nPins: hold+drag · click 1e/2e flip elbow"
+					)
 				)
 			)
 		)
@@ -3204,6 +3697,8 @@ func _update_ui() -> void:
 	_apply_handle_number_labels()
 	_update_weapon_handle_visibility()
 	_sync_bake_button()
+	_update_weapon_rotation_section_visibility()
+	_sync_weapon_rotation_spin_from_rig()
 	if (
 		_status_label
 		and _is_club_combat_preview_mode()
@@ -3225,6 +3720,9 @@ func _update_ui() -> void:
 func _format_pose_row(mode: AnimMode, for_editing: bool) -> Variant:
 	var hand := _preset.resolve_hand_grip_for_mode(mode)
 	var overlay := _preset.resolve_overlay_for_mode(mode)
+	if mode == AnimMode.ATTACK and _selected_weapon == ResourceData.ResourceType.SPEAR:
+		hand = _preset.hand_grip_ready_offset_px
+		overlay = _preset.ready_offset_px
 	var bend_1e := WeaponLimbPreset.bend_sign_chat_label(
 		_preset.resolve_elbow_bend_sign_override(true, mode)
 	)

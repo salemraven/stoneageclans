@@ -36,10 +36,13 @@ func _run() -> void:
 	_test_idle_club_combat_ready()
 	_test_walk_preview_body_bounce()
 	_test_idle_travel_walk_on_ad()
+	_test_weapon_rotation_attack_spin()
 	_test_club_combat_ready_arm_pins()
 	_test_club_shift_windup_loop_plays()
 	_test_spear_yellow_pinned_to_hand()
 	_test_spear_walk_grip_pinned_to_shaft()
+	_test_spear_windup_pins_stacked()
+	_test_spear_windup_drag_handles()
 	_test_club_overlay_grip_fallback()
 	_test_club_walk_carry_pose()
 	_test_pose_snapshot_isolation()
@@ -284,6 +287,11 @@ func _test_limb_tuner_scene() -> void:
 			_fail(
 				"club idle standing overlay mismatch: saved=%s live=%s"
 				% [str(overlay_px), str(rig_overlay)]
+			)
+		if absf(rad_to_deg(rig.weapon_overlay.rotation)) > 2.0:
+			_fail(
+				"club idle carry rotation should be ~0° got %.1f°"
+				% rad_to_deg(rig.weapon_overlay.rotation)
 			)
 	var none_preset: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
 	if none_preset == null:
@@ -704,6 +712,35 @@ func _test_idle_travel_walk_on_ad() -> void:
 	app.queue_free()
 
 
+func _test_weapon_rotation_attack_spin() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for weapon rotation test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call("_apply_pose_catalog_entry", ResourceData.ResourceType.WOOD, WeaponLimbPresetScript.TunerAnimMode.ATTACK)
+	for _i in range(6):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null or rig.weapon_overlay == null:
+		_fail("weapon rotation test: missing rig overlay")
+		app.queue_free()
+		return
+	var before := rig.weapon_overlay.rotation
+	app.call("_on_weapon_rotation_changed", 135.0)
+	for _i in range(3):
+		await process_frame
+	if is_equal_approx(rig.weapon_overlay.rotation, before):
+		_fail("weapon rotation spin should change overlay rotation")
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null or not is_equal_approx(preset.attack_rotation_deg, 135.0):
+		_fail("weapon rotation spin should store attack_rotation_deg=135 got %s" % str(preset.attack_rotation_deg if preset else null))
+	app.queue_free()
+
+
 func _test_club_combat_ready_arm_pins() -> void:
 	var club: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.WOOD, 1)
 	club.mark_club_attack_pose_saved()
@@ -885,6 +922,124 @@ func _test_spear_walk_grip_pinned_to_shaft() -> void:
 	if max_drift > 2.5:
 		app.queue_free()
 		return
+	app.queue_free()
+
+
+func _test_spear_windup_pins_stacked() -> void:
+	var root := get_root()
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for spear windup pin test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	app.call("_begin_spear_windup_edit_session")
+	for _i in range(10):
+		await process_frame
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	var support: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SupportHandHandle") as Node2D
+	var y1: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SpearHandle") as Node2D
+	var y2: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SpearGrip2Handle") as Node2D
+	var preset: WeaponLimbPreset = app.get("_preset")
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	if hand == null or support == null or y1 == null or y2 == null or preset == null or rig == null:
+		_fail("spear windup: handles or preset missing")
+		app.queue_free()
+		return
+	if not y2.visible:
+		_fail("spear windup: Y2 handle should be visible in windup edit")
+	for _i in range(6):
+		app.call("_sync_spear_windup_handles")
+	if hand.global_position.distance_to(y1.global_position) > 1.5:
+		_fail(
+			"spear windup: 1h not stacked on Y1 (dist=%.2f)"
+			% hand.global_position.distance_to(y1.global_position)
+		)
+	if support.global_position.distance_to(y2.global_position) > 1.5:
+		_fail(
+			"spear windup: 2h not stacked on Y2 (dist=%.2f)"
+			% support.global_position.distance_to(y2.global_position)
+		)
+	var y1_on_art := rig.spear_windup_dominant_grip_global(preset)
+	var y2_on_art := rig.spear_windup_support_grip_global(preset)
+	if y1.global_position.distance_to(y1_on_art) > 2.0:
+		_fail("spear windup: Y1 drifted off dominant shaft grip on art")
+	if y2.global_position.distance_to(y2_on_art) > 2.0:
+		_fail("spear windup: Y2 drifted off support shaft grip on art")
+	app.queue_free()
+
+
+func _test_spear_windup_drag_handles() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for spear windup drag test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	if not app.has_method("_begin_spear_windup_edit_session"):
+		_fail("LimbTuner missing _begin_spear_windup_edit_session")
+		app.queue_free()
+		return
+	app.call("_begin_spear_windup_edit_session")
+	for _i in range(10):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	var y1: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SpearHandle") as Node2D
+	if rig == null or hand == null or y1 == null:
+		_fail("spear windup drag: rig or handles missing")
+		app.queue_free()
+		return
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		_fail("spear windup drag: preset missing")
+		app.queue_free()
+		return
+	var y1_on_art := rig.spear_windup_dominant_grip_global(preset)
+	if y1.global_position.distance_to(y1_on_art) > 2.0:
+		_fail("spear windup drag: Y1 not on shaft grip before drag")
+	if hand.global_position.distance_to(y1.global_position) > 1.5:
+		_fail("spear windup drag: 1h not stacked on Y1 before drag")
+	app.set("_active_drag_handle", y1)
+	var overlay_before_y1_drag := rig.weapon_overlay.global_position
+	var y1_drag_target := y1_on_art + Vector2(42.0, -18.0)
+	app.call("_on_spear_dragged", y1_drag_target)
+	for _i in range(3):
+		app.call("_sync_assemble_preview")
+	var y1_after_y1_drag := rig.spear_windup_dominant_grip_global(preset)
+	if rig.weapon_overlay.global_position.distance_to(overlay_before_y1_drag) < 1.5:
+		_fail("spear windup: spear art should move when dragging yellow Y1")
+	if y1.global_position.distance_to(y1_after_y1_drag) > 1.5:
+		_fail("spear windup: yellow Y1 did not follow spear after Y1 drag")
+	if hand.global_position.distance_to(y1.global_position) > 1.5:
+		_fail("spear windup: green 1h not stacked after Y1 drag")
+	app.set("_active_drag_handle", hand)
+	var overlay_before_hand_drag := rig.weapon_overlay.global_position
+	var hand_drag_target := y1_after_y1_drag + Vector2(24.0, -10.0)
+	app.call("_on_hand_dragged", hand_drag_target)
+	for _i in range(3):
+		app.call("_sync_assemble_preview")
+	if rig.weapon_overlay.global_position.distance_to(overlay_before_hand_drag) < 1.5:
+		_fail("spear windup: spear art should move when dragging green 1h")
+	var y1_after_hand_drag := rig.spear_windup_dominant_grip_global(preset)
+	if y1.global_position.distance_to(y1_after_hand_drag) > 1.5:
+		_fail("spear windup: yellow Y1 drifted from shaft grip during 1h drag")
+	if hand.global_position.distance_to(y1.global_position) > 1.5:
+		_fail("spear windup: green 1h not stacked during 1h drag")
+	var shoulder := app.get_node_or_null("World/HandleLayer/HandleStage/ShoulderHandle") as Node2D
+	if shoulder != null:
+		var far_target := shoulder.global_position + Vector2(420.0, -40.0)
+		app.call("_on_spear_windup_grip_dragged", far_target)
+		var max_reach := preset.tuner_ik_max_reach_px(true)
+		if hand.global_position.distance_to(shoulder.global_position) <= max_reach + 2.0:
+			_fail(
+				"spear windup: grip drag should not clamp to arm reach (max=%.1f got %.1f)"
+				% [max_reach, shoulder.global_position.distance_to(hand.global_position)]
+			)
 	app.queue_free()
 
 

@@ -183,7 +183,7 @@ The tuner stays **one scrollable left panel**. New capabilities add **sections**
 | **Animation** | Holdable · Category · Variant · Play · Bake | Taunt, Ranged, bow/sling |
 | **Morphology** | Arm length · arm thickness · **H** head pin | Body scale · head scale · neck offset spinboxes |
 | **Cosmetic layers** *(planned, same panel)* | — | Eyes, hair, nose, clothing preview slots |
-| **Save / reset** | Save all · Bake · Copy · Reload | **Save DNA** (morphology file) alongside pose save |
+| **Weapon angle** | Angle spin (0–360°) | Compass rotation around grip pivot for the active pose row (club swing tuning on Attack) |
 
 **UI = one panel. Disk = two save types** (see below). Morphology must not be duplicated into every `spear_clansmen_1.tres` — genetics needs one place to read/write shape.
 
@@ -366,6 +366,123 @@ godot --path . res://scenes/tools/LimbTuner.tscn --tuner-instrument
 | Shift+click | `overlay=STRIKING`, hand tracks overlay during arc |
 
 Headless: `godot --headless -s res://tools/test_limb_tuner.gd` includes walk bounce + combat arm pin tests.
+
+---
+
+## Club evaluation session (ready now)
+
+**One command (tests + GUI + instrumentation):**
+
+```bash
+bash tools/run_limb_tuner.sh evaluate
+```
+
+**Preset under test:** `assets/limb_presets/club_clansmen_1.tres`  
+**Startup:** Club · **Idle standing** (not Attack pin-edit).
+
+### What to verify (visual sign-off)
+
+| Step | Control | Pass if |
+|------|---------|---------|
+| 1 | **A / D** walk | Club carry bounces; off-arm swings; yellow **3** stays on club grip art |
+| 2 | **Shift** hold | Windup loop (rest → A → B → rest, ~5s); yellow **3** glued to grip; green **1h** stacked on yellow; both arms track |
+| 3 | **Shift + click** | Strike tweens to saved peak (~73° club angle); yellow **3** never leaves grip; arms follow through peak |
+| 4 | Release **Shift** after swing | Returns to idle carry (not stuck in ready) |
+| 5 | **A/D** while facing west | Mirror flip; pins still stack (3 → 1h); no double-flip on overlay |
+
+### Headless gates (agent / CI)
+
+```bash
+bash tools/run_limb_tuner.sh verify          # full limb tuner + bake + CLI smoke
+bash tools/run_limb_tuner.sh evaluate        # verify subset + club audit + GUI
+godot --headless -s res://tools/audit_club_lockin.gd
+```
+
+| Gate | Pass signal |
+|------|-------------|
+| `test_limb_tuner.gd` | prints `test_limb_tuner: PASS` |
+| `audit_club_lockin.gd` | `club_lockin_audit: PASS` or `PASS_WITH_WARNINGS` |
+| `--tuner-instrument` | JSONL at `Tests/logs/tuner_preview_instrument.jsonl`; `handΔ` ≤ ~3 px during strike |
+
+### Known warnings (non-blocking)
+
+- Attack row `support_hand_offset` may differ from windup loop key A — Shift-ready uses attack row; loop uses A/B keys.
+- Walk row may borrow idle carry until Walk category is tuned separately.
+
+### After evaluation
+
+- **Looks good** → note in chat; optional **Save all** if you moved pins; agent can wire in-game parity check.
+- **Grip drifts** → say which phase (walk / windup / strike / recover); do not tweak numbers blind — use pin drag + Save all.
+- **Re-edit windup keys** → launch with `--club-windup-edit` (Attack category, pin editing).
+
+### Locked in (clansmen_1 club)
+
+**Preset:** `assets/limb_presets/club_clansmen_1.tres`  
+**Headless save:** `godot --headless -s res://tools/lockin_club_clansmen_1.gd`
+
+| Phase | What was saved | Key fields |
+|-------|----------------|------------|
+| **Idle carry** | Standing club at side | `overlay_offset_idle_px`, `hand_grip_offset_px`, `support_hand_idle_offset_px`, `idle_club1_*` grip row |
+| **Windup loop** | Shift hold — rest → A → B → rest (~5s) | `club_windup_idle_key_a/b_*`, `ready_offset_px`, `hand_grip_ready_offset_px` |
+| **Strike** | Shift+click keyframed peak | `strike_offset_px`, `attack_rotation_deg` (73°), windup seam = key B |
+
+Off-hand at strike peak uses idle rest (minimal motion) until re-authored on pin **2h** in Attack row.
+
+---
+
+## Spear tuning session (ready now)
+
+**One command (tests + GUI):**
+
+```bash
+bash tools/run_limb_tuner.sh spear-evaluate
+```
+
+**Preset:** `assets/limb_presets/spear_clansmen_1.tres`  
+**Startup:** Spear · **Idle standing** (`--spear-preview`).
+
+### What to verify (visual sign-off)
+
+| Step | Control | Pass if |
+|------|---------|---------|
+| 1 | **A / D** walk | Spear carry bounces; yellow **3** stays on shaft grip art; green **1h** stacked |
+| 2 | **Shift** hold | Two-hand ready pose (dominant Y1 + support Y2 on shaft); arms track pins |
+| 3 | **Shift + click** | Thrust tweens toward `strike_offset_px`; shaft grip pin stays glued |
+| 4 | Release **Shift** | Returns to idle carry |
+| 5 | **A/D** while facing west | Mirror flip; pin stack still reads (3 → 1h) |
+
+### Headless gates
+
+```bash
+bash tools/run_limb_tuner.sh spear-prep     # save + audit preset rows
+bash tools/run_limb_tuner.sh verify           # full limb tuner tests (includes spear pin tests)
+godot --headless -s res://tools/audit_spear_tuning_ready.gd
+```
+
+| Gate | Pass signal |
+|------|-------------|
+| `prep_spear_clansmen_1.gd` | `prep_spear_clansmen_1: PASS` |
+| `audit_spear_tuning_ready.gd` | `spear_tuning_audit: PASS` |
+| `test_limb_tuner.gd` | `_test_spear_yellow_pinned_to_hand`, `_test_spear_walk_grip_pinned_to_shaft` |
+
+### CLI entry points
+
+| Flag / mode | Use |
+|-------------|-----|
+| `--spear-preview` | Idle standing + Shift ready/thrust test (default spear eval) |
+| `--spear-windup-edit` | Attack category — drag Y1/Y2 on shaft, green 1h/2h stack |
+| `spear-prep` | Headless: ensure grip defaults, seed walk/windup/strike, save `.tres` |
+
+### Current saved values (clansmen_1 spear)
+
+| Phase | Key fields |
+|-------|------------|
+| **Idle carry** | `overlay (63.5, -116)`, shaft grip `(4.97, 101.06)`, off-hand rest `(-11.6, 41.8)` |
+| **Walk / Walk1** | Walk overlay + grip seeded from idle; Walk1 has separate grip row |
+| **Windup (Shift)** | `ready_offset_px (113.5, -17)`, `support_hand_offset_px (7.5, 205.6)` |
+| **Thrust** | `strike_offset_px (165, -19)` — tune angle/length in Attack row + Save all |
+
+`attack_rotation_deg = -1000` means “use overlay thrust path” until you lock a rotation in Save all.
 
 ---
 

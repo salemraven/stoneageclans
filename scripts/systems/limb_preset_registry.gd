@@ -147,6 +147,22 @@ func apply_combat_profile_overrides(profile: Dictionary, weapon_type: ResourceDa
 	out["strike_offset_px"] = preset.strike_offset_px
 	out["ready_forward_px"] = preset.ready_forward_px
 	out["idle_rotation_deg"] = preset.idle_rotation_deg
+	if preset.attack_rotation_deg > WeaponLimbPreset.ROTATION_UNSET + 1.0:
+		out["attack_rotation_deg"] = preset.attack_rotation_deg
+	if preset.has_club_keyframed_strike():
+		out["club_strike_use_keyframes"] = true
+		var windup_kf: Dictionary = preset.club_strike_windup_keyframe()
+		var peak_kf: Dictionary = preset.club_strike_peak_keyframe()
+		out["club_strike_windup_overlay_px"] = windup_kf["overlay_px"]
+		out["club_strike_peak_overlay_px"] = peak_kf["overlay_px"]
+		out["club_strike_windup_hand_px"] = windup_kf["hand_grip_px"]
+		out["club_strike_peak_hand_px"] = peak_kf["hand_grip_px"]
+		out["club_strike_windup_support_px"] = windup_kf["support_hand_px"]
+		out["club_strike_peak_support_px"] = peak_kf["support_hand_px"]
+		out["club_strike_windup_rotation_deg"] = preset.resolve_club_windup_rotation_deg(
+			&"b", out
+		)
+		out["club_strike_support_motion_frac"] = preset.club_strike_support_motion_frac
 	return out
 
 

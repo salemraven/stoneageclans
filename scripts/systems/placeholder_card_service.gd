@@ -354,8 +354,15 @@ func play_weapon_overlay_strike(
 	var overlay: Sprite2D = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
 	if overlay == null:
 		return
-	sync_weapon_overlay(entity, weapon_type, true)
 	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	var keyframed_club := (
+		weapon_type == ResourceData.ResourceType.WOOD
+		and WeaponOverlayCombat.uses_club_keyframed_strike(profile)
+	)
+	if not keyframed_club:
+		sync_weapon_overlay(entity, weapon_type, true)
 	var combat_recovery_d: float = float(profile.get("combat_recovery_duration", 0.12))
 	var combat_recovery_ready_d: float = float(profile.get("combat_recovery_duration_ready", combat_recovery_d))
 	var strike_done := func() -> void:

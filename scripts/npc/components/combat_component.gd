@@ -238,6 +238,14 @@ func _apply_overlay_ready_after_recovery(recovery_aim: Vector2) -> void:
 	)
 	PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.READY)
 	if wt != ResourceData.ResourceType.NONE:
+		if (
+			PlaceholderCardService
+			and WeaponOverlayCombat.uses_club_keyframed_strike_for_weapon(
+				PlaceholderCardService.registry, wt
+			)
+		):
+			# Keyframed strike tween already returned overlay to windup — do not re-snap.
+			return
 		if not overlay_already_ready:
 			PlaceholderCardService.sync_weapon_overlay(npc, wt, true)
 		PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
@@ -261,6 +269,15 @@ func commit_strike(strike_aim: Vector2) -> void:
 		return
 	if not npc or not is_instance_valid(npc):
 		return
+	var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+	if wt == ResourceData.ResourceType.WOOD and PlaceholderCardService and PlaceholderCardService.registry:
+		var base_profile: Dictionary = PlaceholderCardService.registry.get_weapon_combat_profile(wt)
+		var profile: Dictionary = base_profile
+		if LimbPresetRegistry:
+			profile = LimbPresetRegistry.apply_combat_profile_overrides(base_profile, wt)
+		if not WeaponOverlayCombat.club_overlay_strike_enabled(profile, wt):
+			_combat_d("COMBAT: club strike disabled — no saved strike pose")
+			return
 	_update_attack_profile_from_weapon()
 	if strike_aim.length_squared() > 0.0001:
 		strike_aim = _normalize_strike_aim(strike_aim)
@@ -282,7 +299,6 @@ func commit_strike(strike_aim: Vector2) -> void:
 	if npc:
 		SoundDetection.emit_attack_swing(npc)
 	if _uses_overlay_combat() and PlaceholderCardService:
-		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
 		PlaceholderCardService.play_weapon_overlay_strike(
 			npc,
 			wt,

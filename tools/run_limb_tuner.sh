@@ -5,7 +5,12 @@
 #   bash tools/run_limb_tuner.sh verify              # headless tests (cloud-safe)
 #   bash tools/run_limb_tuner.sh smoke               # load tuner scene headless
 #   bash tools/run_limb_tuner.sh bake --weapon none --clip idle
+#   bash tools/run_limb_tuner.sh evaluate            # audit + tests, then GUI w/ instrumentation
+#   bash tools/run_limb_tuner.sh lockin              # save club_clansmen_1 idle/windup/strike preset
+#   bash tools/run_limb_tuner.sh spear-prep          # validate + save spear_clansmen_1 for tuning
+#   bash tools/run_limb_tuner.sh spear-evaluate      # audit + tests, then GUI spear preview
 #   bash tools/run_limb_tuner.sh gui                 # windowed Godot tuner (needs display)
+#   bash tools/run_limb_tuner.sh gui --tuner-instrument
 #   bash tools/run_limb_tuner.sh share-web           # browser preview + optional public link
 #
 # Env: GODOT=/path/to/Godot  SKIP_SINGLE_INSTANCE=1 (default)
@@ -80,12 +85,91 @@ case "$MODE" in
 	bake)
 		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_bake" bake "$@"
 		;;
+	evaluate)
+		echo "=============================================="
+		echo "Club tuner evaluation prep ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
+		run_headless_script "res://tools/audit_club_lockin.gd" "club_lockin_audit"
+		echo ""
+		echo "Headless gates passed — opening Character Animation Tuner (instrumentation on)."
+		echo "Preset: assets/limb_presets/club_clansmen_1.tres"
+		echo "Session: Club · Idle standing (default startup)"
+		echo "  1. A/D — walk carry"
+		echo "  2. Shift (hold) — windup loop rest→A→B→rest"
+		echo "  3. Shift+click — keyframed strike to peak → recover to windup B"
+		echo "  Yellow pin 3 must stay on club grip; green 1h + arms follow."
+		echo "  Log: Tests/logs/tuner_preview_instrument.jsonl"
+		echo ""
+		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
+			echo "No DISPLAY — run locally: bash tools/run_limb_tuner.sh gui --tuner-instrument" >&2
+			exit 0
+		fi
+		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --tuner-instrument "$@"
+		;;
+	lockin)
+		echo "=============================================="
+		echo "Club clansmen_1 lock-in ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/lockin_club_clansmen_1.gd" "club_lockin_save"
+		run_headless_script "res://tools/audit_club_lockin.gd" "club_lockin_audit"
+		echo ""
+		echo "CLUB_LOCKIN_OK"
+		;;
+	spear-prep)
+		echo "=============================================="
+		echo "Spear clansmen_1 tuning prep ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/prep_spear_clansmen_1.gd" "spear_prep"
+		run_headless_script "res://tools/audit_spear_tuning_ready.gd" "spear_tuning_audit"
+		echo ""
+		echo "SPEAR_PREP_OK"
+		;;
+	spear-lockin)
+		echo "=============================================="
+		echo "Spear clansmen_1 windup lock-in ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/lockin_spear_clansmen_1.gd" "spear_lockin_save"
+		run_headless_script "res://tools/audit_spear_tuning_ready.gd" "spear_tuning_audit"
+		echo ""
+		echo "SPEAR_LOCKIN_OK"
+		;;
+	spear-evaluate)
+		echo "=============================================="
+		echo "Spear tuner evaluation prep ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
+		run_headless_script "res://tools/audit_spear_tuning_ready.gd" "spear_tuning_audit"
+		echo ""
+		echo "Headless gates passed — opening Character Animation Tuner (spear preview)."
+		echo "Preset: assets/limb_presets/spear_clansmen_1.tres"
+		echo "Session: Spear · Idle standing (--spear-preview)"
+		echo "  1. A/D — walk carry (shaft grip pinned)"
+		echo "  2. Shift (hold) — two-hand windup on shaft (Y1 + Y2)"
+		echo "  3. Shift+click — thrust to strike_offset_px peak"
+		echo "  Yellow pin 3 on shaft art; green 1h stacked on yellow."
+		echo "  Re-edit windup: bash tools/run_limb_tuner.sh gui --spear-windup-edit"
+		echo ""
+		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
+			echo "No DISPLAY — run locally: bash tools/run_limb_tuner.sh gui --spear-preview" >&2
+			exit 0
+		fi
+		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --spear-preview "$@"
+		;;
 	gui)
 		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
 			echo "No DISPLAY — cloud agents cannot open the Godot window." >&2
-			echo "Use: bash tools/run_limb_tuner.sh verify|bake|smoke" >&2
+			echo "Use: bash tools/run_limb_tuner.sh verify|bake|smoke|evaluate" >&2
 			echo "Or:  bash tools/run_limb_tuner.sh share-web  (browser preview)" >&2
 			exit 1
+		fi
+		if [[ "$(uname -s)" == "Darwin" ]] && [[ -d "/Applications/Godot.app" ]]; then
+			exec bash "$ROOT/tools/launch_tuner_mac.sh" "$@"
 		fi
 		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" "$@"
 		;;
@@ -97,7 +181,7 @@ case "$MODE" in
 		"$GODOT_BIN" --path "$ROOT" --headless --script res://tools/limb_tuner_cli.gd -- --help
 		;;
 	*)
-		echo "Unknown mode: $MODE (verify|smoke|bake|gui|share-web|help)" >&2
+		echo "Unknown mode: $MODE (verify|smoke|bake|evaluate|lockin|spear-prep|spear-evaluate|gui|share-web|help)" >&2
 		exit 1
 		;;
 esac

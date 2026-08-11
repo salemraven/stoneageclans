@@ -106,8 +106,11 @@ func set_shift_ready_windup_loop(on: bool) -> void:
 	if _shift_ready_windup_mode and not on:
 		clear_windup_idle_preview_sample()
 		if _windup_preview_preset != null and not _preview_windup_mode:
-			apply_preset_overlay_ready(_windup_preview_preset, aim_from_facing())
+			apply_preset_overlay_for_mode(_windup_preview_preset, WeaponLimbPreset.TunerAnimMode.IDLE)
+	var entering := on and not _shift_ready_windup_mode
 	_shift_ready_windup_mode = on
+	if entering:
+		_windup_idle.reset()
 	if on:
 		_windup_idle.set_playing(true)
 	elif not _preview_windup_mode:
@@ -123,6 +126,14 @@ func set_windup_idle_playing(on: bool) -> void:
 func clear_windup_idle_preview_sample() -> void:
 	_windup_idle_sample_active = false
 	_windup_idle_sample = {}
+
+
+func seek_windup_idle_loop_phase(phase: float) -> void:
+	_windup_idle.cycle_time = fposmod(phase, 1.0) * maxf(_windup_idle.cycle_sec, 0.5)
+
+
+func reset_windup_idle_loop() -> void:
+	_windup_idle.reset()
 
 
 func sync_spear_overlay_motion_preview(
@@ -185,7 +196,22 @@ func is_shift_ready_windup_loop() -> bool:
 
 
 func is_windup_idle_sample_active() -> bool:
+	if should_pause_windup_loop_tick():
+		return false
 	return _windup_idle_sample_active and is_windup_idle_loop_playing()
+
+
+func seed_club_strike_start_from_windup() -> void:
+	## Capture live windup-loop hand/support so strike starts from current loop phase.
+	if not _windup_idle_sample_active:
+		return
+	var hand_px: Vector2 = _windup_idle_sample.get("hand_grip_ready_offset_px", Vector2.ZERO)
+	var support_px: Vector2 = _windup_idle_sample.get("support_hand_idle_offset_px", Vector2.ZERO)
+	if hand_px.length_squared() > 0.0001:
+		set_meta(WeaponOverlayCombat.CLUB_STRIKE_HAND_META, hand_px)
+	if support_px.length_squared() > 0.0001:
+		set_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META, support_px)
+	_windup_idle_sample_active = false
 
 
 func hand_grip_global_from_windup_sample() -> Vector2:
@@ -666,8 +692,18 @@ func sync_bake_weapon_overlay(
 	align_weapon_overlay_to_hand_grip_global(preset, grip_global, grip_mode)
 
 
+func should_pause_windup_loop_tick() -> bool:
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(self)
+	return (
+		ostate == WeaponOverlayCombat.OverlayState.STRIKING
+		or ostate == WeaponOverlayCombat.OverlayState.RECOVERING
+	)
+
+
 func _should_tick_club_windup_loop() -> bool:
 	if _windup_preview_preset == null or not _windup_preview_preset.has_club_windup_idle_loop():
+		return false
+	if should_pause_windup_loop_tick():
 		return false
 	return _windup_idle.playing and (_preview_windup_mode or _shift_ready_windup_mode)
 
@@ -870,9 +906,70 @@ func apply_preset_overlay_for_mode(preset: WeaponLimbPreset, mode: WeaponLimbPre
 		WeaponLimbPreset.TunerAnimMode.WALK, WeaponLimbPreset.TunerAnimMode.WALK1:
 			apply_preset_overlay_walk(preset, mode)
 		WeaponLimbPreset.TunerAnimMode.GATHER1:
-			apply_preset_overlay_walk(preset, mode)
+			apply_preset_overlay_gather(preset)
+		WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1:
+			apply_preset_overlay_idle_club1(preset)
 		_:
 			apply_preset_overlay_idle(preset, mode)
+
+
+func apply_weapon_rotation_for_mode(
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	aim: Vector2 = Vector2(1.0, 0.0)
+) -> void:
+	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
+		return
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	weapon_overlay.rotation = _resolve_overlay_rotation_rad(preset, mode, profile, aim)
+	CardVisualController.sync_weapon_overlay_flip(
+		sprite,
+		weapon_overlay,
+		weapon_overlay.get_meta("card_overlay_offset", _last_overlay_base),
+		WeaponOverlayCombat._overlay_mirror_texture(_registry, weapon_type)
+	)
+
+
+func _resolve_overlay_rotation_rad(
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	profile: Dictionary,
+	aim: Vector2 = Vector2(1.0, 0.0)
+) -> float:
+	if preset == null or sprite == null:
+		return 0.0
+	var kind: int = int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN))
+	if mode == WeaponLimbPreset.TunerAnimMode.ATTACK:
+		if kind == WeaponOverlayCombat.AttackKind.THRUST:
+			var aim_dir := aim.normalized() if aim.length_squared() > 0.0001 else Vector2(1.0, 0.0)
+			if preset.rotation_deg_is_custom(mode):
+				return deg_to_rad(preset.get_rotation_deg_for_mode(mode))
+			sprite.flip_h = aim_dir.x < 0.0
+			var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
+			return WeaponOverlayCombat.compute_aim_rotation(sprite, aim_dir, tip_deg, 0.0)
+		WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim)
+		if preset.rotation_deg_is_custom(mode):
+			var facing: float = WeaponOverlayCombat._swing_facing_sign(sprite)
+			var stored_deg: float = preset.get_rotation_deg_for_mode(mode)
+			return deg_to_rad(preset.resolve_swing_stored_rotation_deg(stored_deg, facing, profile))
+		return deg_to_rad(WeaponOverlayCombat._swing_ready_degrees(sprite, profile))
+	var mode_for_rot := mode
+	if mode == WeaponLimbPreset.TunerAnimMode.WALK and preset.rotation_deg_is_custom(WeaponLimbPreset.TunerAnimMode.WALK):
+		mode_for_rot = WeaponLimbPreset.TunerAnimMode.WALK
+	elif mode == WeaponLimbPreset.TunerAnimMode.WALK1 and preset.rotation_deg_is_custom(WeaponLimbPreset.TunerAnimMode.WALK1):
+		mode_for_rot = WeaponLimbPreset.TunerAnimMode.WALK1
+	elif mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and preset.rotation_deg_is_custom(WeaponLimbPreset.TunerAnimMode.GATHER1):
+		mode_for_rot = WeaponLimbPreset.TunerAnimMode.GATHER1
+	elif mode == WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1 and preset.rotation_deg_is_custom(WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1):
+		mode_for_rot = WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1
+	if preset.rotation_deg_is_custom(mode_for_rot):
+		return deg_to_rad(WeaponLimbPreset.normalize_rotation_deg(preset.get_rotation_deg_for_mode(mode_for_rot)))
+	var idle_deg: float = preset.idle_rotation_deg
+	if absf(idle_deg) < 0.001:
+		idle_deg = float(profile.get("idle_rotation_deg", 0.0))
+	return deg_to_rad(idle_deg)
 
 
 func apply_preset_overlay_walk(
@@ -885,12 +982,29 @@ func apply_preset_overlay_walk(
 	if LimbPresetRegistry:
 		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
 	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
-	var idle_deg: float = preset.idle_rotation_deg
-	if absf(idle_deg) < 0.001:
-		idle_deg = float(profile.get("idle_rotation_deg", 0.0))
+	var rot := _resolve_overlay_rotation_rad(preset, mode, profile)
 	_apply_tuner_overlay_pose(
 		preset.resolve_overlay_for_mode(mode),
-		deg_to_rad(idle_deg),
+		rot,
+		WeaponOverlayCombat.OverlayState.IDLE
+	)
+
+
+func apply_preset_overlay_gather(preset: WeaponLimbPreset) -> void:
+	apply_preset_overlay_walk(preset, WeaponLimbPreset.TunerAnimMode.GATHER1)
+
+
+func apply_preset_overlay_idle_club1(preset: WeaponLimbPreset) -> void:
+	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
+		return
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
+	var rot := _resolve_overlay_rotation_rad(preset, WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1, profile)
+	_apply_tuner_overlay_pose(
+		preset.resolve_overlay_for_mode(WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1),
+		rot,
 		WeaponOverlayCombat.OverlayState.IDLE
 	)
 
@@ -905,12 +1019,10 @@ func apply_preset_overlay_idle(
 	if LimbPresetRegistry:
 		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
 	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
-	var idle_deg: float = preset.idle_rotation_deg
-	if absf(idle_deg) < 0.001:
-		idle_deg = float(profile.get("idle_rotation_deg", 0.0))
+	var rot := _resolve_overlay_rotation_rad(preset, mode, profile)
 	_apply_tuner_overlay_pose(
 		preset.resolve_overlay_for_mode(mode),
-		deg_to_rad(idle_deg),
+		rot,
 		WeaponOverlayCombat.OverlayState.IDLE
 	)
 
@@ -924,7 +1036,8 @@ func apply_preset_overlay_ready(preset: WeaponLimbPreset, aim: Vector2) -> void:
 func apply_club_windup_overlay_at_ready_offset(
 	preset: WeaponLimbPreset,
 	ready_display_px: Vector2,
-	aim: Vector2 = Vector2(1.0, 0.0)
+	aim: Vector2 = Vector2(1.0, 0.0),
+	rotation_deg_override: float = NAN
 ) -> void:
 	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
 		return
@@ -934,14 +1047,28 @@ func apply_club_windup_overlay_at_ready_offset(
 		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
 	var kind: int = int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN))
 	var rot: float
-	if kind == WeaponOverlayCombat.AttackKind.THRUST:
+	if not is_nan(rotation_deg_override):
+		WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim_dir)
+		var facing: float = WeaponOverlayCombat._swing_facing_sign(sprite)
+		var idle_deg: float = float(profile.get("idle_rotation_deg", preset.idle_rotation_deg))
+		var applied_deg: float = WeaponLimbPreset.signed_rotation_deg(
+			idle_deg + (rotation_deg_override - idle_deg) * facing
+		)
+		rot = deg_to_rad(applied_deg)
+	elif kind == WeaponOverlayCombat.AttackKind.THRUST:
 		if sprite:
 			sprite.flip_h = aim_dir.x < 0.0
 		var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
-		rot = WeaponOverlayCombat.compute_aim_rotation(sprite, aim_dir, tip_deg, 0.0)
+		rot = _resolve_overlay_rotation_rad(
+			preset, WeaponLimbPreset.TunerAnimMode.ATTACK, profile, aim_dir
+		)
+		if not preset.rotation_deg_is_custom(WeaponLimbPreset.TunerAnimMode.ATTACK):
+			rot = WeaponOverlayCombat.compute_aim_rotation(sprite, aim_dir, tip_deg, 0.0)
 	else:
 		WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim_dir)
-		rot = deg_to_rad(WeaponOverlayCombat._swing_ready_degrees(sprite, profile))
+		rot = _resolve_overlay_rotation_rad(
+			preset, WeaponLimbPreset.TunerAnimMode.ATTACK, profile, aim_dir
+		)
 	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
 	_apply_tuner_overlay_pose(ready_display_px, rot, WeaponOverlayCombat.OverlayState.READY)
 	_sync_body_visual_head_draw()
@@ -953,10 +1080,16 @@ func apply_club_windup_idle_preview(preset: WeaponLimbPreset, phase: float) -> v
 		return
 	_windup_idle_sample = preset.sample_club_windup_idle_loop(phase)
 	_windup_idle_sample_active = true
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	# Saved windup: lerp overlay + hands between rest/A/B keyframes; club angle stays at ready cock.
+	var windup_rot_deg: float = preset.resolve_club_windup_rotation_deg(&"b", profile)
 	apply_club_windup_overlay_at_ready_offset(
 		preset,
 		_windup_idle_sample.get("ready_offset_px", preset.ready_offset_px),
-		aim_from_facing()
+		aim_from_facing(),
+		windup_rot_deg
 	)
 
 
@@ -974,10 +1107,28 @@ func apply_tuner_spear_windup_overlay(preset: WeaponLimbPreset, aim: Vector2) ->
 	var rot := WeaponOverlayCombat.compute_aim_rotation(sprite, aim_dir, tip_deg, 0.0)
 	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
 	_apply_tuner_overlay_pose(
-		preset.resolve_tuner_spear_attack_overlay_px(),
+		preset.resolve_tuner_spear_windup_overlay_px(),
 		rot,
 		WeaponOverlayCombat.OverlayState.READY
 	)
+
+
+func apply_tuner_spear_strike_overlay(preset: WeaponLimbPreset, aim: Vector2) -> void:
+	## Thrust peak / furthest extension row (strike_offset_px + attack rotation).
+	if preset == null or sprite == null or weapon_overlay == null or not has_weapon_overlay():
+		return
+	aim_dir = aim.normalized() if aim.length_squared() > 0.0001 else Vector2(1.0, 0.0)
+	var profile: Dictionary = _registry.get_weapon_combat_profile(weapon_type)
+	if LimbPresetRegistry:
+		profile = LimbPresetRegistry.apply_combat_profile_overrides(profile, weapon_type)
+	if sprite:
+		sprite.flip_h = aim_dir.x < 0.0
+	var rot := _resolve_overlay_rotation_rad(
+		preset, WeaponLimbPreset.TunerAnimMode.ATTACK, profile, aim
+	)
+	WeaponOverlayCombat._ensure_weapon_pivot(weapon_overlay, profile)
+	var display_px := preset.resolve_tuner_spear_strike_overlay_px()
+	_apply_tuner_overlay_pose(display_px, rot, WeaponOverlayCombat.OverlayState.STRIKING)
 
 
 func _apply_tuner_overlay_pose(display_px: Vector2, rotation_rad: float, overlay_state: int) -> void:
