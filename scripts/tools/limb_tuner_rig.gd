@@ -6,12 +6,15 @@ class_name LimbTunerRig
 const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
+const IKUtils = preload("res://scripts/systems/ik_utils.gd")
+const IdleMotion = preload("res://scripts/systems/idle_motion.gd")
 const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerIdlePreview = preload("res://scripts/tools/tuner_idle_preview.gd")
 const TunerGatherPreview = preload("res://scripts/tools/tuner_gather_preview.gd")
 const TunerWindupIdlePreview = preload("res://scripts/tools/tuner_windup_idle_preview.gd")
 const GatherArmMotion = preload("res://scripts/systems/gather_arm_motion.gd")
 const WalkArmSwing = preload("res://scripts/systems/walk_arm_swing.gd")
+const WalkArmMotion = preload("res://scripts/systems/walk_arm_motion.gd")
 const TUNER_ARM1_Z_INDEX := 0
 const TUNER_BODY_Z_INDEX := 1
 const TUNER_HEAD_Z_INDEX := 2
@@ -20,6 +23,7 @@ const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_
 const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const LimbAnimationBakerScript = preload("res://scripts/tools/limb_animation_baker.gd")
+const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
 
 ## Tuner handle 3 — grip on overlay texture (normalized Y from top). Spear = shaft midpoint.
 const WEAPON_HANDLE_Y_FRAC := PlaceholderCardRegistry.SPEAR_GRIP_TEXTURE_NY
@@ -44,6 +48,7 @@ var _registry = PlaceholderCardRegistry.new()
 var _last_overlay_base := Vector2.ZERO
 var _preview_idle_mode := true
 var _preview_gather_mode := false
+var _preview_walk_mode := false
 var _preview_windup_mode := false
 var _shift_ready_windup_mode := false
 var _windup_preview_preset: WeaponLimbPreset = null
@@ -52,6 +57,9 @@ var _windup_idle_sample: Dictionary = {}
 var _walk_preview_preset: WeaponLimbPreset = null
 var _walk_preview_grip_mode: WeaponLimbPreset.TunerAnimMode = WeaponLimbPreset.TunerAnimMode.IDLE
 var _idle_preview_amp_scale: float = 1.0
+var _walk_elbow_pick_locked := false
+var _walk_support_elbow_pick_a := true
+var _walk_weapon_elbow_pick_a := true
 
 
 func _ready() -> void:
@@ -184,6 +192,7 @@ func set_preview_playing(on: bool) -> void:
 			apply_preset_overlay_ready(_windup_preview_preset, aim_from_facing())
 	_windup_idle.set_playing(windup_on or _shift_ready_windup_mode)
 	_gather.set_playing(on and _preview_gather_mode)
+	_walk.set_playing(on and _preview_walk_mode)
 	_idle.set_playing(on and _preview_idle_mode)
 
 
@@ -246,6 +255,67 @@ func get_idle_arm2_raise_blend() -> float:
 	return _idle.arm2_raise_blend()
 
 
+func is_idle_arm2_lowering() -> bool:
+	return _idle.is_arm2_lowering() if _idle else false
+
+
+func get_idle_arm2_lowering() -> bool:
+	return is_idle_arm2_lowering()
+
+
+func idle_head_look_visual_right() -> bool:
+	if sprite == null or _idle == null:
+		return true
+	var look_right := not sprite.flip_h
+	if _idle.get_variant_id() == TunerIdlePreview.VARIANT_ID:
+		look_right = _idle.head_look_right()
+		if sprite.flip_h:
+			look_right = not _idle.head_look_right()
+	return look_right
+
+
+func tick_idle_hand_shade_slide(delta: float) -> void:
+	if _idle == null or sprite == null:
+		return
+	_idle.tick_hand_shade_slide(delta, sprite.flip_h, idle_head_look_visual_right())
+
+
+func idle_hand_shade_offset_display_px() -> Vector2:
+	if _idle == null or sprite == null:
+		return Vector2.ZERO
+	return _idle.hand_shade_offset_display_px(sprite.flip_h, idle_head_look_visual_right())
+
+
+func begin_idle_sun_shield_scan() -> void:
+	if _idle:
+		_idle.set_sun_shield_scan_mode(true)
+		_idle.begin_sun_shield_raise()
+
+
+func snap_idle_pose_edit(key: String) -> void:
+	if _idle:
+		_idle.set_pose_edit(true, key)
+
+
+func clear_idle_pose_edit() -> void:
+	if _idle:
+		_idle.set_pose_edit(false)
+
+
+func is_idle_pose_edit_b() -> bool:
+	return _idle.is_pose_edit_b() if _idle else false
+
+
+func prime_idle_arm_raise_soon() -> void:
+	if _idle:
+		_idle.prime_arm_raise_soon()
+
+
+func set_idle_look_hold_sec(sec: float) -> void:
+	if _idle:
+		_idle.set_look_hold_sec(sec)
+
+
 func set_preview_idle_variant(variant_id: String) -> void:
 	if _idle:
 		_idle.set_variant(variant_id)
@@ -261,6 +331,25 @@ func set_preview_gather_mode(on: bool) -> void:
 	_preview_gather_mode = on
 	if not on:
 		_gather.set_playing(false)
+
+
+func set_preview_walk_mode(on: bool) -> void:
+	_preview_walk_mode = on
+	if not on:
+		_walk.set_playing(false)
+		_walk.set_pose_edit(false)
+
+
+func is_walk_keyframe_playing() -> bool:
+	return _walk.is_keyframe_playing() if _walk else false
+
+
+func is_walk_pose_edit_active() -> bool:
+	return _walk.is_pose_edit_active() if _walk else false
+
+
+func is_walk_pose_edit_b() -> bool:
+	return _walk.is_pose_edit_b() if _walk else false
 
 
 func set_idle_preview_amplitude_scale(scale: float) -> void:
@@ -361,6 +450,143 @@ func gather1_pull_hand_global_from_preset(
 	return LimbPresetCoords.overlay_grip_global(weapon_overlay, grip_px)
 
 
+func snap_gather_pose_edit(pull: bool) -> void:
+	if _gather:
+		_gather.set_pose_edit(true, pull)
+	_gather.set_playing(false)
+	_apply_gather_edit_hold_pose()
+
+
+func clear_gather_pose_edit() -> void:
+	if _gather:
+		_gather.set_pose_edit(false)
+
+
+func is_gather_pose_edit_active() -> bool:
+	return _gather.is_pose_edit_active() if _gather else false
+
+
+func is_gather_pose_edit_pull() -> bool:
+	return _gather.is_pose_edit_pull() if _gather else false
+
+
+func gather_dominant_hand_global_for_pose_edit(preset: WeaponLimbPreset, pull: bool) -> Vector2:
+	if preset == null:
+		return global_position
+	if pull and preset.has_gather1_pull_pose():
+		return gather1_pull_hand_global_from_preset(preset, true)
+	return hand_grip_global_from_preset(preset, WeaponLimbPreset.TunerAnimMode.GATHER1)
+
+
+func gather_support_hand_global_for_pose_edit(preset: WeaponLimbPreset, pull: bool) -> Vector2:
+	if preset == null:
+		return global_position
+	if pull and preset.has_gather1_pull_pose():
+		return gather1_pull_hand_global_from_preset(preset, false)
+	return support_hand_global_for_mode(preset, WeaponLimbPreset.TunerAnimMode.GATHER1)
+
+
+func walk1_pull_hand_global_from_preset(preset: WeaponLimbPreset, dominant: bool) -> Vector2:
+	if preset == null:
+		return global_position
+	var grip_px := preset.resolve_walk1_pull_hand(dominant)
+	return LimbPresetCoords.body_global_from_display(sprite, grip_px)
+
+
+func snap_walk_pose_edit(pose_b: bool) -> void:
+	if _walk:
+		_walk.set_pose_edit(true, pose_b)
+	_walk.set_playing(false)
+	_apply_walk_pose_edit_hold()
+
+
+func clear_walk_pose_edit() -> void:
+	if _walk:
+		_walk.set_pose_edit(false)
+
+
+func walk_dominant_hand_global_for_pose_edit(preset: WeaponLimbPreset, pose_b: bool) -> Vector2:
+	if preset == null:
+		return global_position
+	if pose_b and preset.has_walk1_pull_pose():
+		return walk1_pull_hand_global_from_preset(preset, true)
+	return hand_grip_global_from_preset(preset, WeaponLimbPreset.TunerAnimMode.WALK1)
+
+
+func walk_support_hand_global_for_pose_edit(preset: WeaponLimbPreset, pose_b: bool) -> Vector2:
+	if preset == null:
+		return global_position
+	if pose_b and preset.has_walk1_pull_pose():
+		return walk1_pull_hand_global_from_preset(preset, false)
+	return support_hand_global_for_mode(preset, WeaponLimbPreset.TunerAnimMode.WALK1)
+
+
+func hand_grip_global_with_walk_keyframe_motion(
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode
+) -> Vector2:
+	return _apply_walk_keyframe_hand_motion(
+		shoulder_global_from_preset(preset),
+		hand_grip_global_from_preset(preset, mode),
+		preset,
+		mode,
+		true,
+		_walk.cycle_phase()
+	)
+
+
+func support_hand_global_with_walk_keyframe_motion(
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode
+) -> Vector2:
+	return _apply_walk_keyframe_hand_motion(
+		support_shoulder_global_from_preset(preset),
+		support_hand_global_for_mode(preset, mode),
+		preset,
+		mode,
+		false,
+		_walk.cycle_phase()
+	)
+
+
+func _apply_walk_keyframe_hand_motion(
+	shoulder_global: Vector2,
+	pose_a_hand_global: Vector2,
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	dominant: bool,
+	cycle_phase: float
+) -> Vector2:
+	if sprite == null or not _walk.is_keyframe_playing():
+		return pose_a_hand_global
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_local := to_local(shoulder_global)
+	var pose_a_local := to_local(pose_a_hand_global)
+	var pose_a_offset := (pose_a_local - shoulder_local) / sx
+	var motion_offset: Vector2
+	if preset != null and preset.has_walk1_pull_pose():
+		var pose_b_global := walk1_pull_hand_global_from_preset(preset, dominant)
+		var pose_b_local := to_local(pose_b_global)
+		var pose_b_offset := (pose_b_local - shoulder_local) / sx
+		motion_offset = WalkArmMotion.hand_offset_between_keyframes(
+			pose_a_offset, pose_b_offset, cycle_phase, dominant
+		) * sx
+	else:
+		motion_offset = pose_a_offset * sx
+	return to_global(shoulder_local + motion_offset)
+
+
+func _apply_walk_pose_edit_hold() -> void:
+	if sprite == null:
+		return
+	sprite.position.y = _anchor_foot_y
+	if body_visual and body_visual.has_method("set_walk_state"):
+		body_visual.call("set_walk_state", false, 0.0, 1 if not sprite.flip_h else -1)
+	_sync_body_visual_head_draw()
+
+
 func _apply_gather_hand_motion(
 	shoulder_global: Vector2,
 	reach_hand_global: Vector2,
@@ -415,6 +641,8 @@ func _apply_gather_hand_motion(
 
 
 func set_walk_direction(dir: int) -> void:
+	if dir == 0:
+		_walk_elbow_pick_locked = false
 	_walk.set_direction(dir)
 
 
@@ -521,12 +749,29 @@ func get_equipped_weapon_type() -> ResourceData.ResourceType:
 	return weapon_type
 
 
+func _uses_spear_keyframed_strike() -> bool:
+	if weapon_type != ResourceData.ResourceType.SPEAR or _registry == null:
+		return false
+	return WeaponOverlayCombat.uses_spear_keyframed_strike_for_weapon(_registry, weapon_type)
+
+
+func _get_combat_aim_direction() -> Vector2:
+	## Keyframed spear: horizontal travel facing only — no cursor tracking.
+	if _uses_spear_keyframed_strike():
+		if sprite and sprite.flip_h:
+			return Vector2(-1.0, 0.0)
+		if aim_dir.length_squared() > 0.0001 and absf(aim_dir.x) > 0.05:
+			return Vector2(signf(aim_dir.x), 0.0)
+		return Vector2(1.0, 0.0)
+	return _get_cursor_aim_direction()
+
+
 func _get_cursor_aim_direction() -> Vector2:
 	var mp := get_global_mouse_position()
 	var delta := mp - global_position
 	if delta.length_squared() > 4.0:
 		var raw := delta.normalized()
-		if weapon_type == ResourceData.ResourceType.SPEAR and _registry:
+		if weapon_type == ResourceData.ResourceType.SPEAR and _registry and not _uses_spear_keyframed_strike():
 			return WeaponOverlayCombat.resolve_thrust_aim(raw, _registry, weapon_type, self)
 		return raw
 	return aim_dir
@@ -732,6 +977,24 @@ func _update_motion_preview(delta: float) -> void:
 		_sync_overlay_walk_bounce(true)
 		_sync_body_visual_head_draw()
 		return
+	if _walk.is_keyframe_playing() and _preview_walk_mode:
+		_walk.tick(delta)
+		if sprite != null:
+			if _walk.direction < 0:
+				sprite.flip_h = true
+			elif _walk.direction > 0:
+				sprite.flip_h = false
+		_walk.bounce_time = CardVisualController.tick_walk_bounce(
+			sprite, _anchor_foot_y, _walk.bounce_time, true, delta
+		)
+		if body_visual and body_visual.has_method("set_walk_state"):
+			body_visual.call("set_walk_state", true, _walk.bounce_time, _walk.direction)
+		_sync_overlay_walk_bounce(true)
+		_sync_body_visual_head_draw()
+		return
+	if _preview_walk_mode and _walk.is_pose_edit_active():
+		_apply_walk_pose_edit_hold()
+		return
 	if _gather.playing and _preview_gather_mode:
 		_gather.tick(delta)
 		var phase := _gather.cycle_phase()
@@ -754,29 +1017,36 @@ func _update_motion_preview(delta: float) -> void:
 	if _preview_gather_mode:
 		_apply_gather_edit_hold_pose()
 		return
+	if _idle.is_pose_edit_active() and _preview_idle_mode:
+		if body_visual and body_visual.has_method("set_idle_state"):
+			body_visual.call("set_idle_state", 0.0, 0.0, idle_head_look_visual_right())
+		_sync_body_visual_head_draw()
+		return
 	if _idle.playing and _preview_idle_mode:
 		_idle.tick(delta)
+		tick_idle_hand_shade_slide(delta)
+		set_meta(
+			"_idle_sun_shield_scan_active",
+			_idle.is_sun_shield_scan_mode()
+		)
 		var amp_scale := _idle_preview_amp_scale
 		var body_amp := _display_to_local(TunerIdlePreview.BODY_BOUNCE_DISPLAY_PX * amp_scale)
 		var head_amp := _display_to_local(TunerIdlePreview.HEAD_BOB_DISPLAY_PX * amp_scale)
 		var weapon_amp := _display_to_local(TunerIdlePreview.WEAPON_EXTRA_BOUNCE_DISPLAY_PX * amp_scale)
 		sprite.position.y = _anchor_foot_y + _idle.body_bounce_offset(body_amp)
 		if body_visual and body_visual.has_method("set_idle_state"):
-			var look_right := not sprite.flip_h
-			if _idle.get_variant_id() == TunerIdlePreview.VARIANT_ID:
-				look_right = _idle.head_look_right()
-				if sprite.flip_h:
-					look_right = not _idle.head_look_right()
 			body_visual.call(
 				"set_idle_state",
 				_idle.head_bob_offset(head_amp),
 				_idle.body_sway_rad(),
-				look_right
+				idle_head_look_visual_right()
 			)
 		_sync_overlay_idle_bounce(weapon_amp)
 		_sync_body_visual_head_draw()
 		return
-	_idle.reset()
+	if not _idle.is_pose_edit_active():
+		_idle.reset()
+	set_meta("_idle_sun_shield_scan_active", false)
 	_walk.bounce_time = CardVisualController.tick_walk_bounce(
 		sprite, _anchor_foot_y, _walk.bounce_time, false, delta
 	)
@@ -1272,6 +1542,16 @@ func support_shoulder_global_from_preset(preset: WeaponLimbPreset) -> Vector2:
 	)
 
 
+func support_shoulder_global_with_idle_raise(preset: WeaponLimbPreset, raise_blend: float) -> Vector2:
+	if preset == null:
+		return global_position
+	var lowering := is_idle_arm2_lowering()
+	var display_px := preset.resolve_support_shoulder_for_idle_raise(raise_blend, lowering)
+	return MannequinAnchorResolver.shoulder_global_from_display(
+		sprite, body_visual, display_px
+	)
+
+
 func set_support_shoulder_from_global(preset: WeaponLimbPreset, global_pos: Vector2) -> void:
 	if preset == null:
 		return
@@ -1531,6 +1811,10 @@ func elbow_pole_global_from_preset(
 	if preset == null or sprite == null:
 		return global_position
 	var pole_px := preset.resolve_elbow_pole_for_mode(dominant, mode)
+	if mode == WeaponLimbPreset.TunerAnimMode.WALK1 and _walk.is_pose_edit_b():
+		pole_px = preset.resolve_walk1_elbow_pole_px(dominant, true)
+	elif mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.is_pose_edit_pull():
+		pole_px = preset.resolve_gather1_elbow_pole_px(dominant, true)
 	if pole_px.length_squared() < 0.0001:
 		return global_position
 	return LimbPresetCoords.body_global_from_display(sprite, pole_px)
@@ -1544,11 +1828,13 @@ func set_elbow_pole_from_global(
 ) -> void:
 	if preset == null or sprite == null:
 		return
-	preset.set_elbow_pole_for_mode(
-		dominant,
-		mode,
-		LimbPresetCoords.body_display_from_global(sprite, global_pos)
-	)
+	var display_px := LimbPresetCoords.body_display_from_global(sprite, global_pos)
+	if mode == WeaponLimbPreset.TunerAnimMode.WALK1 and _walk.is_pose_edit_b():
+		preset.set_walk1_elbow_pole(dominant, true, display_px)
+	elif mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.is_pose_edit_pull():
+		preset.set_gather1_elbow_pole(dominant, true, display_px)
+	else:
+		preset.set_elbow_pole_for_mode(dominant, mode, display_px)
 
 
 func elbow_pole_global_from_preset_legacy(preset: WeaponLimbPreset, dominant: bool, ready_pose: bool) -> Vector2:
@@ -1604,7 +1890,150 @@ func resolve_elbow_bend_sign(
 ) -> float:
 	if preset == null:
 		return elbow_bend_sign_auto_for_facing(dominant)
-	return preset.resolve_elbow_bend_sign(dominant, mode, elbow_bend_sign_auto_for_facing(dominant))
+	var pose_b := mode == WeaponLimbPreset.TunerAnimMode.WALK1 and is_walk_pose_edit_b()
+	var gather_pull := mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and is_gather_pose_edit_pull()
+	return preset.resolve_elbow_bend_sign_for_pose(
+		dominant, mode, pose_b, gather_pull, elbow_bend_sign_auto_for_facing(dominant)
+	)
+
+
+func _resolve_tuner_elbow_pole_px(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	mode: WeaponLimbPreset.TunerAnimMode
+) -> Vector2:
+	if preset == null:
+		return Vector2.ZERO
+	match mode:
+		WeaponLimbPreset.TunerAnimMode.WALK1:
+			if _walk.is_keyframe_playing() and preset.has_walk1_pull_pose():
+				return preset.resolve_walk1_elbow_pole_for_keyframe(dominant, _walk.cycle_phase())
+			if _walk.is_pose_edit_active():
+				return preset.resolve_walk1_elbow_pole_px(dominant, _walk.is_pose_edit_b())
+			return preset.resolve_walk1_elbow_pole_px(dominant, false)
+		WeaponLimbPreset.TunerAnimMode.GATHER1:
+			if _gather.is_pose_edit_active():
+				return preset.resolve_gather1_elbow_pole_px(dominant, _gather.is_pose_edit_pull())
+			if _gather.playing and preset.has_gather1_pull_pose():
+				var arm_work := GatherArmMotion.arm_work_phase(_gather.cycle_phase())
+				if arm_work >= 0.0:
+					var reach_pole := preset.resolve_gather1_elbow_pole_px(dominant, false)
+					var pull_pole := preset.resolve_gather1_elbow_pole_px(dominant, true)
+					return WalkArmMotion.body_snapshot_between_keyframes(reach_pole, pull_pole, arm_work)
+			return preset.resolve_gather1_elbow_pole_px(dominant, false)
+		_:
+			return preset.resolve_elbow_pole_for_mode(dominant, mode)
+
+
+func _elbow_global_from_pole_pick(
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	pole_px: Vector2,
+	upper_len: float,
+	lower_len: float,
+	relax_min_reach: bool
+) -> Vector2:
+	if sprite == null:
+		return shoulder_global
+	var shoulder_local := to_local(shoulder_global)
+	var hand_local := to_local(hand_global)
+	var pole_local := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+		shoulder_local, hand_local, upper_len, lower_len, relax_min_reach
+	)
+	if candidates.size() < 2:
+		return to_global(shoulder_local)
+	var pick_a := ProceduralArmScript.prefers_elbow_a_near_pole(
+		shoulder_local, hand_local, upper_len, lower_len, pole_local, true
+	)
+	var elbow_local: Vector2 = candidates[0] if pick_a else candidates[1]
+	return to_global(elbow_local)
+
+
+func flipped_elbow_global_from_handles(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	shoulder_global: Vector2,
+	hand_global: Vector2
+) -> Vector2:
+	if preset == null or sprite == null:
+		return shoulder_global
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_local := to_local(shoulder_global)
+	var hand_local := to_local(hand_global)
+	var upper_len: float = preset.resolve_upper_arm_length(dominant) * sx
+	var lower_len: float = preset.resolve_lower_arm_length(dominant) * sx
+	var relax_min_reach := (
+		(
+			mode == WeaponLimbPreset.TunerAnimMode.WALK
+			or mode == WeaponLimbPreset.TunerAnimMode.WALK1
+		) and _walk.is_moving()
+	) or (mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.playing)
+	var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+		shoulder_local, hand_local, upper_len, lower_len, relax_min_reach
+	)
+	if candidates.size() < 2:
+		return to_global(shoulder_local)
+	var pole_px := _resolve_tuner_elbow_pole_px(preset, dominant, mode)
+	var pick_a := true
+	if pole_px.length_squared() > 0.0001:
+		var pole_local := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+		pick_a = ProceduralArmScript.prefers_elbow_a_near_pole(
+			shoulder_local, hand_local, upper_len, lower_len, pole_local, true
+		)
+	var elbow_local: Vector2 = candidates[1] if pick_a else candidates[0]
+	return to_global(elbow_local)
+
+
+func sync_elbow_bend_sign_override_from_pole_px(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	pose_b: bool,
+	gather_pull: bool,
+	shoulder_global: Vector2,
+	hand_global: Vector2,
+	pole_px: Vector2
+) -> void:
+	if preset == null or sprite == null or pole_px.length_squared() < 0.0001:
+		return
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_local := to_local(shoulder_global)
+	var hand_local := to_local(hand_global)
+	var upper_len: float = preset.resolve_upper_arm_length(dominant) * sx
+	var lower_len: float = preset.resolve_lower_arm_length(dominant) * sx
+	var pole_local := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+		shoulder_local, hand_local, upper_len, lower_len, false
+	)
+	if candidates.size() < 2:
+		return
+	var pick_a := ProceduralArmScript.prefers_elbow_a_near_pole(
+		shoulder_local, hand_local, upper_len, lower_len, pole_local, true
+	)
+	var auto_sign := elbow_bend_sign_auto_for_facing(dominant)
+	var fold_min := 8.0
+	var fold_max := 150.0
+	if arm_controller and arm_controller.config:
+		var cfg: ProceduralArmConfig = arm_controller.config
+		fold_min = cfg.elbow_fold_min_deg
+		fold_max = cfg.elbow_fold_max_deg
+	for trial in [1.0, -1.0]:
+		preset.set_elbow_bend_sign_override_for_pose(dominant, mode, pose_b, gather_pull, trial)
+		var bend_sign := preset.resolve_elbow_bend_sign_for_pose(
+			dominant, mode, pose_b, gather_pull, auto_sign
+		)
+		var elbow_local := _solve_ik_local(
+			shoulder_local, hand_local, upper_len, lower_len, bend_sign, fold_min, fold_max, false
+		)
+		var elbow_pick_a := elbow_local.distance_squared_to(candidates[0]) <= elbow_local.distance_squared_to(candidates[1])
+		if elbow_pick_a == pick_a:
+			return
 
 
 func elbow_joint_global_from_handles(
@@ -1623,13 +2052,40 @@ func elbow_joint_global_from_handles(
 		sx = 1.0
 	var upper_len: float = preset.resolve_upper_arm_length(dominant) * sx
 	var lower_len: float = preset.resolve_lower_arm_length(dominant) * sx
-	var bend_sign: float = resolve_elbow_bend_sign(preset, dominant, mode)
 	var relax_min_reach := (
 		(
 			mode == WeaponLimbPreset.TunerAnimMode.WALK
 			or mode == WeaponLimbPreset.TunerAnimMode.WALK1
 		) and _walk.is_moving()
 	) or (mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.playing)
+	var walk_keyframe := (
+		_walk.is_keyframe_playing()
+		and mode == WeaponLimbPreset.TunerAnimMode.WALK1
+	)
+	var walk_motion := (
+		_walk.is_moving()
+		and WeaponLimbPreset.is_walk_mode(mode)
+		and not walk_keyframe
+	)
+	if walk_motion:
+		if not _walk_elbow_pick_locked:
+			_walk_support_elbow_pick_a = _compute_tuner_walk_elbow_pick_a(preset, false, mode)
+			_walk_weapon_elbow_pick_a = _compute_tuner_walk_elbow_pick_a(preset, true, mode)
+			_walk_elbow_pick_locked = true
+		var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+			shoulder_local, hand_local, upper_len, lower_len, relax_min_reach
+		)
+		var pick_a := _walk_weapon_elbow_pick_a if dominant else _walk_support_elbow_pick_a
+		var elbow_local: Vector2 = candidates[0] if pick_a else candidates[1]
+		return to_global(elbow_local)
+	elif _walk_elbow_pick_locked:
+		_walk_elbow_pick_locked = false
+	var pole_px := _resolve_tuner_elbow_pole_px(preset, dominant, mode)
+	if pole_px.length_squared() > 0.0001:
+		return _elbow_global_from_pole_pick(
+			shoulder_global, hand_global, pole_px, upper_len, lower_len, relax_min_reach
+		)
+	var bend_sign: float = resolve_elbow_bend_sign(preset, dominant, mode)
 	var fold_min := 8.0
 	var fold_max := 150.0
 	if arm_controller and arm_controller.config:
@@ -1681,6 +2137,34 @@ func _solve_ik_local(
 		pole_side = 1.0
 	var elbow_dir := dir.rotated(shoulder_angle * pole_side)
 	return shoulder + elbow_dir * upper_len
+
+
+func _compute_tuner_walk_elbow_pick_a(
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	mode: WeaponLimbPreset.TunerAnimMode
+) -> bool:
+	if preset == null or sprite == null or arm_controller == null or arm_controller.config == null:
+		return true
+	var cfg: ProceduralArmConfig = arm_controller.config
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_px: Vector2
+	var hand_px: Vector2
+	if dominant:
+		shoulder_px = cfg.weapon_shoulder_offset_px
+		hand_px = preset.resolve_walk_rest_hand_grip()
+	else:
+		shoulder_px = cfg.shoulder_offset_left
+		hand_px = preset.resolve_walk_rest_support_hand()
+	var pole_px := preset.resolve_elbow_pole_for_mode(dominant, mode)
+	var shoulder := LimbPresetCoords.body_display_to_rig_local(sprite, shoulder_px)
+	var hand := LimbPresetCoords.body_display_to_rig_local(sprite, hand_px)
+	var pole := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	var upper := preset.resolve_upper_arm_length(dominant) * sx
+	var lower := preset.resolve_lower_arm_length(dominant) * sx
+	return ProceduralArmScript.prefers_elbow_a_near_pole(shoulder, hand, upper, lower, pole, true)
 
 
 func set_arm_lengths_from_elbow_global(
@@ -1758,13 +2242,29 @@ func seed_elbow_pole_if_unset(
 ) -> void:
 	if preset == null or sprite == null:
 		return
-	if preset.resolve_elbow_pole_for_mode(dominant, mode).length_squared() > 0.0001:
+	if mode == WeaponLimbPreset.TunerAnimMode.WALK1 and _walk.is_pose_edit_b():
+		if preset.resolve_walk1_elbow_pole_px(dominant, true).length_squared() > 0.0001:
+			return
+	elif mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.is_pose_edit_pull():
+		if preset.resolve_gather1_elbow_pole_px(dominant, true).length_squared() > 0.0001:
+			return
+	elif preset.resolve_elbow_pole_for_mode(dominant, mode).length_squared() > 0.0001:
 		return
 	var bend_sign := resolve_elbow_bend_sign(preset, dominant, mode)
 	var auto_px := LimbPresetCoords.auto_elbow_pole_display_from_global(
 		sprite, shoulder_global, hand_global, preset.elbow_hint_outward, bend_sign
 	)
-	preset.set_elbow_pole_for_mode(dominant, mode, auto_px)
+	var pose_b := mode == WeaponLimbPreset.TunerAnimMode.WALK1 and _walk.is_pose_edit_b()
+	var gather_pull := mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.is_pose_edit_pull()
+	if mode == WeaponLimbPreset.TunerAnimMode.WALK1 and _walk.is_pose_edit_b():
+		preset.set_walk1_elbow_pole(dominant, true, auto_px)
+	elif mode == WeaponLimbPreset.TunerAnimMode.GATHER1 and _gather.is_pose_edit_pull():
+		preset.set_gather1_elbow_pole(dominant, true, auto_px)
+	else:
+		preset.set_elbow_pole_for_mode(dominant, mode, auto_px)
+	sync_elbow_bend_sign_override_from_pole_px(
+		preset, dominant, mode, pose_b, gather_pull, shoulder_global, hand_global, auto_px
+	)
 
 
 func support_hand_global_for_mode(
@@ -1793,10 +2293,16 @@ func support_hand_idle_global_with_raise(preset: WeaponLimbPreset, raise_blend: 
 		return LimbPresetCoords.body_global_from_display(sprite, preset.resolve_support_hand_idle_rest_px())
 	if raise_blend <= 0.0001:
 		return LimbPresetCoords.body_global_from_display(sprite, preset.resolve_support_hand_idle_rest_px())
-	var rest_px := preset.resolve_support_hand_idle_rest_px()
-	var raised_px := preset.resolve_support_hand_idle_raised_px()
-	var blended_px := rest_px.lerp(raised_px, clampf(raise_blend, 0.0, 1.0))
-	return LimbPresetCoords.body_global_from_display(sprite, blended_px)
+	var hand_px := preset.resolve_support_hand_idle_for_idle_scan(
+		raise_blend,
+		_idle.scan_blend() if _idle else 0.0,
+		is_idle_arm2_lowering()
+	)
+	if _idle != null and _idle.is_pose_edit_b():
+		hand_px = preset.resolve_support_hand_idle_raised_lookback_px()
+	elif _idle != null and _idle.is_pose_edit_active():
+		hand_px = preset.resolve_support_hand_idle_raised_px()
+	return LimbPresetCoords.body_global_from_display(sprite, hand_px)
 
 
 func set_support_hand_for_mode(
@@ -1819,6 +2325,26 @@ func set_support_hand_for_mode(
 			mode,
 			LimbPresetCoords.body_display_from_global(sprite, global_pos)
 		)
+
+
+func commit_row_hand_pins_from_global(
+	preset: WeaponLimbPreset,
+	mode: WeaponLimbPreset.TunerAnimMode,
+	pose_b: bool,
+	gather_pull: bool,
+	dominant_hand_global: Vector2,
+	support_hand_global: Vector2
+) -> void:
+	if preset == null:
+		return
+	var row_id := WeaponLimbPreset.resolve_pose_row_id(mode, pose_b, gather_pull)
+	if row_id == &"walk1_b" or row_id == &"gather_pull":
+		var dom_px := LimbPresetCoords.body_display_from_global(sprite, dominant_hand_global)
+		var sup_px := LimbPresetCoords.body_display_from_global(sprite, support_hand_global)
+		preset.commit_row_hand_display_px(mode, pose_b, gather_pull, dom_px, sup_px)
+		return
+	set_hand_grip_from_global(preset, dominant_hand_global, mode)
+	set_support_hand_for_mode(preset, mode, support_hand_global)
 
 
 func get_weapon_overlay_bounds_on_stage() -> Rect2:
@@ -1929,12 +2455,15 @@ func sync_combat_overlay(hold_ready: bool) -> void:
 	if ostate == WeaponOverlayCombat.OverlayState.STRIKING:
 		return
 	if hold_ready:
-		aim_dir = _get_cursor_aim_direction()
+		aim_dir = _get_combat_aim_direction()
 		if PlaceholderCardService:
 			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
 		if combat_component and combat_component.state == CombatComponent.CombatState.READY:
 			combat_component.update_ready_aim(aim_dir)
 	elif combat_component and combat_component.state == CombatComponent.CombatState.READY:
-		combat_component.update_ready_aim(aim_dir)
-		if PlaceholderCardService:
-			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+		if _uses_spear_keyframed_strike():
+			combat_component.update_ready_aim(_get_combat_aim_direction())
+		else:
+			combat_component.update_ready_aim(aim_dir)
+			if PlaceholderCardService:
+				PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
