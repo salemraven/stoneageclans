@@ -8,6 +8,8 @@ const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat
 const LimbPresetCoords = preload("res://scripts/systems/limb_preset_coords.gd")
 const IKUtils = preload("res://scripts/systems/ik_utils.gd")
 const IdleMotion = preload("res://scripts/systems/idle_motion.gd")
+const SpearIdleMotion = preload("res://scripts/systems/spear_idle_motion.gd")
+const ClubWindupMotion = preload("res://scripts/systems/club_windup_motion.gd")
 const TunerWalkPreview = preload("res://scripts/tools/tuner_walk_preview.gd")
 const TunerIdlePreview = preload("res://scripts/tools/tuner_idle_preview.gd")
 const TunerGatherPreview = preload("res://scripts/tools/tuner_gather_preview.gd")
@@ -2112,31 +2114,12 @@ func _solve_ik_local(
 	fold_max_deg: float = 150.0,
 	relax_min_reach: bool = false
 ) -> Vector2:
-	var to_hand := hand - shoulder
-	var dist := to_hand.length()
-	if dist < 0.001:
-		return shoulder + Vector2(upper_len, 0.0)
-	var min_fold := deg_to_rad(fold_min_deg)
-	var max_fold := deg_to_rad(fold_max_deg)
-	var max_reach := sqrt(
-		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
-	) - 0.01
-	var min_reach := sqrt(
-		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
-	) + 0.01
-	if dist > max_reach:
-		dist = max_reach
-	elif not relax_min_reach and dist < min_reach:
-		dist = min_reach
-	var dir := to_hand / dist
-	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
-	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
-	var shoulder_angle := acos(cos_shoulder)
-	var pole_side := signf(bend_sign)
-	if pole_side == 0.0:
-		pole_side = 1.0
-	var elbow_dir := dir.rotated(shoulder_angle * pole_side)
-	return shoulder + elbow_dir * upper_len
+	var clamped_hand := IKUtils.clamp_hand_for_fold_limits(
+		shoulder, hand, upper_len, lower_len, fold_min_deg, fold_max_deg, relax_min_reach
+	)
+	return IKUtils.calculate_elbow_from_bend_sign(
+		shoulder, clamped_hand, bend_sign, upper_len, lower_len
+	)
 
 
 func _compute_tuner_walk_elbow_pick_a(

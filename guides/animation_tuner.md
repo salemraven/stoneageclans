@@ -5,7 +5,7 @@
 **Animation catalog:** `scripts/config/character_animation_catalog.gd`  
 **Pawn vision (north star):** [pawn_goal.md](pawn_goal.md) — layered pivots, genetics, RimWorld readability  
 **Canonical preset example:** `assets/limb_presets/none_clansmen_1.tres`  
-**Last updated:** July 2026 (pawn pipeline + single-panel growth model)
+**Last updated:** August 15, 2026 (Tuner & Reviewer reliability contract + Walk 1 lock-in + UI/UX roadmap)
 
 ---
 
@@ -21,6 +21,75 @@ The Character Tuner is the **authoring studio** for hominid pawns: motion, propo
 | **Game runtime (planned)** | **Procedural pawns in Main** (preferred if feasible) · **baked strips** as bridge until then · runtime cosmetic layers |
 
 If something looks right in the tuner and is **Saved**, that is the contract. I read the `.tres`, run `tools/test_limb_tuner.gd`, and change **shared code** — not one-off tweaks from screenshots alone.
+
+### Inspect every clip
+
+Two tabs at the top of the left panel:
+
+| Tab | Purpose |
+|-----|---------|
+| **Pose Tuner** | Frozen character — pick holdable + variant, drag pins, Save all |
+| **Animation Reviewer** | Full clip list — click to play on loop, Prev/Next, **Edit in Pose Tuner** |
+
+Preview CLI flags (`--walk1-preview`, `--none-idle-play`, etc.) open the **Reviewer** tab automatically.
+
+Full reliability spec: **[Tuner & Animation Reviewer — reliability contract](#tuner--animation-reviewer--how-they-should-work-reliability-contract)** below.
+
+### Pose rows stay separate
+
+Each animation owns its own saved pins in the `.tres` file — **walk elbows do not overwrite spear idle**, and **Walk Pose 2 does not overwrite Pose 1**.
+
+| Row | Saved fields (examples) |
+|-----|-------------------------|
+| Idle | `hand_grip_offset_px`, `weapon_elbow_pole_idle_px` |
+| Walk 1 Pose 1 | `walk1_hand_grip_offset_px`, `walk1_weapon_elbow_pole_px` |
+| Walk 1 Pose 2 | `walk1_pull_*` (hands + elbows) |
+| Gather reach / pull | `gather1_*` vs `gather1_pull_*` |
+| Spear idle | separate file: `spear_clansmen_1.tres` |
+
+After you Save, `*_saved` flags block seed/copy helpers from clobbering that row.
+
+### Animation isolation architecture
+
+**Design principle:** Locked animations are immutable. Working on Walk 1 must not break Spear idle.
+
+Each animation owns its motion logic in separate files under `scripts/systems/`. Shared math lives in pure static functions only.
+
+| File | Owns |
+|------|------|
+| `ik_utils.gd` | Pole IK, bend-sign IK, reach clamp — **no preset access, no side effects** |
+| `idle_motion.gd` | None idle breathe / sway |
+| `walk_arm_motion.gd` | Walk 1 pendulum between Pose A and B |
+| `gather_arm_motion.gd` | Gather reach / pull cycle |
+| `spear_idle_motion.gd` | Spear sun-shield raise / lower / scan |
+| `club_windup_motion.gd` | Club rest → A → B windup loop |
+| `motion_golden.gd` | Load + diff against `Tests/golden/*.json` |
+
+**Rules**
+
+1. Motion files never import each other.
+2. Shared code must be pure functions in `ik_utils.gd` (or tiny helpers like `motion_golden.gd`).
+3. Lock-in scripts validate **motion trajectories**, not just static pins.
+4. Run `godot --headless -s res://tools/test_limb_tuner.gd` before merging any IK or motion change.
+
+**Lock-in scripts**
+
+| Script | What it locks |
+|--------|----------------|
+| `tools/lockin_none_clansmen_1.gd` | Idle rest + Walk 1 Pose A/B + golden motion |
+| `tools/lockin_spear_clansmen_1.gd` | Spear default idle grip / overlay |
+| `tools/lockin_club_clansmen_1.gd` | Club windup loop baseline |
+| `tools/lockin_gather_clansmen_1.gd` | Skips until gather is visually signed off |
+
+**Adding a new animation**
+
+1. Create a new motion file (e.g. `axe_chop_motion.gd`).
+2. Use `IKUtils` for elbow math — do not add IK to `limb_tuner_rig.gd`.
+3. Add a motion test in `tools/test_limb_tuner.gd`.
+4. Capture golden samples to `Tests/golden/<name>_motion.json`.
+5. Add a lock-in script that replays and diffs against golden (±2 px tolerance).
+
+`limb_tuner_rig.gd` is a thin coordinator: preset row lookup + delegate to motion files.
 
 ### Target pipeline (author → bake → layer)
 
@@ -254,6 +323,304 @@ Tests use `_apply_pose_catalog_entry(weapon, mode)` — same path as the UI.
 
 ---
 
+## Tuner & Animation Reviewer — how they should work (reliability contract)
+
+This section is the **target behavior** for save/load and day-to-day use. The code is moving here; where today differs, treat this as the spec to implement — not optional UX polish.
+
+### Why reliability matters here
+
+Small mistakes (wrong pose row, elbow flip, unsaved RAM) are invisible until Main or a bake looks wrong. The tuner must behave like a **small database editor**: every pin write goes to a **named row**, every save is **explicit**, reload must **match disk**.
+
+**Today’s pain points (honest audit):**
+
+| Issue | What goes wrong |
+|-------|-----------------|
+| Two elbow mechanisms | Saved **pole** and **bend sign** can disagree; IK sometimes used bend when pole existed → elbow “flipped” while paused |
+| UI state drives storage | Which row gets written depends on `_walk_pose_edit_b`, gather pull flag, etc. — easy to desync from what you think you’re editing |
+| Hands vs elbows on sub-rows | Drag on Walk Pose 2 / gather pull writes `*_pull_*` fields; **Save all** commit path still routes some hands to Pose 1 fields |
+| Silent commit | Switching variant, tab, or holdable commits active row to **RAM only** — feels saved but is not on disk until **Save all** |
+| Incomplete export | **Copy for chat** JSON omits some pull-row bend fields and `*_saved` flags |
+| Seed vs saved flags | Auto-fill can still touch rows that look “empty” unless `*_saved` was set by a prior Save |
+
+The fixes are not “more careful clicking.” They are **one row → one save function → one test**.
+
+---
+
+### Two workspaces — split read and write
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Animation Reviewer          │  Pose Tuner                    │
+│  (inspect only)              │  (author pins)                 │
+├──────────────────────────────┼────────────────────────────────┤
+│  • Full clip list            │  • Holdable + category + variant│
+│  • Click → loop play         │  • Character paused by default  │
+│  • Pins hidden / not draggable│ • Drag 1, 1h, 2, 2h, 1e, 2e, 3, H│
+│  • No writes to preset       │  • Save all → disk              │
+│  • “Edit in Pose Tuner”      │  • Reload → discard RAM         │
+│    jumps to same clip frozen │  • Copy for chat → JSON handoff │
+└──────────────────────────────┴────────────────────────────────┘
+```
+
+| Rule | Reviewer | Pose Tuner |
+|------|----------|------------|
+| **Purpose** | “Does this clip look right?” | “Change the numbers.” |
+| **Playback** | Auto-play on clip select; loop | Paused unless you press ▶ (or A/D walk preview) |
+| **Pins** | Hidden or read-only ghosts | Full drag + Shift+click elbow flip |
+| **Preset** | Read from disk/cache only | Read + write staged preset |
+| **Save** | Never saves | **Save all** is the only disk write (plus planned auto-save *off* by default) |
+
+**Reviewer must never mutate** `WeaponLimbPreset` fields. If inspect mode needs overlays, it samples the same read path as Main (`resolve_*_for_mode`), not live handle positions.
+
+**Handoff:** Reviewer → **Edit in Pose Tuner** sets holdable + variant + pose row, pauses playback, shows pins at **saved** positions (not last RAM edit from another session).
+
+---
+
+### Pose rows — one row, one bundle, one commit function
+
+A **pose row** is the smallest unit that saves independently. Not “Walk 1” as a whole — **Walk 1 Pose 1** and **Walk 1 Pose 2** are separate rows.
+
+| Row ID | Hands (1h / 2h) | Elbows (1e / 2e pole) | Elbow bend (fallback) | Overlay | Saved flag |
+|--------|-----------------|------------------------|------------------------|---------|------------|
+| `idle` | `hand_grip_*`, `support_hand_idle_*` | `*_elbow_pole_idle_px` | `*_elbow_bend_sign_override` | `overlay_offset_idle_px` | — |
+| `walk1_a` | `walk1_*_hand_*` | `walk1_*_elbow_pole_px` | `walk1_*_elbow_bend_sign_override` | `walk1_overlay_*` | `walk1_pose_a_saved` |
+| `walk1_b` | `walk1_pull_*_hand_*` | `walk1_pull_*_elbow_pole_px` | `walk1_pull_*_elbow_bend_sign_override` | *(inherits walk1 overlay)* | `walk1_pose_b_saved` |
+| `gather_reach` | `gather1_*_hand_*` | `gather1_*_elbow_pole_px` | `gather1_*_elbow_bend_sign_override` | `gather1_overlay_*` | `gather1_reach_saved` |
+| `gather_pull` | `gather1_pull_*_hand_*` | `gather1_pull_*_elbow_pole_px` | `gather1_pull_*_elbow_bend_sign_override` | *(inherits gather overlay)* | `gather1_pull_saved` |
+| `attack_windup` | `hand_grip_ready_*`, `support_hand_offset_px` | `*_elbow_pole_ready_px` | `*_elbow_bend_sign_ready_override` | `ready_offset_px` | `*_attack_pose_saved` |
+| … | per variant in schema | | | | |
+
+**Target commit API (one function per concern, row id in args):**
+
+```text
+commit_row_pins(preset, row_id, snapshot_from_handles) → void
+```
+
+Today this logic is split across `_commit_anim_mode`, drag handlers, and pose-edit flags. **Reliability goal:** row id is explicit (`walk1_b`, not “walk1 + bool”); hands, elbows, and overlay for that row always go through the same function on Save and on drag-end.
+
+**Holdable isolation:** `none_clansmen_1.tres` ≠ `spear_clansmen_1.tres`. Editing walk on empty hands never writes spear idle.
+
+---
+
+### Save / load — explicit contract
+
+```text
+  DISK (.tres)  ←—— Save all ——  STAGED (registry cache)  ←—— commit_row ——  HANDLES (live)
+       ↑                                    ↑
+       └———— Reload (discard RAM) —————————┘
+```
+
+| Event | Should happen | Should NOT happen |
+|-------|---------------|-------------------|
+| **Drag pin** | Update handles + optional live preset field for preview | Write disk |
+| **Release drag** | `commit_row_pins` for **active row only** → staged preset | Commit a different row |
+| **Switch variant / row key (1/2)** | Commit **previous** active row to staged preset | Auto-save disk |
+| **Switch holdable** | Commit current holdable’s active row; stage that preset | Lose other holdables’ staged edits |
+| **Save all** | Write **all staged** holdables + neck layout; set `*_saved` flags; reload from disk | Partial write without error |
+| **Reload** | Re-read `.tres`; reset handles from disk | Merge RAM over disk |
+| **Copy for chat** | Same commit as Save all, then export **full** row dict | Substitute for Save all |
+
+**Planned UX (not optional for reliability):**
+
+- **Unsaved indicator** — “Pose row dirty” / “Morphology dirty” / “Saved ✓” in status bar
+- **Save all** disabled when nothing dirty (optional)
+- **Reload** confirms if staged ≠ disk
+- **No silent seed** after `*_saved == true` for that row
+
+**Round-trip test (required per row):** load `.tres` → place pins → Save all → reload → pin globals match within ε. Headless: extend `tools/test_limb_tuner.gd`.
+
+---
+
+### Elbows — one authority (pole), bend as synced metadata
+
+**Target model (simple rule for humans and code):**
+
+1. **Pole px** (`*_elbow_pole_*`) = **authoritative** elbow side. IK always pole-picks when pole ≠ zero.
+2. **Bend sign override** = cached hint for fallback, facing mirror, and legacy paths — **derived from pole on every Save**, not edited independently except Shift+flip (which moves pole to the other IK branch).
+3. **No mid-motion flip** — bend sign never toggled during raise/lower/walk swing; pole arc or locked pick handles motion.
+
+| Action | Target behavior |
+|--------|-----------------|
+| Drag **1e / 2e** | Moves elbow; Save writes **pole** for active row; bend synced from pole |
+| **Shift + click 1e / 2e** | Flip to other IK branch; save **new pole**; sync bend |
+| Plain click **1e / 2e** | No-op + status hint (accident prevention) |
+| Facing flip (A/D) | Mirror read path only; stored overrides remain **east-facing** |
+
+**Anti-patterns (do not use to “fix” an elbow):**
+
+- Clearing pole and re-seeding from bend sign
+- Different IK path when paused vs playing the same row
+- Storing bend in one row while pole lives in another
+
+---
+
+### Animation Reviewer — clip list behavior
+
+**Catalog source:** `CharacterAnimationCatalog.all_clips()` — same ids Main and bake will use.
+
+| Behavior | Spec |
+|----------|------|
+| Select clip | Start loop playback immediately |
+| Prev / Next | Cycle catalog order; playback continues |
+| Edit in Pose Tuner | Switch tab; map clip → holdable + variant + pose row; **pause**; load pins from preset |
+| CLI preview flags | Open Reviewer tab on startup with same clip selected |
+
+Reviewer playback uses **saved preset only**. If a clip looks wrong here but pins look right in Pose Tuner, the bug is in **motion code** (`walk_arm_motion.gd`, `gather_arm_motion.gd`, idle phases) — not pin storage.
+
+---
+
+### Pose Tuner — editing behavior
+
+| Behavior | Spec |
+|----------|------|
+| Default | Paused, Pose Tuner tab, idle for selected holdable |
+| Row keys **1 / 2** | Switch active pose row; **commit previous row** before switch |
+| ▶ Play | Preview motion for **current variant**; does not change saved row |
+| Walk **A / D** | Travel facing + walk preview (Reviewer uses clip loop instead) |
+| **Save all** | Commit active row + shared anchors (shoulders, head, arm lengths) → disk |
+| **Reset pose** | Reset **active variant row only** to defaults; requires Save all to persist |
+
+**Status bar must always show:** holdable · variant · **active pose row** (e.g. `Walk 1 · Pose 2 · pull`) · saved/dirty.
+
+---
+
+### What we are moving away from
+
+| Old pattern | Reliable replacement |
+|-------------|---------------------|
+| Bend sign drives IK when pole exists | Pole always wins when non-zero |
+| `mode + bool` scatters commit routing | Explicit `row_id` + `commit_row_pins` |
+| Drag writes pull fields, Save writes pose A fields | Same row id for drag and Save |
+| “Feels saved” after tab switch | Dirty flag until **Save all** |
+| JSON export as partial mirror of `.tres` | Export ≡ disk schema per row |
+| Seed copies idle → walk silently | Seed only if row unset **and** `*_saved == false` |
+
+---
+
+### Implementation checklist (agents)
+
+When touching save/load or elbows, verify or implement:
+
+- [x] `commit_row_hand_display_px` — single save path for hands per pose row
+- [ ] Save all uses row id from UI, not inferred side effects *(hands fixed; verify in tuner)*
+- [x] `to_export_dict()` includes all pull-row fields + `*_saved` flags
+- [ ] Headless round-trip test per row (`walk1_a`, `walk1_b`, `gather_reach`, `gather_pull`)
+- [ ] Reviewer code path has zero `preset.set_*` calls
+- [ ] Unsaved indicator in status bar
+- [ ] `lockin_*` scripts validate row bundles, not single fields
+
+Until checklist is done, **workflow for humans:** edit one pose row → **Save all** immediately → **Reload** to confirm pins match disk before moving on.
+
+---
+
+## Procedural arm motion standards (authoring contract)
+
+These rules apply to **any** holdable that uses procedural Line2D arms in the tuner (spear sun-shield idle today; club windup uses keyframes + Shift preview). Follow them for new idle variants, lookaround loops, and two-hand motion so animations stay **consistent**, **testable**, and **multiplayer-safe** (deterministic motion code + saved pins — not per-frame guessing).
+
+### Core idea: authored poses, code-driven motion
+
+| Layer | Who owns it | Where it lives |
+|-------|-------------|----------------|
+| **Rest + key poses** | You (drag pins) | `WeaponLimbPreset` fields in `<weapon>_clansmen_1.tres` |
+| **Timing + phases** | Code | `scripts/tools/tuner_idle_preview.gd` (tuner) · `placeholder_card_service.gd` (in-game) |
+| **Elbow arcs / no-flip** | Code + pole fields | `weapon_limb_preset.gd` · `procedural_arm_controller.gd` · `procedural_arm.gd` |
+| **Verification** | Agent + CI | `tools/test_limb_tuner.gd` · holdable `audit_*` · `lockin_*` scripts |
+
+**Do not** tune raise/lower by roulette — drag pins for **poses**, adjust **phase durations** in code if the loop feels slow/fast, adjust **sweep pole** if the forearm path is wrong.
+
+### Two-pose scan authoring (sun-shield pattern)
+
+Use when a loop needs **hand up + head scan** (forward → back → forward):
+
+| Pose | Head | Off-hand (pin **2h**) | Shoulder (pin **2**) |
+|------|------|------------------------|----------------------|
+| **A** | Forward | `support_hand_idle_raise_offset_px` | `support_shoulder_idle_raise_offset_px` |
+| **B** | Back | `support_hand_idle_raise_lookback_offset_px` | same raised shoulder |
+
+**Tuner keys (spear Idle + `--spear-preview`):**
+
+| Key | Mode |
+|-----|------|
+| **1** | Pose A — hand up, head forward (drag **2h**, **2**) |
+| **2** | Pose B — hand up, head back (drag **2h**) |
+| **▶ Play** or `--spear-idle-play` | Full loop (raise → scan → lower → rest) |
+
+After each pose: **Save all** → optional **Copy for chat** for handoff.
+
+**Scan loop phases (code — do not duplicate in bake yet):**
+
+```text
+REST (~3.5s) → RAISE (~0.9s) → HOLD + SCAN (A → B → A, ~3s per look)
+→ brief hold at A (~1.1s) → LOWER (~1.05s, elbow-led) → REST
+```
+
+### Two-pose gather authoring (reach / pull pattern)
+
+Use for **bend down + pick** loops (None / Axe / Pick / Oldowan · **Gather 1**):
+
+| Pose | Body | Dominant hand **1h** | Support hand **2h** |
+|------|------|----------------------|------------------------|
+| **A — reach** | Bent (edit hold) | `gather1_hand_grip_offset_px` | `gather1_support_hand_offset_px` |
+| **B — pull** | Bent (same) | `gather1_pull_hand_grip_offset_px` | `gather1_pull_support_hand_offset_px` |
+
+**Tuner keys (None · Gather + `--gather1-preview`):**
+
+| Key | Mode |
+|-----|------|
+| **1** | Pose A — reach down (drag **1h**, **2h**) |
+| **2** | Pose B — pull toward body |
+| **▶ Play** | Full loop: stand → bend → pick oscillation → stand |
+
+Elbow poles: `gather1_weapon_elbow_pole_px`, `gather1_support_elbow_pole_px` (saved per pose row).
+
+**Gather loop (code — `gather_arm_motion.gd`):**
+
+```text
+STAND → BEND IN (~20% cycle) → PICK (reach↔pull sine while bent, ~60%)
+→ BEND OUT → STAND
+```
+
+Canonical preset: **`none_clansmen_1.tres`** — copied to axe/pick/oldowan via `lockin_gather_clansmen_1.gd`.
+
+### Elbow rules (mandatory for raise/lower loops)
+
+| Phase | Rule | Why |
+|-------|------|-----|
+| **Raise** | Forced elbow follows **rest → front waypoint → raised** bezier; sweep pole pushed **toward body center** (+X for east-facing support arm) | Forearm **passes in front** — no IK flip mid-raise |
+| **Scan hold** | Pole pick **locked** to mid-raise side; bend sign stays **rest** (`support_elbow_bend_sign_override`) | Head/hand slide must not flip elbow |
+| **Lower** | **Elbow leads**, hand **lags** (`IDLE_LOWER_ELBOW_LEAD` / `IDLE_LOWER_HAND_LAG` in preset code) | Natural fold-down, not “dance hand” |
+| **Rest after lower** | Elbow **pinned** to rest IK until next raise | **No post-lower flip** when phase ends |
+
+**Pole fields (support / off-hand):**
+
+| Field | Role |
+|-------|------|
+| `support_elbow_pole_idle_px` | Rest idle elbow hint |
+| `support_elbow_pole_idle_raise_px` | Full raise elbow hint |
+| `support_elbow_pole_idle_raise_sweep_px` | Mid-raise **in-front** hint (zero = auto from shoulder/hand midpoints) |
+
+**Never** flip `support_elbow_bend_sign_raise_override` mid-raise/lower to “fix” the elbow — use sweep pole + forced arc instead.
+
+### Measurement checklist (before lock-in)
+
+1. **Play full loop** — `--spear-idle-play` or ▶ Play on spear Idle.
+2. **Raise** — forearm crosses in front; no elbow pop at ~50% raise.
+3. **Scan** — hand slides A↔B; head flips; elbow stable.
+4. **Lower** — elbow drops first; hand follows; **no snap at rest**.
+5. **West** — **A/D** to flip; mirror still reads; no double-flip.
+6. **Headless** — `test_limb_tuner.gd` + holdable audit + lockin script all **PASS**.
+
+### Adding a similar animation (checklist)
+
+1. Add preset fields in `weapon_limb_preset.gd` if new pose rows are needed.
+2. Author rest + Pose A + Pose B in tuner; **Save all**.
+3. Wire variant in `tuner_idle_preview.gd` / `placeholder_card_service.gd` if new timing.
+4. Add `_test_*` cases in `tools/test_limb_tuner.gd` (rest/raise/lower endpoints, no flip invariants).
+5. Add `audit_*` + `lockin_*` constants for the holdable.
+6. Document locked values in this guide (copy club/spear session format).
+
+---
+
 ## Story so far (why this tool exists)
 
 1. Weapon-driven Line2D arms — IK authoring for spear/club.
@@ -327,7 +694,7 @@ Set morphology (reference) → pick holdable / category / variant
 | Support hand | **2h** | Drag |
 | Weapon | **3** | Drag |
 | Head / neck | **H** | Drag (head↔body distance) |
-| Elbow bend | **1e / 2e** | **Click** to flip ± |
+| Elbow bend | **1e / 2e** | **Shift + click** to flip ± (plain click does nothing — avoids accidents) |
 
 **Draw order (tuner):** arm1 → body → head → arm2.
 
@@ -430,59 +797,177 @@ Off-hand at strike peak uses idle rest (minimal motion) until re-authored on pin
 
 ---
 
-## Spear tuning session (ready now)
+## Spear tuning session (locked — Aug 2026)
 
-**One command (tests + GUI):**
+**Preset:** `assets/limb_presets/spear_clansmen_1.tres`  
+**Headless save:** `godot --headless -s res://tools/lockin_spear_clansmen_1.gd`  
+**Audit:** `godot --headless -s res://tools/audit_spear_tuning_ready.gd`
+
+### One command (tests + GUI)
 
 ```bash
 bash tools/run_limb_tuner.sh spear-evaluate
+# macOS GUI + idle loop:
+bash tools/launch_tuner_mac.sh --spear-preview --spear-idle-play
 ```
-
-**Preset:** `assets/limb_presets/spear_clansmen_1.tres`  
-**Startup:** Spear · **Idle standing** (`--spear-preview`).
-
-### What to verify (visual sign-off)
-
-| Step | Control | Pass if |
-|------|---------|---------|
-| 1 | **A / D** walk | Spear carry bounces; yellow **3** stays on shaft grip art; green **1h** stacked |
-| 2 | **Shift** hold | Two-hand ready pose (dominant Y1 + support Y2 on shaft); arms track pins |
-| 3 | **Shift + click** | Thrust tweens toward `strike_offset_px`; shaft grip pin stays glued |
-| 4 | Release **Shift** | Returns to idle carry |
-| 5 | **A/D** while facing west | Mirror flip; pin stack still reads (3 → 1h) |
-
-### Headless gates
-
-```bash
-bash tools/run_limb_tuner.sh spear-prep     # save + audit preset rows
-bash tools/run_limb_tuner.sh verify           # full limb tuner tests (includes spear pin tests)
-godot --headless -s res://tools/audit_spear_tuning_ready.gd
-```
-
-| Gate | Pass signal |
-|------|-------------|
-| `prep_spear_clansmen_1.gd` | `prep_spear_clansmen_1: PASS` |
-| `audit_spear_tuning_ready.gd` | `spear_tuning_audit: PASS` |
-| `test_limb_tuner.gd` | `_test_spear_yellow_pinned_to_hand`, `_test_spear_walk_grip_pinned_to_shaft` |
 
 ### CLI entry points
 
 | Flag / mode | Use |
 |-------------|-----|
-| `--spear-preview` | Idle standing + Shift ready/thrust test (default spear eval) |
-| `--spear-windup-edit` | Attack category — drag Y1/Y2 on shaft, green 1h/2h stack |
-| `spear-prep` | Headless: ensure grip defaults, seed walk/windup/strike, save `.tres` |
+| `--spear-preview` | Spear · Idle — pin edit + Shift ready/thrust |
+| `--spear-idle-play` | ▶ Play **Idle1** sun-shield loop (raise → scan → lower) |
+| `--spear-pose-b` | Jump to **Pose B** edit (key **2** — hand up + head back) |
+| `--spear-windup-edit` | Attack row — drag Y1/Y2 on shaft |
+| `spear-prep` | Headless: seed walk/windup defaults, save `.tres` |
+| `lockin_spear_clansmen_1.gd` | Headless: persist **all** locked spear rows (idle + attack) |
 
-### Current saved values (clansmen_1 spear)
+**Note:** Spear catalog shows **Idle** (one variant). Lookaround + sun-shield uses **idle1** motion internally when Play / `--spear-idle-play` is active — same pins, livelier loop.
 
-| Phase | Key fields |
-|-------|------------|
-| **Idle carry** | `overlay (63.5, -116)`, shaft grip `(4.97, 101.06)`, off-hand rest `(-11.6, 41.8)` |
-| **Walk / Walk1** | Walk overlay + grip seeded from idle; Walk1 has separate grip row |
-| **Windup (Shift)** | `ready_offset_px (113.5, -17)`, `support_hand_offset_px (7.5, 205.6)` |
-| **Thrust** | `strike_offset_px (165, -19)` — tune angle/length in Attack row + Save all |
+### What to verify (visual sign-off)
 
-`attack_rotation_deg = -1000` means “use overlay thrust path” until you lock a rotation in Save all.
+| Step | Control | Pass if |
+|------|---------|---------|
+| 1 | **▶ Play** or `--spear-idle-play` | Full sun-shield cycle; raise sweeps **in front**; lower elbow-led; **no flip at rest** |
+| 2 | Key **1** / **2** | Pose A/B hand positions save independently; Save all persists both |
+| 3 | **A / D** walk | Spear carry bounces; yellow **3** on shaft; green **1h** stacked |
+| 4 | **Shift** hold | Two-hand ready; Y1 + Y2 on shaft |
+| 5 | **Shift + click** | Thrust to `strike_offset_px`; grip pins glued |
+| 6 | **A/D** west | Mirror OK; pin stack reads |
+
+### Headless gates
+
+```bash
+bash tools/run_limb_tuner.sh verify
+godot --headless -s res://tools/lockin_spear_clansmen_1.gd
+godot --headless -s res://tools/audit_spear_tuning_ready.gd
+```
+
+| Gate | Pass signal |
+|------|-------------|
+| `lockin_spear_clansmen_1.gd` | `lockin_spear_clansmen_1: PASS` |
+| `audit_spear_tuning_ready.gd` | `spear_tuning_audit: PASS` |
+| `test_limb_tuner.gd` | `_test_idle_arm2_raise_preview` + spear pin tests |
+
+### Locked in (clansmen_1 spear)
+
+| Phase | What was saved | Key fields |
+|-------|----------------|------------|
+| **Idle carry** | Standing spear at side | `overlay (63.5, -116)`, shaft grip `(4.97, 101.06)`, off-hand rest `(-11.6, 41.8)`, `support_elbow_pole_idle (-111.3, -176.5)` |
+| **Idle sun-shield rest→raise** | Off-hand + shoulder raised | `support_shoulder_idle_raise (-126.7, -154.1)`, `support_hand_idle_raise (-21.4, -374.5)` |
+| **Idle sun-shield Pose B** | Hand up + head back | `support_hand_idle_raise_lookback (-143.8, -369.6)` |
+| **Elbow arc (raise)** | In-front sweep | `support_elbow_pole_idle_raise (-187.3, -257.7)`, `support_elbow_pole_idle_raise_sweep (40, -128)` |
+| **Walk / Walk1** | Carry seeded from idle | walk overlay/grip rows |
+| **Windup (Shift)** | Two-hand ready | `ready (113.5, -17)`, `hand_grip_ready`, `support_hand (7.5, 205.6)` |
+| **Thrust** | Keyframed peak | `strike (173.8, -47.0)`, `attack_rotation_deg 81°` |
+
+Motion code (shared tuner + in-game): `tuner_idle_preview.gd`, `procedural_arm_controller.gd`, `weapon_limb_preset.gd` (`resolve_support_elbow_display_for_idle_raise/lower/rest`).
+
+---
+
+## Walk 1 tuning session (locked — Aug 15 2026)
+
+**Status: LOCKED.** Empty-hands Walk 1 on `none_clansmen_1` only. **Ask the user before changing poses, elbows, or walk timing.** Do not copy this walk onto club/spear/axe/pick.
+
+**Canonical preset:** `assets/limb_presets/none_clansmen_1.tres`  
+**Headless save:** `godot --headless -s res://tools/lockin_walk_clansmen_1.gd`  
+**Motion:** `scripts/systems/walk_arm_motion.gd`
+
+### Timing (do not change without asking)
+
+| Rule | Value |
+|------|--------|
+| Clock | Body `bounce_time` (same as card bob) |
+| Arm cycle | **2** body bounces per Pose 1 → Pose 2 → Pose 1 (`BOUNCE_CYCLES_PER_ARM_CYCLE`) |
+| Blend | Cosine pendulum `(1 - cos) / 2` — no smootherstep |
+| Alternation | In the two poses (same phase for both arms) |
+
+### Preview
+
+```bash
+bash tools/launch_tuner_mac.sh --walk1-preview
+bash tools/launch_tuner_mac.sh --walk1-edit              # Pose 1
+bash tools/launch_tuner_mac.sh --walk1-edit --walk1-pose-2  # Pose 2
+```
+
+### Locked poses (none / clansmen_1)
+
+| Pose | 1h | 2h | 1e pole | 2e pole |
+|------|----|----|---------|---------|
+| **1** | (228.27, 78.41) | (-170.74, 83.31) | (164.22, -46.08) | (-164.11, -56.54) |
+| **2** | (76.93, 97.59) | (5.51, 71.07) | (88.00, -41.98) | (-81.92, -38.28) |
+
+Overlay: `(22, -34)` · elbows outward + · shoulders unchanged from idle.
+
+---
+
+## Empty-hands idle (in progress — Aug 15 2026)
+
+Same loop as spear sun-shield: off-hand raises, head scans, then lowers. **Dominant arm stays on normal idle rest.** Walk 1 is locked — do not change walk fields while tuning this.
+
+**Preset:** `assets/limb_presets/none_clansmen_1.tres`  
+**Preview:** `bash tools/launch_tuner_mac.sh --none-idle-play`  
+**Edit:** `--none-idle-edit` (key **1** / **2** for raise forward vs look-back)
+
+Not locked yet — tune **2h** / elbows, then lock-in when it looks right.
+
+---
+
+## Gather tuning session (locked — Aug 2026)
+
+**Canonical preset:** `assets/limb_presets/none_clansmen_1.tres`  
+**Also copied to:** `axe_clansmen_1.tres`, `pick_clansmen_1.tres`, `oldowan_clansmen_1.tres`  
+**Headless save:** `godot --headless -s res://tools/lockin_gather_clansmen_1.gd`
+
+### One command (tests + GUI)
+
+```bash
+bash tools/run_limb_tuner.sh gather-evaluate
+# macOS:
+bash tools/launch_tuner_mac.sh --gather1-preview
+```
+
+### CLI entry points
+
+| Flag | Use |
+|------|-----|
+| `--gather1-preview` | None · Gather 1 — ▶ Play full pick loop |
+| `--gather1-edit` | Gather paused at bent reach pose |
+| `--gather-pose-pull` | Start on Pose B (pull) edit |
+| `gather-lockin` | Headless save none + tool holdables |
+
+### What to verify (visual sign-off)
+
+| Step | Control | Pass if |
+|------|---------|---------|
+| 1 | **▶ Play** | Stand → bend → hands pick reach↔pull → stand; body/head bend smooth |
+| 2 | Key **1** / **2** | Reach vs pull hand positions save separately |
+| 3 | **Pause** + drag **1h/2h** | Pose updates at bent hold; Save all persists |
+| 4 | **A/D** | Facing flip; gather bend preserved |
+
+### Headless gates
+
+```bash
+bash tools/run_limb_tuner.sh verify
+godot --headless -s res://tools/lockin_gather_clansmen_1.gd
+godot --headless -s res://tools/audit_gather_tuning_ready.gd
+```
+
+| Gate | Pass signal |
+|------|-------------|
+| `lockin_gather_clansmen_1.gd` | `lockin_gather_clansmen_1: PASS` |
+| `audit_gather_tuning_ready.gd` | `gather_tuning_audit: PASS` |
+| `test_limb_tuner.gd` | `_test_gather_motion_smooth`, `_test_gather_preset_lockin` |
+
+### Locked in (clansmen_1 gather)
+
+| Pose | Key fields |
+|------|------------|
+| **Reach (A)** | `gather1_hand_grip (219.6, 66.5)`, `gather1_support_hand (-95.9, 59.9)` |
+| **Pull (B)** | `gather1_pull_hand_grip (123.0, -52.9)`, `gather1_pull_support (-11.0, 33.4)` |
+| **Elbows** | `gather1_weapon_elbow_pole (150.7, -185.9)`, `gather1_support_elbow_pole (-111.3, -176.5)` |
+
+Motion code: `gather_arm_motion.gd`, `tuner_gather_preview.gd`, `limb_tuner_rig.gd` (`_apply_gather_hand_motion`).
 
 ---
 
@@ -572,7 +1057,7 @@ Process order: rig updates `flip_h` first (`process_priority -1`); tuner syncs h
 1. All pin offsets in `WeaponLimbPreset` / pose snapshots = **east-facing display pixels** (unmirrored).
 2. Baked clips = **east only**, 128×128 (see Bake pipeline above).
 3. Never save world/global positions into `.tres` — always display-local east space.
-4. Elbow **1e/2e** clicks store an east-facing bend override; facing change applies mirror math at read time.
+4. Elbow **1e/2e**: **Shift + click** to flip; saved **pole px** is authoritative for each pose row (walk Pose 1 vs Pose 2, gather reach vs pull). Bend sign stays synced as fallback only.
 
 ### Common mistakes (avoid)
 
@@ -633,6 +1118,8 @@ SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 
 ## Saved data (source of truth)
 
+See **[reliability contract](#tuner--animation-reviewer--how-they-should-work-reliability-contract)** for how rows should commit and round-trip. Today: disk is truth only after **Save all** + successful reload.
+
 | File | Resource | Contents |
 |------|----------|----------|
 | `assets/limb_presets/<weapon>_clansmen_1.tres` | `WeaponLimbPreset` | Per-variant pins, grips, elbows (motion) |
@@ -657,6 +1144,11 @@ SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 | Bake | `scripts/tools/limb_animation_baker.gd` |
 | Appearance stub | `scripts/character/character_appearance.gd` |
 | Preset schema | `scripts/config/weapon_limb_preset.gd` |
+| Idle loop phases | `scripts/tools/tuner_idle_preview.gd` |
+| Elbow IK + arcs | `scripts/systems/procedural_arm_controller.gd`, `procedural_arm.gd` |
+| Spear lock-in | `tools/lockin_spear_clansmen_1.gd` |
+| Gather lock-in | `tools/lockin_gather_clansmen_1.gd` |
+| Gather motion | `scripts/systems/gather_arm_motion.gd` |
 | In-game mannequin | `scripts/systems/placeholder_card_service.gd` |
 | Tests | `tools/test_limb_tuner.gd`, `tools/test_limb_bake.gd` |
 
@@ -673,6 +1165,39 @@ SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 - [ ] Cosmetic layer pickers (eyes, hair, …) — **same panel**, not a new tab
 - [ ] ▶ Play walk button
 - [ ] Unsaved indicator (pose vs morphology vs disk)
+- [x] `commit_row_hand_display_px` / `commit_row_hand_pins_from_global` — hands save to pull rows on Save all
+- [ ] `commit_row_pins` — elbows + overlay in same row bundle (hands done; full row helper optional)
+- [ ] Round-trip headless tests for `walk1_a`, `walk1_b`, gather reach/pull
+- [x] Full `to_export_dict()` parity with `.tres` pull rows + `*_saved` flags
+- [ ] Reload confirms when staged ≠ disk
+
+### A2 — UI/UX improvements (intuitive tuning workflow)
+
+**High priority (prevent mistakes):**
+
+- [ ] **Status bar active row display** — always show: `Holdable · Category · Variant · Pose row · ● Unsaved` (e.g. `Club · Walk 1 · Pose 2 (pull) · ● Unsaved`)
+- [ ] **Reload confirmation** — "Reload will discard staged changes. Continue?" when dirty
+- [ ] **Dim/disable irrelevant controls** — Save all disabled when nothing dirty; row keys (1/2) hidden when variant has single pose; Play hidden on Attack category
+- [ ] **Reviewer pins read-only** — hide or ghost pins (50% opacity, no drag) in Animation Reviewer tab to prevent confusion
+- [ ] **Keyboard shortcut overlay** — toggle with `?` or F1 showing: row keys (1/2), facing (A/D), play (Space), combat (Shift / Shift+click), zoom (scroll)
+
+**Medium priority (reduce confusion):**
+
+- [ ] **Elbow drag feedback** — "Shift+click to flip elbow" tooltip on 1e/2e hover; pole position updates visible
+- [ ] **Copy for chat confirmation** — brief status: "✓ Committed active row + copied JSON to clipboard"
+- [ ] **Morphology section organization** — group spinboxes: Arm length (upper/lower), thickness, body scale X/Y, head scale; **Save DNA** button below
+
+**Lower priority (polish):**
+
+- [ ] **Undo/redo** — Ctrl+Z / Ctrl+Shift+Z for pin changes (store recent snapshots per row)
+- [ ] **Visual diff overlay** — "Show changes since last save" — ghost pins at disk positions while editing
+- [ ] **Better error messages** — when Save all fails, show specific reason (file locked, parse error, etc.)
+
+**Anti-patterns (do not implement):**
+
+- ❌ Auto-save without opt-out (breaks reliability contract)
+- ❌ Multiple windows or floating panels (keep one panel)
+- ❌ Editable Reviewer tab (read-only inspect is intentional)
 
 ### B — Data model
 
@@ -716,6 +1241,9 @@ SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 6. **Tuner has arms; Main does not** — bake bridges authoring to population scale.
 7. **Bakes + procedural** — one motion source in the tuner; bake records it; do not fork into two timelines. **Procedural in Main is the preferred end state** if we can make it work at scale.
 8. **pawn_goal is the pawn target** — this doc is how the tuner feeds it.
+9. **Authored poses, code-driven loops** — save key poses in `.tres`; phases, elbow arcs, and scan timing live in shared motion code (see **Procedural arm motion standards**).
+10. **Elbow stability** — no bend-sign flips mid-raise/lower; use sweep poles + forced arcs; pin rest elbow after lower.
+11. **Reliability contract** — Reviewer read-only; Pose Tuner writes via explicit row id; **Save all** = disk; pole authoritative for elbows (see dedicated section).
 
 ---
 
@@ -742,3 +1270,137 @@ SKIP_SINGLE_INSTANCE=1 godot --path . res://scenes/tools/LimbTuner.tscn
 2. **Morphology** — arm length, head/body scale, neck — DNA build.
 3. **Cosmetic layer** — eyes/hair/clothing — layer on HeadPivot, genotype-driven.
 4. **Feel tweak** — shared motion code until baked; then re-bake.
+
+Split motion from shape/look, then grow character creation on top of that split.
+
+That’s what animation_tuner.md is asking for. The code is halfway there.
+
+How the tuner actually works
+Think of it as three layers:
+
+1. You drag poses.
+Pins (1, 1h, 2, 2h, 3, H, 1e/2e) write numbers into a WeaponLimbPreset file like none_clansmen_1.tres. Those numbers are east-facing display pixels in a 128px-tall card space.
+
+2. Code plays the loop.
+Play does not store every frame. It lerps between saved poses on a timer:
+
+Loop	Poses you save	Code that plays them
+Walk 1
+Pose 1 + Pose 2
+walk_arm_motion.gd
+Gather
+Reach + pull
+gather_arm_motion.gd
+Spear idle
+Rest / raise / look-back
+tuner_idle_preview.gd
+Club windup
+Rest → A → B
+tuner_windup_idle_preview.gd
+3. Save / bake / game.
+Save all writes the .tres + neck layout. Bake clip records the same live rig into a PNG strip. Main today uses the layered body+head + floating weapon, not the tuner’s arm lines.
+
+The UI is one panel: Holdable → Category → Variant → Play → drag → Save. Catalog lives in character_animation_catalog.gd. That’s the character-creator shell already.
+
+You (pins) → WeaponLimbPreset (.tres)
+                ↓
+         LimbTunerRig (live preview + IK arms)
+                ↓
+         Bake PNG  OR  Main mannequin (no arm lines yet)
+What’s already solid vs what’s missing for DNA
+Solid (keep this contract):
+
+One pose row per variant. Don’t leak Walk into Idle.
+East-only authoring. West = flip.
+Lock-in scripts + test_limb_tuner.gd as the “it really saved” gate.
+Gather / spear idle already prove the two-pose workflow.
+Not DNA-ready yet:
+
+Arm length and thickness still live inside every weapon .tres. Genetics needs one shape file for all holdables.
+CharacterAppearance is a stub (preset_id, a scale vector, hair/weapon ids). No character_builds/ folder. No Save DNA button.
+bible/.../genetics.md is a sim draft (body size, cold resistance). It is not wired to the tuner.
+Bake exists. Main does not play baked strips yet (BakedPawnPlayer is planned).
+limb_tuner.gd is huge (~4k lines). That’s the reliability risk, not the idea.
+pawn_goal.md wants: modular layers on pivots + genetics for look + motion from one rig. The tuner guide agrees: author motion at reference size (1.0). Genetics changes shape and face at spawn. Don’t bake a unique walk per person.
+
+How this becomes a character creator (DNA backbone)
+Treat two save types as law. Everything else hangs off that.
+
+File	Owns	Example
+Pose preset
+How they move / hold a tool
+spear_clansmen_1.tres — grips, walk poses, elbows
+DNA / build
+How they’re shaped
+assets/character_builds/reference.tres — arm length, body/head scale, neck
+Layout
+Default art sockets
+layered_blank_1.tres — neck on body1.png
+Genotype (later)
+Born numbers
+body_size, brow, hair_id → builds the appearance, doesn’t store walk pins
+Character creator = tuner panel + DNA file. Same window. New section: sliders for body/head scale, then later eyes/hair/skin. Not a second app.
+
+At spawn:
+
+species means + parents
+        ↓
+  genetics_profile  (numbers)
+        ↓
+  CharacterAppearance  (scale, layer ids, tints)
+        ↓
+  same walk/idle poses  (reference motion)
+  + layered face/hair on HeadPivot
+Hybrids need no extra walk art. A Neanderthal is a stockier build + brow/hair layers on the same Walk 1 clip.
+
+How to proceed (efficient + reliable)
+Do this in order. Don’t skip ahead to “full genetics sim” or “100 face parts.”
+
+Phase 0 — Finish the motion lab (now)
+You’re already here: empty-hands Walk 1 as the template.
+
+One clock for body bounce and arm swing (bounce_time).
+Pose 1 / Pose 2 are full-body snapshots (alternation in the poses, not a second arm-phase hack).
+Lock-in + test before the next holdable.
+Until walk feels natural, don’t add DNA sliders. Shape on a broken walk wastes time.
+
+Phase 1 — Split shape from motion (this is the DNA backbone)
+Smallest real character-creator step:
+
+Grow CharacterAppearance into a real build: arm lengths, thickness, body scale, head scale, neck offset.
+Save DNA writes assets/character_builds/reference.tres only.
+Stop writing arm length into none_*.tres / spear_*.tres.
+Tuner morphology row reads the build, not the weapon file.
+That’s the reliability win: genetics later has one place to read shape.
+
+Phase 2 — Live morphology in the same panel
+Body/head scale spinboxes. Play walk at 0.85 / 1.0 / 1.15. See if hands still reach.
+
+If 0.85 clips clothes later → size bands (Small / Ref / Large), not a unique bake per NPC.
+
+Phase 3 — Cosmetics (the “creator” people see)
+On HeadPivot: eyes, hair, skin tint. Grayscale art + color.
+Do not bake faces into walk strips.
+Pickers on the same left panel.
+
+Phase 4 — Spawn from genes (thin slice)
+One genetics_profile → appearance. Species means (Sapiens vs Neanderthal) for body_size + 2–3 face slots.
+Do not implement ice-age selection yet. That’s a different system.
+
+Phase 5 — One pawn in Main
+Either play a baked walk or run the tuner motion code on one player pawn behind a flag. Measure FPS. Then decide bake vs live procedural. Don’t ship hundreds of IK arms first.
+
+Rules that keep this from rotting
+Poses in .tres. Timing in code. If the walk feels fast, fix the clock — don’t guess pin numbers.
+One motion source. Bake is a recording of the tuner, not a second animation system.
+Author at reference morphology. Genetics scales it.
+East coords only. West is flip.
+Lock-in + test for every locked pose. Chat JSON is a handoff, not the save.
+Stop growing limb_tuner.gd. New loops go in small files (walk_arm_motion, gather_arm_motion). The app should only pick, drag, save.
+Don’t copy walk from empty hands onto club/spear until empty-hands is signed off.
+What I would not do next
+A separate “character creator” scene (duplicates the tuner).
+Baking one sheet per clansman.
+Full evolution sim before appearance files exist.
+8-direction art (docs say 2-way flip).
+Putting DNA fields into six weapon presets.

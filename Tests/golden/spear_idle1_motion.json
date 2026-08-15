@@ -1,0 +1,13 @@
+{
+  "animation": "spear_idle1",
+  "holdable": "spear",
+  "body": "clansmen_1",
+  "description": "Spear idle rest pose — default shaft grip baseline (re-tune in tuner before visual lock)",
+  "rest": {
+    "hand_grip": [4.97, 101.06],
+    "overlay": [63.5, -116.0],
+    "elbow_1_pole": [110.23, -162.77],
+    "elbow_2_pole": [-111.33, -176.45]
+  },
+  "tolerance_px": 2.0
+}

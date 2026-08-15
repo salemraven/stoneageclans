@@ -1,0 +1,16 @@
+{
+  "animation": "gather1",
+  "holdable": "none",
+  "body": "clansmen_1",
+  "description": "Gather reach/pull placeholder — not visually locked yet",
+  "reach": {
+    "hand_1": [0, 0],
+    "hand_2": [0, 0]
+  },
+  "pull": {
+    "hand_1": [0, 0],
+    "hand_2": [0, 0]
+  },
+  "tolerance_px": 2.0,
+  "locked": false
+}

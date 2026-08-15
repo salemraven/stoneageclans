@@ -115,6 +115,35 @@ static func is_reachable(
 	return reach <= total_length - slack
 
 
+## Clamp hand target to valid elbow fold reach range before bend-sign IK.
+static func clamp_hand_for_fold_limits(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	fold_min_deg: float = 8.0,
+	fold_max_deg: float = 150.0,
+	relax_min_reach: bool = false
+) -> Vector2:
+	var to_hand := hand - shoulder
+	var dist := to_hand.length()
+	if dist < 0.001:
+		return shoulder + Vector2(upper_len, 0.0)
+	var min_fold := deg_to_rad(fold_min_deg)
+	var max_fold := deg_to_rad(fold_max_deg)
+	var max_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
+	) - 0.01
+	var min_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
+	) + 0.01
+	if dist > max_reach:
+		dist = max_reach
+	elif not relax_min_reach and dist < min_reach:
+		dist = min_reach
+	return shoulder + to_hand / dist * dist
+
+
 ## Calculate bezier point for elbow arc animation.
 ## Returns point on quadratic bezier curve (0.0 = start, 1.0 = end).
 static func bezier_point(

@@ -25,16 +25,26 @@ func _run() -> void:
 	_test_save_all_staged_holdables()
 	_test_arm_thickness_preset()
 	_test_walk_arm_swing()
+	_test_walk_body_snapshot_alternates()
+	_test_walk_keyframe_syncs_with_bounce()
 	_test_limb_tuner_scene()
+	_test_clip_browser()
+	_test_pose_row_isolation()
+	_test_commit_row_hand_isolation()
+	_test_walk1_pose_b_support_elbow_paused()
 	_test_idle_club_drag_handles()
 	_test_club_windup_drag_handles()
 	_test_club_windup_idle_loop()
 	_test_elbow_bend_sign_flips_with_facing()
 	_test_body_head_flip_with_travel_facing()
 	_test_gather_motion_smooth()
+	_test_gather_preset_lockin()
 	_test_club_swing_facing_from_aim()
 	_test_idle_club_combat_ready()
 	_test_walk_preview_body_bounce()
+	_test_none_walk_arm_swing_in_tuner()
+	_test_walk_elbows_no_flip_in_tuner()
+	_test_mannequin_walk_uses_walk_rest()
 	_test_idle_travel_walk_on_ad()
 	_test_weapon_rotation_attack_spin()
 	_test_club_combat_ready_arm_pins()
@@ -48,6 +58,11 @@ func _run() -> void:
 	_test_pose_snapshot_isolation()
 	_test_idle_club1_minimal_scenario()
 	_test_idle_arm2_raise_preview()
+	_test_none_idle_sun_shield_keeps_walk_lock()
+	_test_walk1_locked_poses()
+	_test_walk1_pendulum_smooth()
+	_test_ik_utils_elbow_pole()
+	_test_golden_motion_files()
 	_test_procedural_arms_still_pass()
 	_report()
 	quit()
@@ -208,6 +223,43 @@ func _test_walk_arm_swing() -> void:
 		_fail("spear dominant walk should oscillate smoothly across half a cycle")
 
 
+func _test_walk_body_snapshot_alternates() -> void:
+	const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
+	# Locked none_clansmen_1 walk poses — Pose 1 vs Pose 2 are opposite full-body frames.
+	var pose1_dom := Vector2(228.2682, 78.41058)
+	var pose2_dom := Vector2(76.93042, 97.59346)
+	var pose1_sup := Vector2(-170.7422, 83.3064)
+	var pose2_sup := Vector2(5.507812, 71.06683)
+	var dom_start := WalkArmMotionScript.body_snapshot_between_keyframes(pose1_dom, pose2_dom, 0.0)
+	var sup_start := WalkArmMotionScript.body_snapshot_between_keyframes(pose1_sup, pose2_sup, 0.0)
+	var dom_mid := WalkArmMotionScript.body_snapshot_between_keyframes(pose1_dom, pose2_dom, 0.5)
+	var sup_mid := WalkArmMotionScript.body_snapshot_between_keyframes(pose1_sup, pose2_sup, 0.5)
+	if dom_start.x <= sup_start.x:
+		_fail("walk snapshot t=0: dominant should be forward of support on X")
+	var dom_delta_x := dom_mid.x - dom_start.x
+	var sup_delta_x := sup_mid.x - sup_start.x
+	if dom_delta_x * sup_delta_x > 0.0 and absf(dom_delta_x) > 1.0:
+		_fail("walk snapshot: arms should move in opposite X directions over half cycle")
+
+
+func _test_walk_keyframe_syncs_with_bounce() -> void:
+	const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
+	var period := TAU * WalkArmMotionScript.BOUNCE_CYCLES_PER_ARM_CYCLE
+	var phase_start := WalkArmMotionScript.cycle_phase_from_bounce(0.0)
+	var phase_mid_body := WalkArmMotionScript.cycle_phase_from_bounce(PI)
+	var phase_one_bounce := WalkArmMotionScript.cycle_phase_from_bounce(TAU)
+	var phase_full := WalkArmMotionScript.cycle_phase_from_bounce(period)
+	if not is_equal_approx(phase_start, phase_full):
+		_fail("walk keyframe phase should wrap after %s body bounce cycles" % WalkArmMotionScript.BOUNCE_CYCLES_PER_ARM_CYCLE)
+	if is_equal_approx(phase_start, phase_mid_body):
+		_fail("walk keyframe phase should advance during a body bounce")
+	if is_equal_approx(phase_start, phase_one_bounce):
+		_fail("walk arm cycle should be slower than one body bounce")
+	var mid_blend := WalkArmMotionScript.body_snapshot_blend(0.25)
+	if absf(mid_blend - 0.5) > 0.02:
+		_fail("walk blend at quarter cycle should be cosine 0.5 (got %.3f) — no mid-swing rush" % mid_blend)
+
+
 func _test_limb_tuner_scene() -> void:
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
 	if packed == null:
@@ -225,19 +277,19 @@ func _test_limb_tuner_scene() -> void:
 	elif (rig.get_node("Sprite") as Sprite2D).texture != null:
 		_fail("expected no card texture on tuner mannequin sprite")
 	var holdable_grid: GridContainer = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/HoldableRow/HoldableGrid"
+		"UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/HoldableRow/HoldableGrid"
 	) as GridContainer
 	if holdable_grid == null:
 		_fail("holdable grid missing")
 	elif holdable_grid.get_child_count() < 6:
 		_fail("holdable grid too small: %d buttons" % holdable_grid.get_child_count())
 	var category_row: HBoxContainer = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/SelectSection/CategoryRow/CategoryButtons"
+		"UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/CategoryRow/CategoryButtons"
 	) as HBoxContainer
 	if category_row == null or category_row.get_child_count() < 4:
 		_fail("category picker missing or incomplete")
 	var thickness_spin: SpinBox = app.get_node_or_null(
-		"UI/Panel/Margin/VBox/ArmsSection/ArmThicknessRow/ArmThicknessSpin"
+		"UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmThicknessRow/ArmThicknessSpin"
 	) as SpinBox
 	if thickness_spin == null:
 		_fail("ArmThicknessSpin missing")
@@ -300,6 +352,218 @@ func _test_limb_tuner_scene() -> void:
 		_fail("none preset should define support_hand_idle_raise_offset_px")
 	elif none_preset.support_hand_idle_offset_px.distance_to(Vector2(-86.28906, 52.03825)) > 2.0:
 		_fail("none preset rest hand drifted from saved idle pose")
+	app.queue_free()
+
+
+func _test_clip_browser() -> void:
+	var Catalog := load("res://scripts/config/character_animation_catalog.gd")
+	var clips: Array = Catalog.all_clips()
+	if clips.size() < 20:
+		_fail("all_clips too small: %d" % clips.size())
+		return
+	var saw_none_walk1 := false
+	var walk1_idx := -1
+	for i in clips.size():
+		var clip: Dictionary = clips[i]
+		if clip.get("label") == "None · Walk 1":
+			saw_none_walk1 = true
+			walk1_idx = i
+		if not Catalog.clip_can_loop(clip.get("weapon"), clip.get("mode")):
+			if WeaponLimbPresetScript.is_idle_mode(clip.get("mode")):
+				_fail("idle clip should loop: %s" % clip.get("label"))
+	if not saw_none_walk1:
+		_fail("all_clips missing None · Walk 1")
+		return
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for clip browser test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	var clip_list: ItemList = app.get_node_or_null(
+		"UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow/ClipList"
+	) as ItemList
+	if clip_list == null:
+		_fail("ClipList missing")
+		app.queue_free()
+		return
+	if clip_list.item_count != clips.size():
+		_fail("ClipList count %d != catalog %d" % [clip_list.item_count, clips.size()])
+	app.call("_set_workspace_mode", app.WorkspaceMode.REVIEWER)
+	for _i in range(4):
+		await process_frame
+	app.call("_select_clip_index", walk1_idx, true)
+	if app.get("_anim_mode") != WeaponLimbPresetScript.TunerAnimMode.WALK1:
+		_fail("clip browser did not select Walk 1")
+	if app.get("_selected_weapon") != ResourceData.ResourceType.NONE:
+		_fail("clip browser Walk 1 should use empty hands")
+	if not app.get("_anim_playing"):
+		_fail("clip browser should auto-play loopable Walk 1 in reviewer mode")
+	app.call("_set_workspace_mode", app.WorkspaceMode.TUNER)
+	for _i in range(4):
+		await process_frame
+	if app.get("_anim_playing"):
+		_fail("tuner tab should pause playback by default")
+	app.queue_free()
+
+
+func _test_pose_row_isolation() -> void:
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	var spear: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.SPEAR, "clansmen_1")
+	if none == null or spear == null:
+		_fail("pose isolation presets missing")
+		return
+	var idle_elbow_before := none.weapon_elbow_pole_idle_px
+	var spear_idle_before := spear.weapon_elbow_pole_idle_px
+	none.set_elbow_pole_for_mode(true, WeaponLimbPresetScript.TunerAnimMode.WALK1, Vector2(111.0, -22.0))
+	if none.weapon_elbow_pole_idle_px.distance_to(idle_elbow_before) > 0.01:
+		_fail("walk1 elbow edit changed idle elbow on same holdable")
+	if spear.weapon_elbow_pole_idle_px.distance_to(spear_idle_before) > 0.01:
+		_fail("walk1 elbow edit on none must not change spear preset")
+	none.set_walk1_elbow_pole(true, true, Vector2(55.0, -33.0))
+	if none.walk1_weapon_elbow_pole_px.distance_to(Vector2(111.0, -22.0)) > 0.01:
+		_fail("walk1 pose B elbow should not overwrite pose A elbow")
+	# Seed gather row locally — gather not locked yet on disk; test only row isolation.
+	if none.gather1_weapon_elbow_pole_px.length_squared() < 0.0001:
+		none.gather1_weapon_elbow_pole_px = Vector2(12.0, -34.0)
+		none.gather1_pull_weapon_elbow_pole_px = Vector2(20.0, -40.0)
+	var gather_before := none.gather1_weapon_elbow_pole_px
+	none.set_gather1_elbow_pole(true, true, Vector2(77.0, -88.0))
+	if none.gather1_weapon_elbow_pole_px.distance_to(gather_before) > 0.01:
+		_fail("gather pull elbow edit changed reach elbow row")
+	if none.gather1_pull_weapon_elbow_pole_px.distance_to(Vector2(77.0, -88.0)) > 0.01:
+		_fail("gather pull elbow should save to gather1_pull_weapon_elbow_pole_px")
+
+
+func _test_commit_row_hand_isolation() -> void:
+	var preset := WeaponLimbPresetScript.new()
+	preset.walk1_hand_grip_offset_px = Vector2(10.0, 20.0)
+	preset.walk1_support_hand_offset_px = Vector2(30.0, 40.0)
+	preset.walk1_pull_hand_grip_offset_px = Vector2(50.0, 60.0)
+	preset.walk1_pull_support_hand_offset_px = Vector2(70.0, 80.0)
+	preset.gather1_hand_grip_offset_px = Vector2(11.0, 21.0)
+	preset.gather1_support_hand_offset_px = Vector2(31.0, 41.0)
+	preset.gather1_pull_hand_grip_offset_px = Vector2(51.0, 61.0)
+	preset.gather1_pull_support_hand_offset_px = Vector2(71.0, 81.0)
+	preset.commit_row_hand_display_px(
+		WeaponLimbPresetScript.TunerAnimMode.WALK1,
+		true,
+		false,
+		Vector2(111.0, 222.0),
+		Vector2(333.0, 444.0)
+	)
+	if preset.walk1_hand_grip_offset_px.distance_to(Vector2(10.0, 20.0)) > 0.01:
+		_fail("commit_row hands: walk1 pose B must not overwrite pose A dominant hand")
+	if preset.walk1_support_hand_offset_px.distance_to(Vector2(30.0, 40.0)) > 0.01:
+		_fail("commit_row hands: walk1 pose B must not overwrite pose A support hand")
+	if preset.walk1_pull_hand_grip_offset_px.distance_to(Vector2(111.0, 222.0)) > 0.01:
+		_fail("commit_row hands: walk1 pose B dominant should land in walk1_pull_hand_grip_offset_px")
+	if preset.walk1_pull_support_hand_offset_px.distance_to(Vector2(333.0, 444.0)) > 0.01:
+		_fail("commit_row hands: walk1 pose B support should land in walk1_pull_support_hand_offset_px")
+	preset.commit_row_hand_display_px(
+		WeaponLimbPresetScript.TunerAnimMode.GATHER1,
+		false,
+		true,
+		Vector2(55.0, 66.0),
+		Vector2(77.0, 88.0)
+	)
+	if preset.gather1_hand_grip_offset_px.distance_to(Vector2(11.0, 21.0)) > 0.01:
+		_fail("commit_row hands: gather pull must not overwrite reach dominant hand")
+	if preset.gather1_pull_support_hand_offset_px.distance_to(Vector2(77.0, 88.0)) > 0.01:
+		_fail("commit_row hands: gather pull support should land in gather1_pull_support_hand_offset_px")
+	if WeaponLimbPresetScript.resolve_pose_row_id(
+		WeaponLimbPresetScript.TunerAnimMode.WALK1, true, false
+	) != &"walk1_b":
+		_fail("resolve_pose_row_id walk1 pose B")
+
+
+func _test_walk1_pose_b_support_elbow_paused() -> void:
+	const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for walk1 pose B elbow test")
+		return
+	if none.walk1_pull_support_elbow_pole_px.length_squared() < 0.0001:
+		_fail("walk1 pull support elbow pole missing on locked none preset")
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for walk1 pose B elbow test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var support_elbow: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportElbowHandle"
+	) as Node2D
+	var support_hand: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportHandHandle"
+	) as Node2D
+	var support_shoulder: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportShoulderHandle"
+	) as Node2D
+	if rig == null or support_elbow == null or support_hand == null or support_shoulder == null:
+		_fail("walk1 pose B elbow: rig or support handles missing")
+		app.queue_free()
+		return
+	rig.call("set_preview_playing", false)
+	rig.snap_walk_pose_edit(true)
+	for _i in range(2):
+		app.call("_sync_assemble_preview")
+		await process_frame
+	var sx: float = absf(rig.sprite.scale.x)
+	var upper := none.resolve_upper_arm_length(false) * sx
+	var lower := none.resolve_lower_arm_length(false) * sx
+	var hand_g := rig.walk_support_hand_global_for_pose_edit(none, true)
+	var shoulder_g := support_shoulder.global_position
+	var expected := rig.elbow_joint_global_from_handles(
+		none, false, WeaponLimbPresetScript.TunerAnimMode.WALK1, shoulder_g, hand_g
+	)
+	if support_elbow.global_position.distance_to(expected) > 2.0:
+		_fail(
+			"walk1 pose B support elbow drifted on first sync (got=%s expected=%s)"
+			% [str(support_elbow.global_position), str(expected)]
+		)
+	var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+		rig.to_local(shoulder_g),
+		rig.to_local(hand_g),
+		upper,
+		lower,
+		false
+	)
+	var elbow_local := rig.to_local(support_elbow.global_position)
+	var last_prefers_a := elbow_local.distance_squared_to(candidates[0]) <= elbow_local.distance_squared_to(candidates[1])
+	for _i in range(24):
+		app.call("_sync_assemble_preview")
+		await process_frame
+		hand_g = rig.walk_support_hand_global_for_pose_edit(none, true)
+		expected = rig.elbow_joint_global_from_handles(
+			none, false, WeaponLimbPresetScript.TunerAnimMode.WALK1, shoulder_g, hand_g
+		)
+		if support_elbow.global_position.distance_to(expected) > 2.0:
+			_fail("walk1 pose B support elbow drifted while paused (frame=%d)" % _i)
+		candidates = ProceduralArmScript.ik_elbow_candidates(
+			rig.to_local(shoulder_g),
+			rig.to_local(hand_g),
+			upper,
+			lower,
+			false
+		)
+		elbow_local = rig.to_local(support_elbow.global_position)
+		var prefers_a := elbow_local.distance_squared_to(candidates[0]) <= elbow_local.distance_squared_to(candidates[1])
+		if prefers_a != last_prefers_a:
+			_fail("walk1 pose B support elbow IK branch flipped while paused")
+		last_prefers_a = prefers_a
 	app.queue_free()
 
 
@@ -571,6 +835,28 @@ func _test_gather_motion_smooth() -> void:
 		_fail("gather pick hand step too large (%.2f px)" % max_pick_step)
 
 
+func _test_gather_preset_lockin() -> void:
+	const GatherArmMotionScript = preload("res://scripts/systems/gather_arm_motion.gd")
+	var preset := WeaponLimbPreset.new()
+	preset.gather1_hand_grip_offset_px = Vector2(219.6391, 66.4864)
+	preset.gather1_support_hand_offset_px = Vector2(-95.91631, 59.91696)
+	preset.gather1_pull_hand_grip_offset_px = Vector2(123.0078, -52.90563)
+	preset.gather1_pull_support_hand_offset_px = Vector2(-11.01562, 33.38344)
+	if not preset.has_gather1_pull_pose():
+		_fail("gather preset should expose pull pose")
+	var reach := preset.gather1_hand_grip_offset_px
+	var pull := preset.resolve_gather1_pull_hand(true)
+	var mid := GatherArmMotionScript.hand_offset_between_keyframes(
+		reach, pull, 0.5, true
+	)
+	if mid.is_equal_approx(reach) or mid.is_equal_approx(pull):
+		_fail("gather pick blend should move hand between reach and pull mid-cycle")
+	var copy_target := WeaponLimbPreset.new()
+	copy_target.copy_gather1_pose_from(preset)
+	if not copy_target.gather1_pull_hand_grip_offset_px.is_equal_approx(pull):
+		_fail("copy_gather1_pose_from should copy pull dominant hand")
+
+
 func _test_club_swing_facing_from_aim() -> void:
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
 	if packed == null:
@@ -675,6 +961,231 @@ func _test_walk_preview_body_bounce() -> void:
 		max_y = maxf(max_y, y)
 	if max_y - min_y < 0.15:
 		_fail("walk preview: sprite Y should bounce (range=%.3f)" % (max_y - min_y))
+	app.queue_free()
+
+
+func _test_none_walk_arm_swing_in_tuner() -> void:
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for walk keyframe test")
+		return
+	none.seed_walk1_from_idle_if_unset()
+	none.walk1_pull_hand_grip_offset_px = none.walk1_hand_grip_offset_px + Vector2(48.0, 0.0)
+	none.walk1_pull_support_hand_offset_px = none.walk1_support_hand_offset_px + Vector2(-48.0, 0.0)
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for none walk keyframe test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	var support: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/SupportHandHandle") as Node2D
+	if rig == null or hand == null or support == null:
+		_fail("none walk keyframe: rig or handles missing")
+		app.queue_free()
+		return
+	rig.set_preview_walk_mode(true)
+	rig.set_walk_direction(1)
+	rig.call("set_preview_playing", true)
+	for _i in range(4):
+		await process_frame
+	if not rig.is_walking():
+		_fail("none walk keyframe: rig should report walking while preview plays")
+		app.queue_free()
+		return
+	var hand_start := hand.global_position
+	var support_start := support.global_position
+	var hand_peak := 0.0
+	var support_peak := 0.0
+	for _i in range(48):
+		await process_frame
+		hand_peak = maxf(hand_peak, hand.global_position.distance_to(hand_start))
+		support_peak = maxf(support_peak, support.global_position.distance_to(support_start))
+	if hand_peak < 12.0:
+		_fail("none walk keyframe: dominant hand should move (peak=%.2f px)" % hand_peak)
+	if support_peak < 12.0:
+		_fail("none walk keyframe: support hand should move (peak=%.2f px)" % support_peak)
+	app.queue_free()
+
+
+func _test_walk_elbows_no_flip_in_tuner() -> void:
+	const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for walk elbow stability test")
+		return
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for walk elbow stability test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
+	)
+	for _i in range(4):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	var weapon_elbow: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/WeaponElbowHandle"
+	) as Node2D
+	var weapon_hand: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/HandHandle"
+	) as Node2D
+	var weapon_shoulder: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/ShoulderHandle"
+	) as Node2D
+	var support_elbow: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportElbowHandle"
+	) as Node2D
+	var support_hand: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportHandHandle"
+	) as Node2D
+	var support_shoulder: Node2D = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportShoulderHandle"
+	) as Node2D
+	if (
+		rig == null
+		or weapon_elbow == null
+		or weapon_hand == null
+		or weapon_shoulder == null
+		or support_elbow == null
+		or support_hand == null
+		or support_shoulder == null
+	):
+		_fail("walk elbow stability: rig or handles missing")
+		app.queue_free()
+		return
+	none.seed_walk1_from_idle_if_unset()
+	none.walk1_pull_hand_grip_offset_px = none.walk1_hand_grip_offset_px + Vector2(40.0, 0.0)
+	none.walk1_pull_support_hand_offset_px = none.walk1_support_hand_offset_px + Vector2(-40.0, 0.0)
+	rig.set_preview_walk_mode(true)
+	rig.set_walk_direction(1)
+	rig.call("set_preview_playing", true)
+	for _i in range(4):
+		await process_frame
+	var sx: float = absf(rig.sprite.scale.x)
+	_assert_walk_elbow_stable_over_cycle(
+		rig, none, true, weapon_elbow, weapon_shoulder, weapon_hand, sx
+	)
+	_assert_walk_elbow_stable_over_cycle(
+		rig, none, false, support_elbow, support_shoulder, support_hand, sx
+	)
+	app.queue_free()
+
+
+func _assert_walk_elbow_stable_over_cycle(
+	rig: LimbTunerRig,
+	preset: WeaponLimbPreset,
+	dominant: bool,
+	elbow_node: Node2D,
+	shoulder_node: Node2D,
+	hand_node: Node2D,
+	sx: float
+) -> void:
+	const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
+	var label := "dominant" if dominant else "support"
+	var upper := preset.resolve_upper_arm_length(dominant) * sx
+	var lower := preset.resolve_lower_arm_length(dominant) * sx
+	var prev := elbow_node.global_position
+	var max_step := 0.0
+	var branch_flips := 0
+	var candidates: Array = ProceduralArmScript.ik_elbow_candidates(
+		rig.to_local(shoulder_node.global_position),
+		rig.to_local(hand_node.global_position),
+		upper,
+		lower,
+		true
+	)
+	var elbow_local := rig.to_local(prev)
+	var last_prefers_a := elbow_local.distance_squared_to(candidates[0]) <= elbow_local.distance_squared_to(candidates[1])
+	for _i in range(72):
+		await process_frame
+		var elbow_g := elbow_node.global_position
+		max_step = maxf(max_step, elbow_g.distance_to(prev))
+		prev = elbow_g
+		candidates = ProceduralArmScript.ik_elbow_candidates(
+			rig.to_local(shoulder_node.global_position),
+			rig.to_local(hand_node.global_position),
+			upper,
+			lower,
+			true
+		)
+		elbow_local = rig.to_local(elbow_g)
+		var dist_a: float = elbow_local.distance_squared_to(candidates[0])
+		var dist_b: float = elbow_local.distance_squared_to(candidates[1])
+		var prefers_a := dist_a <= dist_b
+		if prefers_a != last_prefers_a:
+			branch_flips += 1
+			last_prefers_a = prefers_a
+	if max_step > 32.0:
+		_fail("walk %s elbow jumped %.1f px in one frame (likely IK flip)" % [label, max_step])
+	if branch_flips > 0:
+		_fail("walk %s elbow switched IK branch %d times — should stay locked" % [label, branch_flips])
+
+
+func _test_mannequin_walk_uses_walk_rest() -> void:
+	const MannequinPoseRuntimeScript = preload("res://scripts/systems/mannequin_pose_runtime.gd")
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for mannequin walk rest test")
+		return
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for mannequin walk rest test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null or rig.sprite == null:
+		_fail("mannequin walk rest: missing rig")
+		app.queue_free()
+		return
+	var endpoints := MannequinPoseRuntimeScript.resolve_arm_endpoints(
+		rig,
+		rig.sprite,
+		null,
+		none,
+		ResourceData.ResourceType.NONE,
+		WeaponOverlayCombat.OverlayState.IDLE,
+		Vector2(1.0, 0.0),
+		true,
+		0.0
+	)
+	var weapon_rest := LimbPresetCoords.body_global_from_display(
+		rig.sprite, none.resolve_walk_rest_hand_grip()
+	)
+	var support_rest := LimbPresetCoords.body_global_from_display(
+		rig.sprite, none.resolve_walk_rest_support_hand()
+	)
+	var weapon_hand: Vector2 = endpoints.get("weapon_hand", Vector2.ZERO)
+	var support_hand: Vector2 = endpoints.get("support_hand", Vector2.ZERO)
+	# At bounce phase 0 with lag, swing may be non-zero — compare against idle rest to ensure walk row is used.
+	var idle_weapon := LimbPresetCoords.body_global_from_display(
+		rig.sprite, none.hand_grip_offset_px
+	)
+	if weapon_hand.distance_to(idle_weapon) < weapon_hand.distance_to(weapon_rest) * 0.5:
+		_fail("mannequin walk should rest on walk1 hand row, not idle hand")
+	if support_hand.distance_to(
+		LimbPresetCoords.body_global_from_display(rig.sprite, none.support_hand_idle_offset_px)
+	) < 4.0 and support_hand.distance_to(support_rest) > 8.0:
+		_fail("mannequin walk support should use walk rest row")
 	app.queue_free()
 
 
@@ -1253,10 +1764,10 @@ func _test_idle_club1_minimal_scenario() -> void:
 		var arm_draw: CanvasItem = rig.get_node_or_null(arm_name) as CanvasItem
 		if arm_draw != null and arm_draw.visible:
 			_fail("idle club1: %s should be hidden in minimal view" % arm_name)
-	var save_btn: Button = app.get_node_or_null("UI/Panel/Margin/VBox/ActionsSection/ActionGrid/SaveAllBtn") as Button
+	var save_btn: Button = app.get_node_or_null("UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid/SaveBtn") as Button
 	if save_btn == null or not save_btn.visible:
 		_fail("idle club1: Save all button should stay visible")
-	var select_section: Control = app.get_node_or_null("UI/Panel/Margin/VBox/SelectSection") as Control
+	var select_section: Control = app.get_node_or_null("UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection") as Control
 	if select_section != null and select_section.visible:
 		_fail("idle club1: pose/holdable section should be hidden in minimal view")
 	app.queue_free()
@@ -1372,14 +1883,202 @@ func _test_idle_arm2_raise_preview() -> void:
 	var west_auto := WeaponLimbPresetScript.SUPPORT_ELBOW_BEND_SIGN
 	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.0, east_auto) != 1.0:
 		_fail("support elbow at rest should use idle bend sign (east-facing)")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.25, east_auto) != 1.0:
-		_fail("support elbow should keep rest bend before halfway raise (east-facing)")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.25, east_auto, false) != 1.0:
+		_fail("support elbow should keep rest bend during raise (pole arc drives sweep)")
 	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.0, west_auto) != -1.0:
 		_fail("support elbow at rest should mirror when facing west")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.75, east_auto) != -1.0:
-		_fail("support elbow should flip bend after halfway raise")
-	if preset.resolve_support_elbow_bend_sign_for_idle_raise(1.0, east_auto) != -1.0:
-		_fail("support elbow at full raise should use raised bend sign")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.75, east_auto, false) != 1.0:
+		_fail("support elbow should not flip mid-raise (pole arc)")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(0.75, east_auto, true) != 1.0:
+		_fail("support elbow should stay rest bend while lowering (pole arc)")
+	if preset.resolve_support_elbow_bend_sign_for_idle_raise(1.0, east_auto, false) != 1.0:
+		_fail("support elbow should keep rest bend through full raise")
+	var pole_preset := WeaponLimbPreset.new()
+	pole_preset.support_elbow_pole_idle_px = Vector2(-111.0, -176.0)
+	pole_preset.support_elbow_pole_idle_raise_px = Vector2(-187.0, -257.0)
+	if pole_preset.resolve_support_elbow_pole_for_idle_raise(0.0).distance_squared_to(Vector2(-111.0, -176.0)) > 1.0:
+		_fail("idle elbow pole at rest should use idle pole")
+	var mid_pole := pole_preset.resolve_support_elbow_pole_for_idle_raise(0.5)
+	if mid_pole.x <= -111.0:
+		_fail("mid-raise elbow pole should sweep in front (toward body center)")
+	if pole_preset.resolve_support_elbow_pole_for_idle_raise(1.0).distance_squared_to(Vector2(-187.0, -257.0)) > 1.0:
+		_fail("idle elbow pole at full raise should use raise pole")
+	var raise_arc_preset := WeaponLimbPreset.new()
+	raise_arc_preset.support_shoulder_offset_px = Vector2(-94.0, -177.0)
+	raise_arc_preset.support_shoulder_idle_raise_offset_px = Vector2(-126.0, -154.0)
+	raise_arc_preset.support_hand_idle_offset_px = Vector2(-11.0, 40.0)
+	raise_arc_preset.support_hand_idle_raise_offset_px = Vector2(-20.0, -370.0)
+	raise_arc_preset.support_elbow_pole_idle_px = Vector2(-111.0, -176.0)
+	raise_arc_preset.support_elbow_pole_idle_raise_px = Vector2(-187.0, -257.0)
+	var rest_elbow := ProceduralArm.estimate_elbow_position(
+		Vector2(-94.0, -177.0), Vector2(-11.0, 40.0), 120.0, 120.0, Vector2(-111.0, -176.0), true
+	)
+	var raised_elbow := ProceduralArm.estimate_elbow_position(
+		Vector2(-126.0, -154.0), Vector2(-20.0, -370.0), 120.0, 120.0, Vector2(-187.0, -257.0), true
+	)
+	var linear_mid_elbow := rest_elbow.lerp(raised_elbow, 0.5)
+	var arc_mid_elbow := raise_arc_preset.resolve_support_elbow_display_for_idle_raise(0.5, 120.0, 120.0)
+	if arc_mid_elbow.x <= linear_mid_elbow.x:
+		_fail("raise elbow arc should pass in front (toward body center) of a straight rest→raised path")
+	var rest_elbow_pose := raise_arc_preset.resolve_support_elbow_display_for_idle_rest(120.0, 120.0)
+	var lower_end_elbow := raise_arc_preset.resolve_support_elbow_display_for_idle_lower(
+		0.0, 0.0, true, 120.0, 120.0
+	)
+	if rest_elbow_pose.distance_squared_to(lower_end_elbow) > 4.0:
+		_fail("idle rest elbow should match lower endpoint (no post-lower flip)")
+	var scan_preset := WeaponLimbPreset.new()
+	scan_preset.support_hand_idle_offset_px = Vector2(-11.0, 40.0)
+	scan_preset.support_hand_idle_raise_offset_px = Vector2(-20.0, -370.0)
+	scan_preset.support_hand_idle_raise_lookback_offset_px = Vector2(-140.0, -365.0)
+	var pose_a := scan_preset.resolve_support_hand_idle_for_idle_scan(1.0, 0.0)
+	var pose_b := scan_preset.resolve_support_hand_idle_for_idle_scan(1.0, 1.0)
+	if pose_a.is_equal_approx(pose_b):
+		_fail("scan blend should move hand from pose A to pose B")
+	if pose_a.distance_squared_to(Vector2(-20.0, -370.0)) > 1.0:
+		_fail("scan blend 0 should match pose A hand")
+	if pose_b.distance_squared_to(Vector2(-140.0, -365.0)) > 1.0:
+		_fail("scan blend 1 should match pose B hand")
+	var shoulder_preset := WeaponLimbPreset.new()
+	shoulder_preset.support_shoulder_offset_px = Vector2(-94.0, -177.0)
+	shoulder_preset.support_shoulder_idle_raise_offset_px = Vector2(-126.0, -154.0)
+	var rest_shoulder := shoulder_preset.resolve_support_shoulder_for_idle_raise(0.0)
+	var raised_shoulder := shoulder_preset.resolve_support_shoulder_for_idle_raise(1.0)
+	if rest_shoulder.is_equal_approx(raised_shoulder):
+		_fail("idle raise should move support shoulder")
+	var scan := TunerIdlePreviewScript.new()
+	scan.set_variant(TunerIdlePreviewScript.VARIANT_ID)
+	scan.set_playing(true)
+	scan.set_sun_shield_scan_mode(true)
+	if scan._head_look_flips_enabled():
+		_fail("head flip should wait until arm is raised in scan mode")
+	scan._arm2_raise_blend = 0.9
+	if not scan._head_look_flips_enabled():
+		_fail("head flip should enable once arm is up")
+	scan._arm2_raise_blend = 1.0
+	scan._arm2_phase = scan._Arm2RaisePhase.HOLD
+	scan._on_head_look_flip()
+	if scan._scan_look_count != 1:
+		_fail("scan mode should count first head flip")
+	scan._on_head_look_flip()
+	if scan._scan_look_count != 2:
+		_fail("scan mode should count return flip to pose A")
+	scan._arm2_phase_time = scan.SCAN_POSE_A_HOLD_SEC + 0.05
+	scan._hand_shade_slide_amount = 0.0
+	scan._tick_arm2_raise(0.016)
+	if scan._arm2_phase != scan._Arm2RaisePhase.LOWERING:
+		_fail("scan cycle should lower arm after forward-back-forward looks")
+	var lower_preset := WeaponLimbPreset.new()
+	lower_preset.support_hand_idle_offset_px = Vector2(-11.0, 40.0)
+	lower_preset.support_hand_idle_raise_offset_px = Vector2(-20.0, -370.0)
+	lower_preset.support_shoulder_offset_px = Vector2(-94.0, -177.0)
+	lower_preset.support_shoulder_idle_raise_offset_px = Vector2(-126.0, -154.0)
+	lower_preset.support_elbow_pole_idle_px = Vector2(-111.0, -176.0)
+	lower_preset.support_elbow_pole_idle_raise_px = Vector2(-187.0, -257.0)
+	var linear_hand := lower_preset.resolve_support_hand_idle_for_idle_scan(0.5, 0.0, false)
+	var lag_hand := lower_preset.resolve_support_hand_idle_for_idle_scan(0.5, 0.0, true)
+	if lag_hand.y >= linear_hand.y:
+		_fail("lowering should lag support hand above linear mid-lower path")
+	var linear_shoulder := lower_preset.resolve_support_shoulder_for_idle_raise(0.5, false)
+	var lead_shoulder := lower_preset.resolve_support_shoulder_for_idle_raise(0.5, true)
+	if lead_shoulder.y >= linear_shoulder.y:
+		_fail("lowering should drop support shoulder ahead of linear mid-lower path")
+	var elbow_mid := lower_preset.resolve_support_elbow_display_for_idle_lower(
+		0.5, 0.0, true, 140.0, 140.0
+	)
+	if elbow_mid.length_squared() <= 0.0001:
+		_fail("lowering should force a support elbow display position")
+	var arm := ProceduralArm.new()
+	arm.set_pole_pick_lock(true, true)
+	var shoulder := Vector2(0.0, 0.0)
+	var hand := Vector2(40.0, -200.0)
+	var upper := 140.0
+	var lower := 140.0
+	var pole_near_b := Vector2(120.0, -80.0)
+	var unlocked := ProceduralArm.estimate_elbow_position(shoulder, hand, upper, lower, pole_near_b, true)
+	var locked_joints: Dictionary = {}
+	arm.update_arm(
+		shoulder, hand, ProceduralArmConfig.new(), 1.0, Vector2.ONE,
+		pole_near_b, true, upper, lower, Vector2.ZERO, false, true, false, 1.0 / 60.0
+	)
+	locked_joints = arm.get_last_joint_positions()
+	if unlocked.distance_squared_to(locked_joints.get("elbow", Vector2.ZERO)) < 1.0:
+		_fail("pole pick lock should keep elbow on rest side during idle raise")
+	arm.clear_pole_pick_lock()
+
+
+func _test_none_idle_sun_shield_keeps_walk_lock() -> void:
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing")
+		return
+	if none.hand_grip_offset_px.distance_to(Vector2(127.90, 51.48)) > 0.5:
+		_fail("none idle hand must match locked rest pose")
+	if none.walk1_hand_grip_offset_px.distance_to(Vector2(225.82, 34.35)) > 0.05:
+		_fail("idle work must not change locked Walk 1 Pose A")
+	if none.walk1_pull_hand_grip_offset_px.distance_to(Vector2(76.93, 97.59)) > 0.05:
+		_fail("idle work must not change locked Walk 1 Pose B")
+	if not none.walk1_pose_a_saved or not none.walk1_pose_b_saved:
+		_fail("walk1 saved flags must be set")
+
+
+func _test_walk1_locked_poses() -> void:
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for walk1 lock test")
+		return
+	if not none.has_walk1_pull_pose():
+		_fail("walk1 pose B (pull row) must exist")
+	if none.walk1_weapon_elbow_bend_sign_override != -1.0:
+		_fail("walk1 pose A elbow 1 bend should be -1")
+	if none.walk1_pull_weapon_elbow_bend_sign_override != 1.0:
+		_fail("walk1 pose B elbow 1 bend should be 1")
+
+
+func _test_walk1_pendulum_smooth() -> void:
+	const WalkArmMotion = preload("res://scripts/systems/walk_arm_motion.gd")
+	var a := Vector2(225.82, 34.35)
+	var b := Vector2(76.93, 97.59)
+	var prev := a
+	for i in range(1, 9):
+		var phase := float(i) / 8.0
+		var sample := WalkArmMotion.body_snapshot_between_keyframes(a, b, phase)
+		if sample.distance_to(prev) > 200.0:
+			_fail("walk1 pendulum jump at phase %.2f" % phase)
+		prev = sample
+
+
+func _test_ik_utils_elbow_pole() -> void:
+	const IKUtils = preload("res://scripts/systems/ik_utils.gd")
+	var shoulder := Vector2(100.0, 0.0)
+	var hand := Vector2(200.0, 0.0)
+	var pole := Vector2(150.0, 50.0)
+	var elbow := IKUtils.calculate_elbow_from_pole(shoulder, hand, pole, 60.0, 60.0)
+	if elbow.distance_to(shoulder) < 10.0:
+		_fail("IKUtils elbow should not sit on shoulder")
+	var sign := IKUtils.derive_bend_sign_from_pole(shoulder, hand, pole)
+	if sign != 1.0:
+		_fail("IKUtils bend sign from pole above line should be +1")
+
+
+func _test_golden_motion_files() -> void:
+	const MotionGolden = preload("res://scripts/systems/motion_golden.gd")
+	var none: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		_fail("none preset missing for golden motion test")
+		return
+	for err_msg in MotionGolden.validate_idle_rest("res://Tests/golden/idle_motion.json", none):
+		_fail(err_msg)
+	for err_msg in MotionGolden.validate_walk1_pendulum(
+		"res://Tests/golden/walk1_motion.json",
+		Vector2(225.82, 34.35),
+		Vector2(76.93, 97.59),
+		Vector2(-173.19, 41.69),
+		Vector2(5.51, 71.07)
+	):
+		_fail(err_msg)
+	var spear_data := MotionGolden.load_json("res://Tests/golden/spear_idle1_motion.json")
+	if spear_data.is_empty():
+		_fail("spear_idle1_motion.json missing")
 
 
 func _test_procedural_arms_still_pass() -> void:

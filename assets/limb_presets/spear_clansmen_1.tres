@@ -1,14 +1,17 @@
 [gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_7324g"]
 
 [resource]
-script = ExtResource("1")
+script = ExtResource("1_7324g")
 shoulder_offset_px = Vector2(118, -179)
-hand_grip_offset_px = Vector2(0, 0)
+hand_grip_offset_px = Vector2(4.966575, 101.0588)
 support_shoulder_offset_px = Vector2(-95, -178)
-support_hand_idle_offset_px = Vector2(0, 0)
+support_hand_idle_offset_px = Vector2(17.75, 24.56)
+overlay_offset_idle_px = Vector2(63.5, -116)
 upper_arm_length = 120.0
 lower_arm_length = 120.0
-arm_width = 14.0
-hand_width = 10.0
+weapon_elbow_pole_idle_px = Vector2(110.2281, -162.7713)
+support_elbow_pole_idle_px = Vector2(-111.3289, -176.4535)
+weapon_elbow_bend_sign_override = 1.0
+support_elbow_bend_sign_override = 1.0

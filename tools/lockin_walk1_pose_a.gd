@@ -60,6 +60,8 @@ func _run() -> void:
 
 
 func _apply_handoff(preset: WeaponLimbPreset) -> void:
+	preset.weapon_type = ResourceData.ResourceType.NONE
+	preset.body_card_id = "clansmen_1"
 	# Shoulders (reference)
 	preset.shoulder_offset_px = SHOULDER_1
 	preset.support_shoulder_offset_px = SHOULDER_2

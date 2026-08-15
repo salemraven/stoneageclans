@@ -1,14 +1,31 @@
 [gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_68dco"]
 
 [resource]
-script = ExtResource("1")
+script = ExtResource("1_68dco")
+weapon_type = 1
 shoulder_offset_px = Vector2(118, -179)
-hand_grip_offset_px = Vector2(0, 0)
+hand_grip_offset_px = Vector2(5, 75)
+hand_grip_ready_offset_px = Vector2(12, 70)
 support_shoulder_offset_px = Vector2(-95, -178)
-support_hand_idle_offset_px = Vector2(0, 0)
+support_hand_idle_offset_px = Vector2(17.75, 24.56)
+support_hand_offset_px = Vector2(10, 40)
+idle_club1_hand_grip_offset_px = Vector2(5, 80)
+idle_club1_support_hand_offset_px = Vector2(17.75, 24.56)
+idle_club1_overlay_offset_px = Vector2(45, -55)
+idle_club1_grip_authoritative = true
+club_attack_pose_saved = true
+club_windup_idle_key_a_ready_offset_px = Vector2(10, 0)
+club_windup_idle_key_a_hand_grip_offset_px = Vector2(12, 68)
+club_windup_idle_key_a_support_hand_offset_px = Vector2(10, 40)
+club_windup_idle_key_b_ready_offset_px = Vector2(18, -8)
+club_windup_idle_key_b_hand_grip_offset_px = Vector2(14, 65)
+club_windup_idle_key_b_support_hand_offset_px = Vector2(15, 45)
+strike_offset_px = Vector2(12, 18)
 upper_arm_length = 120.0
 lower_arm_length = 120.0
-arm_width = 14.0
-hand_width = 10.0
+weapon_elbow_pole_idle_px = Vector2(89.89, -62.34)
+support_elbow_pole_idle_px = Vector2(-65.77, -61.62)
+weapon_elbow_bend_sign_override = 1.0
+support_elbow_bend_sign_override = 1.0

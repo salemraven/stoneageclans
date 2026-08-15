@@ -4,11 +4,29 @@
 
 [resource]
 script = ExtResource("1")
+weapon_type = 0
 shoulder_offset_px = Vector2(118, -179)
-hand_grip_offset_px = Vector2(0, 0)
+hand_grip_offset_px = Vector2(127.9, 51.48)
 support_shoulder_offset_px = Vector2(-95, -178)
-support_hand_idle_offset_px = Vector2(0, 0)
+support_hand_idle_offset_px = Vector2(17.75, 24.56)
+walk1_hand_grip_offset_px = Vector2(225.82, 34.35)
+walk1_support_hand_offset_px = Vector2(-173.19, 41.69)
+walk1_overlay_offset_px = Vector2(22, -34)
+walk1_weapon_elbow_pole_px = Vector2(181.45, -77.15)
+walk1_support_elbow_pole_px = Vector2(-160.83, -77.67)
+walk1_weapon_elbow_bend_sign_override = -1.0
+walk1_support_elbow_bend_sign_override = 1.0
+walk1_pull_hand_grip_offset_px = Vector2(76.93, 97.59)
+walk1_pull_support_hand_offset_px = Vector2(5.51, 71.07)
+walk1_pull_weapon_elbow_pole_px = Vector2(88, -41.98)
+walk1_pull_support_elbow_pole_px = Vector2(-81.92, -38.28)
+walk1_pull_weapon_elbow_bend_sign_override = 1.0
+walk1_pull_support_elbow_bend_sign_override = 1.0
+walk1_pose_a_saved = true
+walk1_pose_b_saved = true
 upper_arm_length = 120.0
 lower_arm_length = 120.0
-arm_width = 14.0
-hand_width = 10.0
+weapon_elbow_pole_idle_px = Vector2(89.89, -62.34)
+support_elbow_pole_idle_px = Vector2(-65.77, -61.62)
+weapon_elbow_bend_sign_override = 1.0
+support_elbow_bend_sign_override = 1.0

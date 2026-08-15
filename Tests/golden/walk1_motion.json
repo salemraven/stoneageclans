@@ -1,0 +1,14 @@
+{
+  "animation": "walk1",
+  "holdable": "none",
+  "body": "clansmen_1",
+  "description": "Hand display offsets sampled from WalkArmMotion pendulum (Pose A to B)",
+  "samples": [
+    {"phase": 0.0, "hand_1": [225.82, 34.35], "hand_2": [-173.19, 41.69]},
+    {"phase": 0.25, "hand_1": [151.38, 65.97], "hand_2": [-83.84, 56.38]},
+    {"phase": 0.5, "hand_1": [76.93, 97.59], "hand_2": [5.51, 71.07]},
+    {"phase": 0.75, "hand_1": [151.38, 65.97], "hand_2": [-83.84, 56.38]},
+    {"phase": 1.0, "hand_1": [225.82, 34.35], "hand_2": [-173.19, 41.69]}
+  ],
+  "tolerance_px": 2.0
+}

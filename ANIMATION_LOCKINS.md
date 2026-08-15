@@ -56,8 +56,66 @@ hand_width: 10.0
 
 ---
 
-### Walk 1 Pose B - [Pending]
-**Next to author**
+### Walk 1 Pose B - 2026-08-15
+**Holdable:** none  
+**Body:** clansmen_1  
+**Description:** Left forward, right back (pull row)
+
+**Pin Data:**
+- hand_1: (76.93, 97.59)
+- hand_2: (5.51, 71.07)
+- elbow_1_pole: (88.0, -41.98)
+- elbow_2_pole: (-81.92, -38.28)
+- elbow_1_bend: +1.0
+- elbow_2_bend: +1.0
+
+**Lock-in script:** `tools/lockin_walk1_pose_b.gd` + `tools/lockin_none_clansmen_1.gd`  
+**Golden:** `Tests/golden/walk1_motion.json`  
+**Status:** ✅ LOCKED
+
+---
+
+### Idle Rest - 2026-08-15
+**Holdable:** none  
+**Body:** clansmen_1  
+
+**Pin Data:**
+- hand_1: (127.90, 51.48)
+- hand_2: (17.75, 24.56)
+- elbow_1_pole: (89.89, -62.34)
+- elbow_2_pole: (-65.77, -61.62)
+- overlay: (22.0, -34.0)
+
+**Lock-in script:** `tools/lockin_idle_none_clansmen_1.gd` + `tools/lockin_none_clansmen_1.gd`  
+**Golden:** `Tests/golden/idle_motion.json`  
+**Status:** ✅ LOCKED
+
+---
+
+### Spear Idle (default baseline) - 2026-08-15
+**Holdable:** spear  
+**Body:** clansmen_1  
+**Note:** Default shaft grip — needs visual re-tune in tuner before final sign-off
+
+**Lock-in script:** `tools/lockin_spear_clansmen_1.gd`  
+**Golden:** `Tests/golden/spear_idle1_motion.json`  
+**Status:** ⚠️ BASELINE (not visually signed off)
+
+---
+
+### Club Windup Loop (placeholder) - 2026-08-15
+**Holdable:** club (WOOD)  
+**Body:** clansmen_1  
+**Note:** Placeholder keyframes — needs visual re-tune
+
+**Lock-in script:** `tools/lockin_club_clansmen_1.gd`  
+**Status:** ⚠️ BASELINE (not visually signed off)
+
+---
+
+### Gather 1 - Pending
+**Lock-in script:** `tools/lockin_gather_clansmen_1.gd` (skips until `gather1_motion.json` locked=true)  
+**Status:** ❌ NOT LOCKED
 
 ---
 
@@ -103,8 +161,11 @@ Add the pose to the "Locked Animations" section above
 
 ## Next Animation Checklist
 
-- [ ] Walk 1 Pose B
-- [ ] Idle (simple breathe/sway)
-- [ ] Walk 1 motion validation test
-- [ ] Golden trajectory capture
-- [ ] Document in animation_tuner.md
+- [x] Walk 1 Pose B
+- [x] Idle rest pose
+- [x] Walk 1 motion validation test
+- [x] Golden trajectory capture (idle + walk1)
+- [x] Document isolation architecture in animation_tuner.md
+- [ ] Spear idle visual sign-off
+- [ ] Gather reach/pull author + lock
+- [ ] Club windup visual re-tune
