@@ -63,6 +63,8 @@ func _run() -> void:
 	_test_walk1_pendulum_smooth()
 	_test_ik_utils_elbow_pole()
 	_test_golden_motion_files()
+	_test_spear_idle_raise_no_flip()
+	_test_gather_pick_cycle()
 	_test_procedural_arms_still_pass()
 	_report()
 	quit()
@@ -2079,6 +2081,62 @@ func _test_golden_motion_files() -> void:
 	var spear_data := MotionGolden.load_json("res://Tests/golden/spear_idle1_motion.json")
 	if spear_data.is_empty():
 		_fail("spear_idle1_motion.json missing")
+
+
+func _test_spear_idle_raise_no_flip() -> void:
+	const SpearIdleMotion = preload("res://scripts/systems/spear_idle_motion.gd")
+	const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
+	var preset := WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.SPEAR, 1)
+	preset.support_hand_idle_raise_offset_px = WeaponLimbPresetScript.default_none_idle_raise_hand_px()
+	preset.support_elbow_bend_sign_raise_override = -1.0
+	if not preset.has_idle_arm2_raise_pose():
+		_fail("spear idle raise test needs arm2 raise pose seeded")
+		return
+	for err_msg in SpearIdleMotion.validate_raise_elbow_arc(preset):
+		_fail(err_msg)
+
+
+func _test_gather_pick_cycle() -> void:
+	const GatherArmMotion = preload("res://scripts/systems/gather_arm_motion.gd")
+	var reach := Vector2(219.64, 66.49)
+	var pull := Vector2(123.01, -52.91)
+	var prev_bend := GatherArmMotion.body_bend_amount(0.0)
+	var prev_hand := reach
+	var max_bend_step := 0.0
+	var max_hand_step := 0.0
+	var min_dist_to_pull := INF
+	var max_dist_from_reach := 0.0
+	var had_pick := false
+	const STEPS := 240
+	for i in range(1, STEPS + 1):
+		var phase := float(i) / float(STEPS)
+		var bend := GatherArmMotion.body_bend_amount(phase)
+		max_bend_step = maxf(max_bend_step, absf(bend - prev_bend))
+		prev_bend = bend
+		var arm_work := GatherArmMotion.arm_work_phase(phase)
+		if arm_work < 0.0:
+			had_pick = false
+			continue
+		var hand := GatherArmMotion.hand_offset_between_keyframes(reach, pull, arm_work, true)
+		if had_pick:
+			max_hand_step = maxf(max_hand_step, hand.distance_to(prev_hand))
+		prev_hand = hand
+		had_pick = true
+		min_dist_to_pull = minf(min_dist_to_pull, hand.distance_to(pull))
+		max_dist_from_reach = maxf(max_dist_from_reach, hand.distance_to(reach))
+	if max_bend_step > 0.035:
+		_fail("gather pick cycle bend not smooth (max step %.4f)" % max_bend_step)
+	var span := reach.distance_to(pull)
+	var hand_step_limit := 4.5 * span / 36.0
+	if max_hand_step > hand_step_limit:
+		_fail(
+			"gather pick cycle hand jump too large (%.2f px, limit %.2f)"
+			% [max_hand_step, hand_step_limit]
+		)
+	if min_dist_to_pull > 30.0:
+		_fail("gather pick cycle should approach pull pose during arm work")
+	if max_dist_from_reach < 5.0:
+		_fail("gather pick cycle should move away from reach pose")
 
 
 func _test_procedural_arms_still_pass() -> void:

@@ -5,6 +5,7 @@ extends SceneTree
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
 const MotionGolden = preload("res://scripts/systems/motion_golden.gd")
+const SpearIdleMotion = preload("res://scripts/systems/spear_idle_motion.gd")
 
 const TOLERANCE_PX := 0.05
 
@@ -35,6 +36,7 @@ func _run() -> void:
 
 	_validate_static(preset)
 	_validate_golden(preset)
+	_validate_motion(preset)
 
 	var err := registry.save_preset(preset)
 	if err != OK:
@@ -77,6 +79,19 @@ func _validate_golden(preset: WeaponLimbPreset) -> void:
 			_fail("golden %s mismatch got %s want %s" % [key, str(got), str(want)])
 	if _failures.is_empty():
 		print("  golden spear idle: OK")
+
+
+func _validate_motion(preset: WeaponLimbPreset) -> void:
+	print("\n-- Spear idle raise motion --")
+	if not preset.has_idle_arm2_raise_pose():
+		preset.support_hand_idle_raise_offset_px = (
+			WeaponLimbPresetScript.default_none_idle_raise_hand_px()
+		)
+		preset.support_elbow_bend_sign_raise_override = -1.0
+	for err_msg in SpearIdleMotion.validate_raise_elbow_arc(preset):
+		_fail(err_msg)
+	if _failures.is_empty():
+		print("  spear idle raise arc: OK (9 samples, no flip/teleport)")
 
 
 func _expect_vec(label: String, got: Vector2, want: Vector2) -> void:
