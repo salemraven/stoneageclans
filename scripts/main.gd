@@ -2859,8 +2859,10 @@ func _process_weapon_ready_input() -> void:
 	var can_ready: bool = _player_has_weapon_equipped()
 	if Input.is_action_just_pressed("weapon_ready") and can_ready:
 		if combat_comp.state == CombatComponent.CombatState.IDLE:
-			var aim: Vector2 = player.aim_dir if player.has_method("_get_cursor_aim_direction") else Vector2(1, 0)
-			if player.has_method("_get_cursor_aim_direction"):
+			var aim: Vector2 = Vector2(1, 0)
+			if player.has_method("_get_combat_aim_direction"):
+				aim = player._get_combat_aim_direction()
+			elif player.has_method("_get_cursor_aim_direction"):
 				aim = player._get_cursor_aim_direction()
 			combat_comp.enter_ready(aim)
 	elif Input.is_action_just_released("weapon_ready"):

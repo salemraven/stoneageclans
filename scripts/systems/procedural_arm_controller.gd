@@ -46,6 +46,12 @@ var _walk_cycle_phase := 0.0
 var _cached_limb_preset: WeaponLimbPreset
 var _cached_limb_preset_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE as ResourceData.ResourceType
 var _tuner_arm_layers_ready: bool = false
+var _idle_sun_shield_elbow_locked := false
+var _idle_sun_shield_elbow_pick_a := true
+var _walk_swing_elbow_pick_locked := false
+var _walk_swing_support_elbow_pick_a := true
+var _walk_swing_weapon_elbow_pick_a := true
+var _keyed_motion_elbow_authority := false
 
 
 func _ready() -> void:
@@ -183,6 +189,8 @@ func _process(_delta: float) -> void:
 
 	var overlay_combat := is_overlay_hand_tracking_active() or thrust_active
 	var use_mannequin_endpoints := MannequinPoseRuntime.uses_mannequin(sprite) and _cached_limb_preset != null
+	var idle_raise_blend := _read_idle_arm2_raise_blend()
+	var idle_arm2_lowering := _read_idle_arm2_lowering()
 
 	var shoulder_weapon: Vector2
 	var hand_grip: Vector2
@@ -197,8 +205,11 @@ func _process(_delta: float) -> void:
 			weapon_type,
 			WeaponOverlayCombat.get_overlay_state(_player),
 			_get_aim_dir(sprite),
-			_is_walking_for_swing(sprite),
-			_get_walk_bounce_time()
+			_is_walk_swing_active(sprite),
+			_get_walk_bounce_time(),
+			idle_raise_blend,
+			_read_idle_scan_blend(),
+			idle_arm2_lowering
 		)
 		shoulder_weapon = endpoints.get("weapon_shoulder", Vector2.ZERO)
 		hand_grip = endpoints.get("weapon_hand", Vector2.ZERO)
@@ -210,9 +221,15 @@ func _process(_delta: float) -> void:
 		support_shoulder = _support_shoulder_local(sprite, config.shoulder_offset_left, sprite_scale)
 		support_hand = _support_hand_target_local(sprite, overlay, sprite_scale)
 	if not _weapon_hand_uses_overlay_walk_carry() and not overlay_combat:
-		hand_grip = _apply_walk_swing_rig_local(sprite, shoulder_weapon, hand_grip, true, weapon_type)
+		if not _uses_walk1_keyframe_walk():
+			hand_grip = _apply_walk_swing_rig_local(sprite, shoulder_weapon, hand_grip, true, weapon_type)
+	elif _uses_walk1_keyframe_walk():
+		pass
 	if not overlay_combat:
-		support_hand = _apply_walk_swing_rig_local(sprite, support_shoulder, support_hand, false, weapon_type)
+		if _uses_walk1_keyframe_walk():
+			pass
+		else:
+			support_hand = _apply_walk_swing_rig_local(sprite, support_shoulder, support_hand, false, weapon_type)
 	if _weapon_endpoints_override:
 		shoulder_weapon = _weapon_shoulder_override
 		hand_grip = _weapon_hand_override
@@ -226,15 +243,108 @@ func _process(_delta: float) -> void:
 		shoulder_weapon += thrust_motion * THRUST_WEAPON_SHOULDER_FOLLOW
 		support_shoulder += counter_motion * THRUST_SUPPORT_SHOULDER_FOLLOW
 
+	var idle_sun_shield_scan := _read_idle_sun_shield_scan_active()
+	var use_idle_raise_ik := (
+		idle_sun_shield_scan
+		and _cached_limb_preset != null
+		and _cached_limb_preset.has_idle_arm2_raise_pose()
+		and not overlay_combat
+		and not _is_walk_swing_active(sprite)
+	)
+	var walk_swing_active := _is_walk_swing_active(sprite)
+	if _keyed_motion_elbow_authority:
+		walk_swing_active = false
 	var ready_poles := overlay_combat
-	var weapon_pole := _resolve_elbow_pole_local(sprite, config.weapon_elbow_pole_ready_px if ready_poles else config.weapon_elbow_pole_idle_px, sprite_scale)
-	var support_pole := _resolve_elbow_pole_local(sprite, config.support_elbow_pole_ready_px if ready_poles else config.support_elbow_pole_idle_px, sprite_scale)
+	var weapon_pole_px: Vector2 = (
+		config.weapon_elbow_pole_ready_px if ready_poles else config.weapon_elbow_pole_idle_px
+	)
+	var support_pole_px: Vector2 = (
+		config.support_elbow_pole_ready_px if ready_poles else config.support_elbow_pole_idle_px
+	)
+	if walk_swing_active and _cached_limb_preset != null:
+		if _uses_walk1_keyframe_walk():
+			var phase := WalkArmSwing.swing_phase_from_bounce(_get_walk_bounce_time())
+			weapon_pole_px = _cached_limb_preset.resolve_walk1_elbow_pole_for_keyframe(true, phase)
+			var support_preset := _cached_limb_preset
+			if _club_walk_off_arm_keyframe_mode():
+				support_preset = _club_walk_off_arm_keyframe_preset()
+			if support_preset != null:
+				support_pole_px = support_preset.resolve_walk1_elbow_pole_for_keyframe(false, phase)
+		else:
+			var walk_mode := _cached_limb_preset.resolve_walk_tuner_mode()
+			weapon_pole_px = _cached_limb_preset.resolve_elbow_pole_for_mode(true, walk_mode)
+			support_pole_px = _cached_limb_preset.resolve_elbow_pole_for_mode(false, walk_mode)
+	elif use_idle_raise_ik:
+		support_pole_px = _cached_limb_preset.resolve_support_elbow_pole_for_idle_raise(
+			idle_raise_blend, idle_arm2_lowering
+		)
+	var weapon_pole := _resolve_elbow_pole_local(
+		sprite,
+		weapon_pole_px,
+		sprite_scale
+	)
+	var support_pole := _resolve_elbow_pole_local(sprite, support_pole_px, sprite_scale)
 	var use_weapon_pole := weapon_pole.length_squared() > 0.0001
 	var use_support_pole := support_pole.length_squared() > 0.0001
 	var weapon_bend := _resolve_weapon_bend_sign()
 	var support_bend := _resolve_support_bend_sign()
-	var use_walk_elbow_limits := _is_walking_for_swing(sprite) or _is_gather_preview_for_ik()
-	var relax_reach := use_walk_elbow_limits or thrust_active
+	if walk_swing_active and _cached_limb_preset != null:
+		weapon_bend = _cached_limb_preset.resolve_weapon_elbow_bend_sign_for_walk_swing(
+			_resolve_weapon_bend_sign_auto()
+		)
+		support_bend = _cached_limb_preset.resolve_support_elbow_bend_sign_for_walk_swing(
+			_resolve_support_bend_sign_auto()
+		)
+	elif use_idle_raise_ik:
+		support_bend = _cached_limb_preset.resolve_support_elbow_bend_sign_for_idle_raise(
+			idle_raise_blend, _resolve_support_bend_sign_auto(), idle_arm2_lowering
+		)
+	if not _keyed_motion_elbow_authority:
+		_support_elbow_override = false
+		_weapon_elbow_override = false
+	if use_idle_raise_ik:
+		var elbow_display := Vector2.ZERO
+		var upper_len := config.resolve_support_upper_arm_length()
+		var lower_len := config.resolve_support_lower_arm_length()
+		if idle_raise_blend <= 0.001:
+			elbow_display = _cached_limb_preset.resolve_support_elbow_display_for_idle_rest(
+				upper_len, lower_len
+			)
+		elif idle_arm2_lowering:
+			elbow_display = _cached_limb_preset.resolve_support_elbow_display_for_idle_lower(
+				idle_raise_blend,
+				_read_idle_scan_blend(),
+				true,
+				upper_len,
+				lower_len
+			)
+		elif idle_raise_blend < 0.999:
+			elbow_display = _cached_limb_preset.resolve_support_elbow_display_for_idle_raise(
+				idle_raise_blend, upper_len, lower_len
+			)
+		if elbow_display.length_squared() > 0.0001:
+			_support_elbow_override_local = LimbPresetCoords.body_display_to_rig_local(sprite, elbow_display)
+			_support_elbow_override = true
+	var use_walk_elbow_limits := walk_swing_active or _is_gather_preview_for_ik()
+	var relax_reach := use_walk_elbow_limits or thrust_active or use_idle_raise_ik
+	var lock_at_rest := use_idle_raise_ik and idle_raise_blend <= 0.001
+	if walk_swing_active:
+		if not _walk_swing_elbow_pick_locked:
+			_walk_swing_support_elbow_pick_a = _compute_walk_elbow_pick_a(false, sprite, sprite_scale)
+			_walk_swing_weapon_elbow_pick_a = _compute_walk_elbow_pick_a(true, sprite, sprite_scale)
+			_walk_swing_elbow_pick_locked = true
+	elif _walk_swing_elbow_pick_locked:
+		_walk_swing_elbow_pick_locked = false
+	if lock_at_rest:
+		_idle_sun_shield_elbow_pick_a = _compute_idle_support_elbow_pick_a(sprite, sprite_scale, true)
+		_idle_sun_shield_elbow_locked = false
+	elif use_idle_raise_ik:
+		if not _idle_sun_shield_elbow_locked:
+			_idle_sun_shield_elbow_pick_a = _compute_idle_support_elbow_pick_a(sprite, sprite_scale, false)
+			_idle_sun_shield_elbow_locked = true
+	else:
+		_idle_sun_shield_elbow_locked = false
+	_apply_walk_and_support_pole_pick_locks(aiming_left, walk_swing_active, use_idle_raise_ik)
 
 	if aiming_left:
 		_arm_left.update_arm(
@@ -242,14 +352,14 @@ func _process(_delta: float) -> void:
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override,
-			relax_reach, use_walk_elbow_limits
+			relax_reach, use_walk_elbow_limits, _delta
 		)
 		_arm_right.update_arm(
 			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override,
-			relax_reach, use_walk_elbow_limits
+			relax_reach, use_walk_elbow_limits, _delta
 		)
 	else:
 		_arm_right.update_arm(
@@ -257,14 +367,14 @@ func _process(_delta: float) -> void:
 			weapon_pole, use_weapon_pole,
 			config.resolve_weapon_upper_arm_length(), config.resolve_weapon_lower_arm_length(),
 			_weapon_elbow_override_local, _weapon_elbow_override,
-			relax_reach, use_walk_elbow_limits
+			relax_reach, use_walk_elbow_limits, _delta
 		)
 		_arm_left.update_arm(
 			support_shoulder, support_hand, config, support_bend, sprite_scale,
 			support_pole, use_support_pole,
 			config.resolve_support_upper_arm_length(), config.resolve_support_lower_arm_length(),
 			_support_elbow_override_local, _support_elbow_override,
-			relax_reach, use_walk_elbow_limits
+			relax_reach, use_walk_elbow_limits, _delta
 		)
 
 	_apply_tuner_arm_layers(aiming_left)
@@ -361,6 +471,12 @@ func clear_all_elbow_overrides() -> void:
 	clear_support_elbow_override()
 
 
+func set_keyed_motion_elbow_authority(active: bool) -> void:
+	_keyed_motion_elbow_authority = active
+	if not active:
+		clear_all_elbow_overrides()
+
+
 func get_weapon_arm_global_endpoints() -> Dictionary:
 	var active_arm: ProceduralArm = _arm_right if not _is_aiming_left() else _arm_left
 	if active_arm == null:
@@ -446,8 +562,32 @@ func _resolve_walk_rest_support_hand() -> Vector2:
 	if preset == null and LimbPresetRegistry != null:
 		preset = LimbPresetRegistry.get_preset(_get_weapon_type(), body_card_id)
 	if preset != null:
-		return preset.resolve_walk_rest_support_hand()
+		return preset.resolve_walk_support_swing_rest_hand()
 	return config.support_hand_idle_offset_px if config else Vector2.ZERO
+
+
+func _club_walk_off_arm_keyframe_mode() -> bool:
+	return (
+		_cached_limb_preset != null
+		and _cached_limb_preset.uses_club_walk_off_arm_travel_swing()
+		and _uses_walk1_keyframe_walk()
+	)
+
+
+func _club_walk_off_arm_keyframe_preset() -> WeaponLimbPreset:
+	if _cached_limb_preset == null:
+		return _cached_limb_preset
+	if LimbPresetRegistry != null:
+		var none_preset: WeaponLimbPreset = LimbPresetRegistry.get_preset(
+			ResourceData.ResourceType.NONE, "clansmen_1", 1
+		)
+		if none_preset != null and none_preset.walk1_pose_a_saved:
+			return none_preset
+	return _cached_limb_preset
+
+
+func _club_walk_off_arm_travel_swing() -> bool:
+	return _club_walk_off_arm_keyframe_mode()
 
 
 func _apply_debug_state() -> void:
@@ -505,6 +645,100 @@ func _resolve_support_bend_sign_auto() -> float:
 	return -WeaponLimbPreset.SUPPORT_ELBOW_BEND_SIGN
 
 
+func _support_arm_for_facing(aiming_left: bool) -> ProceduralArm:
+	return _arm_right if aiming_left else _arm_left
+
+
+func _apply_support_pole_pick_lock(aiming_left: bool, locked: bool, prefer_a: bool) -> void:
+	var support_arm := _support_arm_for_facing(aiming_left)
+	if support_arm == null:
+		return
+	if locked:
+		support_arm.set_pole_pick_lock(true, prefer_a)
+	else:
+		support_arm.clear_pole_pick_lock()
+
+
+func _weapon_arm_for_facing(aiming_left: bool) -> ProceduralArm:
+	return _arm_left if aiming_left else _arm_right
+
+
+func _apply_walk_and_support_pole_pick_locks(
+	aiming_left: bool,
+	walk_swing_active: bool,
+	idle_raise_active: bool
+) -> void:
+	var weapon_arm := _weapon_arm_for_facing(aiming_left)
+	var support_arm := _support_arm_for_facing(aiming_left)
+	if walk_swing_active:
+		if weapon_arm:
+			weapon_arm.set_pole_pick_lock(true, _walk_swing_weapon_elbow_pick_a)
+		if support_arm:
+			support_arm.set_pole_pick_lock(true, _walk_swing_support_elbow_pick_a)
+		return
+	if weapon_arm:
+		weapon_arm.clear_pole_pick_lock()
+	_apply_support_pole_pick_lock(aiming_left, idle_raise_active, _idle_sun_shield_elbow_pick_a)
+
+
+func _compute_walk_elbow_pick_a(dominant: bool, sprite: Sprite2D, sprite_scale: Vector2) -> bool:
+	if _cached_limb_preset == null or config == null or sprite == null:
+		return true
+	var mode := _cached_limb_preset.resolve_walk_tuner_mode()
+	var shoulder_px: Vector2
+	var hand_px: Vector2
+	if dominant:
+		shoulder_px = config.weapon_shoulder_offset_px
+		hand_px = _cached_limb_preset.resolve_walk_rest_hand_grip()
+	else:
+		shoulder_px = config.shoulder_offset_left
+		hand_px = _cached_limb_preset.resolve_walk_rest_support_hand()
+	var pole_px := _cached_limb_preset.resolve_elbow_pole_for_mode(dominant, mode)
+	var shoulder := LimbPresetCoords.body_display_to_rig_local(sprite, shoulder_px)
+	var hand := LimbPresetCoords.body_display_to_rig_local(sprite, hand_px)
+	var pole := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	var upper := (
+		config.resolve_weapon_upper_arm_length()
+		if dominant
+		else config.resolve_support_upper_arm_length()
+	) * absf(sprite_scale.x)
+	var lower := (
+		config.resolve_weapon_lower_arm_length()
+		if dominant
+		else config.resolve_support_lower_arm_length()
+	) * absf(sprite_scale.x)
+	return ProceduralArmScript.prefers_elbow_a_near_pole(shoulder, hand, upper, lower, pole, true)
+
+
+func _compute_idle_support_elbow_pick_a(
+	sprite: Sprite2D,
+	sprite_scale: Vector2,
+	at_rest: bool = false
+) -> bool:
+	if _cached_limb_preset == null or config == null or sprite == null:
+		return true
+	var shoulder_px: Vector2
+	var hand_px: Vector2
+	var pole_px: Vector2
+	if at_rest:
+		shoulder_px = _cached_limb_preset.resolve_support_shoulder_idle_rest_px()
+		hand_px = _cached_limb_preset.resolve_support_hand_idle_rest_px()
+		pole_px = _cached_limb_preset.support_elbow_pole_idle_px
+		if pole_px.length_squared() <= 0.0001:
+			pole_px = _cached_limb_preset.walk_support_elbow_pole_px
+	else:
+		var mid_blend := 0.5
+		shoulder_px = _cached_limb_preset.resolve_support_shoulder_for_idle_raise(mid_blend, false)
+		hand_px = _cached_limb_preset.resolve_support_hand_idle_for_idle_scan(mid_blend, 0.0, false)
+		pole_px = _cached_limb_preset.resolve_support_elbow_pole_for_idle_raise(mid_blend, false)
+	var shoulder := LimbPresetCoords.body_display_to_rig_local(sprite, shoulder_px)
+	var hand := LimbPresetCoords.body_display_to_rig_local(sprite, hand_px)
+	var pole := LimbPresetCoords.body_display_to_rig_local(sprite, pole_px)
+	var upper := config.resolve_support_upper_arm_length() * absf(sprite_scale.x)
+	var lower := config.resolve_support_lower_arm_length() * absf(sprite_scale.x)
+	return ProceduralArmScript.prefers_elbow_a_near_pole(shoulder, hand, upper, lower, pole, true)
+
+
 func _resolve_elbow_pole_local(sprite: Sprite2D, pole_display_px: Vector2, _sprite_scale: Vector2) -> Vector2:
 	if pole_display_px.length_squared() < 0.0001:
 		return Vector2.ZERO
@@ -517,6 +751,44 @@ func _get_weapon_type() -> ResourceData.ResourceType:
 	if _player.get("_equipped_item") != null:
 		return _player.get("_equipped_item") as ResourceData.ResourceType
 	return ResourceData.ResourceType.NONE
+
+
+func _read_idle_scan_blend() -> float:
+	if _player == null:
+		return 0.0
+	if _player.get("_idle_scan_blend") != null:
+		return float(_player.get("_idle_scan_blend"))
+	if _player.has_method("get_idle_scan_blend"):
+		return float(_player.call("get_idle_scan_blend"))
+	return 0.0
+
+
+func _read_idle_arm2_lowering() -> bool:
+	if _player == null:
+		return false
+	if _player.get("_idle_arm2_lowering") != null:
+		return bool(_player.get("_idle_arm2_lowering"))
+	if _player.has_method("get_idle_arm2_lowering"):
+		return bool(_player.call("get_idle_arm2_lowering"))
+	return false
+
+
+func _read_idle_sun_shield_scan_active() -> bool:
+	if _player == null:
+		return false
+	if _player.has_meta("_idle_sun_shield_scan_active"):
+		return bool(_player.get_meta("_idle_sun_shield_scan_active"))
+	return false
+
+
+func _read_idle_arm2_raise_blend() -> float:
+	if _player == null:
+		return 0.0
+	if _player.has_method("get_idle_arm2_raise_blend"):
+		return float(_player.call("get_idle_arm2_raise_blend"))
+	if _player.get("_idle_arm2_raise_blend") != null:
+		return float(_player.get("_idle_arm2_raise_blend"))
+	return 0.0
 
 
 func _is_aiming_left() -> bool:
@@ -557,7 +829,7 @@ func _hand_grip_local(sprite: Sprite2D, overlay: Sprite2D, sprite_scale: Vector2
 			grip_px = live_grip
 	elif is_overlay_hand_tracking_active() and config.hand_grip_ready_offset_px.length_squared() > 0.0001:
 		grip_px = config.hand_grip_ready_offset_px
-	elif _is_walking_for_swing(sprite):
+	elif _is_walk_swing_active(sprite):
 		grip_px = _resolve_walk_rest_hand_grip()
 	return _grip_on_overlay_local(sprite, overlay, grip_px)
 
@@ -583,7 +855,7 @@ func _support_hand_target_local(sprite: Sprite2D, overlay: Sprite2D, sprite_scal
 		var display_px: Vector2 = _player.get_meta(WeaponOverlayCombat.CLUB_STRIKE_SUPPORT_META) as Vector2
 		var offset := _flip_offset_x(display_px, sprite.flip_h)
 		return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
-	if _is_walking_for_swing(sprite):
+	if _is_walk_swing_active(sprite):
 		var offset := _flip_offset_x(_resolve_walk_rest_support_hand(), sprite.flip_h)
 		return sprite.position + Vector2(offset.x * sprite_scale.x, offset.y * sprite_scale.y)
 	return _support_hand_idle_local(sprite, sprite_scale)
@@ -593,6 +865,14 @@ func _use_two_hand_spear_grip() -> bool:
 	if _get_weapon_type() != ResourceData.ResourceType.SPEAR:
 		return false
 	return is_overlay_hand_tracking_active() or is_thrust_active()
+
+
+func _uses_walk1_keyframe_walk() -> bool:
+	return (
+		_cached_limb_preset != null
+		and _cached_limb_preset.walk1_pose_a_saved
+		and _cached_limb_preset.resolve_walk_tuner_mode() == WeaponLimbPreset.TunerAnimMode.WALK1
+	)
 
 
 func _weapon_hand_uses_overlay_walk_carry() -> bool:
@@ -664,6 +944,15 @@ func _is_walking_for_swing(sprite: Sprite2D) -> bool:
 	return false
 
 
+func _is_walk_swing_active(sprite: Sprite2D) -> bool:
+	## In-game velocity walk + tuner A/D preview (`LimbTunerRig.is_walking()`).
+	if is_overlay_hand_tracking_active() or is_thrust_active():
+		return false
+	if _player != null and _player.has_method("is_walking") and _player.is_walking():
+		return true
+	return _is_walking_for_swing(sprite)
+
+
 func _is_gather_preview_for_ik() -> bool:
 	if _player == null or not _player.has_method("is_gather_preview_playing"):
 		return false
@@ -677,7 +966,7 @@ func _apply_walk_swing_rig_local(
 	dominant: bool,
 	weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 ) -> Vector2:
-	if sprite == null or not _is_walking_for_swing(sprite):
+	if sprite == null or not _is_walk_swing_active(sprite):
 		return hand_local
 	var travel_sign := 1.0
 	if _player is CharacterBody2D:

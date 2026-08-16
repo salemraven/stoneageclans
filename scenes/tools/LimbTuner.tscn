@@ -66,10 +66,13 @@ layer = 10
 
 [node name="Panel" type="PanelContainer" parent="UI"]
 custom_minimum_size = Vector2(340, 0)
+anchors_preset = 9
+anchor_bottom = 1.0
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 352.0
-offset_bottom = 680.0
+offset_bottom = -12.0
+grow_vertical = 2
 
 [node name="Margin" type="MarginContainer" parent="UI/Panel"]
 layout_mode = 2
@@ -78,114 +81,209 @@ theme_override_constants/margin_top = 14
 theme_override_constants/margin_right = 14
 theme_override_constants/margin_bottom = 14
 
-[node name="VBox" type="VBoxContainer" parent="UI/Panel/Margin"]
+[node name="Scroll" type="ScrollContainer" parent="UI/Panel/Margin"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="VBox" type="VBoxContainer" parent="UI/Panel/Margin/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="UI/Panel/Margin/VBox"]
+[node name="Title" type="Label" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Character Tuner"
 
-[node name="HelpLabel" type="Label" parent="UI/Panel/Margin/VBox"]
+[node name="WorkspaceTabRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TunerTabBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/WorkspaceTabRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+button_pressed = true
+text = "Pose Tuner"
+
+[node name="ReviewerTabBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/WorkspaceTabRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "Animation Reviewer"
+
+[node name="HelpLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
 theme_override_font_sizes/font_size = 12
 autowrap_mode = 3
-text = "Pick holdable, category, variant. Switching holdable resets to Idle."
+text = "Pick holdable + variant. Character stays still — drag pins, then Save all."
 
-[node name="Sep1" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+[node name="Sep1" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 
-[node name="SelectSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+[node name="ReviewerSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox"]
+visible = false
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SelectHeader" type="Label" parent="UI/Panel/Margin/VBox/SelectSection"]
+[node name="ReviewerHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
-text = "Animation"
+text = "Review animations"
 
-[node name="HoldableRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+[node name="ClipBrowserRow" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="HoldableLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/HoldableRow"]
+[node name="ClipBrowserLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "All clips (click to play on loop)"
+
+[node name="ClipNavRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ClipPrevBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow/ClipNavRow"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "◀ Prev"
+
+[node name="ClipNextBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow/ClipNavRow"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Next ▶"
+
+[node name="ClipList" type="ItemList" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection/ClipBrowserRow"]
+custom_minimum_size = Vector2(0, 260)
+layout_mode = 2
+size_flags_vertical = 3
+allow_reselect = true
+auto_height = false
+
+[node name="EditInTunerBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Edit current clip in Pose Tuner"
+
+[node name="TunerSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SelectSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SelectHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Pose to edit"
+
+[node name="HoldableRow" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HoldableLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/HoldableRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
 text = "Holdable"
 
-[node name="HoldableGrid" type="GridContainer" parent="UI/Panel/Margin/VBox/SelectSection/HoldableRow"]
+[node name="HoldableGrid" type="GridContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/HoldableRow"]
 layout_mode = 2
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 columns = 3
 
-[node name="CategoryRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+[node name="CategoryRow" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="CategoryLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/CategoryRow"]
+[node name="CategoryLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/CategoryRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
 text = "Category"
 
-[node name="CategoryButtons" type="HBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection/CategoryRow"]
+[node name="CategoryButtons" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/CategoryRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="VariantRow" type="VBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection"]
+[node name="VariantRow" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="VariantLabel" type="Label" parent="UI/Panel/Margin/VBox/SelectSection/VariantRow"]
+[node name="VariantLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/VariantRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
 text = "Variant"
 
-[node name="VariantButtons" type="HBoxContainer" parent="UI/Panel/Margin/VBox/SelectSection/VariantRow"]
+[node name="VariantButtons" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/SelectSection/VariantRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="Sep2" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+[node name="Sep2" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 
-[node name="PreviewSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+[node name="PreviewSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="PreviewHeader" type="Label" parent="UI/Panel/Margin/VBox/PreviewSection"]
+[node name="PreviewHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 text = "Preview"
 
-[node name="PlayPauseBtn" type="Button" parent="UI/Panel/Margin/VBox/PreviewSection"]
+[node name="PlayPauseBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection"]
 custom_minimum_size = Vector2(0, 38)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "▶  Play idle"
 
-[node name="WeaponSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+[node name="PoseRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Pose1Btn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+button_pressed = true
+text = "Pose 1"
+
+[node name="Pose2Btn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "Pose 2"
+
+[node name="WeaponSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="WeaponHeader" type="Label" parent="UI/Panel/Margin/VBox/WeaponSection"]
+[node name="WeaponHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 text = "Weapon angle"
 
-[node name="WeaponHelp" type="Label" parent="UI/Panel/Margin/VBox/WeaponSection"]
+[node name="WeaponHelp" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
 theme_override_font_sizes/font_size = 11
 autowrap_mode = 3
 text = "Compass rotation around the grip pivot (0–360°). Saved with the active pose row."
 
-[node name="WeaponRotationRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/WeaponSection"]
+[node name="WeaponRotationRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="WeaponRotationSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/WeaponSection/WeaponRotationRow"]
+[node name="WeaponRotationSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponRotationRow"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -197,77 +295,77 @@ step = 1.0
 value = 0.0
 rounded = true
 
-[node name="Sep2b" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+[node name="Sep2b" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 
-[node name="ActionsSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+[node name="ActionsSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="ActionsHeader" type="Label" parent="UI/Panel/Margin/VBox/ActionsSection"]
+[node name="ActionsHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 text = "Save & reset"
 
-[node name="ActionGrid" type="GridContainer" parent="UI/Panel/Margin/VBox/ActionsSection"]
+[node name="ActionGrid" type="GridContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection"]
 layout_mode = 2
 theme_override_constants/h_separation = 8
 theme_override_constants/v_separation = 8
 columns = 2
 
-[node name="SaveBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+[node name="SaveBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Save all"
 
-[node name="ResetPoseBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+[node name="ResetPoseBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Reset pose"
 
-[node name="ReloadBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+[node name="ReloadBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Reload file"
 
-[node name="ResetAnchorsBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+[node name="ResetAnchorsBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Reset anchors"
 
-[node name="BakeBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection/ActionGrid"]
+[node name="BakeBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection/ActionGrid"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Bake clip"
 
-[node name="CopyBtn" type="Button" parent="UI/Panel/Margin/VBox/ActionsSection"]
+[node name="CopyBtn" type="Button" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ActionsSection"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Copy for chat"
 
-[node name="Sep3" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+[node name="Sep3" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 
-[node name="ArmsSection" type="VBoxContainer" parent="UI/Panel/Margin/VBox"]
+[node name="ArmsSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ArmsHeader" type="Label" parent="UI/Panel/Margin/VBox/ArmsSection"]
+[node name="ArmsHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 text = "Arm length & thickness (both arms)"
 
-[node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/ArmsSection"]
+[node name="ArmLengthRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow"]
+[node name="UpperArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmLengthRow"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -278,7 +376,7 @@ max_value = 400.0
 value = 120.0
 rounded = true
 
-[node name="LowerArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmLengthRow"]
+[node name="LowerArmLengthSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmLengthRow"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -289,11 +387,11 @@ max_value = 400.0
 value = 120.0
 rounded = true
 
-[node name="ArmThicknessRow" type="HBoxContainer" parent="UI/Panel/Margin/VBox/ArmsSection"]
+[node name="ArmThicknessRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ArmThicknessSpin" type="SpinBox" parent="UI/Panel/Margin/VBox/ArmsSection/ArmThicknessRow"]
+[node name="ArmThicknessSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmThicknessRow"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -304,16 +402,16 @@ max_value = 48.0
 value = 14.0
 rounded = true
 
-[node name="Sep4" type="HSeparator" parent="UI/Panel/Margin/VBox"]
+[node name="Sep4" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 
-[node name="SummaryLabel" type="Label" parent="UI/Panel/Margin/VBox"]
+[node name="SummaryLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
 autowrap_mode = 3
 text = "Summary appears here."
 
-[node name="StatusLabel" type="Label" parent="UI/Panel/Margin/VBox"]
+[node name="StatusLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65, 0.85, 0.55, 1)
 theme_override_font_sizes/font_size = 11

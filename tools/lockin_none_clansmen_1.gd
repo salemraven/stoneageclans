@@ -17,15 +17,17 @@ const IDLE_ELBOW_1_POLE := Vector2(89.89, -62.34)
 const IDLE_ELBOW_2_POLE := Vector2(-65.77, -61.62)
 const IDLE_OVERLAY := Vector2(22.0, -34.0)
 
-const WALK1_A_HAND_1 := Vector2(225.82, 34.35)
-const WALK1_A_HAND_2 := Vector2(-173.19, 41.69)
-const WALK1_A_ELBOW_1_POLE := Vector2(181.45, -77.15)
-const WALK1_A_ELBOW_2_POLE := Vector2(-160.83, -77.67)
+const WALK1_A_HAND_1 := Vector2(115.7, 60.39)
+const WALK1_A_HAND_2 := Vector2(20.18, 31.88)
+const WALK1_A_ELBOW_1_POLE := Vector2(108.22, -59.39)
+const WALK1_A_ELBOW_2_POLE := Vector2(-44.97, -68.91)
 
-const WALK1_B_HAND_1 := Vector2(76.93, 97.59)
-const WALK1_B_HAND_2 := Vector2(5.51, 71.07)
-const WALK1_B_ELBOW_1_POLE := Vector2(88.0, -41.98)
-const WALK1_B_ELBOW_2_POLE := Vector2(-81.92, -38.28)
+const WALK1_B_HAND_1 := Vector2(233.16, 29.45)
+const WALK1_B_HAND_2 := Vector2(-163.4, 44.14)
+const WALK1_B_ELBOW_1_POLE := Vector2(162.56, -67.58)
+const WALK1_B_ELBOW_2_POLE := Vector2(-157.77, -75.73)
+
+const WALK1_ELBOW_BEND := -1.0
 
 var _failures: Array[String] = []
 
@@ -90,8 +92,8 @@ func _apply_all(preset: WeaponLimbPreset) -> void:
 	preset.walk1_support_hand_offset_px = WALK1_A_HAND_2
 	preset.walk1_weapon_elbow_pole_px = WALK1_A_ELBOW_1_POLE
 	preset.walk1_support_elbow_pole_px = WALK1_A_ELBOW_2_POLE
-	preset.walk1_weapon_elbow_bend_sign_override = -1.0
-	preset.walk1_support_elbow_bend_sign_override = 1.0
+	preset.walk1_weapon_elbow_bend_sign_override = WALK1_ELBOW_BEND
+	preset.walk1_support_elbow_bend_sign_override = WALK1_ELBOW_BEND
 	preset.walk1_overlay_offset_px = IDLE_OVERLAY
 	preset.walk1_pose_a_saved = true
 
@@ -99,8 +101,8 @@ func _apply_all(preset: WeaponLimbPreset) -> void:
 	preset.walk1_pull_support_hand_offset_px = WALK1_B_HAND_2
 	preset.walk1_pull_weapon_elbow_pole_px = WALK1_B_ELBOW_1_POLE
 	preset.walk1_pull_support_elbow_pole_px = WALK1_B_ELBOW_2_POLE
-	preset.walk1_pull_weapon_elbow_bend_sign_override = 1.0
-	preset.walk1_pull_support_elbow_bend_sign_override = 1.0
+	preset.walk1_pull_weapon_elbow_bend_sign_override = WALK1_ELBOW_BEND
+	preset.walk1_pull_support_elbow_bend_sign_override = WALK1_ELBOW_BEND
 	preset.walk1_pose_b_saved = true
 
 

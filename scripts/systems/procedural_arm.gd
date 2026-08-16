@@ -22,7 +22,14 @@ var _points: PackedVector2Array = PackedVector2Array([Vector2.ZERO, Vector2.ZERO
 var _last_shoulder := Vector2.ZERO
 var _last_elbow := Vector2.ZERO
 var _last_hand := Vector2.ZERO
+var _elbow_solution_sign: float = 0.0
+var _pole_pick_locked := false
+var _pole_pick_a := true
 var _endpoint_markers_visible := true
+
+const ELBOW_POLE_HYSTERESIS_PX := 10.0
+const ELBOW_SMOOTH_RATE := 22.0
+const ELBOW_SMOOTH_RATE_WALK := 14.0
 
 
 func setup(parent: Node2D, side_label: String, config: Resource) -> void:
@@ -213,6 +220,17 @@ func _update_debug_visibility() -> void:
 	_debug_root.visible = show and _arm_lines_visible()
 
 
+func set_pole_pick_lock(locked: bool, prefer_a: bool = true) -> void:
+	_pole_pick_locked = locked
+	if locked:
+		_pole_pick_a = prefer_a
+		_elbow_solution_sign = 1.0 if prefer_a else -1.0
+
+
+func clear_pole_pick_lock() -> void:
+	_pole_pick_locked = false
+
+
 func update_arm(
 	local_shoulder: Vector2,
 	local_hand: Vector2,
@@ -226,7 +244,8 @@ func update_arm(
 	forced_elbow: Vector2 = Vector2.ZERO,
 	use_forced_elbow: bool = false,
 	relax_min_reach: bool = false,
-	use_walk_elbow_limits: bool = false
+	use_walk_elbow_limits: bool = false,
+	motion_delta: float = 1.0 / 60.0
 ) -> void:
 	var cfg := _as_config(config)
 	if _line == null or cfg == null:
@@ -242,19 +261,30 @@ func update_arm(
 	var max_chain := upper_len + lower_len
 	if to_hand.length() > max_chain and to_hand.length_squared() > 0.0001:
 		solved_hand = local_shoulder + to_hand.normalized() * max_chain
-	var elbow := forced_elbow if use_forced_elbow else _solve_ik(
+	var pole_hint := pole_hint_override if use_pole_override else _elbow_pole_hint(
+		local_shoulder, solved_hand, cfg, bend_sign, sprite_scale
+	)
+	var target_elbow := forced_elbow if use_forced_elbow else _solve_ik(
 		local_shoulder,
 		solved_hand,
 		upper_len,
 		lower_len,
-		pole_hint_override if use_pole_override else _elbow_pole_hint(
-			local_shoulder, solved_hand, cfg, bend_sign, sprite_scale
-		),
+		pole_hint,
 		cfg,
 		bend_sign,
 		relax_min_reach,
-		use_walk_elbow_limits
+		use_walk_elbow_limits,
+		use_pole_override or pole_hint.length_squared() > 0.0001
 	)
+	if use_forced_elbow:
+		var forearm := solved_hand - target_elbow
+		if forearm.length_squared() > 0.0001 and forearm.length() > lower_len:
+			solved_hand = target_elbow + forearm.normalized() * lower_len
+	var elbow := target_elbow
+	if not use_forced_elbow and _last_elbow.length_squared() > 0.0001:
+		var smooth_rate := ELBOW_SMOOTH_RATE_WALK if use_walk_elbow_limits else ELBOW_SMOOTH_RATE
+		var smooth := 1.0 - exp(-motion_delta * smooth_rate)
+		elbow = _last_elbow.lerp(target_elbow, smooth)
 
 	_points[0] = local_shoulder
 	_points[1] = elbow
@@ -340,11 +370,12 @@ func _solve_ik(
 	hand: Vector2,
 	upper_len: float,
 	lower_len: float,
-	_pole_hint: Vector2,
+	pole_hint: Vector2,
 	cfg: ProceduralArmConfigScript,
 	bend_sign: float,
 	relax_min_reach: bool = false,
-	use_walk_elbow_limits: bool = false
+	use_walk_elbow_limits: bool = false,
+	use_pole_hint: bool = false
 ) -> Vector2:
 	var to_hand := hand - shoulder
 	var dist := to_hand.length()
@@ -371,12 +402,116 @@ func _solve_ik(
 	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
 	var shoulder_angle := acos(cos_shoulder)
 
+	var elbow_a := shoulder + dir.rotated(shoulder_angle) * upper_len
+	var elbow_b := shoulder + dir.rotated(-shoulder_angle) * upper_len
+	if use_pole_hint and pole_hint.length_squared() > 0.0001:
+		return _pick_elbow_near_pole(elbow_a, elbow_b, pole_hint)
+
 	var pole_side := signf(bend_sign)
 	if pole_side == 0.0:
 		pole_side = 1.0
-
 	var elbow_dir := dir.rotated(shoulder_angle * pole_side)
 	return shoulder + elbow_dir * upper_len
+
+
+static func ik_elbow_candidates(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	relax_min_reach: bool = true
+) -> Array:
+	var to_hand := hand - shoulder
+	var dist := to_hand.length()
+	if dist < 0.001:
+		var fallback := shoulder + Vector2(upper_len, 0.0)
+		return [fallback, fallback]
+	var min_fold := deg_to_rad(8.0)
+	var max_fold := deg_to_rad(150.0)
+	var max_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
+	) - 0.01
+	var min_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
+	) + 0.01
+	if dist > max_reach:
+		dist = max_reach
+	elif not relax_min_reach and dist < min_reach:
+		dist = min_reach
+	var dir := to_hand / dist
+	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
+	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
+	var shoulder_angle := acos(cos_shoulder)
+	return [
+		shoulder + dir.rotated(shoulder_angle) * upper_len,
+		shoulder + dir.rotated(-shoulder_angle) * upper_len,
+	]
+
+
+static func prefers_elbow_a_near_pole(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	pole_hint: Vector2,
+	relax_min_reach: bool = true
+) -> bool:
+	var candidates: Array = ik_elbow_candidates(shoulder, hand, upper_len, lower_len, relax_min_reach)
+	var elbow_a: Vector2 = candidates[0]
+	var elbow_b: Vector2 = candidates[1]
+	if pole_hint.length_squared() <= 0.0001:
+		return true
+	return elbow_a.distance_squared_to(pole_hint) <= elbow_b.distance_squared_to(pole_hint)
+
+
+static func estimate_elbow_position(
+	shoulder: Vector2,
+	hand: Vector2,
+	upper_len: float,
+	lower_len: float,
+	pole_hint: Vector2,
+	use_pole_hint: bool = true
+) -> Vector2:
+	var to_hand := hand - shoulder
+	var dist := to_hand.length()
+	if dist < 0.001:
+		return shoulder + Vector2(upper_len, 0.0)
+	var min_fold := deg_to_rad(8.0)
+	var max_fold := deg_to_rad(150.0)
+	var max_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - min_fold)
+	) - 0.01
+	var min_reach := sqrt(
+		upper_len * upper_len + lower_len * lower_len - 2.0 * upper_len * lower_len * cos(PI - max_fold)
+	) + 0.01
+	if dist > max_reach:
+		dist = max_reach
+	elif dist < min_reach:
+		dist = min_reach
+	var dir := to_hand / dist
+	var cos_shoulder := (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2.0 * upper_len * dist)
+	cos_shoulder = clampf(cos_shoulder, -1.0, 1.0)
+	var shoulder_angle := acos(cos_shoulder)
+	var elbow_a := shoulder + dir.rotated(shoulder_angle) * upper_len
+	var elbow_b := shoulder + dir.rotated(-shoulder_angle) * upper_len
+	if use_pole_hint and pole_hint.length_squared() > 0.0001:
+		return elbow_a if elbow_a.distance_squared_to(pole_hint) <= elbow_b.distance_squared_to(pole_hint) else elbow_b
+	return elbow_a
+
+
+func _pick_elbow_near_pole(elbow_a: Vector2, elbow_b: Vector2, pole_hint: Vector2) -> Vector2:
+	if _pole_pick_locked:
+		return elbow_a if _pole_pick_a else elbow_b
+	var dist_a := elbow_a.distance_squared_to(pole_hint)
+	var dist_b := elbow_b.distance_squared_to(pole_hint)
+	var hyst := ELBOW_POLE_HYSTERESIS_PX * ELBOW_POLE_HYSTERESIS_PX
+	var pick_a := dist_a <= dist_b
+	if _elbow_solution_sign > 0.0:
+		pick_a = dist_a <= dist_b + hyst
+	elif _elbow_solution_sign < 0.0:
+		pick_a = dist_a + hyst < dist_b
+	_elbow_solution_sign = 1.0 if pick_a else -1.0
+	return elbow_a if pick_a else elbow_b
 
 
 func _update_endpoint_markers(cfg: ProceduralArmConfigScript) -> void:

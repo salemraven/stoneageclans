@@ -299,7 +299,7 @@ func _physics_process(_delta: float) -> void:
 	if InputMap.has_action("weapon_ready"):
 		shift_ready = Input.is_action_pressed("weapon_ready")
 	if shift_ready and combat_component != null:
-		aim_dir = _get_cursor_aim_direction()
+		aim_dir = _get_combat_aim_direction()
 		if sprite and PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
 			if _weapon_overlay_uses_aim_facing_flip():
 				last_facing = aim_dir
@@ -382,7 +382,7 @@ func _physics_process(_delta: float) -> void:
 	else:
 		if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
 			if in_weapon_ready:
-				aim_dir = _get_cursor_aim_direction()
+				aim_dir = _get_combat_aim_direction()
 				if _weapon_overlay_uses_aim_facing_flip():
 					last_facing = aim_dir
 					sprite.flip_h = aim_dir.x < 0.0
@@ -481,13 +481,43 @@ func _sync_card_weapon_overlay() -> void:
 	if InputMap.has_action("weapon_ready"):
 		hold_ready = Input.is_action_pressed("weapon_ready")
 	if hold_ready and ostate == WeaponOverlayCombat.OverlayState.READY:
-		aim_dir = _get_cursor_aim_direction()
-		PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
-		if combat_component and combat_component.state == CombatComponent.CombatState.READY:
-			combat_component.update_ready_aim(aim_dir)
+		if _uses_spear_keyframed_strike():
+			aim_dir = _get_combat_aim_direction()
+			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+			if combat_component and combat_component.state == CombatComponent.CombatState.READY:
+				combat_component.update_ready_aim(aim_dir)
+		else:
+			aim_dir = _get_cursor_aim_direction()
+			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+			if combat_component and combat_component.state == CombatComponent.CombatState.READY:
+				combat_component.update_ready_aim(aim_dir)
 	elif combat_component and combat_component.state == CombatComponent.CombatState.READY:
-		combat_component.update_ready_aim(aim_dir)
-		PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+		if _uses_spear_keyframed_strike():
+			combat_component.update_ready_aim(_get_combat_aim_direction())
+		else:
+			combat_component.update_ready_aim(aim_dir)
+			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+
+
+func _uses_spear_keyframed_strike() -> bool:
+	if _equipped_item != ResourceData.ResourceType.SPEAR:
+		return false
+	if PlaceholderCardService == null or PlaceholderCardService.registry == null:
+		return false
+	return WeaponOverlayCombat.uses_spear_keyframed_strike_for_weapon(
+		PlaceholderCardService.registry, ResourceData.ResourceType.SPEAR
+	)
+
+
+func _get_combat_aim_direction() -> Vector2:
+	## Keyframed spear uses travel facing; other weapons use cursor aim.
+	if _uses_spear_keyframed_strike():
+		if last_facing.length_squared() > 0.0001:
+			return last_facing.normalized()
+		if sprite:
+			return Vector2(-1.0, 0.0) if sprite.flip_h else Vector2(1.0, 0.0)
+		return Vector2(1.0, 0.0)
+	return _get_cursor_aim_direction()
 
 
 func _get_cursor_aim_direction() -> Vector2:

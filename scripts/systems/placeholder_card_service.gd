@@ -10,6 +10,7 @@ const PartsRegistry = preload("res://scripts/config/character_card_parts_registr
 const ProceduralArmControllerScript = preload("res://scripts/systems/procedural_arm_controller.gd")
 const MannequinPoseRuntimeScript = preload("res://scripts/systems/mannequin_pose_runtime.gd")
 const MannequinAnchorResolverScript = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
+const LimbPresetCoordsScript = preload("res://scripts/systems/limb_preset_coords.gd")
 
 const CARD_NPC_TYPES: Array[String] = ["caveman", "clansman", "woman", "baby"]
 const PROCEDURAL_MANNEQUIN_NPC_TYPES: Array[String] = ["caveman", "clansman"]
@@ -768,6 +769,10 @@ func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, 
 		bounce_time = CardVisualController.tick_walk_bounce(sprite, foot_y, bounce_time, true, delta)
 		var preview = _get_idle_preview(entity)
 		preview.reset()
+		entity.set("_idle_arm2_raise_blend", 0.0)
+		entity.set("_idle_scan_blend", 0.0)
+		entity.set("_idle_arm2_lowering", false)
+		entity.set_meta("_idle_sun_shield_scan_active", false)
 		if body_visual and body_visual.has_method("set_walk_state"):
 			body_visual.call("set_walk_state", true, bounce_time, direction)
 		if uses_procedural_mannequin(entity):
@@ -781,11 +786,36 @@ func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, 
 		bounce_time = 0.0
 		sprite.position.y = roundf(foot_y)
 		var preview = _get_idle_preview(entity)
+		var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+		if entity.has_method("get_equipped_weapon_type"):
+			weapon_type = entity.get_equipped_weapon_type()
+		elif entity.get("_equipped_item") != null:
+			weapon_type = entity.get("_equipped_item") as ResourceData.ResourceType
+		var lookaround := _idle_lookaround_enabled(entity, weapon_type, false)
+		if lookaround:
+			preview.set_variant(TunerIdlePreviewScript.VARIANT_ID)
+			preview.set_sun_shield_scan_mode(true)
+			preview.begin_sun_shield_raise_if_idle()
+		else:
+			preview.set_variant(TunerIdlePreviewScript.VARIANT_BASE)
+			preview.set_sun_shield_scan_mode(false)
 		preview.tick(delta)
 		var body_amp: float = layout.display_to_local(TunerIdlePreviewScript.BODY_BOUNCE_DISPLAY_PX)
 		var head_amp: float = layout.display_to_local(TunerIdlePreviewScript.HEAD_BOB_DISPLAY_PX)
 		sprite.position.y = roundf(foot_y + preview.body_bounce_offset(body_amp))
 		var look_right: bool = not sprite.flip_h
+		if lookaround and preview.get_variant_id() == TunerIdlePreviewScript.VARIANT_ID:
+			look_right = preview.head_look_right()
+			if sprite.flip_h:
+				look_right = not preview.head_look_right()
+		var scan_blend := 0.0
+		if lookaround:
+			preview.tick_hand_shade_slide(delta, sprite.flip_h, look_right)
+			scan_blend = preview.scan_blend()
+		entity.set("_idle_arm2_raise_blend", preview.arm2_raise_blend() if lookaround else 0.0)
+		entity.set("_idle_scan_blend", scan_blend)
+		entity.set("_idle_arm2_lowering", preview.is_arm2_lowering() if lookaround else false)
+		entity.set_meta("_idle_sun_shield_scan_active", lookaround and preview.is_sun_shield_scan_mode())
 		if body_visual and body_visual.has_method("set_idle_state"):
 			body_visual.call(
 				"set_idle_state",
@@ -811,6 +841,20 @@ func _get_mannequin_layout(card_index: int):
 	if _mannequin_layout_cache == null:
 		_mannequin_layout_cache = TunerMannequinLayoutScript.from_registry(registry, card_index)
 	return _mannequin_layout_cache
+
+
+func _idle_lookaround_enabled(entity: Node, weapon_type: ResourceData.ResourceType, moving: bool) -> bool:
+	if moving or entity == null:
+		return false
+	if WeaponOverlayCombat.get_overlay_state(entity) != WeaponOverlayCombat.OverlayState.IDLE:
+		return false
+	var combat: CombatComponent = entity.get_node_or_null("CombatComponent") as CombatComponent
+	if combat != null and combat.state != CombatComponent.CombatState.IDLE:
+		return false
+	return (
+		weapon_type == ResourceData.ResourceType.SPEAR
+		or weapon_type == ResourceData.ResourceType.NONE
+	)
 
 
 func _get_idle_preview(entity: Node):
@@ -872,11 +916,42 @@ func _sync_mannequin_weapon_overlay_bounce(
 	var swing_delta := Vector2.ZERO
 	if moving and weapon_type == ResourceData.ResourceType.WOOD and LimbPresetRegistry != null:
 		var club_preset := LimbPresetRegistry.get_preset(weapon_type, "clansmen_1")
+		if club_preset != null and MannequinPoseRuntimeScript.uses_walk1_keyframe_walk(club_preset):
+			var hand_g: Vector2
+			if club_preset.uses_club_walk_off_arm_travel_swing():
+				hand_g = LimbPresetCoordsScript.body_global_from_display(
+					sprite, club_preset.resolve_club_carry_body_hand_px()
+				)
+			else:
+				var shoulder_g := MannequinAnchorResolverScript.shoulder_global_from_display(
+					sprite,
+					_body_visual_for_sprite(sprite),
+					club_preset.shoulder_offset_px
+				)
+				hand_g = MannequinPoseRuntimeScript.walk1_keyframe_hand_global(
+					entity as Node2D, sprite, club_preset, shoulder_g, true, bounce_time
+				)
+			MannequinPoseRuntimeScript.align_overlay_grip_to_hand_global(
+				sprite,
+				overlay,
+				club_preset.resolve_club_overlay_grip_px(
+					WeaponLimbPreset.TunerAnimMode.IDLE
+				),
+				hand_g
+			)
+			CardVisualController.sync_weapon_overlay_flip(
+				sprite, overlay, base_offset, mirror_tex, bounce_y, Vector2.ZERO
+			)
+			return
 		if club_preset != null:
 			swing_delta = CardVisualController.walk_weapon_overlay_sway_delta_display(
 				sprite, base_offset, club_preset.shoulder_offset_px, bounce_time, true
 			)
 	CardVisualController.sync_weapon_overlay_flip(sprite, overlay, base_offset, mirror_tex, bounce_y, swing_delta)
+
+
+func _body_visual_for_sprite(sprite: Sprite2D) -> Node:
+	return MannequinPoseRuntimeScript.get_body_visual(sprite)
 
 
 func _apply_skin_modulate(npc: Node) -> void:

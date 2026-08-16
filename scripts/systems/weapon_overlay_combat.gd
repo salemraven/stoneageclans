@@ -178,6 +178,18 @@ static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry,
 	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
 	var kind: int = int(profile.get("attack_kind", AttackKind.SWING_DOWN))
 	var entity: Node = body_sprite.get_parent()
+	if kind == AttackKind.THRUST and uses_spear_keyframed_strike(profile):
+		var facing_aim := aim_dir if aim_dir.length_squared() > 0.0001 else Vector2(1.0, 0.0)
+		if absf(facing_aim.x) > 0.05:
+			body_sprite.flip_h = facing_aim.x < 0.0
+		else:
+			sync_swing_body_facing(entity, body_sprite)
+		var windup_px: Vector2 = profile.get("spear_strike_windup_overlay_px", Vector2.ZERO) as Vector2
+		var windup_rot: float = _spear_keyframe_windup_rotation_rad(body_sprite, profile)
+		apply_spear_keyframe_strike_pose(
+			body_sprite, overlay, registry, weapon_type, profile, windup_px, windup_rot
+		)
+		return
 	if kind == AttackKind.THRUST:
 		aim_dir = resolve_thrust_aim(aim_dir, registry, weapon_type, entity)
 	var rot: float
@@ -239,88 +251,97 @@ static func play_strike(
 	tween.set_trans(Tween.TRANS_QUAD)
 
 	if kind == AttackKind.THRUST:
-		aim_dir = resolve_thrust_aim(aim_dir, registry, weapon_type, entity)
-		# Match card facing to thrust direction before computing local strike path.
-		body_sprite.flip_h = aim_dir.x < 0.0
-		start_rot = compute_aim_rotation(body_sprite, aim_dir, tip_deg, 0.0)
-		overlay.rotation = start_rot
-		var mirror_tex: bool = _overlay_mirror_texture(registry, weapon_type)
-		var strike_px: Vector2 = profile.get("strike_offset_px", Vector2.ZERO) as Vector2
-		var ready_px: Vector2 = profile.get("ready_offset_px", Vector2.ZERO) as Vector2
-		var use_tuned_strike := (
-			strike_px.length_squared() > 0.0001
-			and ready_px.length_squared() > 0.0001
-			and strike_px.distance_to(ready_px) > 2.0
-		)
-		var windup_frac: float = float(profile.get("thrust_windup_frac", 0.0))
-		var lunge_frac: float = float(profile.get("thrust_lunge_frac", 0.52))
-		var hold_frac: float = float(profile.get("thrust_hold_frac", 0.0))
-		var retract_frac: float = float(profile.get("thrust_retract_frac", -1.0))
-		if retract_frac < 0.0:
-			retract_frac = maxf(1.0 - windup_frac - lunge_frac - hold_frac, 0.04)
-		var windup_t: float = strike_duration * windup_frac
-		var lunge_t: float = strike_duration * lunge_frac
-		var hold_t: float = strike_duration * hold_frac
-		var retract_t: float = strike_duration * retract_frac
-		var ready_base_now: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, true)
-		var ready_pos: Vector2 = _flipped_position(body_sprite, ready_base_now)
-		var ready_forward_px: float = float(profile.get("ready_forward_px", 0.0))
-		if ready_forward_px > 0.0 and aim_dir.length_squared() > 0.0001:
-			ready_pos += _aim_delta_local(body_sprite, aim_dir, ready_forward_px)
-		overlay.set_meta("card_overlay_offset", ready_base_now)
-		CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, ready_base_now, mirror_tex)
-		overlay.position = ready_pos
-		if use_tuned_strike:
-			var strike_pos: Vector2 = compute_tuned_thrust_strike_pos(
-				body_sprite, ready_pos, ready_px, strike_px, aim_dir
+		if uses_spear_keyframed_strike(profile):
+			_play_spear_keyframed_strike(
+				overlay, body_sprite, registry, weapon_type, profile,
+				strike_duration, tween, func() -> void:
+					if not hit_called and on_hit.is_valid():
+						hit_called = true
+						on_hit.call()
 			)
-			var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_SINE)
-			var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN_OUT)
-			if windup_t > 0.001:
-				var windup_pos: Vector2 = ready_pos + _aim_delta_local(
-					body_sprite, aim_dir, -float(profile.get("thrust_windup_px", 3.0))
-				)
-				tween.set_ease(Tween.EASE_OUT)
-				tween.tween_property(overlay, "position", windup_pos, windup_t)
-			tween.set_trans(lunge_trans)
-			tween.set_ease(lunge_ease)
-			tween.tween_property(overlay, "position", strike_pos, lunge_t)
-			tween.tween_callback(func() -> void:
-				if not hit_called and on_hit.is_valid():
-					hit_called = true
-					on_hit.call()
-			)
-			if hold_t > 0.001:
-				tween.tween_interval(hold_t)
-			tween.set_trans(_profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_SINE))
-			tween.set_ease(_profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_OUT))
-			tween.tween_property(overlay, "position", ready_pos, retract_t)
 		else:
-			var windup_px: float = float(profile.get("thrust_windup_px", 8.0))
-			var extend_px: float = float(profile.get("thrust_extend_px", 50.0))
-			var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_QUAD)
-			var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN)
-			var recover_trans := _profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_QUAD)
-			var recover_ease := _profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_IN)
-			var windup_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, -windup_px)
-			var extend_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px)
-			if windup_t > 0.001:
-				tween.set_trans(Tween.TRANS_SINE)
-				tween.set_ease(Tween.EASE_OUT)
-				tween.tween_property(overlay, "position", windup_pos, windup_t)
-			tween.set_trans(lunge_trans)
-			tween.set_ease(lunge_ease)
-			tween.tween_property(overlay, "position", extend_pos, lunge_t)
-			tween.tween_callback(func() -> void:
-				if not hit_called and on_hit.is_valid():
-					hit_called = true
-					on_hit.call()
+			aim_dir = resolve_thrust_aim(aim_dir, registry, weapon_type, entity)
+			# Match card facing to thrust direction before computing local strike path.
+			body_sprite.flip_h = aim_dir.x < 0.0
+			start_rot = compute_aim_rotation(body_sprite, aim_dir, tip_deg, 0.0)
+			overlay.rotation = start_rot
+			var mirror_tex: bool = _overlay_mirror_texture(registry, weapon_type)
+			var strike_px: Vector2 = profile.get("strike_offset_px", Vector2.ZERO) as Vector2
+			var ready_px: Vector2 = profile.get("ready_offset_px", Vector2.ZERO) as Vector2
+			var use_tuned_strike := (
+				strike_px.length_squared() > 0.0001
+				and ready_px.length_squared() > 0.0001
+				and strike_px.distance_to(ready_px) > 2.0
 			)
-			if hold_t > 0.001:
-				tween.tween_interval(hold_t)
-			tween.set_trans(recover_trans)
-			tween.set_ease(recover_ease)
-			tween.tween_property(overlay, "position", ready_pos, retract_t)
+			var windup_frac: float = float(profile.get("thrust_windup_frac", 0.0))
+			var lunge_frac: float = float(profile.get("thrust_lunge_frac", 0.52))
+			var hold_frac: float = float(profile.get("thrust_hold_frac", 0.0))
+			var retract_frac: float = float(profile.get("thrust_retract_frac", -1.0))
+			if retract_frac < 0.0:
+				retract_frac = maxf(1.0 - windup_frac - lunge_frac - hold_frac, 0.04)
+			var windup_t: float = strike_duration * windup_frac
+			var lunge_t: float = strike_duration * lunge_frac
+			var hold_t: float = strike_duration * hold_frac
+			var retract_t: float = strike_duration * retract_frac
+			var ready_base_now: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, true)
+			var ready_pos: Vector2 = _flipped_position(body_sprite, ready_base_now)
+			var ready_forward_px: float = float(profile.get("ready_forward_px", 0.0))
+			if ready_forward_px > 0.0 and aim_dir.length_squared() > 0.0001:
+				ready_pos += _aim_delta_local(body_sprite, aim_dir, ready_forward_px)
+			overlay.set_meta("card_overlay_offset", ready_base_now)
+			CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, ready_base_now, mirror_tex)
+			overlay.position = ready_pos
+			if use_tuned_strike:
+				var strike_pos: Vector2 = compute_tuned_thrust_strike_pos(
+					body_sprite, ready_pos, ready_px, strike_px, aim_dir
+				)
+				var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_SINE)
+				var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN_OUT)
+				if windup_t > 0.001:
+					var windup_pos: Vector2 = ready_pos + _aim_delta_local(
+						body_sprite, aim_dir, -float(profile.get("thrust_windup_px", 3.0))
+					)
+					tween.set_ease(Tween.EASE_OUT)
+					tween.tween_property(overlay, "position", windup_pos, windup_t)
+				tween.set_trans(lunge_trans)
+				tween.set_ease(lunge_ease)
+				tween.tween_property(overlay, "position", strike_pos, lunge_t)
+				tween.tween_callback(func() -> void:
+					if not hit_called and on_hit.is_valid():
+						hit_called = true
+						on_hit.call()
+				)
+				if hold_t > 0.001:
+					tween.tween_interval(hold_t)
+				tween.set_trans(_profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_SINE))
+				tween.set_ease(_profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_OUT))
+				tween.tween_property(overlay, "position", ready_pos, retract_t)
+			else:
+				var windup_px: float = float(profile.get("thrust_windup_px", 8.0))
+				var extend_px: float = float(profile.get("thrust_extend_px", 50.0))
+				var lunge_trans := _profile_swing_trans(profile, "thrust_lunge_trans", Tween.TRANS_QUAD)
+				var lunge_ease := _profile_swing_ease(profile, "thrust_lunge_ease", Tween.EASE_IN)
+				var recover_trans := _profile_swing_trans(profile, "thrust_recover_trans", Tween.TRANS_QUAD)
+				var recover_ease := _profile_swing_ease(profile, "thrust_recover_ease", Tween.EASE_IN)
+				var windup_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, -windup_px)
+				var extend_pos: Vector2 = ready_pos + _aim_delta_local(body_sprite, aim_dir, extend_px)
+				if windup_t > 0.001:
+					tween.set_trans(Tween.TRANS_SINE)
+					tween.set_ease(Tween.EASE_OUT)
+					tween.tween_property(overlay, "position", windup_pos, windup_t)
+				tween.set_trans(lunge_trans)
+				tween.set_ease(lunge_ease)
+				tween.tween_property(overlay, "position", extend_pos, lunge_t)
+				tween.tween_callback(func() -> void:
+					if not hit_called and on_hit.is_valid():
+						hit_called = true
+						on_hit.call()
+				)
+				if hold_t > 0.001:
+					tween.tween_interval(hold_t)
+				tween.set_trans(recover_trans)
+				tween.set_ease(recover_ease)
+				tween.tween_property(overlay, "position", ready_pos, retract_t)
 	else:
 		if uses_club_keyframed_strike(profile):
 			_play_club_keyframed_strike(
@@ -351,7 +372,7 @@ static func play_strike(
 		if entity and is_instance_valid(entity):
 			if on_strike_anim_done.is_valid():
 				on_strike_anim_done.call()
-			elif should_hold_weapon_ready(entity) and not uses_club_keyframed_strike(profile):
+			elif should_hold_weapon_ready(entity) and not uses_keyframed_strike(profile):
 				var hold_aim: Vector2 = resolve_recovery_aim(entity, aim_dir)
 				set_overlay_state(entity, OverlayState.READY)
 				apply_ready_pose(body_sprite, overlay, registry, weapon_type, hold_aim)
@@ -582,6 +603,20 @@ static func uses_club_keyframed_strike(profile: Dictionary) -> bool:
 	return bool(profile.get("club_strike_use_keyframes", false))
 
 
+static func uses_spear_keyframed_strike(profile: Dictionary) -> bool:
+	return bool(profile.get("spear_strike_use_keyframes", false))
+
+
+static func uses_keyframed_strike(profile: Dictionary) -> bool:
+	return uses_club_keyframed_strike(profile) or uses_spear_keyframed_strike(profile)
+
+
+static func uses_spear_keyframed_strike_for_weapon(registry, weapon_type: ResourceData.ResourceType) -> bool:
+	if weapon_type != ResourceData.ResourceType.SPEAR or registry == null:
+		return false
+	return uses_spear_keyframed_strike(_combat_profile(registry, weapon_type))
+
+
 static func club_overlay_strike_enabled(profile: Dictionary, weapon_type: ResourceData.ResourceType) -> bool:
 	if weapon_type != ResourceData.ResourceType.WOOD:
 		return true
@@ -770,6 +805,112 @@ static func apply_club_keyframe_strike_pose(
 			entity.set_meta(CLUB_STRIKE_HAND_META, hand_grip_px)
 		if support_display_px.length_squared() > 0.0001:
 			entity.set_meta(CLUB_STRIKE_SUPPORT_META, support_display_px)
+
+
+static func apply_spear_keyframe_strike_pose(
+	body_sprite: Sprite2D,
+	overlay: Sprite2D,
+	registry,
+	weapon_type: ResourceData.ResourceType,
+	profile: Dictionary,
+	display_px: Vector2,
+	rotation_rad: float
+) -> void:
+	if body_sprite == null or overlay == null:
+		return
+	_ensure_weapon_pivot(overlay, profile)
+	var mirror_tex: bool = _overlay_mirror_texture(registry, weapon_type)
+	var sx: float = absf(body_sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var base_unflipped := Vector2(display_px.x / sx, display_px.y / sx)
+	overlay.rotation = rotation_rad
+	overlay.set_meta("card_overlay_offset", base_unflipped)
+	CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, base_unflipped, mirror_tex)
+
+
+static func _spear_keyframe_windup_rotation_rad(body_sprite: Sprite2D, profile: Dictionary) -> float:
+	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
+	var facing_x: float = -1.0 if body_sprite != null and body_sprite.flip_h else 1.0
+	return compute_aim_rotation(body_sprite, Vector2(facing_x, 0.0), tip_deg, 0.0)
+
+
+static func _spear_keyframe_peak_rotation_rad(body_sprite: Sprite2D, profile: Dictionary) -> float:
+	var peak_deg: float = float(profile.get("attack_rotation_deg", profile.get("idle_rotation_deg", 0.0)))
+	if peak_deg > WeaponLimbPreset.ROTATION_UNSET + 1.0:
+		return deg_to_rad(WeaponLimbPreset.normalize_rotation_deg(peak_deg))
+	return _spear_keyframe_windup_rotation_rad(body_sprite, profile)
+
+
+static func _spear_keyframe_strike_samples(profile: Dictionary) -> Dictionary:
+	return {
+		"windup_overlay_px": profile.get("spear_strike_windup_overlay_px", Vector2.ZERO) as Vector2,
+		"peak_overlay_px": profile.get("spear_strike_peak_overlay_px", Vector2.ZERO) as Vector2,
+	}
+
+
+static func _play_spear_keyframed_strike(
+	overlay: Sprite2D,
+	body_sprite: Sprite2D,
+	registry,
+	weapon_type: ResourceData.ResourceType,
+	profile: Dictionary,
+	strike_duration: float,
+	tween: Tween,
+	on_hit_frame: Callable
+) -> void:
+	## Preset windup overlay → strike peak → windup (no cursor aim extension).
+	var thrust_entity: Node = body_sprite.get_parent() if body_sprite else null
+	sync_swing_body_facing(thrust_entity, body_sprite)
+	var samples: Dictionary = _spear_keyframe_strike_samples(profile)
+	var windup_px: Vector2 = samples["windup_overlay_px"]
+	var peak_px: Vector2 = samples["peak_overlay_px"]
+	var start_px: Vector2 = LimbPresetCoords.overlay_display_from_position(body_sprite, overlay)
+	if start_px.length_squared() < 0.0001:
+		start_px = windup_px
+	var start_rot: float = overlay.rotation
+	var end_rot: float = _spear_keyframe_peak_rotation_rad(body_sprite, profile)
+	var profile_windup_rot: float = _spear_keyframe_windup_rotation_rad(body_sprite, profile)
+	var strike_frac: float = clampf(float(profile.get("swing_strike_frac", 0.56)), 0.4, 0.72)
+	var recover_frac: float = maxf(1.0 - strike_frac, 0.15)
+	var strike_t: float = strike_duration * strike_frac
+	var recover_t: float = strike_duration * recover_frac
+	var strike_trans := _profile_swing_trans(profile, "swing_strike_trans", Tween.TRANS_CUBIC)
+	var strike_ease := _profile_swing_ease(profile, "swing_strike_ease", Tween.EASE_IN_OUT)
+	var recover_trans := _profile_swing_trans(profile, "swing_recover_trans", Tween.TRANS_CUBIC)
+	var recover_ease := _profile_swing_ease(profile, "swing_recover_ease", Tween.EASE_OUT)
+	var apply_pose := func(display_px: Vector2, rot_rad: float) -> void:
+		apply_spear_keyframe_strike_pose(
+			body_sprite, overlay, registry, weapon_type, profile, display_px, rot_rad
+		)
+	tween.set_trans(strike_trans)
+	tween.set_ease(strike_ease)
+	tween.tween_method(
+		func(t: float) -> void:
+			apply_pose.call(
+				start_px.lerp(peak_px, t),
+				_lerp_rotation_rad_linear(start_rot, end_rot, t)
+			),
+		0.0,
+		1.0,
+		strike_t
+	)
+	tween.chain().tween_callback(on_hit_frame)
+	tween.chain().set_trans(recover_trans)
+	tween.chain().set_ease(recover_ease)
+	tween.tween_method(
+		func(t: float) -> void:
+			apply_pose.call(
+				peak_px.lerp(windup_px, t),
+				_lerp_rotation_rad_linear(end_rot, profile_windup_rot, t)
+			),
+		0.0,
+		1.0,
+		recover_t
+	)
+	tween.chain().tween_callback(func() -> void:
+		apply_pose.call(windup_px, profile_windup_rot)
+	)
 
 
 static func _club_keyframe_strike_samples(profile: Dictionary) -> Dictionary:

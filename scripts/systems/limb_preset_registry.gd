@@ -16,6 +16,8 @@ const TUNER_HOLDABLES: Array[ResourceData.ResourceType] = [
 ]
 
 var _cache: Dictionary = {}
+## Presets edited this session (Save all writes only these — not every cached holdable).
+var _dirty_keys: Dictionary = {}
 
 
 func _ready() -> void:
@@ -47,6 +49,8 @@ func get_preset(
 		preset = load(path) as WeaponLimbPreset
 	if preset == null:
 		preset = WeaponLimbPresetScript.defaults_for(weapon_type, body_index)
+	if preset != null:
+		preset.migrate_legacy_club_grip_on_art()
 	_cache[key] = preset
 	return preset
 
@@ -73,6 +77,8 @@ func reload_preset(weapon_type: ResourceData.ResourceType, body_card_id: String 
 	if preset == null:
 		preset = WeaponLimbPresetScript.defaults_for(weapon_type, 1)
 		preset.body_card_id = body_card_id
+	if preset != null:
+		preset.migrate_legacy_club_grip_on_art()
 	_cache[key] = preset
 	return preset
 
@@ -80,14 +86,17 @@ func reload_preset(weapon_type: ResourceData.ResourceType, body_card_id: String 
 func reload_all_presets(body_card_id: String = "clansmen_1") -> void:
 	for weapon_type in TUNER_HOLDABLES:
 		reload_preset(weapon_type, body_card_id)
+	clear_staged_dirty()
 
 
-## Write every in-memory preset the tuner touched this session (weapon switches stage edits).
+## Write presets the user actually edited this session (see mark_staged_dirty).
 func save_all_staged() -> Dictionary:
-	var out := {"err": OK, "count": 0, "failed_keys": [] as Array[String]}
-	if _cache.is_empty():
+	var out := {"err": OK, "count": 0, "failed_keys": [] as Array[String], "skipped": 0}
+	if _dirty_keys.is_empty():
 		return out
-	for key in _cache.keys():
+	for key in _dirty_keys.keys():
+		if not _cache.has(key):
+			continue
 		var preset := _cache[key] as WeaponLimbPreset
 		if preset == null:
 			continue
@@ -96,15 +105,38 @@ func save_all_staged() -> Dictionary:
 		if err != OK:
 			out.err = err
 			(out.failed_keys as Array).append(String(key))
+	_dirty_keys.clear()
 	return out
+
+
+func mark_staged_dirty(preset: WeaponLimbPreset) -> void:
+	if preset == null:
+		return
+	var key := _preset_cache_key(preset.weapon_type, preset.body_card_id)
+	_dirty_keys[key] = true
+	stage_preset(preset)
+
+
+func clear_staged_dirty() -> void:
+	_dirty_keys.clear()
+
+
+func is_staged_dirty(preset: WeaponLimbPreset) -> bool:
+	if preset == null:
+		return false
+	return _dirty_keys.has(_preset_cache_key(preset.weapon_type, preset.body_card_id))
 
 
 ## Keep in-memory preset edits visible to ProceduralArmController before Save.
 func stage_preset(preset: WeaponLimbPreset) -> void:
 	if preset == null:
 		return
-	var key := "%d:%s" % [int(preset.weapon_type), preset.body_card_id]
+	var key := _preset_cache_key(preset.weapon_type, preset.body_card_id)
 	_cache[key] = preset
+
+
+func _preset_cache_key(weapon_type: ResourceData.ResourceType, body_card_id: String) -> String:
+	return "%d:%s" % [int(weapon_type), body_card_id]
 
 
 func apply_to_arm_config(config: ProceduralArmConfig, preset: WeaponLimbPreset) -> void:
@@ -163,6 +195,16 @@ func apply_combat_profile_overrides(profile: Dictionary, weapon_type: ResourceDa
 			&"b", out
 		)
 		out["club_strike_support_motion_frac"] = preset.club_strike_support_motion_frac
+	if preset.has_spear_keyframed_strike():
+		out["spear_strike_use_keyframes"] = true
+		var spear_windup: Dictionary = preset.spear_strike_windup_keyframe()
+		var spear_peak: Dictionary = preset.spear_strike_peak_keyframe()
+		out["spear_strike_windup_overlay_px"] = spear_windup["overlay_px"]
+		out["spear_strike_peak_overlay_px"] = spear_peak["overlay_px"]
+		out["spear_strike_windup_hand_px"] = spear_windup["hand_grip_px"]
+		out["spear_strike_peak_hand_px"] = spear_peak["hand_grip_px"]
+		out["spear_strike_windup_support_px"] = spear_windup["support_hand_px"]
+		out["spear_strike_peak_support_px"] = spear_peak["support_hand_px"]
 	return out
 
 

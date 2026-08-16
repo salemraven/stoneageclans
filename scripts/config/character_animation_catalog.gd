@@ -177,6 +177,35 @@ static func holdable_short_label(weapon_type: ResourceData.ResourceType) -> Stri
 	return holdable_entry(weapon_type).get("short", "?") as String
 
 
+static func all_clips() -> Array[Dictionary]:
+	## Flat inspect list: every holdable × variant that exists in the catalog.
+	var clips: Array[Dictionary] = []
+	for entry in HOLDABLES:
+		var weapon_type: ResourceData.ResourceType = entry["type"] as ResourceData.ResourceType
+		var short: String = entry.get("short", "?") as String
+		var cats: Dictionary = entry.get("categories", {}) as Dictionary
+		for category in CATEGORY_ORDER:
+			if not cats.has(category):
+				continue
+			for mode in cats[category] as Array:
+				var mode_enum := mode as AnimMode
+				clips.append({
+					"weapon": weapon_type,
+					"mode": mode_enum,
+					"category": category,
+					"label": "%s · %s" % [short, mode_label(mode_enum, weapon_type)],
+				})
+	return clips
+
+
+static func clip_can_loop(_weapon_type: ResourceData.ResourceType, mode: AnimMode) -> bool:
+	return (
+		WeaponLimbPreset.is_idle_mode(mode)
+		or WeaponLimbPreset.is_walk_mode(mode)
+		or WeaponLimbPreset.is_gather_mode(mode)
+	)
+
+
 static func mode_supported(weapon_type: ResourceData.ResourceType, mode: AnimMode) -> bool:
 	var cats := holdable_categories(weapon_type)
 	for category in cats:

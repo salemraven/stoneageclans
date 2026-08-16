@@ -53,6 +53,15 @@ static func is_arm_picking(cycle_phase: float) -> bool:
 	return arm_work_phase(cycle_phase) >= 0.0
 
 
+static func keyframe_blend(arm_work: float, dominant: bool) -> float:
+	if arm_work < 0.0:
+		return 0.0
+	var phase_rad := arm_work * ARM_PICK_CYCLES * TAU
+	if not dominant:
+		phase_rad += ARM_PHASE_OFFSET * TAU
+	return _smootherstep((1.0 - cos(phase_rad)) * 0.5)
+
+
 static func hand_offset_between_keyframes(
 	reach_offset: Vector2,
 	pull_offset: Vector2,
@@ -63,12 +72,8 @@ static func hand_offset_between_keyframes(
 		return reach_offset
 	if arm_work < 0.0:
 		return reach_offset
-	var phase_rad := arm_work * ARM_PICK_CYCLES * TAU
-	if not dominant:
-		phase_rad += ARM_PHASE_OFFSET * TAU
-	## 0 at reach, 1 at pull, continuous — no hard keyframe plateaus.
-	var blend := (1.0 - cos(phase_rad)) * 0.5
-	return reach_offset.lerp(pull_offset, _smootherstep(blend))
+	var blend := keyframe_blend(arm_work, dominant)
+	return reach_offset.lerp(pull_offset, blend)
 
 
 static func blend_idle_to_reach_offset(

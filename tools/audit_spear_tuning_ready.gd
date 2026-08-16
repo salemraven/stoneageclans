@@ -24,6 +24,7 @@ func _run() -> void:
 		return
 	print("=== Spear tuning-ready audit (clansmen_1) ===")
 	_audit_idle_standing(preset)
+	_audit_idle_sun_shield(preset)
 	_audit_walk_rows(preset)
 	_audit_attack_windup(preset)
 	_audit_thrust_strike(preset)
@@ -42,6 +43,23 @@ func _audit_idle_standing(preset: WeaponLimbPreset) -> void:
 		_fail("idle standing: hand_grip looks like legacy overlay coords — run prep_spear")
 	if not preset.uses_saved_spear_grip_on_art():
 		_fail("idle standing: yellow pin needs saved shaft grip on art")
+
+
+func _audit_idle_sun_shield(preset: WeaponLimbPreset) -> void:
+	print("\n-- Idle sun-shield (Idle1 lookaround + off-hand raise) --")
+	_print_vec("  support_shoulder raise", preset.support_shoulder_idle_raise_offset_px)
+	_print_vec("  support_hand raise A (forward look)", preset.support_hand_idle_raise_offset_px)
+	_print_vec("  support_hand raise B (look back)", preset.support_hand_idle_raise_lookback_offset_px)
+	_print_vec("  support_elbow_pole raise", preset.support_elbow_pole_idle_raise_px)
+	_print_vec("  support_elbow_pole sweep", preset.support_elbow_pole_idle_raise_sweep_px)
+	if not preset.has_idle_arm2_raise_pose():
+		_fail("idle sun-shield: support_hand_idle_raise_offset_px unset")
+	if not preset.has_idle_lookback_hand_pose():
+		_fail("idle sun-shield: support_hand_idle_raise_lookback_offset_px unset")
+	if preset.support_elbow_pole_idle_raise_sweep_px.length_squared() < 0.0001:
+		_warn("idle sun-shield: sweep pole unset — raise may flip elbow (auto sweep used)")
+	if preset.support_elbow_pole_idle_raise_sweep_px.x <= preset.support_elbow_pole_idle_px.x:
+		_warn("sweep pole should sit toward body center (+X) for in-front forearm arc")
 
 
 func _audit_walk_rows(preset: WeaponLimbPreset) -> void:
@@ -81,6 +99,10 @@ func _audit_thrust_strike(preset: WeaponLimbPreset) -> void:
 		_fail("thrust: strike_offset_px unset")
 	elif preset.strike_offset_px.distance_to(preset.ready_offset_px) < 4.0:
 		_warn("strike_offset_px very close to ready — thrust may look short until re-tuned")
+	if not preset.has_spear_keyframed_strike():
+		_warn("has_spear_keyframed_strike is false — attack still uses cursor aim extension")
+	else:
+		print("  has_spear_keyframed_strike: true (preset tween, no mouse tracking)")
 
 
 func _print_vec(label: String, v: Vector2) -> void:

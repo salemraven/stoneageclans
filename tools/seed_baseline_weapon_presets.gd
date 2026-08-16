@@ -37,7 +37,7 @@ func _run() -> void:
 	club.weapon_elbow_pole_idle_px = none.weapon_elbow_pole_idle_px
 	club.support_elbow_pole_idle_px = none.support_elbow_pole_idle_px
 	club.idle_club1_overlay_offset_px = Vector2(45.0, -55.0)
-	club.idle_club1_hand_grip_offset_px = Vector2(5.0, 80.0)
+	club.idle_club1_hand_grip_offset_px = Vector2(0.0, -58.0)
 	club.idle_club1_support_hand_offset_px = none.support_hand_idle_offset_px
 	club.idle_club1_grip_authoritative = true
 	club.ready_offset_px = Vector2(8.0, 6.0)

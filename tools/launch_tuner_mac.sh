@@ -5,7 +5,16 @@
 # Usage (repo root):
 #   bash tools/launch_tuner_mac.sh                    # spear preview (default)
 #   bash tools/launch_tuner_mac.sh --spear-windup-edit
-#   bash tools/launch_tuner_mac.sh --club-windup-edit
+#   bash tools/launch_tuner_mac.sh --spear-preview --spear-pose-b
+#   bash tools/launch_tuner_mac.sh --gather1-preview
+#   bash tools/launch_tuner_mac.sh --gather1-preview --gather-pose-pull
+#   bash tools/launch_tuner_mac.sh --walk1-preview
+#   bash tools/launch_tuner_mac.sh --walk1-edit
+#   bash tools/launch_tuner_mac.sh --club-walk-preview
+#   bash tools/launch_tuner_mac.sh --club-walk-edit
+#   bash tools/launch_tuner_mac.sh --idle-club1-edit
+#   bash tools/launch_tuner_mac.sh --none-idle-play
+#   bash tools/launch_tuner_mac.sh --club-walk-edit --tuner-pin-instrument
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,17 +54,14 @@ pkill -f "Godot.*LimbTuner.tscn" 2>/dev/null || true
 sleep 0.5
 
 if [[ "$(uname -s)" == "Darwin" ]] && [[ -d "/Applications/Godot.app" ]]; then
-	# -n = new instance even if Godot editor is open; survives Cursor agent shell exit.
-	open -n -a Godot --args --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" "${ARGS[@]}"
+	GODOT_APP="/Applications/Godot.app"
+	OPEN_ARGS=(--path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --skip-single-instance "${ARGS[@]}")
+	# `open -na` launches in the user's GUI session (agent shells often can't show windows).
+	open -na "$GODOT_APP" --args "${OPEN_ARGS[@]}"
 	sleep 2
-	PID="$(pgrep -f "LimbTuner.tscn" | head -1 || true)"
-	if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
-		echo "Tuner running (pid $PID)"
-		echo "Args: ${ARGS[*]}"
-		echo "Tip: if window vanishes, run this script from Terminal.app (not only via agent)."
-	else
-		echo "WARN: Tuner process not found after launch — check Dock for Godot." >&2
-	fi
+	echo "Tuner launch requested via open -na Godot.app"
+	echo "Args: ${ARGS[*]}"
+	echo "If no window: double-click tools/Open_Limb_Tuner.command"
 	exit 0
 fi
 

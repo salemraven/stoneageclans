@@ -8,6 +8,7 @@ const MannequinAnchorResolverScript = preload("res://scripts/systems/mannequin_a
 const WeaponOverlayCombatScript = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const CardVisualControllerScript = preload("res://scripts/systems/card_visual_controller.gd")
 const WalkArmSwingScript = preload("res://scripts/systems/walk_arm_swing.gd")
+const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
 
 
 static func get_body_visual(sprite: Sprite2D) -> Node:
@@ -97,7 +98,10 @@ static func resolve_arm_endpoints(
 	overlay_state: int,
 	aim_dir: Vector2,
 	moving: bool,
-	bounce_time: float
+	bounce_time: float,
+	idle_raise_blend: float = 0.0,
+	idle_scan_blend: float = 0.0,
+	idle_lowering: bool = false
 ) -> Dictionary:
 	var body_visual := get_body_visual(sprite)
 	var weapon_shoulder_g := MannequinAnchorResolverScript.shoulder_global_from_display(
@@ -106,25 +110,65 @@ static func resolve_arm_endpoints(
 	var support_shoulder_g := MannequinAnchorResolverScript.shoulder_global_from_display(
 		sprite, body_visual, preset.support_shoulder_offset_px
 	)
-	var weapon_hand_g := _weapon_hand_global(sprite, overlay, preset, weapon_type, overlay_state)
-	var support_hand_g := _support_hand_global(sprite, overlay, preset, weapon_type, overlay_state)
+	if (
+		idle_raise_blend > 0.0001
+		and preset.has_idle_support_shoulder_raise()
+		and overlay_state == WeaponOverlayCombatScript.OverlayState.IDLE
+		and not moving
+	):
+		support_shoulder_g = MannequinAnchorResolverScript.shoulder_global_from_display(
+			sprite,
+			body_visual,
+			preset.resolve_support_shoulder_for_idle_raise(idle_raise_blend, idle_lowering)
+		)
+	var weapon_hand_g := _weapon_hand_global(sprite, overlay, preset, weapon_type, overlay_state, moving)
+	var support_hand_g := _support_hand_global(sprite, overlay, preset, weapon_type, overlay_state, moving)
+	if (
+		idle_raise_blend > 0.0001
+		and preset.has_idle_arm2_raise_pose()
+		and overlay_state == WeaponOverlayCombatScript.OverlayState.IDLE
+		and not moving
+	):
+		support_hand_g = LimbPresetCoordsScript.body_global_from_display(
+			sprite,
+			preset.resolve_support_hand_idle_for_idle_scan(
+				idle_raise_blend, idle_scan_blend, idle_lowering
+			)
+		)
 	if moving and overlay_state == WeaponOverlayCombatScript.OverlayState.IDLE:
-		var travel_sign := _travel_sign(rig, sprite, aim_dir)
-		var weapon_overlay_carries := (
-			overlay != null
-			and overlay.visible
-			and (
-				weapon_type == ResourceData.ResourceType.WOOD
-				or weapon_type == ResourceData.ResourceType.SPEAR
+		if uses_walk1_keyframe_walk(preset):
+			if preset.uses_club_walk_off_arm_travel_swing():
+				weapon_hand_g = LimbPresetCoordsScript.body_global_from_display(
+					sprite, preset.resolve_club_carry_body_hand_px()
+				)
+				var off_arm_preset := _club_walk_off_arm_keyframe_preset(preset)
+				support_hand_g = walk1_keyframe_hand_global(
+					rig, sprite, off_arm_preset, support_shoulder_g, false, bounce_time
+				)
+			else:
+				weapon_hand_g = walk1_keyframe_hand_global(
+					rig, sprite, preset, weapon_shoulder_g, true, bounce_time
+				)
+				support_hand_g = walk1_keyframe_hand_global(
+					rig, sprite, preset, support_shoulder_g, false, bounce_time
+				)
+		else:
+			var travel_sign := _travel_sign(rig, sprite, aim_dir)
+			var weapon_overlay_carries := (
+				overlay != null
+				and overlay.visible
+				and (
+					weapon_type == ResourceData.ResourceType.WOOD
+					or weapon_type == ResourceData.ResourceType.SPEAR
+				)
 			)
-		)
-		if not weapon_overlay_carries:
-			weapon_hand_g = _apply_walk_swing_global(
-				rig, weapon_shoulder_g, weapon_hand_g, bounce_time, true, travel_sign, weapon_type
+			if not weapon_overlay_carries:
+				weapon_hand_g = _apply_walk_swing_global(
+					rig, weapon_shoulder_g, weapon_hand_g, bounce_time, true, travel_sign, weapon_type
+				)
+			support_hand_g = _apply_walk_swing_global(
+				rig, support_shoulder_g, support_hand_g, bounce_time, false, travel_sign, weapon_type
 			)
-		support_hand_g = _apply_walk_swing_global(
-			rig, support_shoulder_g, support_hand_g, bounce_time, false, travel_sign, weapon_type
-		)
 	return {
 		"weapon_shoulder": rig_local(rig, weapon_shoulder_g),
 		"weapon_hand": rig_local(rig, weapon_hand_g),
@@ -138,12 +182,21 @@ static func _weapon_hand_global(
 	overlay: Sprite2D,
 	preset: WeaponLimbPreset,
 	weapon_type: ResourceData.ResourceType,
-	overlay_state: int
+	overlay_state: int,
+	moving: bool = false
 ) -> Vector2:
 	if overlay == null or not overlay.visible:
-		return LimbPresetCoordsScript.body_global_from_display(sprite, preset.hand_grip_offset_px)
+		var grip_px := preset.hand_grip_offset_px
+		if moving:
+			if preset.uses_club_walk_off_arm_travel_swing():
+				grip_px = preset.resolve_club_carry_body_hand_px()
+			else:
+				grip_px = preset.resolve_walk_rest_hand_grip()
+		return LimbPresetCoordsScript.body_global_from_display(sprite, grip_px)
 	var grip_px := preset.hand_grip_offset_px
-	if overlay_state != WeaponOverlayCombatScript.OverlayState.IDLE:
+	if moving and preset.uses_club_walk_off_arm_travel_swing():
+		grip_px = preset.resolve_club_overlay_grip_px(WeaponLimbPreset.TunerAnimMode.IDLE)
+	elif overlay_state != WeaponOverlayCombatScript.OverlayState.IDLE:
 		if preset.hand_grip_ready_offset_px.length_squared() > 0.0001:
 			grip_px = preset.hand_grip_ready_offset_px
 		elif WeaponLimbPreset.uses_two_hand_grip(weapon_type):
@@ -156,7 +209,8 @@ static func _support_hand_global(
 	overlay: Sprite2D,
 	preset: WeaponLimbPreset,
 	weapon_type: ResourceData.ResourceType,
-	overlay_state: int
+	overlay_state: int,
+	moving: bool = false
 ) -> Vector2:
 	if (
 		overlay_state != WeaponOverlayCombatScript.OverlayState.IDLE
@@ -165,9 +219,12 @@ static func _support_hand_global(
 	):
 		if overlay:
 			return LimbPresetCoordsScript.overlay_grip_global(overlay, preset.support_hand_offset_px)
-	return LimbPresetCoordsScript.body_global_from_display(
-		sprite, preset.resolve_support_hand_for_mode(WeaponLimbPreset.TunerAnimMode.IDLE)
+	var support_px := (
+		preset.resolve_walk_rest_support_hand()
+		if moving
+		else preset.resolve_support_hand_for_mode(WeaponLimbPreset.TunerAnimMode.IDLE)
 	)
+	return LimbPresetCoordsScript.body_global_from_display(sprite, support_px)
 
 
 static func _apply_overlay_pose(
@@ -229,3 +286,71 @@ static func _apply_walk_swing_global(
 		weapon_type
 	) * sx
 	return rig.to_global(shoulder_local + swung_offset)
+
+
+static func uses_walk1_keyframe_walk(preset: WeaponLimbPreset) -> bool:
+	return preset != null and preset.walk1_pose_a_saved
+
+
+static func _club_walk_off_arm_keyframe_preset(club_preset: WeaponLimbPreset) -> WeaponLimbPreset:
+	if club_preset == null or not club_preset.uses_club_walk_off_arm_travel_swing():
+		return club_preset
+	if LimbPresetRegistry != null:
+		var none_preset: WeaponLimbPreset = LimbPresetRegistry.get_preset(
+			ResourceData.ResourceType.NONE, "clansmen_1", 1
+		)
+		if none_preset != null and none_preset.walk1_pose_a_saved:
+			return none_preset
+	return club_preset
+
+
+static func walk1_keyframe_hand_global(
+	rig: Node2D,
+	sprite: Sprite2D,
+	preset: WeaponLimbPreset,
+	shoulder_global: Vector2,
+	dominant: bool,
+	bounce_time: float
+) -> Vector2:
+	if preset == null or sprite == null or rig == null:
+		return shoulder_global
+	var phase := WalkArmSwingScript.swing_phase_from_bounce(bounce_time)
+	var pose_a_px := (
+		preset.walk1_hand_grip_offset_px if dominant else preset.walk1_support_hand_offset_px
+	)
+	if pose_a_px.length_squared() < 0.0001:
+		pose_a_px = (
+			preset.hand_grip_offset_px if dominant else preset.support_hand_idle_offset_px
+		)
+	var pose_a_global := LimbPresetCoordsScript.body_global_from_display(sprite, pose_a_px)
+	if not preset.has_walk1_pull_pose():
+		return pose_a_global
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var shoulder_local := rig.to_local(shoulder_global)
+	var pose_a_local := rig.to_local(pose_a_global)
+	var pose_a_offset := (pose_a_local - shoulder_local) / sx
+	var pull_px := (
+		preset.walk1_pull_hand_grip_offset_px if dominant else preset.walk1_pull_support_hand_offset_px
+	)
+	var pose_b_global := LimbPresetCoordsScript.body_global_from_display(sprite, pull_px)
+	var pose_b_local := rig.to_local(pose_b_global)
+	var pose_b_offset := (pose_b_local - shoulder_local) / sx
+	var motion_offset := WalkArmMotionScript.hand_offset_between_keyframes(
+		pose_a_offset, pose_b_offset, phase, dominant
+	) * sx
+	return rig.to_global(shoulder_local + motion_offset)
+
+
+static func align_overlay_grip_to_hand_global(
+	sprite: Sprite2D,
+	overlay: Sprite2D,
+	grip_px: Vector2,
+	hand_global: Vector2
+) -> void:
+	if sprite == null or overlay == null:
+		return
+	var grip_local := Vector2(grip_px.x * overlay.scale.x, grip_px.y * overlay.scale.y)
+	var grip_global := overlay.to_global(grip_local)
+	overlay.global_position += hand_global - grip_global

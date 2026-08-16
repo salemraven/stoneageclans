@@ -5,7 +5,89 @@
 **Animation catalog:** `scripts/config/character_animation_catalog.gd`  
 **Pawn vision (north star):** [pawn_goal.md](pawn_goal.md) — layered pivots, genetics, RimWorld readability  
 **Canonical preset example:** `assets/limb_presets/none_clansmen_1.tres`  
-**Last updated:** August 15, 2026 (Tuner & Reviewer reliability contract + Walk 1 lock-in + UI/UX roadmap)
+**Last updated:** August 15, 2026 (quick-start tutorial + lock-in architecture)
+
+---
+
+## Quick start — how to use the tuner
+
+The **Character Animation Tuner** is where you pose clansmen: hand positions, elbows, weapon grip, and walk cycles. What you save here becomes the numbers the game uses.
+
+### 1. Open the tuner
+
+From the game repo root:
+
+```bash
+bash tools/launch_tuner_mac.sh --walk1-preview
+```
+
+Other useful launches:
+
+| Command | Opens |
+|---------|--------|
+| `bash tools/launch_tuner_mac.sh --walk1-preview` | Empty hands · Walk 1 loop preview |
+| `bash tools/launch_tuner_mac.sh --none-idle-play` | Empty hands · idle breathe / look-around |
+| `bash tools/launch_tuner_mac.sh --spear-idle-play` | Spear · sun-shield idle loop |
+| `bash tools/launch_tuner_mac.sh --gather1-preview` | Empty hands · gather reach/pull |
+| `bash tools/launch_tuner_mac.sh --spear-preview` | Spear · frozen pose editing (default) |
+
+Windows: run Godot on `scenes/tools/LimbTuner.tscn` with the same flags after `--`.
+
+### 2. Two tabs (left panel)
+
+| Tab | When to use it |
+|-----|----------------|
+| **Animation Reviewer** | Watch a clip loop (walk, idle raise, gather…). Good for “does this look right?” |
+| **Pose Tuner** | Freeze the character and drag pins. Good for editing hand/elbow positions. |
+
+CLI flags like `--walk1-preview` open **Reviewer** already playing the right clip. Click **Edit in Pose Tuner** when you need to move pins.
+
+### 3. Left panel controls (Pose Tuner)
+
+1. **Holdable** — `none` (empty hands), `spear`, `club`, etc. Each holdable has its own save file.
+2. **Category + variant** — e.g. Walk → Walk 1, Idle → idle / idle1.
+3. **Drag pins on the mannequin:**
+   - **Yellow** — weapon hand / grip
+   - **Green** — off-hand
+   - **Blue** — elbow pole (which way the arm bends)
+   - **Right-click** an elbow pin (1e / 2e) — flip bend direction
+4. **Pose 1 / Pose 2** (Walk 1) — switch between the two walk snapshots. Pose 2 does **not** overwrite Pose 1.
+5. **▶ Play** (Walk 1) — preview the pendulum between Pose 1 and Pose 2 without leaving the tuner.
+6. **Save all** — write everything to disk. **This is the only button that actually saves.**
+   - Green **✓** = saved
+   - Red **●** = unsaved changes (you moved pins but haven’t saved yet)
+
+**Important:** Switching tabs, holdables, or variants can update in-memory pins but **not** the file on disk until you click **Save all**. When in doubt: save, then use **Reload** to confirm pins came back the same.
+
+### 4. Typical workflow (example: Walk 1)
+
+1. Launch: `bash tools/launch_tuner_mac.sh --walk1-preview`
+2. Confirm holdable = **none**, variant = **Walk 1**
+3. Click **Edit in Pose Tuner** (or switch to Pose Tuner tab)
+4. Click **Pose 1** → drag yellow/green hands and blue elbows until it looks like “right foot forward”
+5. Click **Pose 2** → pose “left foot forward” (separate row — won’t touch Pose 1)
+6. Click **▶ Play** — check the swing looks smooth; elbows stay bent the right way
+7. Click **Save all** (button turns green ✓)
+8. Click **Copy for chat** — full animation receipt (both poses, motion samples, morphology). Paste in chat and say **lock in this animation**
+
+### 5. After you’re happy — lock it in
+
+Lock-in scripts snapshot your saved poses so they can’t drift silently later. Run from repo root:
+
+```bash
+godot --headless -s res://tools/lockin_none_clansmen_1.gd   # idle + walk
+godot --headless -s res://tools/lockin_spear_clansmen_1.gd  # spear idle
+```
+
+You should see `PASS` in the terminal. If not, don’t merge — something changed on disk.
+
+### 6. Rules of thumb
+
+- **One animation row at a time** — finish Walk Pose 1, save, then Pose 2. Don’t hop between spear and walk without saving.
+- **Locked animations** (idle + walk on `none`) shouldn’t change when you work on spear or gather — that’s the isolation architecture. If they do, tell the agent.
+- **Tests:** `godot --headless -s res://tools/test_limb_tuner.gd` — run before big IK/motion changes.
+
+More detail below: pose rows, reviewer contract, lock-in log (`ANIMATION_LOCKINS.md`), and per-clip notes.
 
 ---
 
@@ -366,7 +448,7 @@ The fixes are not “more careful clicking.” They are **one row → one save f
 |------|----------|------------|
 | **Purpose** | “Does this clip look right?” | “Change the numbers.” |
 | **Playback** | Auto-play on clip select; loop | Paused unless you press ▶ (or A/D walk preview) |
-| **Pins** | Hidden or read-only ghosts | Full drag + Shift+click elbow flip |
+| **Pins** | Hidden or read-only ghosts | Full drag + right-click elbow flip |
 | **Preset** | Read from disk/cache only | Read + write staged preset |
 | **Save** | Never saves | **Save all** is the only disk write (plus planned auto-save *off* by default) |
 
@@ -436,13 +518,13 @@ Today this logic is split across `_commit_anim_mode`, drag handlers, and pose-ed
 **Target model (simple rule for humans and code):**
 
 1. **Pole px** (`*_elbow_pole_*`) = **authoritative** elbow side. IK always pole-picks when pole ≠ zero.
-2. **Bend sign override** = cached hint for fallback, facing mirror, and legacy paths — **derived from pole on every Save**, not edited independently except Shift+flip (which moves pole to the other IK branch).
+2. **Bend sign override** = cached hint for fallback, facing mirror, and legacy paths — **derived from pole on every Save**, not edited independently except right-click flip (which moves pole to the other IK branch).
 3. **No mid-motion flip** — bend sign never toggled during raise/lower/walk swing; pole arc or locked pick handles motion.
 
 | Action | Target behavior |
 |--------|-----------------|
 | Drag **1e / 2e** | Moves elbow; Save writes **pole** for active row; bend synced from pole |
-| **Shift + click 1e / 2e** | Flip to other IK branch; save **new pole**; sync bend |
+| **Right-click 1e / 2e** | Flip to other IK branch; save **new pole**; sync bend |
 | Plain click **1e / 2e** | No-op + status hint (accident prevention) |
 | Facing flip (A/D) | Mirror read path only; stored overrides remain **east-facing** |
 
@@ -684,6 +766,14 @@ Set morphology (reference) → pick holdable / category / variant
 | **Copy for chat** | Pose + morphology handoff |
 | **Summary / Status** | Active variant, elbow labels, reach warnings |
 
+| Weapon | **3** (yellow) | **1h** (green) | **Angle spin** |
+|--------|----------------|----------------|----------------|
+| **Club — Club grip** category | **Draggable** — sets grip on shaft art | Body hand (when visible) | Saves `idle_club1_rotation_deg` |
+| **Club — carry / walk** | **Follow-only** — locked to saved grip px on weapon art; moves only with overlay + body bounce | **Draggable** — moves carry pose (overlay aligns on drag only) | Saves per active row (`walk1_rotation_deg`, etc.) |
+| **Spear — Attack windup** | **Y1** + **Y2** on shaft art | **1h** / **2h** stack on yellow while editing | Saves `attack_rotation_deg` |
+
+**Copy for chat** includes `grip_on_art_px`, `club_carry_body_hand_px` (club), `hand_1_role`, and `rotation_deg` per pose row. **Save all** and **Copy for chat** both commit the active row first.
+
 ### Canvas / pins
 
 | Pin | Label | Action |
@@ -694,7 +784,7 @@ Set morphology (reference) → pick holdable / category / variant
 | Support hand | **2h** | Drag |
 | Weapon | **3** | Drag |
 | Head / neck | **H** | Drag (head↔body distance) |
-| Elbow bend | **1e / 2e** | **Shift + click** to flip ± (plain click does nothing — avoids accidents) |
+| Elbow bend | **1e / 2e** | **Right-click** to flip ± (plain click does nothing — avoids accidents) |
 
 **Draw order (tuner):** arm1 → body → head → arm2.
 
@@ -751,11 +841,11 @@ bash tools/run_limb_tuner.sh evaluate
 
 | Step | Control | Pass if |
 |------|---------|---------|
-| 1 | **A / D** walk | Club carry bounces; off-arm swings; yellow **3** stays on club grip art |
-| 2 | **Shift** hold | Windup loop (rest → A → B → rest, ~5s); yellow **3** glued to grip; green **1h** stacked on yellow; both arms track |
+| 1 | **A / D** walk | Club carry bounces; off-arm swings; yellow **3** stays on club grip art (locked to overlay; bounces with body, no extra weapon lag) |
+| 2 | **Shift** hold | Windup loop (rest → A → B → rest, ~5s); yellow **3** on grip art; green **1h** at body hand (not stacked on yellow); both arms track |
 | 3 | **Shift + click** | Strike tweens to saved peak (~73° club angle); yellow **3** never leaves grip; arms follow through peak |
 | 4 | Release **Shift** after swing | Returns to idle carry (not stuck in ready) |
-| 5 | **A/D** while facing west | Mirror flip; pins still stack (3 → 1h); no double-flip on overlay |
+| 5 | **A/D** while facing west | Mirror flip; green **1h** at body hand; yellow **3** on grip art; club angle spin works |
 
 ### Headless gates (agent / CI)
 
@@ -770,6 +860,46 @@ godot --headless -s res://tools/audit_club_lockin.gd
 | `test_limb_tuner.gd` | prints `test_limb_tuner: PASS` |
 | `audit_club_lockin.gd` | `club_lockin_audit: PASS` or `PASS_WITH_WARNINGS` |
 | `--tuner-instrument` | JSONL at `Tests/logs/tuner_preview_instrument.jsonl`; `handΔ` ≤ ~3 px during strike |
+| `--tuner-pin-instrument` | JSONL at `Tests/logs/tuner_pin_sync_instrument.jsonl`; logs drag start/end + any **green 1h** sync overwrite (Δ > 2 px = violation) |
+| `test_tuner_pin_snap.gd` | Headless drag → commit → sync; must print `test_tuner_pin_snap: PASS` (club walk1, club idle, none walk1) |
+| `test_tuner_startup_no_clobber.gd` | Relaunch seeds must **not** overwrite saved pose rows (club walk, walk1, gather1) |
+| `test_tuner_save_playback_guard.gd` | Commit/Save while Walk 1 ▶ Play must **not** change locked Pose A; Save writes **only dirty** holdables |
+| `lockin_walk_clansmen_1.gd` | Restores Walk 1 Pose A+B on `none_clansmen_1.tres`; run after drift or before sign-off |
+
+### Startup seed guard (relaunch safety)
+
+**Problem we fixed:** Opening `--club-walk-edit` / `--club-walk-preview` used to copy **empty-hands** hand coords over your saved club carry.
+
+**Contract (all animations):**
+
+1. **`seed_*` functions** only fill **blank** fields when the pose row is **not** marked saved (`walk1_pose_a_saved`, `gather1_reach_saved`, etc.).
+2. **Never import** from another preset (e.g. `none_clansmen_1`) when the target row is already saved on disk.
+3. **`sync_*` on the same preset** may repair drift (e.g. club Walk 1 dominant ← idle carry) but only when values actually differ.
+4. **Save all** commits the active row only when you **edited pins** (`Save all ●`); pauses playback first; writes **only holdables you changed** — use **Reload** to discard RAM edits without saving.
+
+### Save / playback guard (Pose row safety)
+
+**Problem we fixed:** Walk 1 **Pose A** was overwritten when **Save all** or drag-commit read pin positions **during ▶ Play** or **A/D travel** (animation frames, not Pose 1 rest pins). Saving **Club** could also flush an unedited **None** preset from RAM.
+
+**Contract:**
+
+1. **Pause first** — any commit or Save pauses ▶ Play and A/D walk, then snaps pins to the current pose-edit row.
+2. **No commit without edits** — if you did not drag pins (`Save all ✓`), commit is skipped; locked rows stay as on disk.
+3. **Dirty-only disk write** — Save all writes only holdables marked dirty this session, not every preset loaded into memory.
+4. **Restore locked walk** — `godot --headless -s res://tools/lockin_walk_clansmen_1.gd`
+
+Regression: `godot --headless -s res://tools/test_tuner_save_playback_guard.gd`
+
+Guard helper: `scripts/tools/tuner_pose_seed_guard.gd` · relaunch regression: `godot --headless -s res://tools/test_tuner_startup_no_clobber.gd`
+
+**Pin snap fix (2026-08):** After you drag **green 1h** while paused, the handle stays authoritative until **Play** or you switch pose/weapon. Per-frame sync skips repositioning the dominant hand so it does not snap back. Yellow **3** still follows club grip art during green drags (expected, not logged as a violation).
+
+Launch with pin logging:
+
+```bash
+bash tools/launch_tuner_mac.sh --club-walk-edit --tuner-pin-instrument
+godot --headless -s res://tools/test_tuner_pin_snap.gd
+```
 
 ### Known warnings (non-blocking)
 
@@ -867,7 +997,7 @@ Motion code (shared tuner + in-game): `tuner_idle_preview.gd`, `procedural_arm_c
 
 ## Walk 1 tuning session (locked — Aug 15 2026)
 
-**Status: LOCKED.** Empty-hands Walk 1 on `none_clansmen_1` only. **Ask the user before changing poses, elbows, or walk timing.** Do not copy this walk onto club/spear/axe/pick.
+**Status: LOCKED.** Empty-hands Walk 1 on `none_clansmen_1` only. **Ask the user before changing poses, elbows, or walk timing.** Club/spear/axe/pick use their own preset files (see Club Walk 1 below).
 
 **Canonical preset:** `assets/limb_presets/none_clansmen_1.tres`  
 **Headless save:** `godot --headless -s res://tools/lockin_walk_clansmen_1.gd`  
@@ -898,6 +1028,40 @@ bash tools/launch_tuner_mac.sh --walk1-edit --walk1-pose-2  # Pose 2
 | **2** | (76.93, 97.59) | (5.51, 71.07) | (88.00, -41.98) | (-81.92, -38.28) |
 
 Overlay: `(22, -34)` · elbows outward + · shoulders unchanged from idle.
+
+---
+
+## Club Walk 1 tuning session (Aug 2026)
+
+**Preset:** `assets/limb_presets/club_clansmen_1.tres`  
+**Design:** Weapon arm = **idle carry** (same as standing with club). Off-arm = **empty-hands Walk 1 Pose 1↔2 keyframe loop** during playback. Yellow **3** = saved grip on club art (follow-only). Green **1h** = body-card carry hand (draggable).
+
+| Pin | Role |
+|-----|------|
+| **Green 1h** | Body-card dominant hand — drag to move whole club carry pose |
+| **Yellow 3** | Grip on club shaft art — **locked** when grip is saved; follows club; arm IK endpoint |
+| **Green 2h** | Off-arm swing tuning (Walk 1 row) |
+| **1e / 2e** | Elbow poles (right-click to flip) |
+
+Dominant hand body coords live in `hand_grip_offset_px`. Grip-on-art lives in `idle_club1_hand_grip_offset_px` only (set in **Idle Club 1** / `--idle-club1-edit`). Never mix them.
+
+### Launch
+
+```bash
+bash tools/launch_tuner_mac.sh --club-walk-edit              # Pose 1
+bash tools/launch_tuner_mac.sh --club-walk-edit --club-walk-pose-2  # Pose 2
+bash tools/launch_tuner_mac.sh --club-walk-preview           # loop
+```
+
+### Workflow
+
+1. **Pause** walk (⏸) before dragging pins — drag on a playing walk auto-pauses.
+2. **Pose 1** — drag **green 1h** (carry), **2h** (off-arm), **1e/2e**. Use **angle spin** when facing left to tilt the club.
+3. Key **2** → **Pose 2** — tune **2h** and elbows again (dominant stays idle carry).
+4. **▶ Play** — weapon arm holds carry; off-arm loops Walk 1 Pose 1↔2 like empty-hands walk; yellow **3** stays on shaft art.
+5. **Save all** → **Copy for chat** → lock in.
+
+**Note:** Club **Idle + A/D** still uses carry-at-side (legacy Walk row). **Walk 1** category uses off-arm keyframes + idle carry dominant arm. Set yellow grip in `--idle-club1-edit` if it drifts.
 
 ---
 
@@ -1057,7 +1221,7 @@ Process order: rig updates `flip_h` first (`process_priority -1`); tuner syncs h
 1. All pin offsets in `WeaponLimbPreset` / pose snapshots = **east-facing display pixels** (unmirrored).
 2. Baked clips = **east only**, 128×128 (see Bake pipeline above).
 3. Never save world/global positions into `.tres` — always display-local east space.
-4. Elbow **1e/2e**: **Shift + click** to flip; saved **pole px** is authoritative for each pose row (walk Pose 1 vs Pose 2, gather reach vs pull). Bend sign stays synced as fallback only.
+4. Elbow **1e/2e**: **Right-click** to flip; saved **pole px** is authoritative for each pose row (walk Pose 1 vs Pose 2, gather reach vs pull). Bend sign stays synced as fallback only.
 
 ### Common mistakes (avoid)
 
@@ -1183,7 +1347,7 @@ See **[reliability contract](#tuner--animation-reviewer--how-they-should-work-re
 
 **Medium priority (reduce confusion):**
 
-- [ ] **Elbow drag feedback** — "Shift+click to flip elbow" tooltip on 1e/2e hover; pole position updates visible
+- [ ] **Elbow drag feedback** — "Right-click to flip elbow" tooltip on 1e/2e hover; pole position updates visible
 - [ ] **Copy for chat confirmation** — brief status: "✓ Committed active row + copied JSON to clipboard"
 - [ ] **Morphology section organization** — group spinboxes: Arm length (upper/lower), thickness, body scale X/Y, head scale; **Save DNA** button below
 

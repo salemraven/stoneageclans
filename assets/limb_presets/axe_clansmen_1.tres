@@ -5,9 +5,12 @@
 [resource]
 script = ExtResource("1_cco56")
 weapon_type = 8
-shoulder_offset_px = Vector2(118.90351, -178.54268)
-support_shoulder_offset_px = Vector2(-94.06356, -177.75403)
-support_hand_idle_offset_px = Vector2(-86.28906, 52.038197)
-weapon_elbow_pole_idle_px = Vector2(150.7301, -185.8533)
-support_elbow_pole_idle_px = Vector2(-111.3289, -176.4535)
+shoulder_offset_px = Vector2(117.999886, -178.99998)
+support_shoulder_offset_px = Vector2(-95.000244, -178)
+support_hand_idle_offset_px = Vector2(17.749899, 24.559978)
+upper_arm_length = 120.0
+lower_arm_length = 120.0
+weapon_elbow_pole_idle_px = Vector2(0, 235)
+support_elbow_pole_idle_px = Vector2(0, 235)
+weapon_elbow_bend_sign_override = 1.0
 support_elbow_bend_sign_override = 1.0

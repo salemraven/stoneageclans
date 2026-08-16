@@ -35,20 +35,20 @@ hand_width: 10.0
 
 ## Locked Animations
 
-### Walk 1 Pose A - 2026-08-15
+### Walk 1 Pose A - 2026-08-15 (receipt lock-in)
 **Holdable:** none  
 **Body:** clansmen_1  
-**Description:** Right forward, left back pendulum position
+**Description:** Walk Pose 1 — right-side swing frame
 
 **Pin Data:**
 - shoulder_1: (118.0, -179.0)
 - shoulder_2: (-95.0, -178.0)
-- hand_1: (225.82, 34.35)
-- hand_2: (-173.19, 41.69)
-- elbow_1_pole: (181.45, -77.15)
-- elbow_2_pole: (-160.83, -77.67)
+- hand_1: (115.7, 60.39)
+- hand_2: (20.18, 31.88)
+- elbow_1_pole: (108.22, -59.39)
+- elbow_2_pole: (-44.97, -68.91)
 - elbow_1_bend: -1.0 (outward -)
-- elbow_2_bend: +1.0 (outward +)
+- elbow_2_bend: -1.0 (outward -)
 - overlay: (22.0, -34.0)
 
 **Lock-in script:** `tools/lockin_walk1_pose_a.gd`  
@@ -56,20 +56,20 @@ hand_width: 10.0
 
 ---
 
-### Walk 1 Pose B - 2026-08-15
+### Walk 1 Pose B - 2026-08-15 (receipt lock-in)
 **Holdable:** none  
 **Body:** clansmen_1  
-**Description:** Left forward, right back (pull row)
+**Description:** Walk Pose 2 — opposite swing frame
 
 **Pin Data:**
-- hand_1: (76.93, 97.59)
-- hand_2: (5.51, 71.07)
-- elbow_1_pole: (88.0, -41.98)
-- elbow_2_pole: (-81.92, -38.28)
-- elbow_1_bend: +1.0
-- elbow_2_bend: +1.0
+- hand_1: (233.16, 29.45)
+- hand_2: (-163.4, 44.14)
+- elbow_1_pole: (162.56, -67.58)
+- elbow_2_pole: (-157.77, -75.73)
+- elbow_1_bend: -1.0
+- elbow_2_bend: -1.0
 
-**Lock-in script:** `tools/lockin_walk1_pose_b.gd` + `tools/lockin_none_clansmen_1.gd`  
+**Lock-in script:** `tools/lockin_walk1_pose_b.gd` + `tools/lockin_walk_clansmen_1.gd`  
 **Golden:** `Tests/golden/walk1_motion.json`  
 **Status:** ✅ LOCKED
 
@@ -123,7 +123,7 @@ hand_width: 10.0
 
 ### 1. Author a pose in the tuner
 - Drag pins to desired positions
-- Use Shift+click to flip elbows
+- Right-click 1e/2e to flip elbows
 - Click "Copy for chat" to export data
 
 ### 2. Create lock-in script

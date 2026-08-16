@@ -189,15 +189,32 @@ func enter_ready(new_aim: Vector2) -> void:
 func update_ready_aim(new_aim: Vector2) -> void:
 	if state != CombatState.READY:
 		return
+	var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
+	if (
+		PlaceholderCardService
+		and PlaceholderCardService.registry
+		and WeaponOverlayCombat.uses_spear_keyframed_strike_for_weapon(
+			PlaceholderCardService.registry, wt
+		)
+	):
+		# Preset windup pose — horizontal facing only, no cursor tracking.
+		if new_aim.length_squared() > 0.0001:
+			aim_dir = _normalize_strike_aim(new_aim)
+		if PlaceholderCardService and _uses_overlay_combat():
+			if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
+				var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+				WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+			_sync_overlay_facing_from_aim()
+			PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
+		return
 	if new_aim.length_squared() > 0.0001:
 		aim_dir = _normalize_strike_aim(new_aim)
 	if PlaceholderCardService and _uses_overlay_combat():
-		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
 		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
 			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
 			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
 		_sync_overlay_facing_from_aim()
-		PlaceholderCardService.update_weapon_overlay_combat(npc, _get_equipped_weapon_type(), aim_dir)
+		PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
 
 
 func _sync_overlay_facing_from_aim() -> void:
@@ -240,8 +257,13 @@ func _apply_overlay_ready_after_recovery(recovery_aim: Vector2) -> void:
 	if wt != ResourceData.ResourceType.NONE:
 		if (
 			PlaceholderCardService
-			and WeaponOverlayCombat.uses_club_keyframed_strike_for_weapon(
-				PlaceholderCardService.registry, wt
+			and (
+				WeaponOverlayCombat.uses_club_keyframed_strike_for_weapon(
+					PlaceholderCardService.registry, wt
+				)
+				or WeaponOverlayCombat.uses_spear_keyframed_strike_for_weapon(
+					PlaceholderCardService.registry, wt
+				)
 			)
 		):
 			# Keyframed strike tween already returned overlay to windup — do not re-snap.
@@ -286,10 +308,19 @@ func commit_strike(strike_aim: Vector2) -> void:
 	else:
 		strike_aim = _get_default_facing_dir()
 	if npc.is_in_group("player") and npc.has_method("_get_cursor_aim_direction"):
-		var fresh: Vector2 = npc._get_cursor_aim_direction()
-		if fresh.length_squared() > 0.0001:
-			strike_aim = _normalize_strike_aim(fresh)
-			npc.set("aim_dir", strike_aim)
+		var use_keyframed_spear := (
+			wt == ResourceData.ResourceType.SPEAR
+			and PlaceholderCardService
+			and PlaceholderCardService.registry
+			and WeaponOverlayCombat.uses_spear_keyframed_strike_for_weapon(
+				PlaceholderCardService.registry, wt
+			)
+		)
+		if not use_keyframed_spear:
+			var fresh: Vector2 = npc._get_cursor_aim_direction()
+			if fresh.length_squared() > 0.0001:
+				strike_aim = _normalize_strike_aim(fresh)
+				npc.set("aim_dir", strike_aim)
 	locked_strike_dir = strike_aim
 	aim_dir = locked_strike_dir
 	current_target = _find_strike_target(locked_strike_dir)

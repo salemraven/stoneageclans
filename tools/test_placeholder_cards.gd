@@ -176,58 +176,75 @@ func _run() -> void:
 	if absf(player_overlay.rotation) > 0.05:
 		_fail("Player spear idle rotation should be ~0 got %.3f rad" % player_overlay.rotation)
 	const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+	const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
+	var spear_limb_registry := LimbPresetRegistryScript.new()
+	var base_spear_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.SPEAR)
+	var spear_profile: Dictionary = spear_limb_registry.apply_combat_profile_overrides(
+		base_spear_profile, ResourceData.ResourceType.SPEAR
+	)
+	var spear_keyframed := WeaponOverlayCombat.uses_spear_keyframed_strike(spear_profile)
 	WeaponOverlayCombat.apply_ready_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR, Vector2(1, 0))
-	if player_sprite.flip_h:
-		_fail("Spear aim-right should not flip card")
-	var ready_right: float = player_overlay.rotation
-	if absf(ready_right - PI * 0.5) > 0.15:
-		_fail("Spear ready-right rotation expected ~90° got %.1f°" % rad_to_deg(ready_right))
-	WeaponOverlayCombat.apply_ready_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR, Vector2(-1, 0))
-	if not player_sprite.flip_h:
-		_fail("Spear aim-left should flip card to face left")
-	var ready_left: float = player_overlay.rotation
-	if absf(ready_left + PI * 0.5) > 0.2 and absf(ready_left - PI * 1.5) > 0.2:
-		_fail("Spear ready-left rotation expected ~-90° got %.1f°" % rad_to_deg(ready_left))
-	player_sprite.flip_h = false
-	var delta_right_u: Vector2 = WeaponOverlayCombat._aim_delta_local(player_sprite, Vector2(1, 0), 50.0)
-	var delta_left_u: Vector2 = WeaponOverlayCombat._aim_delta_local(player_sprite, Vector2(-1, 0), 50.0)
-	if delta_right_u.x <= 0.0:
-		_fail("Thrust delta aim-right should extend +local X")
-	if delta_left_u.x >= 0.0:
-		_fail("Thrust delta aim-left should extend -local X")
-	var spear_profile: Dictionary = registry.get_weapon_combat_profile(ResourceData.ResourceType.SPEAR)
-	var ready_px: Vector2 = spear_profile.get("ready_offset_px", Vector2.ZERO) as Vector2
-	var strike_px: Vector2 = spear_profile.get("strike_offset_px", Vector2.ZERO) as Vector2
-	var spear_ready_base: Vector2 = WeaponOverlayCombat._pose_offset(
-		player_sprite, registry, ResourceData.ResourceType.SPEAR, spear_profile, true
-	)
-	var ready_pos: Vector2 = WeaponOverlayCombat._flipped_position(player_sprite, spear_ready_base)
-	var extend_dist: float = ready_px.distance_to(strike_px)
-	var sx: float = maxf(absf(player_sprite.scale.x), 0.001)
-	var runtime_mul: float = svc.get_runtime_display_scale(player)
-	var expected_local_extend: float = extend_dist * runtime_mul / sx
-	var strike_right: Vector2 = WeaponOverlayCombat.compute_tuned_thrust_strike_pos(
-		player_sprite, ready_pos, ready_px, strike_px, Vector2(1.0, 0.0)
-	)
-	if absf(strike_right.distance_to(ready_pos) - expected_local_extend) > 1.5:
-		_fail("Tuned thrust right should extend by preset distance")
-	if strike_right.x <= ready_pos.x + 5.0:
-		_fail("Tuned thrust right should move overlay right from ready")
-	var min_horiz: float = float(spear_profile.get("thrust_min_horizontal_frac", 0.35))
-	var clamped_up: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
-		Vector2(0.0, -1.0), registry, ResourceData.ResourceType.SPEAR, 1.0
-	)
-	var clamped_down: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
-		Vector2(0.0, 1.0), registry, ResourceData.ResourceType.SPEAR, -1.0
-	)
-	if absf(clamped_up.x) < min_horiz - 0.02:
-		_fail("Spear thrust should block straight up (min horizontal)")
-	if absf(clamped_down.x) < min_horiz - 0.02:
-		_fail("Spear thrust should block straight down (min horizontal)")
-	if clamped_up.y >= -0.05:
-		_fail("Clamped up thrust should still point upward")
-	if clamped_down.y <= 0.05:
-		_fail("Clamped down thrust should still point downward")
+	if spear_keyframed:
+		var windup_px: Vector2 = spear_profile.get("spear_strike_windup_overlay_px", Vector2.ZERO) as Vector2
+		if windup_px.length_squared() < 0.0001:
+			_fail("Keyframed spear missing windup overlay px")
+		var live_px: Vector2 = LimbPresetCoords.overlay_display_from_position(player_sprite, player_overlay)
+		if live_px.distance_to(windup_px) > 2.5:
+			_fail("Keyframed spear ready should snap to preset windup overlay")
+		WeaponOverlayCombat.apply_ready_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR, Vector2(-1, 0))
+		if not player_sprite.flip_h:
+			_fail("Keyframed spear facing-left should flip card")
+	else:
+		if player_sprite.flip_h:
+			_fail("Spear aim-right should not flip card")
+		var ready_right: float = player_overlay.rotation
+		if absf(ready_right - PI * 0.5) > 0.15:
+			_fail("Spear ready-right rotation expected ~90° got %.1f°" % rad_to_deg(ready_right))
+		WeaponOverlayCombat.apply_ready_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR, Vector2(-1, 0))
+		if not player_sprite.flip_h:
+			_fail("Spear aim-left should flip card to face left")
+		var ready_left: float = player_overlay.rotation
+		if absf(ready_left + PI * 0.5) > 0.2 and absf(ready_left - PI * 1.5) > 0.2:
+			_fail("Spear ready-left rotation expected ~-90° got %.1f°" % rad_to_deg(ready_left))
+		player_sprite.flip_h = false
+		var delta_right_u: Vector2 = WeaponOverlayCombat._aim_delta_local(player_sprite, Vector2(1, 0), 50.0)
+		var delta_left_u: Vector2 = WeaponOverlayCombat._aim_delta_local(player_sprite, Vector2(-1, 0), 50.0)
+		if delta_right_u.x <= 0.0:
+			_fail("Thrust delta aim-right should extend +local X")
+		if delta_left_u.x >= 0.0:
+			_fail("Thrust delta aim-left should extend -local X")
+		var ready_px: Vector2 = spear_profile.get("ready_offset_px", Vector2.ZERO) as Vector2
+		var strike_px: Vector2 = spear_profile.get("strike_offset_px", Vector2.ZERO) as Vector2
+		var spear_ready_base: Vector2 = WeaponOverlayCombat._pose_offset(
+			player_sprite, registry, ResourceData.ResourceType.SPEAR, spear_profile, true
+		)
+		var ready_pos: Vector2 = WeaponOverlayCombat._flipped_position(player_sprite, spear_ready_base)
+		var extend_dist: float = ready_px.distance_to(strike_px)
+		var sx: float = maxf(absf(player_sprite.scale.x), 0.001)
+		var runtime_mul: float = svc.get_runtime_display_scale(player)
+		var expected_local_extend: float = extend_dist * runtime_mul / sx
+		var strike_right: Vector2 = WeaponOverlayCombat.compute_tuned_thrust_strike_pos(
+			player_sprite, ready_pos, ready_px, strike_px, Vector2(1.0, 0.0)
+		)
+		if absf(strike_right.distance_to(ready_pos) - expected_local_extend) > 1.5:
+			_fail("Tuned thrust right should extend by preset distance")
+		if strike_right.x <= ready_pos.x + 5.0:
+			_fail("Tuned thrust right should move overlay right from ready")
+		var min_horiz: float = float(spear_profile.get("thrust_min_horizontal_frac", 0.35))
+		var clamped_up: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
+			Vector2(0.0, -1.0), registry, ResourceData.ResourceType.SPEAR, 1.0
+		)
+		var clamped_down: Vector2 = WeaponOverlayCombat.clamp_thrust_aim(
+			Vector2(0.0, 1.0), registry, ResourceData.ResourceType.SPEAR, -1.0
+		)
+		if absf(clamped_up.x) < min_horiz - 0.02:
+			_fail("Spear thrust should block straight up (min horizontal)")
+		if absf(clamped_down.x) < min_horiz - 0.02:
+			_fail("Spear thrust should block straight down (min horizontal)")
+		if clamped_up.y >= -0.05:
+			_fail("Clamped up thrust should still point upward")
+		if clamped_down.y <= 0.05:
+			_fail("Clamped down thrust should still point downward")
 	player_sprite.flip_h = false
 	WeaponOverlayCombat.apply_idle_pose(player_sprite, player_overlay, registry, ResourceData.ResourceType.SPEAR)
 	if absf(player_overlay.rotation) > 0.05:

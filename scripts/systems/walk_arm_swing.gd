@@ -4,16 +4,16 @@ class_name WalkArmSwing
 ## Humanoid walk arm swing — travel-aligned push + shoulder arc (rig-local px).
 ## Keeps natural arm length while letting hands move forward/back along travel (+X when moving right).
 
-const DOM_TRAVEL_FORWARD_PX := 32.0
-const DOM_TRAVEL_BACK_PX := 26.0
-const SUPPORT_TRAVEL_FORWARD_PX := 24.0
-const SUPPORT_TRAVEL_BACK_PX := 48.0
-const DOM_ARC_FORWARD_DEG := 18.0
-const DOM_ARC_BACK_DEG := 14.0
-const SUPPORT_ARC_FORWARD_DEG := 32.0
-const SUPPORT_ARC_BACK_DEG := 14.0
-const DOM_REACH_SLACK_RATIO := 0.18
-const SUPPORT_REACH_SLACK_RATIO := 0.30
+const DOM_TRAVEL_FORWARD_PX := 42.0
+const DOM_TRAVEL_BACK_PX := 36.0
+const SUPPORT_TRAVEL_FORWARD_PX := 28.0
+const SUPPORT_TRAVEL_BACK_PX := 52.0
+const DOM_ARC_FORWARD_DEG := 26.0
+const DOM_ARC_BACK_DEG := 20.0
+const SUPPORT_ARC_FORWARD_DEG := 34.0
+const SUPPORT_ARC_BACK_DEG := 16.0
+const DOM_REACH_SLACK_RATIO := 0.28
+const SUPPORT_REACH_SLACK_RATIO := 0.32
 ## Arm 2: pendulum-first — one smooth beat per step, not 2× vertical bob.
 const SUPPORT_VERT_SWAY_PX := 2.5
 ## Spear carry: subtle vertical bob on the main walk beat — minimal forward/back (unlike club swing).
@@ -24,7 +24,8 @@ const SPEAR_DOM_LENGTH_BREATHE_SCALE := 0.2
 ## Small phase lag so arms trail the torso on the same walk beat (see PlaceholderCardRegistry.WALK_RHYTHM_SPEED_SCALE).
 const SWING_PHASE_LAG_RAD := 0.22
 const HARMONIC_MIX := 0.02
-const LENGTH_BREATHE := 0.08
+const LENGTH_BREATHE := 0.12
+const DOM_VERT_SWAY_PX := 8.0
 const VERT_SWAY_PX := 5.0
 
 
@@ -48,7 +49,7 @@ static func swing_hand_local_offset(
 		return rest_offset
 	var arm_phase := cycle_phase + (0.0 if dominant else PI)
 	var spear_carry := _is_spear_dominant_carry(weapon_type, dominant)
-	var wave := _shaped_wave(arm_phase) if dominant else _support_swing_wave(arm_phase)
+	var wave := _dominant_swing_wave(arm_phase) if dominant else _support_swing_wave(arm_phase)
 	var travel := Vector2(travel_sign, 0.0)
 	var travel_fwd := DOM_TRAVEL_FORWARD_PX if dominant else SUPPORT_TRAVEL_FORWARD_PX
 	var travel_back := DOM_TRAVEL_BACK_PX if dominant else SUPPORT_TRAVEL_BACK_PX
@@ -74,8 +75,8 @@ static func swing_hand_local_offset(
 		# Same _shaped_wave beat as support travel — one smooth cycle per step, not 2× vertical frequency.
 		vert = wave * SPEAR_DOM_VERT_SWAY_PX
 	elif dominant:
-		var vert_raw := sin(arm_phase * 2.0)
-		vert = signf(vert_raw) * pow(absf(vert_raw), 0.75) * VERT_SWAY_PX
+		# Same pendulum beat as travel — forearm trails naturally through IK (no 2× vertical bob).
+		vert = wave * DOM_VERT_SWAY_PX
 	else:
 		# Arm 2 pendulum: forward/back + shoulder arc; minimal vertical (no 2× bob).
 		vert = wave * SUPPORT_VERT_SWAY_PX
@@ -97,7 +98,7 @@ static func travel_axis_offset(
 	weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 ) -> float:
 	var arm_phase := cycle_phase + (0.0 if dominant else PI)
-	var wave := _shaped_wave(arm_phase)
+	var wave := _dominant_swing_wave(arm_phase) if dominant else _support_swing_wave(arm_phase)
 	var travel_fwd := DOM_TRAVEL_FORWARD_PX if dominant else SUPPORT_TRAVEL_FORWARD_PX
 	var travel_back := DOM_TRAVEL_BACK_PX if dominant else SUPPORT_TRAVEL_BACK_PX
 	if _is_spear_dominant_carry(weapon_type, dominant):
@@ -113,6 +114,12 @@ static func _shaped_wave(phase: float) -> float:
 	var softened := signf(base) * pow(absf(base), 0.72)
 	var harmonic := sin(phase * 2.0 + 0.35) * HARMONIC_MIX
 	return clampf(softened + harmonic, -1.0, 1.0)
+
+
+static func _dominant_swing_wave(phase: float) -> float:
+	## Arm 1 pendulum — one smooth step beat; softer reversal than snappy sin peak.
+	var base := sin(phase)
+	return signf(base) * pow(absf(base), 0.78)
 
 
 static func _support_swing_wave(phase: float) -> float:

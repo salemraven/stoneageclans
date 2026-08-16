@@ -6,12 +6,12 @@ const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_regi
 
 const TOLERANCE_PX := 0.05
 
-const WALK1_B_HAND_1 := Vector2(76.93, 97.59)
-const WALK1_B_HAND_2 := Vector2(5.51, 71.07)
-const WALK1_B_ELBOW_1_POLE := Vector2(88.0, -41.98)
-const WALK1_B_ELBOW_2_POLE := Vector2(-81.92, -38.28)
-const WALK1_B_ELBOW_1_BEND := 1.0
-const WALK1_B_ELBOW_2_BEND := 1.0
+const WALK1_B_HAND_1 := Vector2(233.16, 29.45)
+const WALK1_B_HAND_2 := Vector2(-163.4, 44.14)
+const WALK1_B_ELBOW_1_POLE := Vector2(162.56, -67.58)
+const WALK1_B_ELBOW_2_POLE := Vector2(-157.77, -75.73)
+const WALK1_B_ELBOW_1_BEND := -1.0
+const WALK1_B_ELBOW_2_BEND := -1.0
 
 var _failures: Array[String] = []
 

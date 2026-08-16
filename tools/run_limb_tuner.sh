@@ -74,6 +74,10 @@ case "$MODE" in
 		echo "godot: ${GODOT_BIN}"
 		echo "=============================================="
 		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
+		run_headless_script "res://tools/test_tuner_startup_no_clobber.gd" "tuner_startup_no_clobber"
+		run_headless_script "res://tools/test_tuner_save_playback_guard.gd" "tuner_save_playback_guard"
+		run_headless_script "res://tools/lockin_walk_clansmen_1.gd" "lockin_walk_clansmen_1"
+		run_headless_script "res://tools/test_tuner_pin_snap.gd" "tuner_pin_snap"
 		run_headless_script "res://tools/test_limb_bake.gd" "limb_bake_test"
 		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_cli_smoke" smoke
 		echo ""
@@ -138,6 +142,37 @@ case "$MODE" in
 		echo ""
 		echo "SPEAR_LOCKIN_OK"
 		;;
+	gather-lockin)
+		echo "=============================================="
+		echo "Gather clansmen_1 lock-in ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/lockin_gather_clansmen_1.gd" "gather_lockin_save"
+		run_headless_script "res://tools/audit_gather_tuning_ready.gd" "gather_tuning_audit"
+		echo ""
+		echo "GATHER_LOCKIN_OK"
+		;;
+	gather-evaluate)
+		echo "=============================================="
+		echo "Gather tuner evaluation prep ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
+		run_headless_script "res://tools/audit_gather_tuning_ready.gd" "gather_tuning_audit"
+		echo ""
+		echo "Headless gates passed — opening Character Animation Tuner (gather preview)."
+		echo "Preset: assets/limb_presets/none_clansmen_1.tres"
+		echo "Session: None · Gather 1 (--gather1-preview)"
+		echo "  ▶ Play — idle → bend → pick → stand loop"
+		echo "  Key 1 — reach pose (bent, hands down)"
+		echo "  Key 2 — pull pose (hands to body)"
+		echo ""
+		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
+			echo "No DISPLAY — run locally: bash tools/run_limb_tuner.sh gui --gather1-preview" >&2
+			exit 0
+		fi
+		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --gather1-preview "$@"
+		;;
 	spear-evaluate)
 		echo "=============================================="
 		echo "Spear tuner evaluation prep ${STAMP}"
@@ -181,7 +216,7 @@ case "$MODE" in
 		"$GODOT_BIN" --path "$ROOT" --headless --script res://tools/limb_tuner_cli.gd -- --help
 		;;
 	*)
-		echo "Unknown mode: $MODE (verify|smoke|bake|evaluate|lockin|spear-prep|spear-evaluate|gui|share-web|help)" >&2
+		echo "Unknown mode: $MODE (verify|smoke|bake|evaluate|lockin|gather-lockin|gather-evaluate|spear-prep|spear-lockin|spear-evaluate|gui|share-web|help)" >&2
 		exit 1
 		;;
 esac

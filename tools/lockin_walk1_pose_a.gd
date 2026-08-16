@@ -13,12 +13,12 @@ const SHOULDER_1 := Vector2(118.0, -179.0)
 const SHOULDER_2 := Vector2(-95.0, -178.0)
 
 ## Walk 1 Pose A (right forward, left back) - LOCKED
-const WALK1_A_HAND_1 := Vector2(225.82, 34.35)
-const WALK1_A_HAND_2 := Vector2(-173.19, 41.69)
-const WALK1_A_ELBOW_1_POLE := Vector2(181.45, -77.15)
-const WALK1_A_ELBOW_2_POLE := Vector2(-160.83, -77.67)
-const WALK1_A_ELBOW_1_BEND := -1.0  # outward -
-const WALK1_A_ELBOW_2_BEND := 1.0   # outward +
+const WALK1_A_HAND_1 := Vector2(115.7, 60.39)
+const WALK1_A_HAND_2 := Vector2(20.18, 31.88)
+const WALK1_A_ELBOW_1_POLE := Vector2(108.22, -59.39)
+const WALK1_A_ELBOW_2_POLE := Vector2(-44.97, -68.91)
+const WALK1_A_ELBOW_1_BEND := -1.0
+const WALK1_A_ELBOW_2_BEND := -1.0
 const WALK1_A_OVERLAY := Vector2(22.0, -34.0)
 
 var _failures: Array[String] = []
