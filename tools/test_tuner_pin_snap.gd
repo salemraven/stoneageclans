@@ -4,7 +4,7 @@ extends SceneTree
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const LimbTunerClipBridgeScript = preload("res://scripts/tools/limb_tuner_clip_bridge.gd")
-const CharacterAnimationCatalog = preload("res://scripts/config/character_animation_catalog.gd")
+const AnimCatalogScript = preload("res://scripts/config/character_animation_catalog.gd")
 const TunerPinSyncInstrumentationScript = preload(
 	"res://scripts/tools/tuner_pin_sync_instrumentation.gd"
 )
@@ -93,7 +93,7 @@ func _test_club_walk_yellow_locked_on_art() -> Array[String]:
 		var overlay := rig.weapon_overlay
 		var sx: float = overlay.scale.x
 		var sy: float = overlay.scale.y
-		var clip = preset.get_unified_clip(CharacterAnimationCatalog.CLIP_WALK)
+		var clip = preset.get_unified_clip(AnimCatalogScript.CLIP_WALK)
 		var grip_px = clip.pose_at_index(0).grip_on_art_px if clip != null else Vector2.ZERO
 		if grip_px.length_squared() < 0.0001:
 			grip_px = preset.resolve_club_overlay_grip_px(WeaponLimbPresetScript.TunerAnimMode.IDLE)

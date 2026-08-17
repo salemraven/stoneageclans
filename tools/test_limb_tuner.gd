@@ -3,6 +3,12 @@ extends SceneTree
 ## Headless: limb preset registry + LimbTuner scene wiring.
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
+const CharacterAnimationSamplerScript = preload(
+	"res://scripts/config/character_animation_sampler.gd"
+)
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const CombatComponent = preload("res://scripts/npc/components/combat_component.gd")
@@ -19,6 +25,8 @@ func _run() -> void:
 	await process_frame
 	_registry = LimbPresetRegistryScript.new()
 	_test_preset_defaults()
+	_test_unified_clip_roundtrip()
+	_test_unified_sampler_ping_pong()
 	_test_none_preset_path()
 	_test_walk_fields_roundtrip()
 	_test_save_roundtrip()
@@ -2573,6 +2581,49 @@ func _test_gather_pick_cycle() -> void:
 		_fail("gather pick cycle should approach pull pose during arm work")
 	if max_dist_from_reach < 5.0:
 		_fail("gather pick cycle should move away from reach pose")
+
+
+func _test_unified_clip_roundtrip() -> void:
+	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
+	preset.body_card_id = "test_unified_rt"
+	preset.ensure_unified_clips(_registry)
+	var clip = preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	if clip == null:
+		_fail("unified walk clip missing after ensure")
+		return
+	clip.pose_a.hand_weapon_px = Vector2(11.0, 22.0)
+	clip.pose_b.hand_weapon_px = Vector2(33.0, 44.0)
+	clip.pose_b_saved = true
+	clip.duration_sec = 0.65
+	_registry.save_preset(preset)
+	var reloaded: WeaponLimbPreset = _registry.reload_preset(ResourceData.ResourceType.NONE, "test_unified_rt")
+	var clip2 = reloaded.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	if clip2 == null:
+		_fail("unified walk clip missing after reload")
+		return
+	if clip2.pose_a.hand_weapon_px.distance_to(Vector2(11.0, 22.0)) > 0.01:
+		_fail("unified pose_a hand round-trip failed")
+	if clip2.pose_b.hand_weapon_px.distance_to(Vector2(33.0, 44.0)) > 0.01:
+		_fail("unified pose_b hand round-trip failed")
+	if absf(clip2.duration_sec - 0.65) > 0.001:
+		_fail("unified duration round-trip failed")
+
+
+func _test_unified_sampler_ping_pong() -> void:
+	var preset: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
+	preset.ensure_unified_clips(_registry)
+	var clip = preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	clip.pose_a.elbow_weapon_bend_sign = 1.0
+	clip.pose_b.elbow_weapon_bend_sign = -1.0
+	clip.pose_a.hand_weapon_px = Vector2(0, 40)
+	clip.pose_b.hand_weapon_px = Vector2(0, 80)
+	clip.duration_sec = 1.0
+	var mid = CharacterAnimationSamplerScript.sample_clip(clip, 0.5)
+	if mid == null:
+		_fail("sampler returned null pose")
+		return
+	if mid.hand_weapon_px.y < 40.0 or mid.hand_weapon_px.y > 80.0:
+		_fail("sampler ping-pong hand Y out of range at t=0.5")
 
 
 func _test_procedural_arms_still_pass() -> void:

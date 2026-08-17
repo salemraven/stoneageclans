@@ -4675,21 +4675,14 @@ func _set_anim_mode(mode: AnimMode) -> void:
 	if mode != AnimMode.GATHER1 and _rig:
 		_rig.clear_gather_pose_edit()
 	if mode == AnimMode.WALK1:
-		_preset.seed_walk1_from_idle_if_unset()
 		if _selected_weapon == ResourceData.ResourceType.WOOD:
 			_preset.sync_club_walk_dominant_from_saved_carry_if_needed()
 	elif mode == AnimMode.GATHER1:
-		_preset.seed_gather1_from_idle_if_unset()
+		pass
 	elif mode == AnimMode.IDLE_CLUB1:
 		_ensure_club_holdable_for_idle_club1()
-		_preset.seed_idle_club1_from_idle_if_unset()
-		if prev_mode != AnimMode.IDLE_CLUB1 and not _idle_club_minimal_active:
-			call_deferred("_align_club_idle_club1_to_none_hand")
 	elif mode == AnimMode.ATTACK:
-		if _selected_weapon == ResourceData.ResourceType.SPEAR:
-			_preset.seed_spear_attack_windup_if_unset()
-		else:
-			_preset.seed_attack_from_idle_if_unset()
+		pass
 	if not WeaponLimbPreset.is_walk_mode(mode) and _rig:
 		_rig.set_walk_direction(0)
 	if mode != AnimMode.ATTACK and prev_mode == AnimMode.ATTACK:

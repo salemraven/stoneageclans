@@ -1190,6 +1190,8 @@ func seed_walk1_from_walk_if_unset() -> void:
 
 
 func seed_walk1_from_idle_if_unset() -> void:
+	if unified_clips_initialized:
+		return
 	if walk1_pose_a_saved or walk1_hand_grip_offset_px.length_squared() > 0.0001:
 		return
 	if weapon_type == ResourceData.ResourceType.WOOD and idle_club1_grip_authoritative:
@@ -1415,6 +1417,8 @@ func mark_gather1_pull_saved() -> void:
 
 
 func seed_gather1_from_idle_if_unset() -> void:
+	if unified_clips_initialized:
+		return
 	if gather1_reach_saved or gather1_hand_grip_offset_px.length_squared() > 0.0001:
 		return
 	gather1_hand_grip_offset_px = hand_grip_offset_px + Vector2(8.0, 42.0)
@@ -1782,12 +1786,16 @@ func resolve_weapon_elbow_bend_sign_for_walk_swing(auto_from_facing: float) -> f
 
 
 func seed_attack_from_idle_if_unset() -> void:
+	if unified_clips_initialized:
+		return
 	if attack_pose_inherits_idle():
 		return
 	_seed_attack_windup_fields()
 
 
 func seed_spear_attack_windup_if_unset() -> void:
+	if unified_clips_initialized:
+		return
 	## Tuner: seed windup row even while spear_attack_pose_saved is false.
 	if weapon_type != ResourceData.ResourceType.SPEAR:
 		return
