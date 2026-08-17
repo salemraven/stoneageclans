@@ -34,6 +34,12 @@ const LimbTunerRigScript = preload("res://scripts/tools/limb_tuner_rig.gd")
 const LimbAnimationBakerScript = preload("res://scripts/tools/limb_animation_baker.gd")
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
+const TunerMotionResolverScript = preload("res://scripts/tools/tuner_motion_resolver.gd")
+const LimbTunerClipBridgeScript = preload("res://scripts/tools/limb_tuner_clip_bridge.gd")
+const CharacterAnimationSamplerScript = preload("res://scripts/config/character_animation_sampler.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
 
 @onready var _stage: Node2D = $World/Stage
 @onready var _rig: LimbTunerRig = $World/Stage/TunerRig
@@ -53,6 +59,7 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @onready var _play_pause_btn: Button = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PlayPauseBtn
 @onready var _pose1_btn: Button = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow/Pose1Btn
 @onready var _pose2_btn: Button = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow/Pose2Btn
+@onready var _duration_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/DurationRow/DurationSpin
 @onready var _pose_row: HBoxContainer = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow
 @onready var _weapon_section: VBoxContainer = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection
 @onready var _weapon_rotation_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponRotationRow/WeaponRotationSpin
@@ -72,8 +79,15 @@ const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_
 @export var view_zoom_step: float = 1.12
 const VIEW_FIT_PADDING_PX := 24.0
 
+const PreviewMotion = TunerMotionResolverScript.PreviewMotion
+
 var _mode: AppMode = AppMode.ASSEMBLE
 var _anim_mode: AnimMode = AnimMode.IDLE
+var _preview_motion: int = PreviewMotion.IDLE
+var _pose_index: int = 0
+var _walk_ad_preview_active: bool = false
+var _walk_ad_preview_elapsed: float = 0.0
+var _reviewer_play_elapsed: float = 0.0
 var _selected_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 var _preset: WeaponLimbPreset
 var _shoulder_handle: LimbTunerHandle
@@ -99,6 +113,8 @@ const HANDLE_RADIUS := 6.0
 const HAND_HANDLE_RADIUS := 9.0
 const HAND_PICK_EXTRA := 16.0
 const ELBOW_CLICK_MAX_PX := 12.0
+const ELBOW_HANDLE_COLOR := Color(0.2, 0.75, 0.85, 1.0)
+
 const PIN_CLICK_MAX_PX := 18.0
 const _IDLE_CLUB_UI_HIDE_PATHS: Array[String] = [
 	"UI/Panel/Margin/Scroll/VBox/WorkspaceTabRow",
@@ -149,6 +165,9 @@ var _preview_instrumentation: RefCounted
 var _pin_sync_instrumentation: RefCounted
 ## After drag+commit while paused, handle globals are authoritative until Play or mode switch.
 var _hand_pin_authoritative: bool = false
+var _context_status_line: String = ""
+var _ephemeral_status_ms: int = 0
+var _shortcut_overlay: AcceptDialog
 
 
 func _ready() -> void:
@@ -198,6 +217,7 @@ func _ready() -> void:
 		bake_btn.pressed.connect(_on_bake_pressed)
 	if _play_pause_btn:
 		_play_pause_btn.pressed.connect(_on_play_pause_pressed)
+		_play_pause_btn.visible = false
 	_setup_pose_row()
 
 
@@ -278,8 +298,59 @@ func _finish_startup() -> void:
 			_status_label.text = "Pin sync INSTR ON — Tests/logs/tuner_pin_sync_instrument.jsonl"
 
 
+func _clip_id_from_bake_name(clip: String) -> StringName:
+	match clip.strip_edges().to_lower():
+		"walk", "walk1":
+			return CharacterAnimationCatalog.CLIP_WALK
+		"gather", "gather1":
+			return CharacterAnimationCatalog.CLIP_GATHER
+		"windup":
+			return CharacterAnimationCatalog.CLIP_WINDUP
+		"strike":
+			return CharacterAnimationCatalog.CLIP_STRIKE
+		_:
+			return CharacterAnimationCatalog.CLIP_IDLE
+
+
+func _uses_unified_static_pose() -> bool:
+	return (
+		_mode == AppMode.ASSEMBLE
+		and _workspace_mode == WorkspaceMode.TUNER
+		and not _walk_ad_preview_active
+		and not _anim_playing
+		and _active_drag_handle == null
+	)
+
+
+func _active_clip_id() -> StringName:
+	return CharacterAnimationCatalog.clip_id_for_mode(_anim_mode, _selected_weapon)
+
+
+func _read_weapon_rotation_for_pose() -> float:
+	if _weapon_rotation_spin:
+		return float(_weapon_rotation_spin.value)
+	return WeaponLimbPreset.ROTATION_UNSET
+
+
+func _apply_weapon_rotation_from_pose(rotation_deg: float) -> void:
+	if _weapon_rotation_spin == null or absf(rotation_deg - WeaponLimbPreset.ROTATION_UNSET) < 1.0:
+		return
+	_syncing_weapon_rotation_ui = true
+	_weapon_rotation_spin.value = rotation_deg
+	_syncing_weapon_rotation_ui = false
+
+
 func prepare_bake_sample(clip: String, phase: float) -> void:
 	if _rig == null or _preset == null:
+		return
+	_preset.ensure_unified_clips(LimbPresetRegistry)
+	var clip_id := _clip_id_from_bake_name(clip)
+	var unified = _preset.get_unified_clip(clip_id)
+	if unified != null:
+		var elapsed := phase * maxf(unified.duration_sec, 0.001) * 2.0
+		var sampled = CharacterAnimationSamplerScript.sample_clip(unified, elapsed)
+		LimbTunerClipBridgeScript.apply_pose_to_handles(self, sampled)
+		_lock_arm_lines_to_handles()
 		return
 	var grip_mode := _grip_mode_for_bake_clip(clip)
 	var overlay_mode := _overlay_mode_for_bake_clip(clip)
@@ -340,19 +411,42 @@ func _on_bake_pressed() -> void:
 		if _status_label:
 			_status_label.text = "Pick Idle, Walk, or Gather to bake this pose."
 		return
+	if _pose_dirty:
+		_show_ephemeral_status("Save all first — bake uses disk presets.")
+		return
+	if clip == LimbAnimationBakerScript.CLIP_WALK and _preset != null:
+		if not _preset.walk1_pose_a_saved:
+			_show_ephemeral_status("Save Walk Pose 1 before baking.")
+			return
+		if not _preset.walk1_pose_b_saved:
+			var warn := ConfirmationDialog.new()
+			warn.dialog_text = (
+				"Pose 2 not saved — walk loop may look flat or one-sided. Bake anyway?"
+			)
+			warn.title = "Walk bake"
+			add_child(warn)
+			warn.confirmed.connect(func() -> void:
+				_run_bake_clip(clip)
+				warn.queue_free()
+			)
+			warn.canceled.connect(warn.queue_free)
+			warn.popup_centered()
+			return
+	await _run_bake_clip(clip)
+
+
+func _run_bake_clip(clip: String) -> void:
 	_bake_in_progress = true
 	if _status_label:
 		_status_label.text = "Baking %s for %s…" % [clip, _holdable_label()]
 	var result: Dictionary = await _baker.bake_from_tuner(self, clip)
 	_bake_in_progress = false
 	if result.get("ok", false):
-		if _status_label:
-			_status_label.text = "Baked %s → %s" % [clip, str(result.get("png_path", "")).get_file()]
+		_show_ephemeral_status("Baked %s → %s" % [clip, str(result.get("png_path", "")).get_file()])
 		if _bake_review and _bake_review.has_method("show_bake"):
 			_bake_review.call("show_bake", result)
 	else:
-		if _status_label:
-			_status_label.text = "Bake failed: %s" % str(result.get("error", "unknown"))
+		_show_ephemeral_status("Bake failed: %s" % str(result.get("error", "unknown")))
 
 
 func _sync_bake_button() -> void:
@@ -360,10 +454,20 @@ func _sync_bake_button() -> void:
 	if bake_btn == null:
 		return
 	var clip := LimbAnimationBakerScript.clip_for_anim_mode(_anim_mode)
-	bake_btn.disabled = _bake_in_progress or clip.is_empty()
+	var blocked := false
+	var block_reason := ""
+	if clip.is_empty():
+		blocked = true
+		block_reason = "Attack poses are not baked yet — use Idle or Walk."
+	elif _pose_dirty:
+		blocked = true
+		block_reason = "Save all first — bake uses disk presets."
+	elif clip == LimbAnimationBakerScript.CLIP_WALK and _preset != null and not _preset.walk1_pose_a_saved:
+		blocked = true
+		block_reason = "Save Walk Pose 1 before baking."
+	bake_btn.disabled = _bake_in_progress or blocked
 	bake_btn.tooltip_text = (
-		"Export looping %s strip + JSON, then open bake review."
-		% clip if not clip.is_empty() else "Attack poses are not baked yet — use Idle or Walk."
+		block_reason if blocked else "Export looping %s strip + JSON, then open bake review." % clip
 	)
 
 
@@ -376,6 +480,8 @@ func _apply_tuner_draw_layers() -> void:
 
 func _load_preset_from_disk() -> void:
 	_preset = LimbPresetRegistry.reload_preset(_selected_weapon, "clansmen_1")
+	if _preset:
+		_preset.ensure_unified_clips(LimbPresetRegistry)
 	if _rig:
 		_rig.reload_mannequin_from_layout()
 		_rig.refresh_weapon_overlay()
@@ -615,11 +721,41 @@ func _is_idle_club_place_mode() -> bool:
 
 
 func _overlay_storage_mode() -> AnimMode:
+	if _is_walk_keyframe_preview_active() and not WeaponLimbPreset.is_walk_mode(_anim_mode):
+		return AnimMode.WALK1
 	return WeaponLimbPreset.tuner_overlay_storage_mode(_anim_mode, _selected_weapon)
 
 
 func _hand_storage_mode() -> AnimMode:
+	if _is_walk_keyframe_preview_active() and not WeaponLimbPreset.is_walk_mode(_anim_mode):
+		return AnimMode.WALK1
 	return WeaponLimbPreset.tuner_hand_grip_storage_mode(_anim_mode, _selected_weapon)
+
+
+func _is_walk_keyframe_preview_active() -> bool:
+	return TunerMotionResolverScript.walk_keyframe_preview_active(
+		_preview_motion, _anim_mode, _rig, _walk_pose_edit_active(), _anim_playing
+	)
+
+
+func _walk_sample_mode() -> AnimMode:
+	if _is_walk_keyframe_preview_active():
+		return TunerMotionResolverScript.walk_sample_mode() as AnimMode
+	return _hand_sync_mode()
+
+
+func _preview_motion_label() -> String:
+	return "Walk" if _preview_motion == PreviewMotion.WALK else "Idle"
+
+
+func _sync_walk_keyframe_preview() -> void:
+	if _rig == null:
+		return
+	_rig.sync_walk_keyframe_preview(
+		_is_walk_keyframe_preview_active(),
+		WeaponLimbPreset.is_walk_mode(_anim_mode),
+		_anim_playing
+	)
 
 
 func _travel_walk_input_allowed() -> bool:
@@ -632,9 +768,7 @@ func _travel_walk_input_allowed() -> bool:
 
 
 func _travel_walk_swing_active() -> bool:
-	if WeaponLimbPreset.is_walk_mode(_anim_mode):
-		return false
-	return _rig != null and _rig.is_walking() and _travel_walk_input_allowed()
+	return TunerMotionResolverScript.travel_walk_swing_active()
 
 
 func _walk_swing_mode() -> AnimMode:
@@ -657,15 +791,11 @@ func _uses_club_walk_carry_pose() -> bool:
 
 
 func _uses_club_walk_keyframe_mode() -> bool:
-	## Club Walk 1: weapon arm idle carry; off-arm uses empty-hands Walk 1 Pose 1↔2 loop.
+	## Club walk: weapon arm idle carry; off-arm uses empty-hands Walk 1 Pose 1↔2 loop.
 	return (
 		_selected_weapon == ResourceData.ResourceType.WOOD
-		and _anim_mode == AnimMode.WALK1
-		and (
-			_walk_pose_edit_active()
-			or (_rig != null and _rig.is_walk_keyframe_playing())
-			or _anim_playing
-		)
+		and not _idle_club_minimal_active
+		and _is_walk_keyframe_preview_active()
 	)
 
 
@@ -1658,6 +1788,7 @@ func _sync_preview_playback() -> void:
 					_rig.set_walk_direction(1)
 			elif not _walk_pose_edit_active():
 				_rig.set_walk_direction(0)
+	_sync_walk_keyframe_preview()
 	_update_play_button()
 
 
@@ -1746,6 +1877,27 @@ func _setup_pose_row() -> void:
 		_pose1_btn.pressed.connect(_on_pose1_pressed)
 	if _pose2_btn and not _pose2_btn.pressed.is_connected(_on_pose2_pressed):
 		_pose2_btn.pressed.connect(_on_pose2_pressed)
+	if _duration_spin and not _duration_spin.value_changed.is_connected(_on_duration_changed):
+		_duration_spin.value_changed.connect(_on_duration_changed)
+
+
+func _on_duration_changed(value: float) -> void:
+	if _preset == null:
+		return
+	var clip = _preset.get_unified_clip(_active_clip_id())
+	if clip == null:
+		return
+	clip.duration_sec = maxf(value, 0.1)
+	_mark_pose_dirty()
+
+
+func _sync_duration_ui() -> void:
+	if _duration_spin == null or _preset == null:
+		return
+	var clip = _preset.get_unified_clip(_active_clip_id())
+	if clip == null:
+		return
+	_duration_spin.set_value_no_signal(maxf(clip.duration_sec, 0.1))
 
 
 func _on_pose1_pressed() -> void:
@@ -1756,24 +1908,8 @@ func _on_pose2_pressed() -> void:
 	_snap_pose_edit(true)
 
 
-func _snap_pose_edit(pose_b: bool) -> void:
-	if _anim_mode == AnimMode.WALK1 or WeaponLimbPreset.is_walk_mode(_anim_mode):
-		_try_walk_pose_edit_key(KEY_2 if pose_b else KEY_1)
-	elif _is_gather_anim_mode():
-		_try_gather_pose_edit_key(KEY_2 if pose_b else KEY_1)
-	elif _uses_sun_shield_idle():
-		_try_idle_sun_shield_pose_edit_key(KEY_2 if pose_b else KEY_1)
-	_update_pose_row_ui()
-
-
 func _pose_row_visible() -> bool:
-	if _anim_mode == AnimMode.WALK1 or WeaponLimbPreset.is_walk_mode(_anim_mode):
-		return true
-	if _is_gather_anim_mode():
-		return true
-	if _uses_sun_shield_idle():
-		return true
-	return false
+	return _workspace_mode == WorkspaceMode.TUNER and _mode == AppMode.ASSEMBLE
 
 
 func _update_pose_row_ui() -> void:
@@ -1781,17 +1917,26 @@ func _update_pose_row_ui() -> void:
 		_pose_row.visible = _pose_row_visible()
 	if not _pose_row_visible():
 		return
-	var pose_b := false
-	if _walk_pose_edit_active():
-		pose_b = _walk_pose_edit_b()
-	elif _gather_pose_edit_active():
-		pose_b = _gather_pose_edit_pull()
-	elif _rig and _rig.has_method("is_idle_pose_edit_b"):
-		pose_b = _rig.is_idle_pose_edit_b()
 	if _pose1_btn:
-		_pose1_btn.button_pressed = not pose_b
+		_pose1_btn.button_pressed = _pose_index == 0
 	if _pose2_btn:
-		_pose2_btn.button_pressed = pose_b
+		_pose2_btn.button_pressed = _pose_index == 1
+	_sync_duration_ui()
+
+
+func _snap_pose_edit(pose_b: bool) -> void:
+	if _pose_index == (1 if pose_b else 0):
+		_update_pose_row_ui()
+		return
+	_commit_active_unified_pose()
+	_pose_index = 1 if pose_b else 0
+	if _rig:
+		if WeaponLimbPreset.is_walk_mode(_anim_mode):
+			_rig.snap_walk_pose_edit(pose_b)
+		elif _is_gather_anim_mode():
+			_rig.snap_gather_pose_edit(pose_b)
+	LimbTunerClipBridgeScript.load_active_pose(self)
+	_update_pose_row_ui()
 
 
 func _mark_pose_dirty() -> void:
@@ -1810,11 +1955,17 @@ func _update_save_button_style() -> void:
 	if _save_btn == null:
 		return
 	if _pose_dirty:
-		_save_btn.text = "Save all ●"
-		_save_btn.modulate = Color(1.0, 0.45, 0.4)
+		_save_btn.text = "Save Animation ●"
+		_save_btn.modulate = Color(1.0, 1.0, 1.0, 1.0)
+		_save_btn.disabled = false
 	else:
-		_save_btn.text = "Save all ✓"
-		_save_btn.modulate = Color(0.55, 0.95, 0.55)
+		_save_btn.text = "Save Animation"
+		_save_btn.modulate = Color(0.65, 0.65, 0.65, 1.0)
+		_save_btn.disabled = true
+
+
+func _commit_active_unified_pose() -> void:
+	LimbTunerClipBridgeScript.commit_active_pose(self)
 
 
 func _make_picker_button(text: String, min_width: float = 0.0) -> Button:
@@ -1995,24 +2146,16 @@ func _sync_clip_list_selection() -> void:
 
 
 func _start_clip_inspect_playback() -> void:
-	var can_loop := (
-		_is_idle_anim_mode()
-		or _is_gather_anim_mode()
-		or WeaponLimbPreset.is_walk_mode(_anim_mode)
-		or _windup_idle_preview_active()
-	)
-	_anim_playing = can_loop
+	_anim_playing = true
+	_reviewer_play_elapsed = 0.0
 	_sync_preview_playback()
 	if _status_label == null:
 		return
 	var label := "%s · %s" % [
 		AnimCatalog.holdable_short_label(_selected_weapon),
-		_anim_mode_label(),
+		AnimCatalog.clip_label(_active_clip_id()),
 	]
-	if can_loop:
-		_status_label.text = "Playing %s — click another clip or Pause." % label
-	else:
-		_status_label.text = "Showing %s (pose only — no loop)." % label
+	_status_label.text = "Playing %s — click another clip or switch tab." % label
 
 
 func _build_holdable_buttons() -> void:
@@ -2087,7 +2230,9 @@ func _select_holdable(weapon_type: ResourceData.ResourceType) -> void:
 	if weapon_type == _selected_weapon:
 		_sync_animation_picker_ui()
 		return
-	_set_weapon(weapon_type)
+	_confirm_discard_dirty(func() -> void:
+		_set_weapon(weapon_type)
+	)
 
 
 func _select_category(category: StringName) -> void:
@@ -2097,20 +2242,24 @@ func _select_category(category: StringName) -> void:
 	if category == _selected_category and _anim_mode == AnimCatalog.default_mode_for_category(_selected_weapon, category):
 		_sync_animation_picker_ui()
 		return
-	_selected_category = category
-	var mode := AnimCatalog.default_mode_for_category(_selected_weapon, category)
-	_rebuild_variant_buttons()
-	_set_anim_mode(mode)
-	_sync_animation_picker_ui()
+	_confirm_discard_dirty(func() -> void:
+		_selected_category = category
+		var mode := AnimCatalog.default_mode_for_category(_selected_weapon, category)
+		_rebuild_variant_buttons()
+		_set_anim_mode(mode)
+		_sync_animation_picker_ui()
+	)
 
 
 func _select_variant(mode: AnimMode) -> void:
 	if mode == _anim_mode:
 		_sync_animation_picker_ui()
 		return
-	_selected_category = AnimCatalog.category_for_mode(_selected_weapon, mode)
-	_set_anim_mode(mode)
-	_sync_animation_picker_ui()
+	_confirm_discard_dirty(func() -> void:
+		_selected_category = AnimCatalog.category_for_mode(_selected_weapon, mode)
+		_set_anim_mode(mode)
+		_sync_animation_picker_ui()
+	)
 
 
 func _apply_pose_catalog_entry(weapon: ResourceData.ResourceType, mode: AnimMode) -> void:
@@ -2134,8 +2283,6 @@ func _set_weapon(weapon_type: ResourceData.ResourceType, reset_to_idle: bool = t
 	if weapon_type == _selected_weapon:
 		return
 	_clear_hand_pin_authority()
-	if _mode == AppMode.ASSEMBLE and _preset != null and _pose_dirty:
-		_commit_all_poses_to_preset(true)
 	_selected_weapon = weapon_type
 	_preset = LimbPresetRegistry.get_preset(_selected_weapon, "clansmen_1", 1)
 	if _preset != null and weapon_type == ResourceData.ResourceType.WOOD and LimbPresetRegistry != null:
@@ -2394,6 +2541,8 @@ func _input(event: InputEvent) -> void:
 		return
 	if _is_reviewer_workspace():
 		return
+	if _walk_ad_preview_active:
+		return
 	if _mode != AppMode.ASSEMBLE:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
@@ -2430,7 +2579,7 @@ func _input(event: InputEvent) -> void:
 				var release_handle := _active_drag_handle
 				var hand_before := _hand_handle.global_position if _hand_handle else Vector2.ZERO
 				_mark_pose_dirty()
-				_commit_all_poses_to_preset(true)
+				_commit_active_unified_pose()
 				_pin_instr_on_drag_end(release_handle, hand_before)
 				get_viewport().set_input_as_handled()
 			_pending_drag_handle = null
@@ -2450,6 +2599,13 @@ func _input(event: InputEvent) -> void:
 		elif _try_walk_pose_edit_key(event.keycode):
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
+		if _pending_elbow_click != null and not _handle_drag_active:
+			if _drag_start_global.distance_to(get_global_mouse_position()) >= PIN_DRAG_MIN_PX:
+				_handle_drag_active = true
+				_active_drag_handle = _pending_elbow_click
+				_pending_elbow_click = null
+				_pin_instr_on_drag_start(_active_drag_handle)
+				_pause_motion_for_pose_edit()
 		if _pending_drag_handle != null and not _handle_drag_active:
 			if _drag_start_global.distance_to(get_global_mouse_position()) >= PIN_DRAG_MIN_PX:
 				_handle_drag_active = true
@@ -2693,41 +2849,38 @@ func _try_flip_elbow_at_global(global_pos: Vector2) -> bool:
 	return true
 
 
-func _flip_elbow_bend(dominant: bool) -> void:
+func _resolve_elbow_ik_hand_global(dominant: bool) -> Vector2:
 	if _rig == null or _preset == null:
-		return
-	var shoulder_g := (
-		_shoulder_handle.global_position if dominant else _support_shoulder_handle.global_position
-	)
-	var hand_g := _hand_handle.global_position if dominant else _support_hand_handle.global_position
+		return _hand_handle.global_position if dominant else _support_hand_handle.global_position
 	if _walk_pose_edit_active():
-		hand_g = (
+		return (
 			_rig.walk_dominant_hand_global_for_pose_edit(_preset, _walk_pose_edit_b())
 			if dominant
 			else _rig.walk_support_hand_global_for_pose_edit(_preset, _walk_pose_edit_b())
 		)
-	elif _gather_pose_edit_active():
-		hand_g = (
+	if _gather_pose_edit_active():
+		return (
 			_rig.gather_dominant_hand_global_for_pose_edit(_preset, _gather_pose_edit_pull())
 			if dominant
 			else _rig.gather_support_hand_global_for_pose_edit(_preset, _gather_pose_edit_pull())
 		)
-	var flipped_elbow := _rig.flipped_elbow_global_from_handles(
-		_preset, dominant, _anim_mode, shoulder_g, hand_g
-	)
-	var elbow_handle := _weapon_elbow_handle if dominant else _support_elbow_handle
-	if elbow_handle:
-		elbow_handle.global_position = flipped_elbow
-	_commit_elbow_from_global(dominant, _anim_mode, flipped_elbow)
-	_sync_active_bend_signs_to_config()
+	if _uses_club_walk_keyframe_mode() and _rig.has_weapon_overlay() and dominant:
+		return _club_idle_carry_body_hand_global()
+	if _club_off_arm_keyframe_active() and not dominant:
+		return _rig.support_hand_global_with_walk_keyframe_motion(
+			_club_walk_off_arm_keyframe_preset(), _hand_sync_mode()
+		)
+	return _hand_handle.global_position if dominant else _support_hand_handle.global_position
+
+
+func _flip_elbow_bend(dominant: bool) -> void:
+	LimbTunerClipBridgeScript.flip_elbow(self, dominant)
 	_lock_arm_lines_to_handles()
-	call_deferred("_sync_elbow_handles_from_arm_lines")
 	if _status_label:
 		var label := "1e" if dominant else "2e"
-		_status_label.text = "%s elbow flipped (%s / %s). Save to lock in." % [
+		_status_label.text = "%s elbow flipped (%s). Save Animation to lock in." % [
 			label,
-			_anim_mode_label(),
-			_weapon_label(),
+			AnimCatalog.clip_label(_active_clip_id()),
 		]
 
 
@@ -2835,9 +2988,21 @@ func _move_active_handle(global_pos: Vector2) -> void:
 		_on_spear_dragged(global_pos + _spear_grab_offset)
 	elif _active_drag_handle == _spear_grip_2_handle:
 		_on_spear_grip_2_dragged(global_pos + _spear_grip_2_grab_offset)
+	elif _active_drag_handle == _weapon_elbow_handle:
+		_on_elbow_dragged(true, global_pos)
+	elif _active_drag_handle == _support_elbow_handle:
+		_on_elbow_dragged(false, global_pos)
 	_lock_arm_lines_to_handles()
 	_push_preset_to_arms()
 	_sync_elbow_handles()
+
+
+func _on_elbow_dragged(dominant: bool, global_pos: Vector2) -> void:
+	var elbow_handle := _weapon_elbow_handle if dominant else _support_elbow_handle
+	if elbow_handle == null:
+		return
+	elbow_handle.global_position = global_pos
+	_commit_elbow_from_global(dominant, _anim_mode, global_pos)
 
 
 func _setup_weapon_rotation_field() -> void:
@@ -3038,12 +3203,12 @@ func _spawn_handles() -> void:
 
 	_weapon_elbow_handle = LimbTunerHandleScript.new()
 	_weapon_elbow_handle.name = "WeaponElbowHandle"
-	_weapon_elbow_handle.set_handle_color(Color(0.95, 0.55, 0.1, 1.0))
+	_weapon_elbow_handle.set_handle_color(ELBOW_HANDLE_COLOR)
 	parent.add_child(_weapon_elbow_handle)
 
 	_support_elbow_handle = LimbTunerHandleScript.new()
 	_support_elbow_handle.name = "SupportElbowHandle"
-	_support_elbow_handle.set_handle_color(Color(0.2, 0.75, 0.85, 1.0))
+	_support_elbow_handle.set_handle_color(ELBOW_HANDLE_COLOR)
 	parent.add_child(_support_elbow_handle)
 
 	_head_handle = LimbTunerHandleScript.new()
@@ -3223,6 +3388,21 @@ func _sync_dominant_grip_stack(mode: AnimMode, walk_swing: bool = false, gather_
 func _process(delta: float) -> void:
 	if _rig == null or _preset == null:
 		return
+	if _is_reviewer_workspace() and _anim_playing and _active_drag_handle == null:
+		_reviewer_play_elapsed += delta
+		LimbTunerClipBridgeScript.sample_reviewer_clip(
+			self, _active_clip_id(), _reviewer_play_elapsed
+		)
+		_lock_arm_lines_to_handles()
+		_update_ui()
+		return
+	if _walk_ad_preview_active and _workspace_mode == WorkspaceMode.TUNER:
+		_walk_ad_preview_elapsed += delta
+		var facing_left := _rig.sprite != null and _rig.sprite.flip_h
+		LimbTunerClipBridgeScript.sample_walk_preview(
+			self, _walk_ad_preview_elapsed, facing_left
+		)
+		_lock_arm_lines_to_handles()
 	if _rig.has_method("set_walk_preview_context"):
 		_rig.set_walk_preview_context(_preset, _hand_storage_mode())
 	_poll_tuner_movement(delta)
@@ -3231,7 +3411,8 @@ func _process(delta: float) -> void:
 		_rig.sync_travel_facing()
 	_process_combat_input()
 	_sync_shift_ready_windup_loop()
-	_push_preset_to_arms()
+	if not _walk_ad_preview_active:
+		_push_preset_to_arms()
 	var combat_busy := _combat_animation_busy()
 	if _mode == AppMode.ASSEMBLE and _was_combat_preview_busy and not combat_busy:
 		_restore_tuner_pose_after_combat_preview()
@@ -3315,6 +3496,12 @@ func _sync_elbow_handles_from_arm_lines() -> void:
 func _poll_walk_input() -> void:
 	if _rig == null:
 		return
+	if _is_reviewer_workspace():
+		_rig.set_walk_direction(0)
+		return
+	if _workspace_mode == WorkspaceMode.TUNER and _mode == AppMode.ASSEMBLE:
+		_poll_tuner_walk_ad_preview()
+		return
 	if _is_thrust_animating() or _combat_animation_busy():
 		_rig.set_walk_direction(0)
 		return
@@ -3345,9 +3532,15 @@ func _poll_walk_input() -> void:
 	if _travel_walk_input_allowed():
 		if dir == 0 and _anim_playing and WeaponLimbPreset.is_walk_mode(_anim_mode):
 			dir = 1
-		if dir != 0 and _preset != null:
-			_preset.seed_walk_from_idle_if_unset()
+		if dir != 0:
+			if _preset != null:
+				_preset.seed_walk_from_idle_if_unset()
+			if not WeaponLimbPreset.is_walk_mode(_anim_mode):
+				_preview_motion = PreviewMotion.WALK
+		elif not WeaponLimbPreset.is_walk_mode(_anim_mode) and not _anim_playing:
+			_preview_motion = PreviewMotion.IDLE
 		_rig.set_walk_direction(dir)
+		_sync_walk_keyframe_preview()
 		return
 	if _travel_facing_input_allowed():
 		_rig.set_walk_direction(0)
@@ -3359,6 +3552,31 @@ func _poll_walk_input() -> void:
 				_sync_attack_windup_facing(dir)
 	else:
 		_rig.set_walk_direction(0)
+
+
+func _poll_tuner_walk_ad_preview() -> void:
+	var dir := 0
+	if Input.is_action_pressed("move_left") or Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
+		dir = -1
+	elif Input.is_action_pressed("move_right") or Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
+		dir = 1
+	if dir != 0:
+		if not _walk_ad_preview_active:
+			if _pose_dirty:
+				_clear_pose_dirty()
+			_walk_ad_preview_active = true
+			_walk_ad_preview_elapsed = 0.0
+			_rig.apply_travel_facing_direction(dir)
+		return
+	if _walk_ad_preview_active:
+		_walk_ad_preview_active = false
+		_walk_ad_preview_elapsed = 0.0
+		_preview_motion = PreviewMotion.IDLE
+		_rig.set_walk_direction(0)
+		_set_anim_mode(AnimMode.WALK1)
+		_pose_index = 0
+		_snap_pose_edit(false)
+		_show_ephemeral_status("Walk preview ended — editing Walk Pose 1.")
 
 
 func _travel_facing_input_allowed() -> bool:
@@ -3985,6 +4203,12 @@ func _sync_windup_loop_phase_after_strike() -> void:
 func _sync_assemble_preview() -> void:
 	if _combat_animation_busy():
 		return
+	if _walk_ad_preview_active:
+		return
+	if _uses_unified_static_pose():
+		LimbTunerClipBridgeScript.load_active_pose(self)
+		_lock_arm_lines_to_handles()
+		return
 	if (
 		_rig.combat_component != null
 		and _rig.combat_component.state == CombatComponent.CombatState.READY
@@ -3996,11 +4220,12 @@ func _sync_assemble_preview() -> void:
 	_sync_weapon_pin_parenting()
 	if _uses_spear_grip_on_art_pins():
 		var storage := _hand_storage_mode()
-		var walk_swing := _travel_walk_swing_active()
+		var walk_keyframe := _is_walk_keyframe_preview_active()
 		var gather_motion := (
 			WeaponLimbPreset.is_gather_mode(_anim_mode) and _rig.is_gather_preview_playing()
 		)
-		_rig.sync_spear_overlay_motion_preview(_preset, storage, walk_swing, gather_motion)
+		if not walk_keyframe:
+			_rig.sync_spear_overlay_motion_preview(_preset, storage, false, gather_motion)
 	if _club_idle_handle_drag_active():
 		_sync_club_idle_handles_during_drag()
 	elif _club_windup_handle_drag_active():
@@ -4214,15 +4439,13 @@ func _sync_hands_with_spear() -> void:
 		_sync_spear_windup_handles()
 		return
 	var mode := _hand_sync_mode()
+	var sample_mode := _walk_sample_mode()
 	var ready_hands := _use_ready_support_hand()
 	var gather_motion := WeaponLimbPreset.is_gather_mode(mode) and _rig.is_gather_preview_playing()
-	var walk_keyframe := (
-		WeaponLimbPreset.is_walk_mode(mode)
-		and (_rig.is_walk_keyframe_playing() or _walk_pose_edit_active())
-	)
-	var walk_swing := _travel_walk_swing_active()
+	var walk_keyframe := _is_walk_keyframe_preview_active()
+	var walk_swing := false
 	var club_off_arm_keyframe := _club_off_arm_keyframe_active()
-	var swing_mode := _walk_swing_mode() if walk_swing else mode
+	var swing_mode := sample_mode if walk_keyframe else mode
 	if _rig.uses_weapon_grip_anchor_hand() and _rig.has_weapon_overlay() and not _idle_club_pins_independent():
 		if _uses_club_walk_keyframe_mode():
 			_sync_club_walk_keyframe_grip_pins(mode, walk_keyframe)
@@ -4248,11 +4471,11 @@ func _sync_hands_with_spear() -> void:
 			hand_global = _rig.walk_dominant_hand_global_for_pose_edit(
 				_preset, _walk_pose_edit_b()
 			)
-		elif walk_keyframe and _rig.is_walk_keyframe_playing():
+		elif walk_keyframe and not _walk_pose_edit_active():
 			if club_off_arm_keyframe:
 				hand_global = _club_idle_carry_body_hand_global()
 			else:
-				hand_global = _rig.hand_grip_global_with_walk_keyframe_motion(_preset, mode)
+				hand_global = _rig.hand_grip_global_with_walk_keyframe_motion(_preset, sample_mode)
 		elif gather_motion:
 			hand_global = _rig.hand_grip_global_with_gather_motion(_preset, mode)
 		elif walk_swing:
@@ -4289,13 +4512,13 @@ func _sync_hands_with_spear() -> void:
 			)
 		elif club_off_arm_keyframe:
 			var off_arm_preset := _club_walk_off_arm_keyframe_preset()
-			support_global = _rig.support_hand_global_with_walk_keyframe_motion(off_arm_preset, mode)
+			support_global = _rig.support_hand_global_with_walk_keyframe_motion(off_arm_preset, sample_mode)
 		elif _walk_pose_edit_active():
 			support_global = _rig.walk_support_hand_global_for_pose_edit(
 				_preset, _walk_pose_edit_b()
 			)
-		elif walk_keyframe and _rig.is_walk_keyframe_playing():
-			support_global = _rig.support_hand_global_with_walk_keyframe_motion(_preset, mode)
+		elif walk_keyframe and not _walk_pose_edit_active():
+			support_global = _rig.support_hand_global_with_walk_keyframe_motion(_preset, sample_mode)
 		elif _uses_idle_raise_hand_preview():
 			var raise_blend := _rig.get_idle_arm2_raise_blend()
 			if raise_blend > 0.0001:
@@ -4443,9 +4666,9 @@ func _seed_one_elbow_pole(dominant: bool, mode: AnimMode) -> void:
 func _set_anim_mode(mode: AnimMode) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
+	if mode == AnimMode.WALK:
+		mode = AnimMode.WALK1
 	if mode != _anim_mode:
-		if _pose_dirty:
-			_commit_all_poses_to_preset(true)
 		_clear_hand_pin_authority()
 	var prev_mode := _anim_mode
 	_anim_mode = mode
@@ -4455,8 +4678,6 @@ func _set_anim_mode(mode: AnimMode) -> void:
 		_preset.seed_walk1_from_idle_if_unset()
 		if _selected_weapon == ResourceData.ResourceType.WOOD:
 			_preset.sync_club_walk_dominant_from_saved_carry_if_needed()
-	elif mode == AnimMode.WALK:
-		_preset.seed_walk_from_idle_if_unset()
 	elif mode == AnimMode.GATHER1:
 		_preset.seed_gather1_from_idle_if_unset()
 	elif mode == AnimMode.IDLE_CLUB1:
@@ -4494,6 +4715,10 @@ func _set_anim_mode(mode: AnimMode) -> void:
 	_sync_animation_picker_ui()
 	_update_ui()
 	_sync_preview_playback()
+	if _preset:
+		_preset.ensure_unified_clips(LimbPresetRegistry)
+	_pose_index = 0
+	LimbTunerClipBridgeScript.load_active_pose(self)
 	if _status_label:
 		if _anim_mode == AnimMode.ATTACK:
 			if _selected_weapon == ResourceData.ResourceType.WOOD:
@@ -4534,7 +4759,11 @@ func _set_anim_mode(mode: AnimMode) -> void:
 
 
 func _apply_handle_draggable() -> void:
-	var can_drag := _mode == AppMode.ASSEMBLE and not _is_reviewer_workspace()
+	var can_drag := (
+		_mode == AppMode.ASSEMBLE
+		and _workspace_mode == WorkspaceMode.TUNER
+		and not _walk_ad_preview_active
+	)
 	var two_hand := WeaponLimbPreset.uses_two_hand_grip(_selected_weapon)
 	var spear_windup_edit := _is_spear_shaft_pose_edit()
 	var spear_windup_pins := _is_spear_windup_pin_mode()
@@ -4582,6 +4811,20 @@ func _apply_handle_draggable() -> void:
 		_support_elbow_handle.set_draggable(false)
 	if _head_handle:
 		_head_handle.set_draggable(can_drag)
+	var pin_alpha := 0.5 if _is_reviewer_workspace() else 1.0
+	for handle in [
+		_shoulder_handle,
+		_hand_handle,
+		_support_shoulder_handle,
+		_support_hand_handle,
+		_spear_handle,
+		_spear_grip_2_handle,
+		_weapon_elbow_handle,
+		_support_elbow_handle,
+		_head_handle,
+	]:
+		if handle:
+			handle.modulate = Color(1.0, 1.0, 1.0, pin_alpha)
 
 
 func _on_shoulder_dragged(global_pos: Vector2) -> void:
@@ -4629,6 +4872,18 @@ func _clamp_support_hand_to_reach() -> void:
 
 func _on_hand_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
+		return
+	if (
+		_workspace_mode == WorkspaceMode.TUNER
+		and not _walk_ad_preview_active
+		and not _anim_playing
+	):
+		var clamped_direct := _clamp_dominant_hand_global(
+			_shoulder_handle.global_position, global_pos
+		)
+		_set_hand_handle_position(_hand_handle, clamped_direct)
+		if _rig and _rig.has_weapon_overlay() and _spear_handle:
+			_set_hand_handle_position(_spear_handle, clamped_direct)
 		return
 	var mode := _hand_align_mode()
 	if _is_spear_shaft_pose_edit():
@@ -4984,19 +5239,7 @@ func _commit_elbow_from_global(dominant: bool, mode: AnimMode, global_pos: Vecto
 	var shoulder_g := (
 		_shoulder_handle.global_position if dominant else _support_shoulder_handle.global_position
 	)
-	var hand_g := _hand_handle.global_position if dominant else _support_hand_handle.global_position
-	if _walk_pose_edit_active():
-		hand_g = (
-			_rig.walk_dominant_hand_global_for_pose_edit(_preset, _walk_pose_edit_b())
-			if dominant
-			else _rig.walk_support_hand_global_for_pose_edit(_preset, _walk_pose_edit_b())
-		)
-	elif _gather_pose_edit_active():
-		hand_g = (
-			_rig.gather_dominant_hand_global_for_pose_edit(_preset, _gather_pose_edit_pull())
-			if dominant
-			else _rig.gather_support_hand_global_for_pose_edit(_preset, _gather_pose_edit_pull())
-		)
+	var hand_g := _resolve_elbow_ik_hand_global(dominant)
 	_rig.sync_elbow_bend_sign_override_from_pole_px(
 		_preset, dominant, mode, pose_b, gather_pull, shoulder_g, hand_g, display_px
 	)
@@ -5138,6 +5381,7 @@ func _pause_motion_for_pose_edit() -> void:
 		changed = true
 	if _rig != null and _rig.is_walking():
 		_rig.set_walk_direction(0)
+		_preview_motion = PreviewMotion.IDLE
 		changed = true
 	if not changed:
 		return
@@ -5148,16 +5392,17 @@ func _pause_motion_for_pose_edit() -> void:
 
 
 func _commit_all_poses_to_preset(force: bool = false) -> void:
-	## Shared anchors + active animation mode; other modes stay from last switch / disk.
+	## Commit active unified animation pose + shared morphology anchors.
 	_pause_motion_for_pose_edit()
 	if not force and not _pose_dirty:
 		return
-	var was_dominant_drag := _is_dominant_hand_pin_handle(_active_drag_handle)
-	_commit_anim_mode(_anim_mode)
+	_commit_active_unified_pose()
 	if _head_handle and _rig:
 		_rig.set_neck_socket_from_global(_head_handle.global_position)
-	if was_dominant_drag and not _anim_playing:
-		_mark_hand_pin_authoritative()
+	if _shoulder_handle:
+		_rig.set_shoulder_from_global(_preset, _shoulder_handle.global_position)
+	if _support_shoulder_handle:
+		_rig.set_support_shoulder_from_global(_preset, _support_shoulder_handle.global_position)
 
 
 func _on_assemble_pressed() -> void:
@@ -5185,12 +5430,33 @@ func _on_test_pressed() -> void:
 func _on_save_pressed() -> void:
 	if LimbPresetRegistry == null or _preset == null:
 		return
-	if _pose_dirty:
-		_commit_all_poses_to_preset(true)
-	else:
-		_pause_motion_for_pose_edit()
-	if _preset != null and _selected_weapon == ResourceData.ResourceType.WOOD:
-		_preset.sync_club_walk_dominant_from_saved_carry_if_needed()
+	_commit_active_unified_pose()
+	var clip = _preset.get_unified_clip(_active_clip_id())
+	if clip != null and not clip.pose_b_saved:
+		_confirm_save_missing_pose_b(func() -> void: _finish_save_animation())
+		return
+	_finish_save_animation()
+
+
+func _confirm_save_missing_pose_b(on_confirm: Callable) -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Pose 2 not saved"
+	dlg.dialog_text = "Pose 2 has not been tuned yet. Save anyway?"
+	dlg.ok_button_text = "Save anyway"
+	dlg.cancel_button_text = "Cancel"
+	add_child(dlg)
+	dlg.confirmed.connect(func() -> void:
+		on_confirm.call()
+		dlg.queue_free()
+	)
+	dlg.canceled.connect(dlg.queue_free)
+	dlg.popup_centered()
+
+
+func _finish_save_animation() -> void:
+	if LimbPresetRegistry == null or _preset == null:
+		return
+	_commit_all_poses_to_preset(true)
 	LimbPresetRegistry.mark_staged_dirty(_preset)
 	var save_result: Dictionary = LimbPresetRegistry.save_all_staged()
 	var err: Error = save_result.get("err", ERR_CANT_CREATE) as Error
@@ -5201,48 +5467,46 @@ func _on_save_pressed() -> void:
 	else:
 		layout_err = CharacterCardPartsRegistry.save_layout(layout)
 	if err == OK and layout_err == OK:
+		var clip = _preset.get_unified_clip(_active_clip_id())
+		if clip != null:
+			CharacterAnimationPresetStoreScript.mark_clip_saved(
+				_preset, _active_clip_id(), clip.pose_b_saved
+			)
 		_reload_all_from_disk()
 		_clear_pose_dirty()
 	if _status_label:
 		if err == OK and layout_err == OK:
-			var saved_count: int = int(save_result.get("count", 0))
-			if saved_count <= 1:
-				_status_label.text = "Saved all poses for %s to disk." % _holdable_label()
-			else:
-				_status_label.text = (
-					"Saved %d holdable presets to disk (current: %s)."
-					% [saved_count, _holdable_label()]
-				)
+			_status_label.text = "Animation saved."
 		else:
 			_status_label.text = "Save failed (arms=%s, head=%s)" % [str(err), str(layout_err)]
 
 
 func _on_reload_pressed() -> void:
+	_confirm_discard_dirty(_do_reload_from_disk)
+
+
+func _do_reload_from_disk() -> void:
 	_reload_all_from_disk()
 	_clear_pose_dirty()
-	if _status_label:
-		_status_label.text = "Reloaded saved file from disk (unsaved edits discarded)."
+	_preview_motion = PreviewMotion.IDLE
+	_show_ephemeral_status("Reloaded saved file from disk (unsaved edits discarded).")
 
 
 func _on_reset_pose_pressed() -> void:
 	if _preset == null:
 		return
-	var pose_b := false
-	var gather_pull := false
-	if WeaponLimbPreset.is_walk_mode(_anim_mode) and _rig != null and _rig.is_walk_pose_edit_active():
-		pose_b = _rig.is_walk_pose_edit_b()
-	elif _anim_mode == AnimMode.GATHER1 and _rig != null and _rig.is_gather_pose_edit_active():
-		gather_pull = _rig.is_gather_pose_edit_pull()
-	var row_id := _preset.reset_pose_row_to_defaults(_anim_mode, pose_b, gather_pull)
+	CharacterAnimationPresetStoreScript.reset_pose_to_default(
+		_preset, _active_clip_id(), _pose_index, LimbPresetRegistry
+	)
 	_mark_pose_dirty()
-	_refresh_rig_from_preset()
+	LimbTunerClipBridgeScript.load_active_pose(self)
 	_center_view()
 	_update_ui()
 	if _status_label:
-		_status_label.text = (
-			"Reset %s to idle template (unsaved). Reload file to undo · Save all to keep."
-			% _describe_pose_row(row_id)
-		)
+		_status_label.text = "Reset %s Pose %d (unsaved)." % [
+			AnimCatalog.clip_label(_active_clip_id()),
+			_pose_index + 1,
+		]
 
 
 func _describe_pose_row(row_id: StringName) -> String:
@@ -5312,7 +5576,78 @@ func _on_copy_pressed() -> void:
 		)
 
 
+func _build_context_status_line() -> String:
+	var pose_row := ""
+	if WeaponLimbPreset.is_walk_mode(_anim_mode) and _rig != null and _rig.is_walk_pose_edit_active():
+		pose_row = " · Pose 2" if _rig.is_walk_pose_edit_b() else " · Pose 1"
+	elif _anim_mode == AnimMode.GATHER1 and _rig != null and _rig.is_gather_pose_edit_active():
+		pose_row = " · Pull" if _rig.is_gather_pose_edit_pull() else " · Reach"
+	var dirty := " · Unsaved ●" if _pose_dirty else " · Saved ✓"
+	return "%s · %s%s · Preview: %s%s" % [
+		_holdable_label(), _anim_mode_label(), pose_row, _preview_motion_label(), dirty
+	]
+
+
+func _show_ephemeral_status(message: String, duration_ms: int = 3500) -> void:
+	_ephemeral_status_ms = Time.get_ticks_msec() + duration_ms
+	if _status_label:
+		_status_label.text = message
+
+
+func _confirm_discard_dirty(on_confirm: Callable) -> void:
+	if not _pose_dirty:
+		on_confirm.call()
+		return
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Unsaved changes"
+	dlg.dialog_text = "Discard unsaved pin edits and continue?"
+	dlg.ok_button_text = "Discard"
+	dlg.cancel_button_text = "Keep editing"
+	add_child(dlg)
+	dlg.confirmed.connect(func() -> void:
+		_discard_pose_edits_to_staged()
+		on_confirm.call()
+		dlg.queue_free()
+	)
+	dlg.canceled.connect(dlg.queue_free)
+	dlg.popup_centered()
+
+
+func _discard_pose_edits_to_staged() -> void:
+	_preview_motion = PreviewMotion.IDLE
+	if _rig != null:
+		_rig.set_walk_direction(0)
+	_clear_pose_dirty()
+	_refresh_rig_from_preset()
+
+
+func _ensure_shortcut_overlay() -> void:
+	if _shortcut_overlay != null:
+		return
+	_shortcut_overlay = AcceptDialog.new()
+	_shortcut_overlay.title = "Animation Tuner — shortcuts"
+	_shortcut_overlay.dialog_text = (
+		"1 / 2 — Walk/Gather pose rows\n"
+		+ "A / D or ← / → — walk preview (from Idle or Walk)\n"
+		+ "▶ / ⏸ — loop idle, gather, or walk\n"
+		+ "Shift — club windup ready · Shift+click — strike/thrust\n"
+		+ "Save all — write staged presets to disk\n"
+		+ "Bake clip — export PNG+JSON (save first)\n"
+		+ "? or F1 — this help"
+	)
+	add_child(_shortcut_overlay)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F1 or (event.keycode == KEY_SLASH and event.shift_pressed):
+			_ensure_shortcut_overlay()
+			_shortcut_overlay.popup_centered()
+			get_viewport().set_input_as_handled()
+
+
 func _update_ui() -> void:
+	_context_status_line = _build_context_status_line()
 	if _summary_label and _preset:
 		var editing: Dictionary = _format_pose_row(_anim_mode, true) as Dictionary
 		var reach := _reach_warning_suffix()
@@ -5334,7 +5669,7 @@ func _update_ui() -> void:
 					else (
 						"\nClub windup: drag 1h/3 · subtle idle loop · Pause to freeze pins."
 						if _is_club_windup_edit()
-						else "\nPins: drag to move · right-click 1e/2e to flip elbow"
+						else "\nPins: drag to move · 1e/2e: drag pole · right-click to flip"
 					)
 				)
 			)
@@ -5344,15 +5679,14 @@ func _update_ui() -> void:
 		if editing.has("grip_on_art"):
 			hand_line = "Body 1h %s · Grip 3 %s" % [editing["hand"], editing["grip_on_art"]]
 		_summary_label.text = (
-			"%s · %s\n"
+			"%s\n"
 			+ "%s · Holdable %s\n"
 			+ "Elbows: 1e %s · 2e %s\n"
 			+ "Arms: %.0f / %.0f px · thickness %.0f px\n"
 			+ "Idle preview: %s\n"
 			+ "Shoulders 1/2 · hands 1h/2h · holdable 3 · head H%s"
 		) % [
-			_holdable_label(),
-			_anim_mode_label(),
+			_context_status_line,
 			hand_line,
 			editing["overlay"],
 			editing["bend_1e"],
@@ -5386,6 +5720,13 @@ func _update_ui() -> void:
 	_update_pose_row_ui()
 	_update_save_button_style()
 	if (
+		_status_label
+		and Time.get_ticks_msec() < _ephemeral_status_ms
+	):
+		pass
+	elif _status_label and not _context_status_line.is_empty():
+		_status_label.text = _context_status_line
+	elif (
 		_status_label
 		and _is_club_combat_preview_mode()
 		and not _combat_preview_needs_arm_pins()

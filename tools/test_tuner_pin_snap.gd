@@ -3,6 +3,8 @@ extends SceneTree
 ## Run: godot --headless -s res://tools/test_tuner_pin_snap.gd
 
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
+const LimbTunerClipBridgeScript = preload("res://scripts/tools/limb_tuner_clip_bridge.gd")
+const CharacterAnimationCatalog = preload("res://scripts/config/character_animation_catalog.gd")
 const TunerPinSyncInstrumentationScript = preload(
 	"res://scripts/tools/tuner_pin_sync_instrumentation.gd"
 )
@@ -81,19 +83,24 @@ func _test_club_walk_yellow_locked_on_art() -> Array[String]:
 		out.append("club_walk_yellow: preset has no saved club grip on art")
 		app.queue_free()
 		return out
-	var grip_px := preset.resolve_club_overlay_grip_px(WeaponLimbPresetScript.TunerAnimMode.IDLE)
 	var max_local_drift := 0.0
-	for dir in [-1, 1, -1]:
-		rig.set_walk_direction(dir)
-		for _f in range(24):
-			await process_frame
-			var overlay := rig.weapon_overlay
-			var sx: float = overlay.scale.x
-			var sy: float = overlay.scale.y
-			var expected_local := Vector2(grip_px.x * sx, grip_px.y * sy)
-			var actual_local := overlay.to_local(yellow.global_position)
-			max_local_drift = maxf(max_local_drift, expected_local.distance_to(actual_local))
-	rig.set_walk_direction(0)
+	app.set("_walk_ad_preview_active", true)
+	app.set("_walk_ad_preview_elapsed", 0.0)
+	for phase in [0.0, 0.25, 0.5, 0.75, 1.0]:
+		app.set("_walk_ad_preview_elapsed", phase)
+		LimbTunerClipBridgeScript.sample_walk_preview(app, phase, false)
+		await process_frame
+		var overlay := rig.weapon_overlay
+		var sx: float = overlay.scale.x
+		var sy: float = overlay.scale.y
+		var clip = preset.get_unified_clip(CharacterAnimationCatalog.CLIP_WALK)
+		var grip_px = clip.pose_at_index(0).grip_on_art_px if clip != null else Vector2.ZERO
+		if grip_px.length_squared() < 0.0001:
+			grip_px = preset.resolve_club_overlay_grip_px(WeaponLimbPresetScript.TunerAnimMode.IDLE)
+		var expected_local := Vector2(grip_px.x * sx, grip_px.y * sy)
+		var actual_local := overlay.to_local(yellow.global_position)
+		max_local_drift = maxf(max_local_drift, expected_local.distance_to(actual_local))
+	app.set("_walk_ad_preview_active", false)
 	if max_local_drift > 0.75:
 		out.append(
 			"club_walk_yellow: yellow drifted on club art during A/D walk (max local Δ=%.2fpx)"
@@ -141,7 +148,7 @@ func _run_drag_release_case(
 	app.set("_active_drag_handle", app.get("_hand_handle"))
 	app.call("_on_hand_dragged", target)
 	var after_drag := hand.global_position
-	app.call("_commit_all_poses_to_preset")
+	app.call("_commit_all_poses_to_preset", true)
 	app.set("_active_drag_handle", null)
 	app.call("_sync_assemble_preview")
 	var after_sync := hand.global_position

@@ -38,6 +38,7 @@ func _run() -> void:
 	_test_club_windup_drag_handles()
 	_test_club_windup_idle_loop()
 	_test_elbow_bend_sign_flips_with_facing()
+	await _test_elbow_pins_match_and_flip()
 	_test_body_head_flip_with_travel_facing()
 	_test_gather_motion_smooth()
 	_test_gather_preset_lockin()
@@ -48,7 +49,8 @@ func _run() -> void:
 	_test_walk_elbows_no_flip_in_tuner()
 	_test_keyed_motion_walk_elbows_locked_preset()
 	_test_mannequin_walk_uses_walk_rest()
-	_test_idle_travel_walk_on_ad()
+	_test_idle_ad_matches_walk1_keyframe()
+	_test_travel_walk_swing_retired()
 	_test_weapon_rotation_attack_spin()
 	_test_club_combat_ready_arm_pins()
 	_test_club_shift_windup_loop_plays()
@@ -373,14 +375,14 @@ func _test_clip_browser() -> void:
 	var walk1_idx := -1
 	for i in clips.size():
 		var clip: Dictionary = clips[i]
-		if clip.get("label") == "None · Walk 1":
+		if clip.get("label") == "None · Walk":
 			saw_none_walk1 = true
 			walk1_idx = i
 		if not Catalog.clip_can_loop(clip.get("weapon"), clip.get("mode")):
 			if WeaponLimbPresetScript.is_idle_mode(clip.get("mode")):
 				_fail("idle clip should loop: %s" % clip.get("label"))
 	if not saw_none_walk1:
-		_fail("all_clips missing None · Walk 1")
+		_fail("all_clips missing None · Walk")
 		return
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
 	if packed == null:
@@ -492,9 +494,10 @@ func _test_animation_receipt_walk1() -> void:
 		null
 	)
 	var anim: Dictionary = receipt.get("animation", {})
-	var rows: Array = anim.get("pose_rows", [])
-	if rows.size() != 2:
-		_fail("walk1 receipt should include Pose 1 and Pose 2 rows")
+	if str(anim.get("clip_id", "")) != "walk":
+		_fail("walk1 receipt should export unified walk clip_id")
+	if not anim.has("pose_a") or not anim.has("pose_b"):
+		_fail("walk1 receipt should include pose_a and pose_b")
 	var motion: Dictionary = anim.get("motion", {})
 	var samples: Array = motion.get("samples", [])
 	if samples.size() < 5:
@@ -504,9 +507,9 @@ func _test_animation_receipt_walk1() -> void:
 		_fail("walk1 receipt text missing pose labels")
 	if not text.to_lower().contains("lock in"):
 		_fail("walk1 receipt should include lock-in instruction")
-	var row_a: Dictionary = rows[0]
+	var row_a: Dictionary = anim.get("pose_a", {})
 	var constants: Dictionary = row_a.get("lock_in_constants", {})
-	if not constants.has("WALK1_A_HAND_1"):
+	if not constants.has("WALK_A_HAND_WEAPON"):
 		_fail("walk1 receipt missing lock_in_constants for pose A")
 
 
@@ -830,6 +833,49 @@ func _test_elbow_bend_sign_flips_with_facing() -> void:
 		_fail("east-facing elbow override + should resolve to +1, got %s" % str(east_resolved))
 	if west_resolved != -1.0:
 		_fail("west-facing elbow override + should resolve to -1, got %s" % str(west_resolved))
+
+
+func _test_elbow_pins_match_and_flip() -> void:
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for elbow pin color/flip test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	for _i in range(4):
+		await process_frame
+	var weapon_elbow = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/WeaponElbowHandle"
+	)
+	var support_elbow = app.get_node_or_null(
+		"World/HandleLayer/HandleStage/SupportElbowHandle"
+	)
+	if weapon_elbow == null or support_elbow == null:
+		_fail("elbow handles missing for color/flip test")
+		app.queue_free()
+		return
+	var weapon_color: Color = weapon_elbow.get("handle_color")
+	var support_color: Color = support_elbow.get("handle_color")
+	if weapon_color != support_color:
+		_fail("1e and 2e elbow pins should share the same blue color")
+	var weapon_before: Vector2 = weapon_elbow.global_position
+	app.call("_flip_elbow_bend", true)
+	await process_frame
+	if weapon_elbow.global_position.distance_to(weapon_before) < 2.0:
+		_fail("right-click flip path for 1e should move weapon elbow")
+	var support_before: Vector2 = support_elbow.global_position
+	app.call("_flip_elbow_bend", false)
+	await process_frame
+	if support_elbow.global_position.distance_to(support_before) < 2.0:
+		_fail("right-click flip path for 2e should move support elbow")
+	app.queue_free()
 
 
 func _test_body_head_flip_with_travel_facing() -> void:
@@ -1370,6 +1416,98 @@ func _test_idle_travel_walk_on_ad() -> void:
 		_fail("idle travel walk: sprite Y should bounce (range=%.3f)" % (max_y - min_y))
 	if not rig.is_walking():
 		_fail("idle travel walk: rig should report walking when direction set")
+	if not app.call("_is_walk_keyframe_preview_active"):
+		_fail("idle travel walk: A/D should enable Walk 1 keyframe preview")
+	app.queue_free()
+
+
+func _test_travel_walk_swing_retired() -> void:
+	const Resolver := preload("res://scripts/tools/tuner_motion_resolver.gd")
+	if Resolver.travel_walk_swing_active():
+		_fail("legacy travel walk swing should be retired from user preview")
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for travel swing retired test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(6):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	var rig: LimbTunerRig = app.get_node("World/Stage/TunerRig") as LimbTunerRig
+	if rig == null:
+		_fail("travel swing retired: missing rig")
+		app.queue_free()
+		return
+	if app.call("_travel_walk_swing_active"):
+		_fail("idle A/D must not activate legacy travel swing")
+	rig.set_walk_direction(1)
+	app.set("_preview_motion", Resolver.PreviewMotion.WALK)
+	app.call("_sync_walk_keyframe_preview")
+	for _i in range(4):
+		await process_frame
+	if not app.call("_is_walk_keyframe_preview_active"):
+		_fail("idle A/D should activate walk keyframe preview overlay")
+	app.queue_free()
+
+
+func _test_idle_ad_matches_walk1_keyframe() -> void:
+	const Resolver := preload("res://scripts/tools/tuner_motion_resolver.gd")
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		_fail("LimbTuner.tscn missing for idle A/D walk parity test")
+		return
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.IDLE
+	)
+	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
+	var hand: Node2D = app.get_node_or_null("World/HandleLayer/HandleStage/HandHandle") as Node2D
+	if rig == null or hand == null:
+		_fail("idle A/D parity: rig or hand missing")
+		app.queue_free()
+		return
+	rig.set_walk_direction(1)
+	app.set("_preview_motion", Resolver.PreviewMotion.WALK)
+	app.call("_sync_walk_keyframe_preview")
+	for _i in range(36):
+		await process_frame
+	var hand_idle_ad := hand.global_position
+	var phase_ad := rig.get_walk_swing_phase()
+	app.call(
+		"_apply_pose_catalog_entry",
+		ResourceData.ResourceType.NONE,
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
+	)
+	app.set("_anim_playing", true)
+	app.call("_sync_preview_playback")
+	rig.set_walk_direction(1)
+	var matched := false
+	for _i in range(120):
+		await process_frame
+		if absf(rig.get_walk_swing_phase() - phase_ad) < 0.08:
+			matched = true
+			break
+	if not matched:
+		_fail("walk1 play: could not align cycle phase with idle A/D sample")
+		app.queue_free()
+		return
+	app.call("_sync_assemble_preview")
+	var hand_walk1 := hand.global_position
+	if hand_idle_ad.distance_to(hand_walk1) > 10.0:
+		_fail(
+			"idle A/D hand should match Walk + Play at same phase (delta=%.2f)"
+			% hand_idle_ad.distance_to(hand_walk1)
+		)
 	app.queue_free()
 
 
@@ -1549,7 +1687,7 @@ func _test_spear_walk_grip_pinned_to_shaft() -> void:
 	app.call(
 		"_apply_pose_catalog_entry",
 		ResourceData.ResourceType.SPEAR,
-		WeaponLimbPresetScript.TunerAnimMode.WALK
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
 	)
 	for _i in range(8):
 		await process_frame
@@ -1565,12 +1703,13 @@ func _test_spear_walk_grip_pinned_to_shaft() -> void:
 		app.queue_free()
 		return
 	rig.set_walk_direction(1)
+	app.call("_sync_walk_keyframe_preview")
 	var max_drift := 0.0
 	for _i in range(36):
 		await process_frame
 		var grip_on_art := LimbPresetCoords.overlay_grip_global(
 			rig.weapon_overlay,
-			preset.resolve_hand_grip_for_mode(WeaponLimbPresetScript.TunerAnimMode.WALK)
+			preset.resolve_hand_grip_for_mode(WeaponLimbPresetScript.TunerAnimMode.WALK1)
 		)
 		var drift := hand.global_position.distance_to(grip_on_art)
 		max_drift = maxf(max_drift, drift)
@@ -1750,10 +1889,8 @@ func _test_club_walk_carry_pose() -> void:
 	app.call(
 		"_apply_pose_catalog_entry",
 		ResourceData.ResourceType.WOOD,
-		WeaponLimbPresetScript.TunerAnimMode.IDLE
+		WeaponLimbPresetScript.TunerAnimMode.WALK1
 	)
-	if app.has_method("_set_anim_mode"):
-		app.call("_set_anim_mode", WeaponLimbPresetScript.TunerAnimMode.WALK)
 	for _i in range(6):
 		await process_frame
 	var rig: LimbTunerRig = app.get_node_or_null("World/Stage/TunerRig") as LimbTunerRig
@@ -1764,6 +1901,7 @@ func _test_club_walk_carry_pose() -> void:
 		app.queue_free()
 		return
 	rig.set_walk_direction(1)
+	app.call("_sync_walk_keyframe_preview")
 	for _i in range(4):
 		await process_frame
 	var weapon_rest := hand.global_position
@@ -1776,7 +1914,7 @@ func _test_club_walk_carry_pose() -> void:
 			% hand.global_position.distance_to(weapon_rest)
 		)
 	if support.global_position.distance_squared_to(support_rest) > 16.0:
-		_fail("club walk: support hand should still swing while walking")
+		_fail("club walk: off-arm should use Walk 1 keyframe loop while walking")
 	app.queue_free()
 
 
@@ -1903,10 +2041,9 @@ func _test_club_grip_receipt_export() -> void:
 	var overlay: Dictionary = anim.get("weapon_overlay", {})
 	if not overlay.has("club_carry_body_hand_px"):
 		_fail("walk1 receipt should include club_carry_body_hand_px in weapon overlay block")
-	var rows: Array = anim.get("pose_rows", [])
-	if rows.is_empty():
-		_fail("walk1 receipt missing pose rows")
-	var row_a: Dictionary = rows[0]
+	var row_a: Dictionary = anim.get("pose_a", {})
+	if row_a.is_empty():
+		_fail("walk1 receipt missing pose_a")
 	if row_a.get("hand_1_role", "") != "body_carry":
 		_fail("club walk1 pose A receipt should label hand_1 as body_carry")
 	if not row_a.has("grip_on_art_px"):

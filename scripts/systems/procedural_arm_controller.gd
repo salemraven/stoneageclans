@@ -9,6 +9,9 @@ const WalkArmSwing = preload("res://scripts/systems/walk_arm_swing.gd")
 const PlaceholderCardRegistry = preload("res://scripts/config/placeholder_card_registry.gd")
 const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_resolver.gd")
 const MannequinPoseRuntime = preload("res://scripts/systems/mannequin_pose_runtime.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
 
 const THRUST_SUPPORT_SHOULDER_FOLLOW := 0.1
 const THRUST_WEAPON_SHOULDER_FOLLOW := 0.16
@@ -868,9 +871,13 @@ func _use_two_hand_spear_grip() -> bool:
 
 
 func _uses_walk1_keyframe_walk() -> bool:
+	if _cached_limb_preset == null:
+		return false
+	_cached_limb_preset.ensure_unified_clips(LimbPresetRegistry)
+	var clip = _cached_limb_preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
 	return (
-		_cached_limb_preset != null
-		and _cached_limb_preset.walk1_pose_a_saved
+		clip != null
+		and clip.saved
 		and _cached_limb_preset.resolve_walk_tuner_mode() == WeaponLimbPreset.TunerAnimMode.WALK1
 	)
 

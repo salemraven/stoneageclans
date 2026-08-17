@@ -12,8 +12,11 @@ const FRAME_H := LimbBakeFrameCaptureScript.FRAME_H
 const PADDING := 2
 
 const CLIP_IDLE := "idle"
-const CLIP_IDLE1 := "idle1"
 const CLIP_WALK := "walk"
+const CLIP_GATHER := "gather"
+const CLIP_WINDUP := "windup"
+const CLIP_STRIKE := "strike"
+const CLIP_IDLE1 := "idle1"
 const CLIP_GATHER1 := "gather1"
 
 const IDLE_FPS := 8
@@ -27,14 +30,16 @@ const IDLE_CYCLE_SEC := 2.0
 
 static func clip_for_anim_mode(mode: int) -> String:
 	match mode:
-		WeaponLimbPreset.TunerAnimMode.IDLE:
+		WeaponLimbPreset.TunerAnimMode.IDLE, WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1:
 			return CLIP_IDLE
 		WeaponLimbPreset.TunerAnimMode.IDLE1:
-			return CLIP_IDLE1
+			return CLIP_IDLE
 		WeaponLimbPreset.TunerAnimMode.WALK, WeaponLimbPreset.TunerAnimMode.WALK1:
 			return CLIP_WALK
 		WeaponLimbPreset.TunerAnimMode.GATHER1:
-			return CLIP_GATHER1
+			return CLIP_GATHER
+		WeaponLimbPreset.TunerAnimMode.ATTACK:
+			return CLIP_WINDUP
 		_:
 			return ""
 
@@ -86,14 +91,16 @@ static func is_known_weapon_slug(slug: String) -> bool:
 
 static func anim_mode_for_clip(clip: String) -> int:
 	match clip.strip_edges().to_lower():
-		CLIP_IDLE:
+		CLIP_IDLE, CLIP_IDLE1:
 			return WeaponLimbPreset.TunerAnimMode.IDLE
-		CLIP_IDLE1:
-			return WeaponLimbPreset.TunerAnimMode.IDLE1
-		CLIP_WALK:
-			return WeaponLimbPreset.TunerAnimMode.WALK
-		CLIP_GATHER1:
+		CLIP_WALK, "walk1":
+			return WeaponLimbPreset.TunerAnimMode.WALK1
+		CLIP_GATHER, CLIP_GATHER1:
 			return WeaponLimbPreset.TunerAnimMode.GATHER1
+		CLIP_WINDUP:
+			return WeaponLimbPreset.TunerAnimMode.ATTACK
+		CLIP_STRIKE:
+			return WeaponLimbPreset.TunerAnimMode.ATTACK
 		_:
 			return -1
 

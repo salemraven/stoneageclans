@@ -5,13 +5,23 @@
 **Animation catalog:** `scripts/config/character_animation_catalog.gd`  
 **Pawn vision (north star):** [pawn_goal.md](pawn_goal.md) — layered pivots, genetics, RimWorld readability  
 **Canonical preset example:** `assets/limb_presets/none_clansmen_1.tres`  
-**Last updated:** August 15, 2026 (quick-start tutorial + lock-in architecture)
+**Last updated:** August 17, 2026 (unified two-pose clips + shared sampler)
 
 ---
 
 ## Quick start — how to use the tuner
 
 The **Character Animation Tuner** is where you pose clansmen: hand positions, elbows, weapon grip, and walk cycles. What you save here becomes the numbers the game uses.
+
+### Unified animation model (current)
+
+- Every animation is **Pose 1 + Pose 2**, ping-pong loop, smooth easing, same duration both directions.
+- Clips live on each holdable preset as **`animation_clips[]`** (`idle`, `walk`, `gather`, `windup`, `strike` per holdable).
+- **One sampler** drives Pose Tuner A/D preview, Animation Reviewer, bake, and runtime visuals.
+- **Pose Tuner is always static** on entry (Pose 1). No Play button — use **A/D** for temporary Walk preview.
+- **1e/2e: right-click only** to flip elbow bend (no drag).
+- **Save Animation** (not “Save all”) saves the active clip; brief “Animation saved” message.
+- Per-clip **Duration (sec)** spinbox under Pose 1 / Pose 2.
 
 ### 1. Open the tuner
 
@@ -45,30 +55,26 @@ CLI flags like `--walk1-preview` open **Reviewer** already playing the right cli
 ### 3. Left panel controls (Pose Tuner)
 
 1. **Holdable** — `none` (empty hands), `spear`, `club`, etc. Each holdable has its own save file.
-2. **Category + variant** — e.g. Walk → Walk 1, Idle → idle / idle1.
+2. **Category + variant** — Idle, Walk, Gather, Windup/Strike (per holdable catalog).
 3. **Drag pins on the mannequin:**
-   - **Yellow** — weapon hand / grip
+   - **Yellow** — weapon hand / grip on art
    - **Green** — off-hand
-   - **Blue** — elbow pole (which way the arm bends)
-   - **Right-click** an elbow pin (1e / 2e) — flip bend direction
-4. **Pose 1 / Pose 2** (Walk 1) — switch between the two walk snapshots. Pose 2 does **not** overwrite Pose 1.
-5. **▶ Play** (Walk 1) — preview the pendulum between Pose 1 and Pose 2 without leaving the tuner.
-6. **Save all** — write everything to disk. **This is the only button that actually saves.**
-   - Green **✓** = saved
-   - Red **●** = unsaved changes (you moved pins but haven’t saved yet)
+   - **Blue (1e / 2e)** — elbow bend (right-click to flip; no drag)
+4. **Pose 1 / Pose 2** — two snapshots per animation. Each saves as one unit.
+5. **Duration (sec)** — ping-pong loop timing for the active clip.
+6. **A/D** (from any animation) — temporary Walk preview via shared sampler; ignores pin input; release → Walk Pose 1.
+7. **Save Animation** — write active clip to disk (enabled only when dirty).
 
-**Important:** Switching tabs, holdables, or variants can update in-memory pins but **not** the file on disk until you click **Save all**. When in doubt: save, then use **Reload** to confirm pins came back the same.
+**Important:** Switching holdable/animation/workspace prompts Save / Discard / Cancel. Reviewer reads saved disk data only.
 
-### 4. Typical workflow (example: Walk 1)
+### 4. Typical workflow (example: Walk)
 
-1. Launch: `bash tools/launch_tuner_mac.sh --walk1-preview`
-2. Confirm holdable = **none**, variant = **Walk 1**
-3. Click **Edit in Pose Tuner** (or switch to Pose Tuner tab)
-4. Click **Pose 1** → drag yellow/green hands and blue elbows until it looks like “right foot forward”
-5. Click **Pose 2** → pose “left foot forward” (separate row — won’t touch Pose 1)
-6. Click **▶ Play** — check the swing looks smooth; elbows stay bent the right way
-7. Click **Save all** (button turns green ✓)
-8. Click **Copy for chat** — full animation receipt (both poses, motion samples, morphology). Paste in chat and say **lock in this animation**
+1. Launch tuner, pick holdable, select **Walk**.
+2. Tune **Pose 1** and **Pose 2** with pins always visible.
+3. Hold **A** or **D** to preview walk loop; release to edit Walk Pose 1.
+4. Set **Duration** if needed.
+5. Click **Save Animation**.
+6. Use **Animation Reviewer** tab to loop saved clips read-only.
 
 ### 5. After you’re happy — lock it in
 
@@ -728,7 +734,7 @@ Canonical preset: **`none_clansmen_1.tres`** — copied to axe/pick/oldowan via 
 | Capture | `scripts/tools/limb_bake_frame_capture.gd` (body + head + weapon) |
 | Review | `scenes/tools/LimbBakeReviewWindow.tscn` |
 | Output | `assets/baked/clansmen_1/<holdable>/<clip>.png` + `.json` |
-| Clips | `idle`, `idle1`, `walk`, `gather1` — east, 128×128 |
+| Clips | `idle`, `idle1`, `walk` (from Walk row / WALK1 data), `gather1` — east, 128×128 |
 | Test | `godot --headless -s res://tools/test_limb_bake.gd` |
 
 **Workflow:**
@@ -751,8 +757,12 @@ If extreme genetics stretch bakes badly: bake **Small / Reference / Large** from
 
 ```
 Set morphology (reference) → pick holdable / category / variant
-→ Play or ←→ or Shift+click → drag pins → Save all → Bake clip (when ready)
+→ Idle = idle preview · Walk = edit walk poses
+→ A/D from Idle = temporary walk preview (status: Preview: Walk) · release A/D = back to idle
+→ drag pins → Save all → Bake clip (when saved)
 ```
+
+**Preview = bake contract:** Animation Reviewer, Pose Tuner **A/D**, and **▶ Play** on Walk all use the same Walk 1 keyframe loop that writes `assets/baked/.../walk.png`.
 
 ### Panel layout (left **Character Tuner**, ~340px, single panel)
 
@@ -790,17 +800,27 @@ Set morphology (reference) → pick holdable / category / variant
 
 ### Preview controls
 
-| Variant | Preview |
-|---------|---------|
+| Context | Preview motion |
+|---------|----------------|
+| **Idle** row, no A/D | Idle loop / idle pose |
+| **Idle** row, **A/D held** | Walk keyframe loop (status: `Preview: Walk`) |
+| **Walk** row, paused | Pose 1 or Pose 2 hold |
+| **Walk** row, **A/D or ▶ Play** | Walk loop (same as bake) |
+| **Animation Reviewer** | Loop clip · pins read-only |
+
+| Variant | Controls |
+|---------|----------|
 | Idle / Idle 1 / Gather | **▶ Play** / **⏸ Pause** |
-| Walk / Walk 1 | **A / D** or **← / →** |
+| Walk | **A / D** or **← / →** · **▶ Play** (same keyframe path) |
 | Attack windup | **Shift** ready · **Shift + click** strike/thrust |
+
+**Walk preview from Idle + A/D:** None = both arms keyframes · Club = carry + off-arm keyframes · Spear = Walk grip on shaft.
 
 ### Practical combo (club strike test)
 
 Default tuner startup opens **Club · Idle standing** for windup/strike testing:
 
-1. **A / D** or **← / →** on **Idle** — walk bounce (like in-game; club carry: weapon arm idle, off-arm swings)
+1. **A / D** on **Idle** — previews **Walk** (carry + off-arm keyframes); tune on **Walk** row
 2. **Shift (hold)** — **windup loop** plays (rest → A → B → rest from saved keyframes)
 3. **Shift + click** — attack swing (from current loop frame)
 
@@ -1327,23 +1347,23 @@ See **[reliability contract](#tuner--animation-reviewer--how-they-should-work-re
 - [ ] **Morphology row** — body scale, head scale, neck offset spinboxes (main panel)
 - [ ] **Save DNA** — morphology file separate from pose Save all
 - [ ] Cosmetic layer pickers (eyes, hair, …) — **same panel**, not a new tab
-- [ ] ▶ Play walk button
-- [ ] Unsaved indicator (pose vs morphology vs disk)
+- [x] ▶ Play walk button (Walk row + A/D keyframe preview)
+- [x] Unsaved indicator (context line + Save all ●/✓)
 - [x] `commit_row_hand_display_px` / `commit_row_hand_pins_from_global` — hands save to pull rows on Save all
 - [ ] `commit_row_pins` — elbows + overlay in same row bundle (hands done; full row helper optional)
 - [ ] Round-trip headless tests for `walk1_a`, `walk1_b`, gather reach/pull
 - [x] Full `to_export_dict()` parity with `.tres` pull rows + `*_saved` flags
-- [ ] Reload confirms when staged ≠ disk
+- [x] Reload confirms when staged ≠ disk
 
 ### A2 — UI/UX improvements (intuitive tuning workflow)
 
 **High priority (prevent mistakes):**
 
-- [ ] **Status bar active row display** — always show: `Holdable · Category · Variant · Pose row · ● Unsaved` (e.g. `Club · Walk 1 · Pose 2 (pull) · ● Unsaved`)
-- [ ] **Reload confirmation** — "Reload will discard staged changes. Continue?" when dirty
+- [x] **Status bar active row display** — context line: holdable · variant · pose row · Preview: Walk/Idle · Saved/Unsaved
+- [x] **Reload confirmation** — "Discard unsaved changes?" when dirty (Reload + holdable/category/variant)
 - [ ] **Dim/disable irrelevant controls** — Save all disabled when nothing dirty; row keys (1/2) hidden when variant has single pose; Play hidden on Attack category
-- [ ] **Reviewer pins read-only** — hide or ghost pins (50% opacity, no drag) in Animation Reviewer tab to prevent confusion
-- [ ] **Keyboard shortcut overlay** — toggle with `?` or F1 showing: row keys (1/2), facing (A/D), play (Space), combat (Shift / Shift+click), zoom (scroll)
+- [x] **Reviewer pins read-only** — ghosted in Animation Reviewer tab
+- [x] **Keyboard shortcut overlay** — `?` or F1
 
 **Medium priority (reduce confusion):**
 

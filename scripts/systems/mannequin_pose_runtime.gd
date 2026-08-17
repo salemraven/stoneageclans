@@ -9,6 +9,10 @@ const WeaponOverlayCombatScript = preload("res://scripts/systems/weapon_overlay_
 const CardVisualControllerScript = preload("res://scripts/systems/card_visual_controller.gd")
 const WalkArmSwingScript = preload("res://scripts/systems/walk_arm_swing.gd")
 const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
+const CharacterAnimationSamplerScript = preload("res://scripts/config/character_animation_sampler.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
 
 
 static func get_body_visual(sprite: Sprite2D) -> Node:
@@ -289,18 +293,15 @@ static func _apply_walk_swing_global(
 
 
 static func uses_walk1_keyframe_walk(preset: WeaponLimbPreset) -> bool:
-	return preset != null and preset.walk1_pose_a_saved
+	if preset == null:
+		return false
+	preset.ensure_unified_clips(LimbPresetRegistry)
+	var clip = preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	return clip != null and clip.saved
 
 
 static func _club_walk_off_arm_keyframe_preset(club_preset: WeaponLimbPreset) -> WeaponLimbPreset:
-	if club_preset == null or not club_preset.uses_club_walk_off_arm_travel_swing():
-		return club_preset
-	if LimbPresetRegistry != null:
-		var none_preset: WeaponLimbPreset = LimbPresetRegistry.get_preset(
-			ResourceData.ResourceType.NONE, "clansmen_1", 1
-		)
-		if none_preset != null and none_preset.walk1_pose_a_saved:
-			return none_preset
+	## Unified club walk bakes the free arm into the club preset — no live none borrowing.
 	return club_preset
 
 
@@ -314,6 +315,22 @@ static func walk1_keyframe_hand_global(
 ) -> Vector2:
 	if preset == null or sprite == null or rig == null:
 		return shoulder_global
+	preset.ensure_unified_clips(LimbPresetRegistry)
+	var clip = preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	if clip != null and clip.saved:
+		var pose = CharacterAnimationSamplerScript.sample_clip(clip, bounce_time)
+		if sprite.flip_h:
+			pose = CharacterAnimationSamplerScript.mirror_pose_for_facing(pose, true)
+		var hand_px = pose.hand_weapon_px if dominant else pose.hand_support_px
+		if (
+			dominant
+			and preset.weapon_type == ResourceData.ResourceType.WOOD
+			and pose.grip_on_art_px.length_squared() > 0.0001
+		):
+			var overlay = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
+			if overlay != null and overlay.visible:
+				return LimbPresetCoordsScript.overlay_grip_global(overlay, pose.grip_on_art_px)
+		return LimbPresetCoordsScript.body_global_from_display(sprite, hand_px)
 	var phase := WalkArmSwingScript.swing_phase_from_bounce(bounce_time)
 	var pose_a_px := (
 		preset.walk1_hand_grip_offset_px if dominant else preset.walk1_support_hand_offset_px

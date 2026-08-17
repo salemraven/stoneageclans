@@ -3,6 +3,11 @@ class_name WeaponLimbPreset
 
 const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
 const TunerPoseSeedGuard = preload("res://scripts/tools/tuner_pose_seed_guard.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
+const CharacterAnimationPoseScript = preload("res://scripts/config/character_animation_pose.gd")
+const CharacterAnimationClipScript = preload("res://scripts/config/character_animation_clip.gd")
 
 ## Saved limb + weapon placement for one body card + weapon combo (display pixels, pre-scale).
 
@@ -78,6 +83,9 @@ func verify_tuner_overlay_matches(
 @export var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
 @export var body_card_id: String = "clansmen_1"
 @export var body_card_index: int = 1
+## Unified two-pose animation clips (authoritative pose storage).
+@export var animation_clips: Array = []
+@export var unified_clips_initialized: bool = false
 
 ## Red shoulder — attachment on body card (offset from sprite origin).
 @export var shoulder_offset_px: Vector2 = Vector2.ZERO
@@ -2362,4 +2370,24 @@ static func defaults_for(weapon_type: ResourceData.ResourceType, body_index: int
 		else:
 			p.support_hand_idle_offset_px = Vector2(-12.0, 30.0)
 	p.tuner_stage_scale = 1.0
+	p.ensure_unified_clips(null)
 	return p
+
+
+func ensure_unified_clips(registry: Node = null) -> void:
+	if unified_clips_initialized and not animation_clips.is_empty():
+		return
+	animation_clips.clear()
+	CharacterAnimationPresetStoreScript.ensure_all_clips(self, registry)
+	unified_clips_initialized = true
+
+
+func get_unified_clip(clip_id: StringName):
+	return CharacterAnimationPresetStoreScript.get_clip(self, clip_id)
+
+
+func current_pose(clip_id: StringName, pose_index: int):
+	var clip = get_unified_clip(clip_id)
+	if clip == null:
+		return CharacterAnimationPoseScript.new()
+	return clip.pose_at_index(pose_index)

@@ -4,11 +4,15 @@ class_name AnimationReceipt
 ## Full animation receipt for Copy for chat — one paste = lock-in ready bundle.
 
 const AnimCatalog = preload("res://scripts/config/character_animation_catalog.gd")
-const WalkArmMotion = preload("res://scripts/systems/walk_arm_motion.gd")
-const GatherArmMotion = preload("res://scripts/systems/gather_arm_motion.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
+const CharacterAnimationSamplerScript = preload(
+	"res://scripts/config/character_animation_sampler.gd"
+)
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
 
-const RECEIPT_VERSION := 1
+const RECEIPT_VERSION := 2
 
 
 static func build(
@@ -82,17 +86,22 @@ static func _append_animation_human(lines: PackedStringArray, anim: Dictionary) 
 	if anim.is_empty():
 		lines.append("(none)")
 		return
+	if anim.has("clip_id"):
+		lines.append("clip_id: %s" % anim.get("clip_id", "?"))
+		lines.append("duration_sec: %s" % anim.get("duration_sec", "?"))
+		lines.append(
+			"saved: %s · pose_b_saved: %s"
+			% [str(anim.get("saved", false)), str(anim.get("pose_b_saved", false))]
+		)
+		lines.append("")
 	if anim.has("weapon_overlay"):
 		_append_section(lines, "Weapon / holdable overlay", anim["weapon_overlay"])
-	if anim.has("pose_rows"):
-		for row in anim["pose_rows"] as Array:
-			_append_pose_row(lines, row as Dictionary)
-	if anim.has("single_pose"):
-		_append_pose_row(lines, anim["single_pose"] as Dictionary)
+	if anim.has("pose_a"):
+		_append_pose_row(lines, anim["pose_a"] as Dictionary)
+	if anim.has("pose_b"):
+		_append_pose_row(lines, anim["pose_b"] as Dictionary)
 	if anim.has("motion"):
 		_append_motion(lines, anim["motion"] as Dictionary)
-	if anim.has("extra_fields"):
-		_append_section(lines, "Extra fields", anim["extra_fields"])
 
 
 static func _append_pose_row(lines: PackedStringArray, row: Dictionary) -> void:
@@ -109,6 +118,12 @@ static func _append_pose_row(lines: PackedStringArray, row: Dictionary) -> void:
 			lines.append("%s: %s" % [bend_key, row[bend_key]])
 	if row.has("rotation_deg"):
 		lines.append("rotation_deg: %s" % _stringify_value(row["rotation_deg"]))
+	if row.has("grip_on_art_px"):
+		lines.append("grip_on_art_px: %s" % _stringify_value(row["grip_on_art_px"]))
+	if row.has("hand_1_role"):
+		lines.append("hand_1_role: %s" % row["hand_1_role"])
+	if row.has("note"):
+		lines.append("note: %s" % row["note"])
 	if row.has("lock_in_constants"):
 		lines.append("lock_in_constants:")
 		for const_name in (row["lock_in_constants"] as Dictionary).keys():
@@ -190,28 +205,100 @@ static func _build_animation_block(
 	mode: WeaponLimbPreset.TunerAnimMode,
 	rig: LimbTunerRig
 ) -> Dictionary:
-	var block := {}
-	block["weapon_overlay"] = _build_weapon_overlay_block(preset, mode, rig)
-	match mode:
-		WeaponLimbPreset.TunerAnimMode.WALK1:
-			block["pose_rows"] = [
-				_build_walk1_pose_row(preset, false),
-				_build_walk1_pose_row(preset, true),
-			]
-			block["motion"] = _build_walk1_motion(preset)
-		WeaponLimbPreset.TunerAnimMode.GATHER1:
-			block["pose_rows"] = [
-				_build_gather1_pose_row(preset, false),
-				_build_gather1_pose_row(preset, true),
-			]
-			block["motion"] = _build_gather1_motion(preset)
-		WeaponLimbPreset.TunerAnimMode.ATTACK:
-			block["single_pose"] = _build_attack_pose_row(preset)
-		WeaponLimbPreset.TunerAnimMode.IDLE_CLUB1:
-			block["single_pose"] = _build_idle_club1_pose_row(preset)
-		_:
-			block["single_pose"] = _build_generic_pose_row(preset, mode)
+	preset.ensure_unified_clips(null)
+	var clip_id := AnimCatalog.clip_id_for_mode(mode, preset.weapon_type)
+	var clip = CharacterAnimationPresetStoreScript.ensure_clip(preset, clip_id, null)
+	var block := {
+		"clip_id": String(clip_id),
+		"duration_sec": snappedf(clip.duration_sec, 0.001),
+		"saved": clip.saved,
+		"pose_b_saved": clip.pose_b_saved,
+		"weapon_overlay": _build_weapon_overlay_block(preset, mode, rig),
+		"pose_a": _build_pose_block(clip.pose_at_index(0), "Pose 1", clip_id, false),
+		"pose_b": _build_pose_block(clip.pose_at_index(1), "Pose 2", clip_id, true),
+	}
+	if _clip_has_motion(clip_id):
+		block["motion"] = _build_clip_motion(clip)
+	_apply_club_walk_pose_notes(preset, clip_id, block)
 	return block
+
+
+static func _clip_has_motion(clip_id: StringName) -> bool:
+	return (
+		clip_id == CharacterAnimationPresetStoreScript.CLIP_WALK
+		or clip_id == CharacterAnimationPresetStoreScript.CLIP_GATHER
+	)
+
+
+static func _build_pose_block(
+	pose,
+	label: String,
+	clip_id: StringName,
+	pose_b: bool
+) -> Dictionary:
+	var suffix := "B" if pose_b else "A"
+	var row := {
+		"label": label,
+		"hand_1": _vec2_array(pose.hand_weapon_px),
+		"hand_2": _vec2_array(pose.hand_support_px),
+		"overlay": _vec2_array(pose.overlay_offset_px),
+		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(pose.elbow_weapon_bend_sign),
+		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(pose.elbow_support_bend_sign),
+		"rotation_deg": _rotation_for_export(pose.weapon_rotation_deg),
+	}
+	if pose.grip_on_art_px.length_squared() > 0.0001:
+		row["grip_on_art_px"] = _vec2_array(pose.grip_on_art_px)
+	if pose.head_offset_px.length_squared() > 0.0001:
+		row["head"] = _vec2_array(pose.head_offset_px)
+	var clip_key := String(clip_id).to_upper()
+	row["lock_in_constants"] = {
+		"%s_%s_HAND_WEAPON" % [clip_key, suffix]: row["hand_1"],
+		"%s_%s_HAND_SUPPORT" % [clip_key, suffix]: row["hand_2"],
+		"%s_%s_OVERLAY" % [clip_key, suffix]: row["overlay"],
+	}
+	return row
+
+
+static func _apply_club_walk_pose_notes(
+	preset: WeaponLimbPreset,
+	clip_id: StringName,
+	block: Dictionary
+) -> void:
+	if clip_id != CharacterAnimationPresetStoreScript.CLIP_WALK:
+		return
+	if preset.weapon_type != ResourceData.ResourceType.WOOD:
+		return
+	if not preset.uses_club_walk_off_arm_travel_swing():
+		return
+	var pose_a: Dictionary = block["pose_a"]
+	pose_a["hand_1_role"] = "body_carry"
+	pose_a["hand_1"] = _vec2_array(preset.resolve_club_carry_body_hand_px())
+	if preset.uses_saved_club_grip_on_art():
+		pose_a["grip_on_art_px"] = _vec2_array(preset.idle_club1_hand_grip_offset_px)
+	pose_a["note"] = (
+		"Club walk: hand_1 is body-card carry; off-arm uses empty-hands walk keyframe on hand_2"
+	)
+	var constants: Dictionary = pose_a.get("lock_in_constants", {})
+	constants["WALK_A_HAND_WEAPON"] = pose_a["hand_1"]
+	pose_a["lock_in_constants"] = constants
+
+
+static func _build_clip_motion(clip) -> Dictionary:
+	var pose_a = clip.pose_at_index(0)
+	var pose_b = clip.pose_at_index(1)
+	var samples: Array = []
+	for phase in [0.0, 0.25, 0.5, 0.75, 1.0]:
+		var sampled = CharacterAnimationSamplerScript.sample_between(pose_a, pose_b, phase)
+		samples.append({
+			"phase": phase,
+			"hand_1": _vec2_array(sampled.hand_weapon_px),
+			"hand_2": _vec2_array(sampled.hand_support_px),
+		})
+	return {
+		"driver": "CharacterAnimationSampler.sample_between (Pose 1 ↔ Pose 2)",
+		"duration_sec": snappedf(clip.duration_sec, 0.001),
+		"samples": samples,
+	}
 
 
 static func _build_weapon_overlay_block(
@@ -232,219 +319,6 @@ static func _build_weapon_overlay_block(
 		if rig.has_method("display_px_from_overlay_position"):
 			out["live_overlay_display_px"] = _vec2_array(rig.display_px_from_overlay_position())
 	return out
-
-
-static func _build_walk1_pose_row(preset: WeaponLimbPreset, pose_b: bool) -> Dictionary:
-	var label := "Pose 2" if pose_b else "Pose 1"
-	var hand_1_px := preset.resolve_club_walk1_dominant_hand_export(pose_b)
-	var row := {
-		"row_id": "walk1_b" if pose_b else "walk1_a",
-		"label": label,
-		"saved": preset.walk1_pose_b_saved if pose_b else preset.walk1_pose_a_saved,
-		"hand_1": _vec2_array(hand_1_px),
-		"hand_2": _vec2_array(
-			preset.walk1_pull_support_hand_offset_px
-			if pose_b
-			else preset.walk1_support_hand_offset_px
-		),
-		"elbow_1_pole": _vec2_array(
-			preset.resolve_walk1_elbow_pole_px(true, pose_b)
-		),
-		"elbow_2_pole": _vec2_array(
-			preset.resolve_walk1_elbow_pole_px(false, pose_b)
-		),
-		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_for_pose(
-				true, WeaponLimbPreset.TunerAnimMode.WALK1, pose_b, false, 0.0
-			)
-		),
-		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_for_pose(
-				false, WeaponLimbPreset.TunerAnimMode.WALK1, pose_b, false, 0.0
-			)
-		),
-		"overlay": _vec2_array(preset.walk1_overlay_offset_px),
-		"rotation_deg": _rotation_for_export(preset.walk1_rotation_deg),
-	}
-	if preset.weapon_type == ResourceData.ResourceType.WOOD and preset.uses_club_walk_off_arm_travel_swing():
-		row["hand_1_role"] = "body_carry"
-		row["grip_on_art_px"] = _vec2_array(preset.idle_club1_hand_grip_offset_px)
-		row["note"] = "Club Walk 1: hand_1 is body-card carry; off-arm uses empty-hands Walk 1 keyframe loop on hand_2"
-	var suffix := "B" if pose_b else "A"
-	row["lock_in_constants"] = {
-		"WALK1_%s_HAND_1" % suffix: row["hand_1"],
-		"WALK1_%s_HAND_2" % suffix: row["hand_2"],
-		"WALK1_%s_ELBOW_1_POLE" % suffix: row["elbow_1_pole"],
-		"WALK1_%s_ELBOW_2_POLE" % suffix: row["elbow_2_pole"],
-	}
-	return row
-
-
-static func _build_walk1_motion(preset: WeaponLimbPreset) -> Dictionary:
-	var hand_1_a := preset.walk1_hand_grip_offset_px
-	var hand_1_b := preset.walk1_pull_hand_grip_offset_px
-	var hand_2_a := preset.walk1_support_hand_offset_px
-	var hand_2_b := preset.walk1_pull_support_hand_offset_px
-	var pole_1_a := preset.walk1_weapon_elbow_pole_px
-	var pole_1_b := preset.walk1_pull_weapon_elbow_pole_px
-	var pole_2_a := preset.walk1_support_elbow_pole_px
-	var pole_2_b := preset.walk1_pull_support_elbow_pole_px
-	var samples: Array = []
-	for phase in [0.0, 0.25, 0.5, 0.75, 1.0]:
-		samples.append({
-			"phase": phase,
-			"hand_1": _vec2_array(
-				WalkArmMotion.body_snapshot_between_keyframes(hand_1_a, hand_1_b, phase)
-			),
-			"hand_2": _vec2_array(
-				WalkArmMotion.body_snapshot_between_keyframes(hand_2_a, hand_2_b, phase)
-			),
-			"elbow_1_pole": _vec2_array(
-				WalkArmMotion.body_snapshot_between_keyframes(pole_1_a, pole_1_b, phase)
-			),
-			"elbow_2_pole": _vec2_array(
-				WalkArmMotion.body_snapshot_between_keyframes(pole_2_a, pole_2_b, phase)
-			),
-		})
-	return {
-		"driver": "WalkArmMotion.body_snapshot_between_keyframes",
-		"elbow_driver": "KeyedMotionPlayback (lerp solved elbows at pose extremes)",
-		"bounce_cycles_per_arm_cycle": WalkArmMotion.BOUNCE_CYCLES_PER_ARM_CYCLE,
-		"blend": "cosine pendulum (1-cos(phase*TAU))/2",
-		"samples": samples,
-	}
-
-
-static func _build_gather1_pose_row(preset: WeaponLimbPreset, pull: bool) -> Dictionary:
-	var label := "Pull" if pull else "Reach"
-	return {
-		"row_id": "gather_pull" if pull else "gather_reach",
-		"label": label,
-		"saved": preset.gather1_pull_saved if pull else preset.gather1_reach_saved,
-		"hand_1": _vec2_array(
-			preset.gather1_pull_hand_grip_offset_px
-			if pull
-			else preset.gather1_hand_grip_offset_px
-		),
-		"hand_2": _vec2_array(
-			preset.gather1_pull_support_hand_offset_px
-			if pull
-			else preset.gather1_support_hand_offset_px
-		),
-		"elbow_1_pole": _vec2_array(preset.resolve_gather1_elbow_pole_px(true, pull)),
-		"elbow_2_pole": _vec2_array(preset.resolve_gather1_elbow_pole_px(false, pull)),
-		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_for_pose(
-				true, WeaponLimbPreset.TunerAnimMode.GATHER1, false, pull, 0.0
-			)
-		),
-		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_for_pose(
-				false, WeaponLimbPreset.TunerAnimMode.GATHER1, false, pull, 0.0
-			)
-		),
-		"overlay": _vec2_array(preset.gather1_overlay_offset_px),
-		"rotation_deg": _rotation_for_export(preset.gather1_rotation_deg),
-	}
-
-
-static func _build_gather1_motion(preset: WeaponLimbPreset) -> Dictionary:
-	var samples: Array = []
-	for phase in [0.0, 0.25, 0.5, 0.75, 1.0]:
-		var arm_work := GatherArmMotion.arm_work_phase(phase)
-		var hand_1 := preset.gather1_hand_grip_offset_px
-		var hand_2 := preset.gather1_support_hand_offset_px
-		if arm_work >= 0.0 and preset.has_gather1_pull_pose():
-			var blend := GatherArmMotion.keyframe_blend(arm_work, true)
-			hand_1 = hand_1.lerp(preset.gather1_pull_hand_grip_offset_px, blend)
-			var blend_2 := GatherArmMotion.keyframe_blend(arm_work, false)
-			hand_2 = hand_2.lerp(preset.gather1_pull_support_hand_offset_px, blend_2)
-		samples.append({
-			"phase": phase,
-			"arm_work": arm_work,
-			"body_bend_rad": GatherArmMotion.body_bend_rad(phase),
-			"hand_1": _vec2_array(hand_1),
-			"hand_2": _vec2_array(hand_2),
-		})
-	return {
-		"driver": "GatherArmMotion (bend envelope + reach↔pull pick)",
-		"elbow_driver": "KeyedMotionPlayback",
-		"cycle_speed": GatherArmMotion.CYCLE_SPEED,
-		"samples": samples,
-	}
-
-
-static func _build_attack_pose_row(preset: WeaponLimbPreset) -> Dictionary:
-	var row := {
-		"row_id": "attack_windup",
-		"label": "Attack / windup",
-		"saved": (
-			preset.spear_attack_pose_saved
-			if preset.weapon_type == ResourceData.ResourceType.SPEAR
-			else preset.club_attack_pose_saved
-		),
-		"hand_1": _vec2_array(preset.hand_grip_ready_offset_px),
-		"hand_2": _vec2_array(preset.support_hand_offset_px),
-		"overlay": _vec2_array(preset.ready_offset_px),
-		"strike_overlay": _vec2_array(preset.strike_offset_px),
-		"elbow_1_pole": _vec2_array(preset.weapon_elbow_pole_ready_px),
-		"elbow_2_pole": _vec2_array(preset.support_elbow_pole_ready_px),
-		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.weapon_elbow_bend_sign_ready_override
-		),
-		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.support_elbow_bend_sign_ready_override
-		),
-		"rotation_deg": _rotation_for_export(preset.attack_rotation_deg),
-		"ready_forward_px": preset.ready_forward_px,
-	}
-	return row
-
-
-static func _build_idle_club1_pose_row(preset: WeaponLimbPreset) -> Dictionary:
-	return {
-		"row_id": "idle_club1",
-		"label": "Idle club grip",
-		"grip_on_art_px": _vec2_array(preset.idle_club1_hand_grip_offset_px),
-		"hand_1": _vec2_array(preset.idle_club1_hand_grip_offset_px),
-		"hand_1_role": "grip_on_art",
-		"hand_2": _vec2_array(preset.idle_club1_support_hand_offset_px),
-		"overlay": _vec2_array(preset.idle_club1_overlay_offset_px),
-		"elbow_1_pole": _vec2_array(preset.idle_club1_weapon_elbow_pole_px),
-		"elbow_2_pole": _vec2_array(preset.idle_club1_support_elbow_pole_px),
-		"rotation_deg": _rotation_for_export(preset.idle_club1_rotation_deg),
-	}
-
-
-static func _build_generic_pose_row(
-	preset: WeaponLimbPreset,
-	mode: WeaponLimbPreset.TunerAnimMode
-) -> Dictionary:
-	var row := {
-		"row_id": _mode_slug(mode),
-		"label": AnimCatalog.MODE_LABELS.get(mode, str(mode)),
-		"hand_1": _vec2_array(preset.resolve_hand_grip_for_mode(mode)),
-		"hand_2": _vec2_array(preset.resolve_support_hand_for_mode(mode)),
-		"overlay": _vec2_array(preset.resolve_overlay_for_mode(mode)),
-		"elbow_1_pole": _vec2_array(preset.resolve_elbow_pole_for_mode(true, mode)),
-		"elbow_2_pole": _vec2_array(preset.resolve_elbow_pole_for_mode(false, mode)),
-		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_override(true, mode)
-		),
-		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(
-			preset.resolve_elbow_bend_sign_override(false, mode)
-		),
-		"rotation_deg": _rotation_for_export(preset.get_rotation_deg_for_mode(mode)),
-	}
-	if (
-		preset.weapon_type == ResourceData.ResourceType.WOOD
-		and mode == WeaponLimbPreset.TunerAnimMode.IDLE
-		and preset.uses_saved_club_grip_on_art()
-	):
-		row["hand_1"] = _vec2_array(preset.resolve_club_carry_body_hand_px())
-		row["hand_1_role"] = "body_carry"
-		row["grip_on_art_px"] = _vec2_array(preset.idle_club1_hand_grip_offset_px)
-	return row
 
 
 static func _preset_resource_path(preset: WeaponLimbPreset) -> String:

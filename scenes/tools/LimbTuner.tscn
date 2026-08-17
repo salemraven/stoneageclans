@@ -112,14 +112,14 @@ custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 toggle_mode = true
-text = "Animation Reviewer"
+text = "Animation Reviewer — loop clips · pins read-only"
 
 [node name="HelpLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.72, 0.68, 1)
 theme_override_font_sizes/font_size = 12
 autowrap_mode = 3
-text = "Pick holdable + variant. Character stays still — drag pins, then Save all."
+text = "Pose Tuner — drag pins · Save all writes disk. Pick holdable + variant. ? or F1 for shortcuts."
 
 [node name="Sep1" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox"]
 layout_mode = 2
@@ -132,7 +132,7 @@ theme_override_constants/separation = 8
 [node name="ReviewerHeader" type="Label" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
-text = "Review animations"
+text = "Review animations — loop clips · pins read-only"
 
 [node name="ClipBrowserRow" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/ReviewerSection"]
 layout_mode = 2
@@ -262,6 +262,23 @@ layout_mode = 2
 size_flags_horizontal = 3
 toggle_mode = true
 text = "Pose 2"
+
+[node name="DurationRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DurationLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/DurationRow"]
+layout_mode = 2
+text = "Duration (sec)"
+
+[node name="DurationSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/DurationRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.1
+max_value = 10.0
+step = 0.05
+value = 1.0
 
 [node name="WeaponSection" type="VBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2

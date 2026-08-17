@@ -51,6 +51,7 @@ func get_preset(
 		preset = WeaponLimbPresetScript.defaults_for(weapon_type, body_index)
 	if preset != null:
 		preset.migrate_legacy_club_grip_on_art()
+		preset.ensure_unified_clips(self)
 	_cache[key] = preset
 	return preset
 
@@ -79,6 +80,7 @@ func reload_preset(weapon_type: ResourceData.ResourceType, body_card_id: String 
 		preset.body_card_id = body_card_id
 	if preset != null:
 		preset.migrate_legacy_club_grip_on_art()
+		preset.ensure_unified_clips(self)
 	_cache[key] = preset
 	return preset
 
