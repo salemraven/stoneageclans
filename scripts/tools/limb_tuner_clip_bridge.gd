@@ -117,6 +117,22 @@ static func read_handles_into_pose(app: Node):
 	return pose
 
 
+static func sync_elbows_live(app: Node) -> void:
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		return
+	var clip_id := clip_id_for_app(app)
+	var pose_index := pose_index_for_app(app)
+	var clip = preset.get_unified_clip(clip_id)
+	if clip == null:
+		return
+	var stored = clip.pose_at_index(pose_index)
+	var live = read_handles_into_pose(app)
+	live.elbow_weapon_bend_sign = stored.elbow_weapon_bend_sign
+	live.elbow_support_bend_sign = stored.elbow_support_bend_sign
+	_sync_elbow_handles_from_pose(app, live)
+
+
 static func commit_active_pose(app: Node) -> void:
 	var preset: WeaponLimbPreset = app.get("_preset")
 	if preset == null:

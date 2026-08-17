@@ -313,12 +313,15 @@ func _clip_id_from_bake_name(clip: String) -> StringName:
 
 
 func _uses_unified_static_pose() -> bool:
+	return _uses_unified_tuner_pose() and _active_drag_handle == null
+
+
+func _uses_unified_tuner_pose() -> bool:
 	return (
 		_mode == AppMode.ASSEMBLE
 		and _workspace_mode == WorkspaceMode.TUNER
 		and not _walk_ad_preview_active
 		and not _anim_playing
-		and _active_drag_handle == null
 	)
 
 
@@ -3411,7 +3414,7 @@ func _process(delta: float) -> void:
 		_rig.sync_travel_facing()
 	_process_combat_input()
 	_sync_shift_ready_windup_loop()
-	if not _walk_ad_preview_active:
+	if not _walk_ad_preview_active and not (_uses_unified_tuner_pose() and _active_drag_handle != null):
 		_push_preset_to_arms()
 	var combat_busy := _combat_animation_busy()
 	if _mode == AppMode.ASSEMBLE and _was_combat_preview_busy and not combat_busy:
@@ -3470,6 +3473,8 @@ func _process(delta: float) -> void:
 
 
 func _should_sync_elbows_from_arm_controller() -> bool:
+	if _uses_unified_tuner_pose():
+		return false
 	if _rig == null or _active_drag_handle != null:
 		return false
 	if KeyedMotionPlaybackScript.is_active(_rig, _anim_mode):
@@ -4205,8 +4210,11 @@ func _sync_assemble_preview() -> void:
 		return
 	if _walk_ad_preview_active:
 		return
-	if _uses_unified_static_pose():
-		LimbTunerClipBridgeScript.load_active_pose(self)
+	if _uses_unified_tuner_pose():
+		if _active_drag_handle == null:
+			LimbTunerClipBridgeScript.load_active_pose(self)
+		else:
+			LimbTunerClipBridgeScript.sync_elbows_live(self)
 		_lock_arm_lines_to_handles()
 		return
 	if (
@@ -4823,6 +4831,10 @@ func _apply_handle_draggable() -> void:
 func _on_shoulder_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
+	if _uses_unified_tuner_pose():
+		_rig.set_shoulder_from_global(_preset, global_pos)
+		LimbTunerClipBridgeScript.sync_elbows_live(self)
+		return
 	_rig.set_shoulder_from_global(_preset, global_pos)
 	_clamp_dominant_hand_to_reach()
 
@@ -4871,12 +4883,37 @@ func _on_hand_dragged(global_pos: Vector2) -> void:
 		and not _walk_ad_preview_active
 		and not _anim_playing
 	):
-		var clamped_direct := _clamp_dominant_hand_global(
-			_shoulder_handle.global_position, global_pos
+		var motion_relaxed := (
+			WeaponLimbPreset.is_walk_mode(_anim_mode) or _is_gather_anim_mode()
 		)
-		_set_hand_handle_position(_hand_handle, clamped_direct)
-		if _rig and _rig.has_weapon_overlay() and _spear_handle:
-			_set_hand_handle_position(_spear_handle, clamped_direct)
+		var gather_motion := _is_gather_anim_mode()
+		if _active_drag_handle == _spear_handle and _spear_handle:
+			var clamped_spear := global_pos
+			if _shoulder_handle:
+				clamped_spear = _clamp_dominant_hand_global(
+					_shoulder_handle.global_position, global_pos, motion_relaxed, gather_motion
+				)
+			_set_hand_handle_position(_spear_handle, clamped_spear)
+			if (
+				_hand_handle
+				and _rig
+				and _rig.has_weapon_overlay()
+				and not _preset.uses_saved_club_grip_on_art()
+			):
+				_set_hand_handle_position(_hand_handle, clamped_spear)
+		else:
+			var clamped_direct := _clamp_dominant_hand_global(
+				_shoulder_handle.global_position, global_pos, motion_relaxed, gather_motion
+			)
+			_set_hand_handle_position(_hand_handle, clamped_direct)
+			if (
+				_spear_handle
+				and _rig
+				and _rig.has_weapon_overlay()
+				and not _preset.uses_saved_club_grip_on_art()
+			):
+				_set_hand_handle_position(_spear_handle, clamped_direct)
+		LimbTunerClipBridgeScript.sync_elbows_live(self)
 		return
 	var mode := _hand_align_mode()
 	if _is_spear_shaft_pose_edit():
@@ -4957,6 +4994,10 @@ func _on_hand_dragged(global_pos: Vector2) -> void:
 
 func _on_support_shoulder_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
+		return
+	if _uses_unified_tuner_pose():
+		_rig.set_support_shoulder_from_global(_preset, global_pos)
+		LimbTunerClipBridgeScript.sync_elbows_live(self)
 		return
 	if _idle_sun_shield_pose_edit_active() or (
 		_uses_idle_raise_hand_preview() and _rig.get_idle_arm2_raise_blend() > 0.0001
@@ -5089,6 +5130,19 @@ func _set_support_hand_idle_raise_from_global(global_pos: Vector2, lookback: boo
 
 func _on_support_hand_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
+		return
+	if _uses_unified_tuner_pose():
+		var motion_relaxed := (
+			WeaponLimbPreset.is_walk_mode(_anim_mode) or _is_gather_anim_mode()
+		)
+		var clamped := _clamp_support_hand_global(
+			_support_shoulder_handle.global_position,
+			global_pos,
+			motion_relaxed,
+			_is_gather_anim_mode()
+		)
+		_set_hand_handle_position(_support_hand_handle, clamped)
+		LimbTunerClipBridgeScript.sync_elbows_live(self)
 		return
 	var clamped := _clamp_support_hand_global(
 		_support_shoulder_handle.global_position, global_pos
