@@ -440,15 +440,17 @@ func add_item_preferring_food_slots(type: ResourceData.ResourceType, amount: int
 
 
 func _player_slot_accepts_item(slot: InventorySlot, t: ResourceData.ResourceType) -> bool:
-	var ti := int(t)
-	if ti < 0 or t == ResourceData.ResourceType.NONE:
+	return slot_accepts_item(slot.slot_index, slot.is_hotbar, t)
+
+
+static func slot_accepts_item(slot_index: int, is_hotbar: bool, item_type: ResourceData.ResourceType) -> bool:
+	var ti := int(item_type)
+	if ti < 0 or item_type == ResourceData.ResourceType.NONE:
 		return false
-	if slot.is_hotbar:
-		var i: int = slot.slot_index
-		if i >= HOTBAR_FOOD_MIN_INDEX and i <= HOTBAR_FOOD_MAX_INDEX:
-			return ResourceData.is_food(t)
-		return not ResourceData.is_food(t)
-	# Main inventory panel accepts any item (food can be moved out of hotbar slots 9/0).
+	if is_hotbar:
+		if slot_index >= HOTBAR_FOOD_MIN_INDEX and slot_index <= HOTBAR_FOOD_MAX_INDEX:
+			return ResourceData.is_food(item_type)
+		return not ResourceData.is_food(item_type)
 	return true
 
 
@@ -582,6 +584,12 @@ func _input(event: InputEvent) -> void:
 					drag_manager.end_drag()
 					get_viewport().set_input_as_handled()
 
+func _complete_bridge_drop(from_slot: InventorySlot, to_slot: InventorySlot, dragged_item: Dictionary) -> void:
+	if drag_manager:
+		drag_manager.complete_drop(to_slot)
+	item_dropped.emit(dragged_item, from_slot, to_slot)
+
+
 func _handle_drop(target_slot: InventorySlot) -> void:
 	# Check if dropping between hotbar and inventory, or from building inventory
 	var from_slot: InventorySlot = drag_manager.from_slot if drag_manager else null
@@ -658,49 +666,24 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 			var total: int = target_count + dragged_count
 			
 			if total <= target_max_stack:
-				# Full stack - all dragged items fit
-				target_item["count"] = total
-				target_slot.set_item(target_item)
-				to_data.set_slot(target_slot.slot_index, target_item)
-				
-				# Source slot is already cleared (handled in start_drag)
-				# Just update display
-				_update_all_slots()
-				if target_slot.is_hotbar or from_slot.is_hotbar:
-					_update_hotbar_slots()
-				if main and main.has_method("get") and main.get("building_inventory_ui"):
-					var building_ui = main.get("building_inventory_ui")
-					if building_ui and from_slot in building_ui.slots:
-						building_ui._update_all_slots()
-				
-				if drag_manager:
-					drag_manager.complete_drop(target_slot)
-					item_dropped.emit(dragged_item, from_slot, target_slot)
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					target_can_stack, target_max_stack
+				):
+					if drag_manager:
+						drag_manager.end_drag(true)
+					return
+				_complete_bridge_drop(from_slot, target_slot, dragged_item)
 				return
 			else:
-				# Partial stack - some items fit
-				var stack_amount: int = target_max_stack - target_count
-				target_item["count"] = target_max_stack
-				target_slot.set_item(target_item)
-				to_data.set_slot(target_slot.slot_index, target_item)
-				
-				# Put remaining items back in source slot
-				var remaining: Dictionary = dragged_item.duplicate()
-				remaining["count"] = dragged_count - stack_amount
-				from_slot.set_item(remaining)
-				from_data.set_slot(from_slot.slot_index, remaining)
-				
-				_update_all_slots()
-				if target_slot.is_hotbar or from_slot.is_hotbar:
-					_update_hotbar_slots()
-				if main and main.has_method("get") and main.get("building_inventory_ui"):
-					var building_ui = main.get("building_inventory_ui")
-					if building_ui and from_slot in building_ui.slots:
-						building_ui._update_all_slots()
-				
-				if drag_manager:
-					drag_manager.complete_drop(target_slot)
-					item_dropped.emit(dragged_item, from_slot, target_slot)
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					target_can_stack, target_max_stack
+				):
+					if drag_manager:
+						drag_manager.end_drag(true)
+					return
+				_complete_bridge_drop(from_slot, target_slot, dragged_item)
 				return
 	
 	# If target is empty, check if there's already a slot with the same item type that can be stacked
@@ -722,49 +705,37 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 					var total: int = check_count + dragged_count
 					
 					if total <= check_max_stack:
-						# Full stack - all dragged items fit
-						check_item["count"] = total
-						check_slot.set_item(check_item)
-						to_data.set_slot(check_slot.slot_index, check_item)
-						
-						# Source slot is already cleared (handled in start_drag)
-						# Just update display
-						_update_all_slots()
-						if target_slot.is_hotbar or from_slot.is_hotbar:
-							_update_hotbar_slots()
-						if main and main.has_method("get") and main.get("building_inventory_ui"):
-							var building_ui = main.get("building_inventory_ui")
-							if building_ui and from_slot in building_ui.slots:
-								building_ui._update_all_slots()
-						
-						if drag_manager:
-							drag_manager.complete_drop(check_slot)
-							item_dropped.emit(dragged_item, from_slot, check_slot)
+						if not _propose_move_between_slots(
+							from_slot, check_slot, dragged_item, check_item,
+							slot_allows_stack_merge(check_slot, dragged_type),
+							check_max_stack
+						):
+							if drag_manager:
+								drag_manager.end_drag(true)
+							return
+						_complete_bridge_drop(from_slot, check_slot, dragged_item)
 						return
 					else:
-						# Partial stack - some items fit
-						var stack_amount: int = check_max_stack - check_count
-						check_item["count"] = check_max_stack
-						check_slot.set_item(check_item)
-						to_data.set_slot(check_slot.slot_index, check_item)
-						
-						# Put remaining items in target slot
-						var remaining: Dictionary = dragged_item.duplicate()
-						remaining["count"] = dragged_count - stack_amount
-						target_slot.set_item(remaining)
-						to_data.set_slot(target_slot.slot_index, remaining)
-						
-						_update_all_slots()
-						if target_slot.is_hotbar or from_slot.is_hotbar:
-							_update_hotbar_slots()
-						if main and main.has_method("get") and main.get("building_inventory_ui"):
-							var building_ui = main.get("building_inventory_ui")
-							if building_ui and from_slot in building_ui.slots:
-								building_ui._update_all_slots()
-						
-						if drag_manager:
-							drag_manager.complete_drop(target_slot)
-							item_dropped.emit(dragged_item, from_slot, target_slot)
+						if not _propose_move_between_slots(
+							from_slot, check_slot, dragged_item, check_item,
+							slot_allows_stack_merge(check_slot, dragged_type),
+							check_max_stack
+						):
+							if drag_manager:
+								drag_manager.end_drag(true)
+							return
+						if target_slot != check_slot:
+							var remainder_item: Dictionary = from_data.get_slot(from_slot.slot_index)
+							if not remainder_item.is_empty():
+								if not _propose_move_between_slots(
+									from_slot, target_slot, remainder_item, {},
+									slot_allows_stack_merge(target_slot, dragged_type),
+									get_slot_stack_limit(target_slot, dragged_type)
+								):
+									if drag_manager:
+										drag_manager.end_drag(true)
+									return
+						_complete_bridge_drop(from_slot, target_slot, dragged_item)
 						return
 	
 	# No stacking possible - if target slot is empty, place item there directly
@@ -787,54 +758,24 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				break
 	
 	if empty_slot:
-		# Found empty slot - place dragged item there
-		empty_slot.set_item(dragged_item)
-		to_data.set_slot(empty_slot.slot_index, dragged_item)
-		
-		# Source slot is already cleared by start_drag, but ensure building/corpse inventory display is updated
-		# This is especially important for cross-inventory drops (corpse -> player)
-		
-		# Log successful drop
+		if not _propose_move_between_slots(
+			from_slot, empty_slot, dragged_item, {},
+			target_can_stack, target_max_stack
+		):
+			if drag_manager:
+				drag_manager.end_drag(true)
+			return
 		var item_type = dragged_item.get("type", -1)
 		var item_name: String = ResourceData.get_resource_name(item_type) if item_type != -1 else "unknown"
 		UnifiedLogger.log_drag_drop("Drop success: moved_to_empty - %s" % item_name, {
 			"from_slot": from_slot.slot_index if from_slot else -1,
 			"to_slot": empty_slot.slot_index if empty_slot else -1
 		}, UnifiedLogger.Level.DEBUG)
-		
-		# Update displays - ensure both player and building/corpse inventories are updated
-		_update_all_slots()
-		if target_slot.is_hotbar or from_slot.is_hotbar or empty_slot.is_hotbar:
-			_update_hotbar_slots()
-		# Always update building/corpse inventory if dragging from it
-		if main and main.has_method("get") and main.get("building_inventory_ui"):
-			var building_ui = main.get("building_inventory_ui")
-			if building_ui and from_slot in building_ui.slots:
-				# Force update to reflect source slot clearing
-				building_ui._update_all_slots()
-		
-		if drag_manager:
-			drag_manager.complete_drop(empty_slot)
-			item_dropped.emit(dragged_item, from_slot, empty_slot)
+		_complete_bridge_drop(from_slot, empty_slot, dragged_item)
 	else:
-		# No empty slot found - cancel the drop, put item back in source slot
-		from_slot.set_item(dragged_item)
-		from_data.set_slot(from_slot.slot_index, dragged_item)
-		
-		# Log drop failure
 		UnifiedLogger.log_drag_drop("Drop failed: no_empty_slot", {}, UnifiedLogger.Level.DEBUG)
-		
-		# Update displays
-		_update_all_slots()
-		if from_slot.is_hotbar:
-			_update_hotbar_slots()
-		if main and main.has_method("get") and main.get("building_inventory_ui"):
-			var building_ui = main.get("building_inventory_ui")
-			if building_ui and from_slot in building_ui.slots:
-				building_ui._update_all_slots()
-		
 		if drag_manager:
-			drag_manager.end_drag()
+			drag_manager.end_drag(true)
 
 
 func get_total_resource_count(type: ResourceData.ResourceType) -> int:
@@ -922,7 +863,15 @@ func _on_craft_icon_clicked(event: InputEvent, craft: CraftRegistryScript.CraftD
 	var hotbar_data = get_meta("hotbar_data", null) as InventoryData
 	if not CraftRegistryScript.can_afford(craft, inventory_data, hotbar_data):
 		return
-	if not CraftRegistryScript.consume_materials(craft, inventory_data, hotbar_data):
+	var bridge: Node = _get_inventory_bridge()
+	if bridge == null:
+		return
+	var op: Dictionary = {
+		InventoryActionBridge.KEY_TYPE: InventoryActionBridge.OP_CRAFT,
+		InventoryActionBridge.KEY_CRAFT_OUTPUT: int(craft.output_type),
+		InventoryActionBridge.KEY_CRAFT_PHASE: InventoryActionBridge.CRAFT_PHASE_CONSUME,
+	}
+	if not bridge.propose_inventory_mutate(op):
 		return
 	var overlay := ProgressPieOverlay.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -938,10 +887,19 @@ func _on_craft_progress_completed(craft: CraftRegistryScript.CraftData) -> void:
 		_active_craft_overlay.queue_free()
 		_active_craft_overlay = null
 	_active_craft_data = null
-	if ResourceData.is_food(craft.output_type):
-		add_item_preferring_food_slots(craft.output_type, 1)
+	var bridge: Node = _get_inventory_bridge()
+	if bridge:
+		var op: Dictionary = {
+			InventoryActionBridge.KEY_TYPE: InventoryActionBridge.OP_CRAFT,
+			InventoryActionBridge.KEY_CRAFT_OUTPUT: int(craft.output_type),
+			InventoryActionBridge.KEY_CRAFT_PHASE: InventoryActionBridge.CRAFT_PHASE_FINISH,
+		}
+		bridge.propose_inventory_mutate(op)
 	else:
-		inventory_data.add_item(craft.output_type, 1)
+		if ResourceData.is_food(craft.output_type):
+			add_item_preferring_food_slots(craft.output_type, 1)
+		else:
+			inventory_data.add_item(craft.output_type, 1)
 	_update_all_slots()
 	_update_hotbar_slots()
 	_update_craft_icon_states()

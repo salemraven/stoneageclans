@@ -122,6 +122,41 @@ func _on_drag_ended() -> void:
 	# Check if drop was successful
 	pass
 
+
+func _get_inventory_bridge() -> Node:
+	return get_node_or_null("/root/InventoryActionBridge")
+
+
+func _propose_move_between_slots(
+	from_slot: InventorySlot,
+	to_slot: InventorySlot,
+	dragged_item: Dictionary,
+	target_item: Dictionary,
+	to_can_stack: bool,
+	to_max_stack: int
+) -> bool:
+	var bridge: Node = _get_inventory_bridge()
+	if bridge == null:
+		return false
+	var from_ctx: Dictionary = bridge.resolve_slot_context(from_slot)
+	var to_ctx: Dictionary = bridge.resolve_slot_context(to_slot)
+	var op: Dictionary = bridge.build_move_op(
+		str(from_ctx.get("kind", InventoryActionBridge.INV_PLAYER)),
+		int(from_ctx.get("entity_id", -1)),
+		from_slot.slot_index,
+		str(to_ctx.get("kind", InventoryActionBridge.INV_PLAYER)),
+		int(to_ctx.get("entity_id", -1)),
+		to_slot.slot_index,
+		dragged_item,
+		target_item,
+		to_can_stack,
+		to_max_stack
+	)
+	if op.is_empty():
+		return false
+	return bridge.propose_inventory_mutate(op)
+
+
 func _handle_drop(target_slot: InventorySlot) -> void:
 	if not drag_manager or not drag_manager.is_dragging:
 		return
@@ -160,17 +195,14 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 			var total: int = target_count + dragged_count
 			
 			if total <= inventory_data.max_stack:
-				# Full stack
-				target_item["count"] = total
-				target_slot.set_item(target_item)
-				inventory_data.set_slot(target_slot.slot_index, target_item)
-				
-				# Clear from slot
-				from_slot.set_item({})
-				# Update from inventory if it's different
-				var from_inventory = _get_inventory_for_slot(from_slot)
-				if from_inventory:
-					from_inventory.set_slot(from_slot.slot_index, {})
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					inventory_data.can_stack, inventory_data.max_stack
+				):
+					drag_manager.end_drag(true)
+					return
+				target_slot.set_item(inventory_data.get_slot(target_slot.slot_index))
+				from_slot.set_item(inventory_data.get_slot(from_slot.slot_index))
 				
 				var item_type = dragged_item.get("type", -1)
 				var item_name: String = ResourceData.get_resource_name(item_type) if item_type != -1 else "unknown"
@@ -184,18 +216,14 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				return
 			else:
 				# Partial stack
-				var stack_amount: int = inventory_data.max_stack - target_count
-				target_item["count"] = inventory_data.max_stack
-				target_slot.set_item(target_item)
-				inventory_data.set_slot(target_slot.slot_index, target_item)
-				
-				# Update dragged item
-				dragged_item["count"] = dragged_count - stack_amount
-				from_slot.set_item(dragged_item)
-				# Update from inventory if it's different
-				var from_inventory = _get_inventory_for_slot(from_slot)
-				if from_inventory:
-					from_inventory.set_slot(from_slot.slot_index, dragged_item)
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					inventory_data.can_stack, inventory_data.max_stack
+				):
+					drag_manager.end_drag(true)
+					return
+				target_slot.set_item(inventory_data.get_slot(target_slot.slot_index))
+				from_slot.set_item(inventory_data.get_slot(from_slot.slot_index))
 				
 				var item_type = dragged_item.get("type", -1)
 				var item_name: String = ResourceData.get_resource_name(item_type) if item_type != -1 else "unknown"
@@ -209,15 +237,14 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 				return
 	
 	# Swap items
-	var temp: Dictionary = target_item.duplicate()
-	target_slot.set_item(dragged_item)
-	inventory_data.set_slot(target_slot.slot_index, dragged_item)
-	
-	from_slot.set_item(temp)
-	# Update from inventory if it's different
-	var from_inventory = _get_inventory_for_slot(from_slot)
-	if from_inventory:
-		from_inventory.set_slot(from_slot.slot_index, temp)
+	if not _propose_move_between_slots(
+		from_slot, target_slot, dragged_item, target_item,
+		inventory_data.can_stack, inventory_data.max_stack
+	):
+		drag_manager.end_drag(true)
+		return
+	target_slot.set_item(inventory_data.get_slot(target_slot.slot_index))
+	from_slot.set_item(inventory_data.get_slot(from_slot.slot_index))
 	
 	var item_type = dragged_item.get("type", -1)
 	var item_name: String = ResourceData.get_resource_name(item_type) if item_type != -1 else "unknown"

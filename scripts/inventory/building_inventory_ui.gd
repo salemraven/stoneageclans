@@ -1273,6 +1273,15 @@ func _handle_campfire_upgrade_drop() -> void:
 	_update_building_ui_state()
 	_update_all_slots()
 
+func _complete_building_bridge_drop(from_slot: InventorySlot, to_slot: InventorySlot, dragged_item: Dictionary) -> void:
+	_update_fire_button_state()
+	if land_claim or campfire:
+		_update_building_icon_states()
+	if drag_manager:
+		drag_manager.complete_drop(to_slot)
+	item_dropped.emit(dragged_item, from_slot, to_slot)
+
+
 func _handle_drop(target_slot: InventorySlot) -> void:
 	if not drag_manager or not drag_manager.is_dragging:
 		return
@@ -1347,63 +1356,24 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 			print("🔵 BUILDING DROP: Attempting to stack - target has %d, dragging %d, total would be %d (max=%d)" % [target_count, dragged_count, total, to_inventory.max_stack])
 			
 			if total <= to_inventory.max_stack:
-				# Full stack - all dragged items fit
-				target_item["count"] = total
-				target_slot.set_item(target_item)
-				to_inventory.set_slot(target_slot.slot_index, target_item)
-				
-				# Verify stacking worked
-				var verify_slot = to_inventory.get_slot(target_slot.slot_index)
-				var verify_count = verify_slot.get("count", 0) if not verify_slot.is_empty() else 0
-				if verify_count != total:
-					print("❌ BUILDING DROP ERROR: Stacking failed! Expected count %d, got %d" % [total, verify_count])
-				else:
-					print("✅ BUILDING DROP: Successfully stacked to %d items" % total)
-				
-				# Source slot is already cleared (handled in start_drag)
-				# Just update display
-				_update_all_slots()
-				_update_fire_button_state()  # Update fire button state after inventory change
-				if land_claim or campfire:
-					_update_building_icon_states()
-				if main and main.has_method("get") and main.get("player_inventory_ui"):
-					var player_ui = main.get("player_inventory_ui")
-					if player_ui:
-						player_ui._update_all_slots()
-						if from_slot.is_hotbar:
-							player_ui._update_hotbar_slots()
-				
-				if drag_manager:
-					drag_manager.complete_drop(target_slot)
-					item_dropped.emit(dragged_item, from_slot, target_slot)
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					to_inventory.can_stack, to_inventory.max_stack
+				):
+					if drag_manager:
+						drag_manager.end_drag(true)
+					return
+				_complete_building_bridge_drop(from_slot, target_slot, dragged_item)
 				return
 			else:
-				# Partial stack - some items fit
-				var stack_amount: int = to_inventory.max_stack - target_count
-				target_item["count"] = to_inventory.max_stack
-				target_slot.set_item(target_item)
-				to_inventory.set_slot(target_slot.slot_index, target_item)
-				
-				# Put remaining items back in source slot
-				var remaining: Dictionary = dragged_item.duplicate()
-				remaining["count"] = dragged_count - stack_amount
-				from_slot.set_item(remaining)
-				from_inventory.set_slot(from_slot.slot_index, remaining)
-				
-				_update_all_slots()
-				_update_fire_button_state()  # Update fire button state after inventory change
-				if land_claim or campfire:
-					_update_building_icon_states()
-				if main and main.has_method("get") and main.get("player_inventory_ui"):
-					var player_ui = main.get("player_inventory_ui")
-					if player_ui:
-						player_ui._update_all_slots()
-						if from_slot.is_hotbar:
-							player_ui._update_hotbar_slots()
-				
-				if drag_manager:
-					drag_manager.complete_drop(target_slot)
-					item_dropped.emit(dragged_item, from_slot, target_slot)
+				if not _propose_move_between_slots(
+					from_slot, target_slot, dragged_item, target_item,
+					to_inventory.can_stack, to_inventory.max_stack
+				):
+					if drag_manager:
+						drag_manager.end_drag(true)
+					return
+				_complete_building_bridge_drop(from_slot, target_slot, dragged_item)
 				return
 	
 	# If target is empty, check if there's already a slot with the same item type that can be stacked
@@ -1420,56 +1390,35 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 					var total: int = check_count + dragged_count
 					
 					if total <= to_inventory.max_stack:
-						# Full stack - all dragged items fit
-						check_item["count"] = total
-						check_slot.set_item(check_item)
-						to_inventory.set_slot(check_slot.slot_index, check_item)
-						
-						# Source slot is already cleared (handled in start_drag)
-						# Just update display
-						_update_all_slots()
-						_update_fire_button_state()  # Update fire button state after inventory change
-						if land_claim or campfire:
-							_update_building_icon_states()
-						if main and main.has_method("get") and main.get("player_inventory_ui"):
-							var player_ui = main.get("player_inventory_ui")
-							if player_ui:
-								player_ui._update_all_slots()
-								if from_slot.is_hotbar:
-									player_ui._update_hotbar_slots()
-							
+						if not _propose_move_between_slots(
+							from_slot, check_slot, dragged_item, check_item,
+							to_inventory.can_stack, to_inventory.max_stack
+						):
 							if drag_manager:
-								drag_manager.complete_drop(check_slot)
-								item_dropped.emit(dragged_item, from_slot, check_slot)
+								drag_manager.end_drag(true)
 							return
+						_complete_building_bridge_drop(from_slot, check_slot, dragged_item)
+						return
 					else:
-						# Partial stack - some items fit
-						var stack_amount: int = to_inventory.max_stack - check_count
-						check_item["count"] = to_inventory.max_stack
-						check_slot.set_item(check_item)
-						to_inventory.set_slot(check_slot.slot_index, check_item)
-						
-						# Put remaining items in target slot
-						var remaining: Dictionary = dragged_item.duplicate()
-						remaining["count"] = dragged_count - stack_amount
-						target_slot.set_item(remaining)
-						to_inventory.set_slot(target_slot.slot_index, remaining)
-						
-						_update_all_slots()
-						_update_fire_button_state()  # Update fire button state after inventory change
-						if land_claim or campfire:
-							_update_building_icon_states()
-						if main and main.has_method("get") and main.get("player_inventory_ui"):
-							var player_ui = main.get("player_inventory_ui")
-							if player_ui:
-								player_ui._update_all_slots()
-								if from_slot.is_hotbar:
-									player_ui._update_hotbar_slots()
-							
+						if not _propose_move_between_slots(
+							from_slot, check_slot, dragged_item, check_item,
+							to_inventory.can_stack, to_inventory.max_stack
+						):
 							if drag_manager:
-								drag_manager.complete_drop(target_slot)
-								item_dropped.emit(dragged_item, from_slot, target_slot)
+								drag_manager.end_drag(true)
 							return
+						if target_slot != check_slot:
+							var remainder_item: Dictionary = from_inventory.get_slot(from_slot.slot_index)
+							if not remainder_item.is_empty():
+								if not _propose_move_between_slots(
+									from_slot, target_slot, remainder_item, {},
+									to_inventory.can_stack, to_inventory.max_stack
+								):
+									if drag_manager:
+										drag_manager.end_drag(true)
+									return
+						_complete_building_bridge_drop(from_slot, target_slot, dragged_item)
+						return
 	
 	# No stacking possible - find an empty slot instead of swapping
 	# Target slot's item stays where it is, dragged item goes to empty slot
@@ -1486,82 +1435,24 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 			break
 	
 	if empty_slot:
-		# Found empty slot - place dragged item there
-		print("🔵 BUILDING DROP: Adding item to slot %d in building inventory" % empty_slot.slot_index)
-		print("🔵 BUILDING DROP: Item type: %s, count: %d" % [ResourceData.get_resource_name(dragged_type), dragged_count])
-		print("🔵 BUILDING DROP: Building inventory reference: %s (slot_count=%d)" % [to_inventory, to_inventory.slot_count if to_inventory else 0])
-		
-		empty_slot.set_item(dragged_item)
-		to_inventory.set_slot(empty_slot.slot_index, dragged_item)
-		
-		# Verify the item was actually added
-		var verify_slot = to_inventory.get_slot(empty_slot.slot_index)
-		if verify_slot.is_empty():
-			print("❌ BUILDING DROP ERROR: Item was NOT added to inventory! Slot %d is still empty!" % empty_slot.slot_index)
-		else:
-			print("✅ BUILDING DROP: Item successfully added to slot %d" % empty_slot.slot_index)
-		
-		# Ensure source slot is cleared (it should be, but verify for cross-inventory drops)
-		if from_inventory != to_inventory:
-			# Cross-inventory drop - ensure source is cleared if not already
-			var source_slot_data = from_inventory.get_slot(from_slot.slot_index)
-			if not source_slot_data.is_empty() and source_slot_data.get("type", -1) == dragged_type:
-				# Source still has item - this shouldn't happen if start_drag worked, but clear it just in case
-				var source_count = source_slot_data.get("count", 0)
-				if source_count > dragged_count:
-					# Still has items after removing dragged amount - update count
-					source_slot_data["count"] = source_count - dragged_count
-					from_inventory.set_slot(from_slot.slot_index, source_slot_data)
-					from_slot.set_item(source_slot_data)
-				else:
-					# Should be empty now - clear it
-					from_inventory.set_slot(from_slot.slot_index, {})
-					from_slot.set_item({})
-		
-		# Log successful drop
+		if not _propose_move_between_slots(
+			from_slot, empty_slot, dragged_item, {},
+			to_inventory.can_stack, to_inventory.max_stack
+		):
+			if drag_manager:
+				drag_manager.end_drag(true)
+			return
 		var item_type = dragged_item.get("type", -1)
 		var item_name: String = ResourceData.get_resource_name(item_type) if item_type != -1 else "unknown"
 		UnifiedLogger.log_drag_drop("Drop success: moved_to_empty - %s" % item_name, {
 			"from_slot": from_slot.slot_index if from_slot else -1,
 			"to_slot": empty_slot.slot_index if empty_slot else -1
 		}, UnifiedLogger.Level.DEBUG)
-		
-		# Update displays
-		_update_all_slots()
-		_update_fire_button_state()  # Update fire button state after inventory change
-		if land_claim or campfire:
-			_update_building_icon_states()
-		if main and main.has_method("get") and main.get("player_inventory_ui"):
-			var player_ui = main.get("player_inventory_ui")
-			if player_ui:
-				player_ui._update_all_slots()
-				if from_slot.is_hotbar:
-					player_ui._update_hotbar_slots()
-		
-		if drag_manager:
-			drag_manager.complete_drop(empty_slot)
-			item_dropped.emit(dragged_item, from_slot, empty_slot)
+		_complete_building_bridge_drop(from_slot, empty_slot, dragged_item)
 	else:
-		# No empty slot found - cancel the drop, put item back in source slot
-		from_slot.set_item(dragged_item)
-		from_inventory.set_slot(from_slot.slot_index, dragged_item)
-		
-		# Log drop failure
 		UnifiedLogger.log_drag_drop("Drop failed: no_empty_slot", {}, UnifiedLogger.Level.DEBUG)
-		
-		# Update displays
-		_update_all_slots()
-		if main and main.has_method("get") and main.get("player_inventory_ui"):
-			var player_ui = main.get("player_inventory_ui")
-			if player_ui:
-				player_ui._update_all_slots()
-				if from_slot.is_hotbar:
-					player_ui._update_hotbar_slots()
-		
 		if drag_manager:
-			drag_manager.end_drag()
-		
-		# Update building icon states after inventory changes (if land claim or campfire exists)
+			drag_manager.end_drag(true)
 		if land_claim or campfire:
 			_update_building_icon_states()
 
