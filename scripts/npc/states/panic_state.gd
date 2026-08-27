@@ -81,8 +81,8 @@ func _pick_panic_target() -> void:
 	var cf := _home_campfire if _home_campfire and is_instance_valid(_home_campfire) else _find_home_campfire()
 	if cf == null:
 		return
-	var angle: float = npc.npc_randf() * TAU if npc.has_method("npc_randf") else randf() * TAU
-	var dist: float = cf.radius * (0.25 + (npc.npc_randf() if npc.has_method("npc_randf") else randf()) * 0.65)
+	var angle: float = npc.npc_randf() * TAU
+	var dist: float = cf.radius * (0.25 + npc.npc_randf() * 0.65)
 	var offset := Vector2(cos(angle), sin(angle)) * dist
 	npc.steering_agent.set_target_position(cf.global_position + offset)
 

@@ -42,7 +42,9 @@ func get_loaded_chunk_coords() -> Array[Vector2i]:
 func ensure_initial_load(main_node: Node2D) -> void:
 	bind_main(main_node)
 	if _wgc and int(_wgc.world_seed) == 0:
-		_wgc.world_seed = randi()
+		var sim: Node = get_node_or_null("/root/SimRng")
+		if sim and sim.has_method("bootstrap_from_world_config"):
+			sim.bootstrap_from_world_config()
 	if not _main or not is_instance_valid(_main):
 		return
 	var player: Node2D = _main.get("player") as Node2D
@@ -409,6 +411,8 @@ func _process_density_timer(delta: float) -> void:
 		candidates.append(c)
 	if candidates.is_empty():
 		return
-	var pick: Vector2i = candidates[randi() % candidates.size()]
+	var ws: int = int(_wgc.world_seed) if _wgc else 0
+	var pick_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(str(candidates)))
+	var pick: Vector2i = candidates[pick_rng.randi_range(0, candidates.size() - 1)]
 	if _main.has_method("spawn_density_fill_clan_at_chunk"):
 		_main.call("spawn_density_fill_clan_at_chunk", pick, _loaded[pick] as Node2D)

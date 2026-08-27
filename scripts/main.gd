@@ -367,10 +367,12 @@ func _spawn_replacement_caveman() -> void:
 	var radius_min: float = BalanceConfig.caveman_spawn_radius_min if BalanceConfig else 900.0
 	var radius_max: float = BalanceConfig.caveman_spawn_radius_max if BalanceConfig else 1200.0
 	
+	var ws: int = _playtest_world_seed_value()
+	var spawn_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(str(center_pos.round())))
 	var pos: Vector2 = Vector2.ZERO
 	for attempt in 15:
-		var angle := randf() * TAU
-		var distance := randf_range(radius_min, radius_max)
+		var angle := spawn_rng.randf() * TAU
+		var distance := spawn_rng.randf_range(radius_min, radius_max)
 		pos = Vector2(cos(angle), sin(angle)) * distance + center_pos
 		if pos.distance_to(center_pos) < min_from_player:
 			continue
@@ -385,7 +387,7 @@ func _spawn_replacement_caveman() -> void:
 			break
 	
 	var claim_pos := Vector2(round(pos.x / 64.0) * 64.0, round(pos.y / 64.0) * 64.0)
-	var clan_name: String = _generate_random_clan_name()
+	var clan_name: String = _seeded_clan_name(hash(Vector3i(int(claim_pos.x), int(claim_pos.y), 1)))
 	
 	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
 	if not land_claim:
@@ -406,10 +408,10 @@ func _spawn_replacement_caveman() -> void:
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
 		return
-	var npc_name: String = _generate_caveman_name()
+	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), 2)))
 	npc.set("npc_name", npc_name)
 	npc.set("npc_type", "caveman")
-	npc.set("age", randi_range(13, 50))
+	npc.set("age", spawn_rng.randi_range(13, 50))
 	npc.set("traits", ["solitary"])
 	npc.set("agro_meter", 0.0)
 	npc.set("clan_name", clan_name)
@@ -467,10 +469,12 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
 		return
-	var npc_name: String = _generate_caveman_name()
+	var ws: int = _playtest_world_seed_value()
+	var spawn_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(Vector3i(int(cave_world_pos.x), int(cave_world_pos.y), 2)))
+	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(cave_world_pos.x), int(cave_world_pos.y), 2)))
 	npc.set("npc_name", npc_name)
 	npc.set("npc_type", "caveman")
-	npc.set("age", randi_range(13, 50))
+	npc.set("age", spawn_rng.randi_range(13, 50))
 	npc.set("traits", ["solitary"])
 	npc.set("agro_meter", 0.0)
 	npc.set("clan_name", clan_name)
@@ -675,7 +679,7 @@ func _on_eat_complete() -> void:
 
 
 func _on_inventory_mutate_validated(_op: Dictionary) -> void:
-	# Server-validated inventory path (Phase 6). Drag/drop still applies directly offline; extend _op schema here.
+	# Apply runs in InventoryActionBridge._emit_validated_op; hook here for future side effects.
 	pass
 
 func _apply_window_mode_windowed() -> void:
@@ -693,6 +697,9 @@ func _apply_window_mode_windowed() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		var sink = get_node_or_null("/root/RuntimeFaultSink")
+		if sink and sink.has_method("mark_quit"):
+			sink.mark_quit("window_close_button", "main.gd NOTIFICATION_WM_CLOSE_REQUEST")
 		# Print competition leaderboard and clan deposits before exit
 		var competition_tracker = get_node_or_null("/root/CompetitionTracker")
 		if competition_tracker:
@@ -704,6 +711,9 @@ func _ready() -> void:
 	# Log startup
 	_npc_only_world = _cmdline_npc_only_world()
 	_apply_playtest_world_seed_from_cli()
+	var sim_rng: Node = get_node_or_null("/root/SimRng")
+	if sim_rng and sim_rng.has_method("bootstrap_from_world_config"):
+		sim_rng.bootstrap_from_world_config()
 	UnifiedLogger.log_system("Main._ready() called")
 	
 	add_to_group("main")
@@ -752,9 +762,6 @@ func _ready() -> void:
 		_chain_test_prepare_hub(MILESTONE_CHAIN_HUB)
 
 	await _setup_npcs()
-	# FLOW FIX: Resources now spawn AFTER NPCs (see _ready() - moved to after _initialize_minigame())
-	# _spawn_initial_resources()  # Moved to after NPCs spawn
-	_spawn_ground_items()
 	_give_starting_items()
 	_setup_debug_ui()
 	_setup_dev_balance_menu()
@@ -1239,7 +1246,6 @@ func _process(delta: float) -> void:
 				active_collection_resource.try_player_gather_press(self)
 		elif not Input.is_action_pressed("weapon_ready"):
 			call_deferred("_deferred_try_ambient_grass_forage")
-	_spawn_ground_items_around_player()  # Continuously spawn ground items as player moves
 	# Step 10: NPC drag hold timer + preview follow
 	if npc_drag_source and not npc_dragging:
 		npc_drag_hold_timer += delta
@@ -1381,11 +1387,7 @@ func _input(event: InputEvent) -> void:
 		call_deferred("_spawn_rts_playtest_pack_async")
 		get_viewport().set_input_as_handled()
 	
-	# F7: Debug — spawn one migratory deer at chunk band edge (wildlife movement test).
-	if event is InputEventKey and event.keycode == KEY_F7 and event.pressed:
-		_spawn_debug_migratory_deer_f7()
-		get_viewport().set_input_as_handled()
-	
+	# F7 removed: legacy migratory debug spawn deleted with chunk-only wildlife.
 	# L: TASK SYSTEM TEST — manually trigger logger
 	if event is InputEventKey and event.keycode == KEY_L and event.pressed:
 		_log_task_system_data()
@@ -1729,201 +1731,37 @@ func _give_starting_items() -> void:
 	if _npc_only_world:
 		print("NPC_ONLY_WORLD: skipping player starting items (no human avatar loop)")
 		return
-	# Campfire plus starter spear on right-hand hotbar slot (until gather/crafting loop is primary).
+	# Campfire plus starter weapon on right-hand hotbar slot (until gather/crafting loop is primary).
 	await get_tree().process_frame
 	
 	add_building_item_to_player_inventory(ResourceData.ResourceType.CAMPFIRE)
+	var start_weapon: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc and bool(dc.get("enable_start_club")):
+		start_weapon = ResourceData.ResourceType.WOOD
 	if player_inventory_ui:
 		var hotbar_data := player_inventory_ui.get_meta("hotbar_data", null) as InventoryData
 		if hotbar_data:
 			hotbar_data.set_slot(player_inventory_ui.RIGHT_HAND_SLOT_INDEX, {
-				"type": ResourceData.ResourceType.SPEAR,
+				"type": start_weapon,
 				"count": 1,
 				"quality": 0
 			})
 		player_inventory_ui._update_all_slots()
 		player_inventory_ui._update_hotbar_slots()
 		_update_equipment()
-		print("Starting items: campfire in inventory + spear in hotbar slot 1")
+		var weapon_label: String = "club" if start_weapon == ResourceData.ResourceType.WOOD else "spear"
+		print("Starting items: campfire in inventory + %s in hotbar slot 1" % weapon_label)
 
-func _spawn_initial_resources() -> void:
-	# Wait a frame to ensure player position is set
-	await get_tree().process_frame
-	
-	# Spawn resources randomly across the game map (spread out, not clustered in center)
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
-	var spawn_count := int(ceili(75.0 * density_mult))  # Total resources to spawn (scaled by density)
-	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
-	var center_pos := player.global_position
-	var min_resource_distance: float = BalanceConfig.resource_min_distance if BalanceConfig else 1000.0
-	
-	print("Spawning %d resources randomly across map (radius: %.0f) around position: %s" % [spawn_count, spawn_radius, center_pos])
-	var max_attempts: int = 50  # More attempts to find valid positions when spread out
-	
-	# WOOD: same treess.png gatherables as forest clusters — also spawned here so wood trees exist across the whole map, not only in patches.
-	for i in spawn_count:
-		var resource_type: ResourceData.ResourceType
-		match i % 5:
-			0:
-				resource_type = ResourceData.ResourceType.STONE
-			1:
-				resource_type = ResourceData.ResourceType.BERRIES
-			2:
-				resource_type = ResourceData.ResourceType.WHEAT
-			3:
-				resource_type = ResourceData.ResourceType.FIBER
-			4:
-				resource_type = ResourceData.ResourceType.WOOD
-		
-		# Try to find a position that's not too close to other resources
-		# Random distribution across the map
-		var pos: Vector2 = Vector2.ZERO
-		var _found_valid_pos: bool = false
-		
-		for attempt in max_attempts:
-			# Random distance and angle for true random distribution
-			var distance := randf() * spawn_radius
-			var angle := randf() * TAU
-			pos = Vector2(cos(angle), sin(angle)) * distance + center_pos
-			
-			# Check if this position is far enough from existing resources
-			var too_close: bool = false
-			for existing_resource in get_tree().get_nodes_in_group("resources"):
-				if not is_instance_valid(existing_resource):
-					continue
-				if existing_resource.is_in_group("ground_items"):
-					continue
-				var existing_pos: Vector2 = existing_resource.global_position
-				if pos.distance_to(existing_pos) < min_resource_distance:
-					too_close = true
-					break
-			
-			if not too_close:
-				_found_valid_pos = true
-				break
-		
-		# Spawn the resource at the found position (always spawn, even if position isn't perfect)
-		_spawn_resource(resource_type, pos)
-	
-	print("Resources spawned!")
 
-func _spawn_tallgrass() -> void:
-	"""Spawn tallgrass sprites in groups of 8-16 in random areas across the map (spread out)."""
-	if not world_objects or not player:
-		return
-	var wgc_stream: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc_stream and bool(wgc_stream.use_chunk_content_streaming):
-		return
-	var center_pos := player.global_position
-	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
-	var group_count := int(ceili(float(randi_range(65, 85)) * density_mult))  # Scaled by density
-	var texture_paths := [
-		"res://assets/sprites/tallgrass1.png",
-		"res://assets/sprites/tallgrass2.png",
-		"res://assets/sprites/tallgrass3.png",
-		"res://assets/sprites/tallgrass4.png",
-		"res://assets/sprites/tallgrass5.png",
-		"res://assets/sprites/tallgrass6.png"
-	]
-	var textures: Array = []
-	for p in texture_paths:
-		var t := load(p) as Texture2D
-		if t != null:
-			textures.append(t)
-	if textures.is_empty():
-		return
-	print("Spawning tallgrass in %d groups (radius: %.0f)" % [group_count, spawn_radius])
-	for _g in group_count:
-		var group_center_angle := randf() * TAU
-		var group_center_dist := randf() * spawn_radius
-		var group_center := Vector2(cos(group_center_angle), sin(group_center_angle)) * group_center_dist + center_pos
-		var grass_min: int = maxi(4, int(ceili(8.0 * density_mult / 2.0)))
-		var grass_max: int = maxi(grass_min, int(ceili(16.0 * density_mult / 2.0)))
-		var count_in_group := randi_range(grass_min, grass_max)
-		var cluster_radius := 90.0  # Slightly looser spacing
-		for _i in count_in_group:
-			var offset := Vector2(randf_range(-cluster_radius, cluster_radius), randf_range(-cluster_radius, cluster_radius))
-			var pos := group_center + offset
-			var node := Node2D.new()
-			var sprite := Sprite2D.new()
-			var tex: Texture2D = textures[randi() % textures.size()]
-			sprite.texture = tex
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.centered = true
-			var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
-			sprite.scale = Vector2(wps, wps)
-			sprite.position = YSortUtils.get_grass_sprite_position_for_texture(tex, wps)
-			sprite.name = "Sprite"
-			node.add_child(sprite)
-			node.global_position = pos
-			node.add_to_group("tallgrass")
-			# Rare bug clumps (Space forage); 1 charge (very rarely 2), then depleted
-			if randf() < 0.07:
-				node.set_meta(TALLGRASS_HAS_BUGS_META, true)
-				var bug_charges := 1
-				if randf() < 0.06:
-					bug_charges = 2
-				node.set_meta(TALLGRASS_BUGS_REMAINING_META, bug_charges)
-			world_objects.add_child(node)
-			sprite.z_as_relative = false
-			YSortUtils.update_draw_order(sprite, node)
-	print("Tallgrass spawned!")
-
-func _spawn_decorative_trees() -> void:
-	"""Forest trees from trees.png — each one is a real WOOD gatherable (axe/oldowan), same Y-sort wrapper as before."""
-	if not world_objects or not player:
-		return
-	if not AssetRegistry.get_treess_sprite():
-		return
-	var center_pos := player.global_position
-	var spawn_radius: float = (BalanceConfig.resource_spawn_radius * 1.1) if BalanceConfig else 3500.0
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
-	var group_count := int(ceili(float(randi_range(28, 42)) * density_mult))
-	var min_tree_dist := 110.0
-	var existing_positions: Array[Vector2] = []
-	print("Spawning forest trees (choppable wood) in %d groups (radius: %.0f)" % [group_count, spawn_radius])
-	for _g in group_count:
-		var group_center_angle := randf() * TAU
-		var group_center_dist := randf() * spawn_radius
-		var group_center := Vector2(cos(group_center_angle), sin(group_center_angle)) * group_center_dist + center_pos
-		var tree_min: int = maxi(2, int(ceili(3.0 * density_mult / 2.0)))
-		var tree_max: int = maxi(tree_min, int(ceili(7.0 * density_mult / 2.0)))
-		var count_in_group := randi_range(tree_min, tree_max)
-		var cluster_radius := 320.0
-		for _i in count_in_group:
-			var offset := Vector2(randf_range(-cluster_radius, cluster_radius), randf_range(-cluster_radius, cluster_radius))
-			var pos := group_center + offset
-			var too_close := false
-			for ep in existing_positions:
-				if pos.distance_to(ep) < min_tree_dist:
-					too_close = true
-					break
-			if too_close:
-				continue
-			existing_positions.append(pos)
-			var tree_idx := randi_range(0, 14)
-			var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
-			# Wrapper: parent at pos+offset for y_sort; gatherable at -offset so feet stay at pos
-			var wrapper := Node2D.new()
-			wrapper.global_position = pos + Vector2(0, sort_offset)
-			wrapper.add_to_group("decorative_trees")
-			var wood: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
-			wood.resource_type = ResourceData.ResourceType.WOOD
-			wood.tree_sheet_index = tree_idx
-			wood.min_amount = 4
-			wood.max_amount = 6
-			wood.position = Vector2(0, -sort_offset)
-			wrapper.add_child(wood)
-			world_objects.add_child(wrapper)
-	print("Forest trees spawned!")
-
-func _get_random_sheep_goat_tint() -> Color:
-	"""White to almost-black grayscale for sheep/goat color variation."""
-	var v := randf_range(0.15, 1.0)
+func _get_random_sheep_goat_tint(rng: RandomNumberGenerator = null) -> Color:
+	var v: float
+	if rng != null:
+		v = rng.randf_range(0.15, 1.0)
+	else:
+		var ws: int = _playtest_world_seed_value()
+		var scoped: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash("sheep_goat_tint"))
+		v = scoped.randf_range(0.15, 1.0)
 	return Color(v, v, v)
 
 func _despawn_tallgrass_near(center_pos: Vector2, radius: float) -> void:
@@ -2129,84 +1967,6 @@ func _finish_ambient_grass_forage() -> void:
 		else:
 			patch.set_meta(TALLGRASS_BUGS_REMAINING_META, left)
 	add_to_inventory(ResourceData.ResourceType.BUGS, 1)
-
-func _spawn_ground_items() -> void:
-	# Spawn sparse ground items (stone, wood, mushrooms) spread across the map
-	await get_tree().process_frame
-	
-	if not player:
-		return
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc and bool(wgc.use_chunk_content_streaming):
-		return
-	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
-	var spawn_count := int(ceili(40.0 * density_mult))
-	var spawn_radius: float = BalanceConfig.resource_spawn_radius if BalanceConfig else 3200.0
-	var center_pos := player.global_position
-	
-	print("Spawning %d ground items across map (radius: %.0f) around position: %s" % [spawn_count, spawn_radius, center_pos])
-	
-	for i in spawn_count:
-		var angle := randf() * TAU
-		var distance := randf() * spawn_radius
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		
-		var item_type: ResourceData.ResourceType
-		match i % 3:
-			0:
-				item_type = ResourceData.ResourceType.STONE
-			1:
-				item_type = ResourceData.ResourceType.WOOD
-			2:
-				item_type = ResourceData.ResourceType.MUSHROOM
-		
-		_spawn_ground_item(item_type, pos)
-	
-	print("Ground items spawned!")
-
-func _spawn_ground_items_around_player() -> void:
-	# Continuously spawn ground items as player explores
-	if not player:
-		return
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc and bool(wgc.use_chunk_content_streaming):
-		return
-	var density_mult: float = float(wgc.resource_density_multiplier) if wgc else 1.0
-	# Spawn occasionally (not every frame); scale chance with density.
-	var spawn_chance: float = clampf(0.01 * density_mult, 0.01, 0.08)
-	if randf() > spawn_chance:
-		return
-	
-	var spawn_radius := 1000.0  # Increased radius for exploration
-	var center_pos := player.global_position
-	
-	# Check if there are already ground items nearby
-	var nearby_items := 0
-	var ground_items := get_tree().get_nodes_in_group("ground_items")
-	for item in ground_items:
-		if not is_instance_valid(item):
-			continue
-		var distance: float = center_pos.distance_to(item.global_position)
-		if distance < spawn_radius:
-			nearby_items += 1
-	
-	# Only spawn if there are few items nearby (cap scales with density)
-	var nearby_cap: int = maxi(5, int(ceili(5.0 * density_mult)))
-	if nearby_items < nearby_cap:
-		var angle := randf() * TAU
-		var distance := randf_range(400.0, spawn_radius)
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		
-		var r := randf()
-		var item_type: ResourceData.ResourceType
-		if r < 0.34:
-			item_type = ResourceData.ResourceType.STONE
-		elif r < 0.67:
-			item_type = ResourceData.ResourceType.WOOD
-		else:
-			item_type = ResourceData.ResourceType.MUSHROOM
-		
-		_spawn_ground_item(item_type, pos)
 
 func _spawn_ground_item(type: ResourceData.ResourceType, spawn_pos: Vector2) -> void:
 	# Snap position to tile grid (64x64 tiles) to prevent overlap
@@ -3905,15 +3665,15 @@ func _debug_spawn_test_npcs() -> void:
 	var center := player.global_position
 
 	# 1 caveman
-	var a0 := randf() * TAU
-	var d0 := randf_range(200.0, 400.0)
+	var a0 := SimRng.sim_randf() * TAU
+	var d0 := SimRng.sim_randf_range(200.0, 400.0)
 	var p0 := center + Vector2(cos(a0), sin(a0)) * d0
 	var caveman: Node = NPC_SCENE.instantiate()
 	if caveman:
-		var name_c: String = NamingUtils.generate_caveman_name()
+		var name_c: String = _seeded_caveman_name(hash(Vector3i(int(p0.x), int(p0.y), 0)))
 		caveman.set("npc_name", name_c)
 		caveman.set("npc_type", "caveman")
-		caveman.set("age", randi_range(13, 50))
+		caveman.set("age", SimRng.sim_randi_range(13, 50))
 		caveman.set("traits", ["solitary"])
 		caveman.set("agro_meter", 0.0)
 		caveman.set("spawn_time", Time.get_ticks_msec() / 1000.0)
@@ -3932,17 +3692,17 @@ func _debug_spawn_test_npcs() -> void:
 
 	# 2 wild women
 	for idx in 2:
-		var a := randf() * TAU
-		var d := randf_range(200.0, 400.0)
+		var a := SimRng.sim_randf() * TAU
+		var d := SimRng.sim_randf_range(200.0, 400.0)
 		var pos := center + Vector2(cos(a), sin(a)) * d
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var name_w: String = NamingUtils.generate_caveman_name()
+		var name_w: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), 1)))
 		npc.set("npc_name", name_w)
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = pos
@@ -4499,10 +4259,10 @@ func _spawn_rts_playtest_pack() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var unit_name: String = NamingUtils.generate_caveman_name()
+		var unit_name: String = _seeded_caveman_name(hash(Vector3i(int(spawn_pos.x), int(spawn_pos.y), i)))
 		npc.set("npc_name", unit_name)
 		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(18, 45))
+		npc.set("age", SimRng.sim_randi_range(18, 45))
 		npc.set("traits", [])
 		npc.set("agro_meter", 0.0)
 		# Prevent FSM from entering herd_wildnpc immediately on spawn
@@ -5636,7 +5396,7 @@ func _find_ai_building_site(territory: Node, building_type: ResourceData.Resourc
 	for r in range(r_start, r_end, 70):
 		var dist: float = clampf(float(r), min_from_center, max_dist)
 		for k in range(20):
-			var angle: float = k * step_angle + randf() * 0.2
+			var angle: float = k * step_angle + SimRng.sim_randf() * 0.2
 			var cand: Vector2 = claim_center + Vector2(cos(angle * TAU), sin(angle * TAU)) * dist
 			if _validate_building_placement_near_claim_node(cand, building_type, territory, AI_BUILDING_MIN_FROM_CLAIM):
 				return cand
@@ -5693,7 +5453,7 @@ func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign
 	for r in range(int(min_from_center), int(max_dist), 70):
 		var dist: float = clampf(float(r), min_from_center, max_dist)
 		for k in range(20):
-			var angle: float = k * 0.5 + randf() * 0.2
+			var angle: float = k * 0.5 + SimRng.sim_randf() * 0.2
 			var cand: Vector2 = claim_center + Vector2(cos(angle * TAU), sin(angle * TAU)) * dist
 			if _validate_building_placement_near_claim_node(cand, ResourceData.ResourceType.LIVING_HUT, claim, AI_BUILDING_MIN_FROM_CLAIM):
 				place_pos = cand
@@ -6266,7 +6026,7 @@ func _evict_npc_from_land_claim(npc: Node2D, center: Vector2, radius: float) -> 
 	var direction: Vector2 = (npc_pos - center)
 	if direction.length() < 0.1:
 		# NPC is exactly at center, pick random direction
-		var angle := randf() * TAU
+		var angle := SimRng.sim_randf() * TAU
 		direction = Vector2(cos(angle), sin(angle))
 	else:
 		direction = direction.normalized()
@@ -6364,7 +6124,7 @@ func _evict_npcs_from_land_claim_area(center: Vector2, radius: float) -> void:
 				var direction: Vector2 = (npc_pos - center)
 				if direction.length() < 0.1:
 					# NPC is exactly at center, pick random direction
-					var angle := randf() * TAU
+					var angle := SimRng.sim_randf() * TAU
 					direction = Vector2(cos(angle), sin(angle))
 				else:
 					direction = direction.normalized()
@@ -6571,11 +6331,11 @@ func _setup_task_system_test_environment() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var npc_name: String = NamingUtils.generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(woman_pos.x), int(woman_pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("clan_name", test_clan_name)
 		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
@@ -6720,10 +6480,10 @@ func _setup_agro_combat_test_environment() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var npc_name: String = _generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("traits", ["solitary"])
 		npc.set("agro_meter", 0.0)
 		if npc.has_method("set_clan_name"):
@@ -6777,10 +6537,10 @@ func _setup_agro_combat_test_environment() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var npc_name: String = _generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("traits", ["solitary"])
 		npc.set("agro_meter", 0.0)
 		if npc.has_method("set_clan_name"):
@@ -6892,10 +6652,10 @@ func _setup_raid_test_environment() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var npc_name: String = _generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("traits", ["solitary"])
 		npc.set("agro_meter", 0.0)
 		if npc.has_method("set_clan_name"):
@@ -6922,10 +6682,10 @@ func _setup_raid_test_environment() -> void:
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
-		var npc_name: String = _generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("traits", ["solitary"])
 		npc.set("agro_meter", 0.0)
 		if npc.has_method("set_clan_name"):
@@ -7041,11 +6801,11 @@ func _setup_gather_test_environment() -> void:
 			print("ERROR: Failed to instantiate woman NPC %d" % (i + 1))
 			continue
 		
-		var npc_name: String = NamingUtils.generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(woman_pos.x), int(woman_pos.y), i)))
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		
 		# Assign to TEST clan immediately
 		npc.set("clan_name", test_clan_name)
@@ -7091,10 +6851,8 @@ func _setup_gather_test_environment() -> void:
 			print("ERROR: Failed to instantiate clansman NPC %d" % (i + 1))
 			continue
 		
-		var npc_name: String = NamingUtils.generate_caveman_name()
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "clansman")
-		npc.set("age", randi_range(13, 50))
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(clansman_pos.x), int(clansman_pos.y), i)))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		npc.set("traits", [])
 		npc.set("agro_meter", 0.0)
 		
@@ -7237,21 +6995,17 @@ func _initialize_minigame() -> void:
 		var npc_name: String
 		var npc_age: int
 		var npc_protective: bool
-		if ws != 0:
-			var spawn_rng := _caveman_init_spawn_rng(i)
-			angle_offset = spawn_rng.randf_range(-PI / 6.0, PI / 6.0)
-			distance = spawn_rng.randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
-			clan_name = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", hash(Vector3i(ws, i, 7770013))))
-			npc_name = str(_NAMING_UTILS_SCRIPT.call("generate_caveman_name_seeded", hash(Vector3i(ws, i, 7770014))))
-			npc_age = spawn_rng.randi_range(13, 50)
-			npc_protective = spawn_rng.randf() < 0.3
-		else:
-			angle_offset = randf_range(-PI / 6.0, PI / 6.0)
-			distance = randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
-			clan_name = _generate_random_clan_name()
-			npc_name = _generate_caveman_name()
-			npc_age = randi_range(13, 50)
-			npc_protective = randf() < 0.3
+		if ws == 0:
+			var sim_node: Node = get_node_or_null("/root/SimRng")
+			if sim_node and sim_node.has_method("get_world_seed"):
+				ws = int(sim_node.get_world_seed())
+		var spawn_rng := _caveman_init_spawn_rng(i)
+		angle_offset = spawn_rng.randf_range(-PI / 6.0, PI / 6.0)
+		distance = spawn_rng.randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
+		clan_name = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", hash(Vector3i(ws, i, 7770013))))
+		npc_name = str(_NAMING_UTILS_SCRIPT.call("generate_caveman_name_seeded", hash(Vector3i(ws, i, 7770014))))
+		npc_age = spawn_rng.randi_range(13, 50)
+		npc_protective = spawn_rng.randf() < 0.3
 		var angle := base_angle + angle_offset
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		# Snap claim position to 64px grid (matches build_state placement)
@@ -7316,13 +7070,13 @@ func _initialize_minigame() -> void:
 		
 		# Optional legacy boost (1 woman + baby in claim) — off by default; fresh AI clans start solo.
 		if BalanceConfig and BalanceConfig.get("caveman_spawn_with_boost") == true:
-			var woman_pos := claim_pos + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
+			var woman_pos := claim_pos + Vector2(SimRng.sim_randf_range(-80.0, 80.0), SimRng.sim_randf_range(-80.0, 80.0))
 			var woman_npc: Node = NPC_SCENE.instantiate()
 			if woman_npc:
-				woman_npc.set("npc_name", NamingUtils.generate_caveman_name())
+				woman_npc.set("npc_name", _seeded_caveman_name(hash(Vector3i(int(woman_pos.x), int(woman_pos.y), 2))))
 				woman_npc.set("npc_type", "woman")
 				woman_npc.set("traits", ["herd"])
-				woman_npc.set("age", randi_range(13, 50))
+				woman_npc.set("age", SimRng.sim_randi_range(13, 50))
 				woman_npc.set("clan_name", clan_name)
 				woman_npc.set_meta("clan_name", clan_name)
 				_apply_placeholder_card_to_npc(woman_npc)
@@ -7338,7 +7092,7 @@ func _initialize_minigame() -> void:
 					stats_node.set_stat("agility", 9.0)
 				elif stats_node:
 					stats_node.agility = 9.0
-				var baby_pos := claim_pos + Vector2(randf_range(-60.0, 60.0), randf_range(-60.0, 60.0))
+				var baby_pos := claim_pos + Vector2(SimRng.sim_randf_range(-60.0, 60.0), SimRng.sim_randf_range(-60.0, 60.0))
 				await _spawn_baby(clan_name, baby_pos, woman_npc as NPCBase, npc as NPCBase)
 				print("✓ Boost: 1 woman + 1 baby in claim '%s'" % clan_name)
 	
@@ -7349,8 +7103,8 @@ func _initialize_minigame() -> void:
 	print("Spawning %d women" % woman_count)
 	
 	for i in woman_count:
-		var angle := randf() * TAU
-		var distance := randf_range(woman_radius_min, woman_radius_max)
+		var angle := SimRng.sim_randf() * TAU
+		var distance := SimRng.sim_randf_range(woman_radius_min, woman_radius_max)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		
 		var npc: Node = NPC_SCENE.instantiate()
@@ -7358,7 +7112,7 @@ func _initialize_minigame() -> void:
 			print("ERROR: Failed to instantiate NPC scene")
 			continue
 		
-		var npc_name: String = NamingUtils.generate_caveman_name()
+		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
 		
 		# Set properties
 		npc.set("npc_name", npc_name)
@@ -7366,7 +7120,7 @@ func _initialize_minigame() -> void:
 		# Women need the "herd" trait to follow cavemen/player
 		# Set traits directly (has_trait may not be available until _ready() is called)
 		npc.set("traits", ["herd"])  # Women have herd mentality
-		npc.set("age", randi_range(13, 50))
+		npc.set("age", SimRng.sim_randi_range(13, 50))
 		# Set sprite texture
 		_apply_placeholder_card_to_npc(npc)
 		
@@ -7390,22 +7144,7 @@ func _initialize_minigame() -> void:
 		print("✓ Spawned Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
 	
 	
-	# Spawn mammoths (wild, non-herdable, agro at threats in AOP)
-	# _spawn_mammoths(center_pos)  # DISABLED - for testing
-
-	var _wgc_wild_stream: Node = get_node_or_null("/root/WorldGenConfig")
-	var _use_wild_chunk_stream: bool = _wgc_wild_stream != null and bool(_wgc_wild_stream.get("use_chunk_content_streaming"))
-	if _use_wild_chunk_stream:
-		# Deer/sheep/goats: ChunkManager rolls seeded herds per terrain chunk load (below); avoids empty world + avoids duplicating mega ring spawns here.
-		pass
-	else:
-		_spawn_sheep_and_goats(center_pos, spawn_parent)
-		_spawn_deer(center_pos, spawn_parent)
-	
-	# NORMAL MODE: Enable respawn systems
-	_start_women_respawn_system()
-	_start_sheep_goats_respawn_system()
-
+	# Wildlife: ChunkManager rolls seeded herds per terrain chunk load.
 	if DebugConfig and DebugConfig.enable_party_hunt_debug:
 		await _seed_party_hunt_debug_deer_near_claims(spawn_parent)
 
@@ -7470,7 +7209,8 @@ func _spawn_party_hunt_debug_deer(spawn_parent: Node2D, pos: Vector2, lc: LandCl
 		if texture:
 			sprite.texture = texture
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			var tint := _get_random_sheep_goat_tint()
+			var tint_rng := SimRng.make_scoped_rng(_playtest_world_seed_value(), hash(Vector3i(claim_idx, deer_idx, int(pos.x))))
+			var tint := _get_random_sheep_goat_tint(tint_rng)
 			sprite.modulate = tint
 			npc.set_meta("sheep_goat_tint", tint)
 			sprite.visible = true
@@ -7535,57 +7275,9 @@ func _process_observer_camera(delta: float) -> void:
 		world.ensure_chunks_for_position(_observer_cam_pos, delta)
 
 
-func _spawn_mammoths(center_pos: Vector2) -> void:
-	var mammoth_count := 2  # Spawn 2 mammoths
-	var spawn_radius := 1200.0  # Far from center - wild megafauna
-
-	print("Spawning %d mammoths" % mammoth_count)
-
-	for i in mammoth_count:
-		var angle := randf() * TAU
-		var distance := randf_range(800.0, spawn_radius)
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-
-		var npc: Node = NPC_SCENE.instantiate()
-		if not npc:
-			continue
-
-		var npc_name: String = "Mammoth %d" % (i + 1)
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "mammoth")
-		npc.set("traits", [])  # No herd trait - cannot be herded
-		npc.set("age", 20)
-		npc.set("agro_meter", 0.0)
-
-		# Mammoth scale (0.6 = 10x smaller than original 6.0)
-		var mammoth_scale: float = 0.6
-		if NPCConfig:
-			var s = NPCConfig.get("mammoth_scale")
-			if s != null:
-				mammoth_scale = s as float
-		npc.scale = Vector2(mammoth_scale, mammoth_scale)
-
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_mammoth_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				sprite.visible = true
-
-		world_objects.add_child(npc)
-		npc.global_position = pos
-		npc.set("spawn_position", pos)
-		npc.visible = true
-		print("✓ Spawned Mammoth: %s at %s (wild, 256x256, agro at threats)" % [npc_name, pos])
-
 
 func _wildlife_rng_for_chunk(world_seed: int, cx: int, cy: int, salt: StringName) -> RandomNumberGenerator:
-	var rng := RandomNumberGenerator.new()
-	var h: int = hash(Vector3i(world_seed, cx, cy))
-	h = hash(str(h) + str(salt))
-	rng.seed = int(h) if h != 0 else 1
-	return rng
+	return ChunkRng.create(world_seed, cx, cy, salt)
 
 
 func _wildlife_chunk_migratory_corridor(origin: Vector2, rng: RandomNumberGenerator) -> Dictionary:
@@ -7643,7 +7335,7 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 					if dtex:
 						dspr.texture = dtex
 						dspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-						var dtint := _get_random_sheep_goat_tint()
+						var dtint := _get_random_sheep_goat_tint(rng)
 						dspr.modulate = dtint
 						dnpc.set_meta("sheep_goat_tint", dtint)
 						dspr.visible = true
@@ -7669,7 +7361,7 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 					if stex:
 						sspr.texture = stex
 						sspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-						var stint := _get_random_sheep_goat_tint()
+						var stint := _get_random_sheep_goat_tint(rng)
 						sspr.modulate = stint
 						snpc.set_meta("sheep_goat_tint", stint)
 						sspr.visible = true
@@ -7693,7 +7385,7 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 				if gtex:
 					gspr.texture = gtex
 					gspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-					var gtint := _get_random_sheep_goat_tint()
+					var gtint := _get_random_sheep_goat_tint(rng)
 					gspr.modulate = gtint
 					goat.set_meta("sheep_goat_tint", gtint)
 					gspr.visible = true
@@ -7768,206 +7460,33 @@ func _register_migratory_prey_with_nearby_claims(npc: Node) -> void:
 			lc.register_huntable_in_aoh(npc as Node2D)
 
 
-func _spawn_debug_migratory_deer_f7() -> void:
-	if not world_objects:
-		return
-	var bounds := _get_migration_bounds()
-	var entry_side: int = -1 if randf() < 0.5 else 1
-	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
-	var exit_x: float = bounds.end.x if entry_side == -1 else bounds.position.x
-	var spawn_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 50.0, bounds.end.y - 50.0)
-	var npc: Node = NPC_SCENE.instantiate()
-	if npc == null:
-		return
-	var npc_name: String = "Deer %d" % Time.get_ticks_msec()
-	npc.set("npc_name", npc_name)
-	npc.set("npc_type", "deer")
-	npc.set("traits", [])
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_deer_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			var tint := _get_random_sheep_goat_tint()
-			sprite.modulate = tint
-			npc.set_meta("sheep_goat_tint", tint)
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-	world_objects.add_child(npc)
-	_finalize_migratory_npc(npc, Vector2(entry_x, spawn_y), entry_side, exit_x)
-	npc.visible = true
-	print("🧪 DEBUG F7: migratory deer")
-
-
-func _spawn_sheep_and_goats(_center_pos: Vector2, parent: Node2D = null) -> void:
-	var spawn_parent := parent if parent else world_objects
-	var sheep_count := BalanceConfig.sheep_initial if BalanceConfig else 3
-	var goat_count := BalanceConfig.goat_initial if BalanceConfig else 3
-	var bounds := _get_migration_bounds()
-	
-	print("Spawning %d sheep and %d goats (migratory chunk band)" % [sheep_count, goat_count])
-	
-	var sheep_per_group := 2
-	var sheep_spawned := 0
-	
-	while sheep_spawned < sheep_count:
-		var entry_side: int = -1 if randf() < 0.5 else 1
-		var entry_edge_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
-		var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
-		var base_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
-		var remaining: int = sheep_count - sheep_spawned
-		var group_size: int = maxi(1, mini(sheep_per_group + (1 if randf() < 0.35 else 0), remaining))
-		for j in group_size:
-			var spawn_pos := Vector2(entry_edge_x + float(j) * 20.0 * float(entry_side), base_y + randf_range(-52.0, 52.0))
-			var npc: Node = NPC_SCENE.instantiate()
-			if npc == null:
-				continue
-			var npc_name: String = "Sheep %d" % (Time.get_ticks_msec() + sheep_spawned * 100 + j)
-			npc.set("npc_name", npc_name)
-			npc.set("npc_type", "sheep")
-			npc.set("traits", ["herd", "group"])
-			var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-			if sprite:
-				var texture: Texture2D = AssetRegistry.get_sheep_sprite()
-				if texture:
-					sprite.texture = texture
-					sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-					var tint := _get_random_sheep_goat_tint()
-					sprite.modulate = tint
-					npc.set_meta("sheep_goat_tint", tint)
-					sprite.visible = true
-					if npc.has_method("apply_sprite_offset_for_texture"):
-						npc.apply_sprite_offset_for_texture()
-			spawn_parent.add_child(npc)
-			_finalize_migratory_npc(npc, spawn_pos, entry_side, exit_x_val)
-			npc.visible = true
-			print("✓ Spawned Sheep: %s at %s" % [npc_name, spawn_pos])
-			sheep_spawned += 1
-	
-	for i in goat_count:
-		var g_side: int = -1 if randf() < 0.5 else 1
-		var g_entry_x: float = bounds.position.x if g_side == -1 else bounds.end.x
-		var g_exit_x: float = bounds.end.x if g_side == -1 else bounds.position.x
-		var g_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
-		var g_pos := Vector2(g_entry_x, g_y)
-		var npc: Node = NPC_SCENE.instantiate()
-		if npc == null:
-			continue
-		var npc_name: String = "Goat %d" % (Time.get_ticks_msec() + i * 100)
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "goat")
-		npc.set("traits", ["herd"])
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_goat_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				var tint := _get_random_sheep_goat_tint()
-				sprite.modulate = tint
-				npc.set_meta("sheep_goat_tint", tint)
-				sprite.visible = true
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
-		spawn_parent.add_child(npc)
-		_finalize_migratory_npc(npc, g_pos, g_side, g_exit_x)
-		npc.visible = true
-		print("✓ Spawned Goat: %s at %s" % [npc_name, g_pos])
-
-
-func _spawn_deer(_center_pos: Vector2, parent: Node2D = null) -> void:
-	var spawn_parent := parent if parent else world_objects
-	var deer_total: int = BalanceConfig.deer_initial if BalanceConfig else 4
-	var bounds := _get_migration_bounds()
-	var spawned: int = 0
-	print("Spawning %d deer (migratory chunk band)" % deer_total)
-	while spawned < deer_total:
-		var herd_size: int = 1
-		if randf() < 0.5:
-			herd_size = randi_range(2, 4)
-		herd_size = mini(herd_size, deer_total - spawned)
-		var entry_side: int = -1 if randf() < 0.5 else 1
-		var entry_edge_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
-		var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
-		var band_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
-		for j in herd_size:
-			var along: float = float(j) * 24.0 * float(entry_side)
-			var dpos := Vector2(entry_edge_x + along, band_y + randf_range(-40.0, 40.0))
-			var npc: Node = NPC_SCENE.instantiate()
-			if npc == null:
-				continue
-			var npc_name: String = "Deer %d" % (Time.get_ticks_msec() + spawned * 91 + j)
-			npc.set("npc_name", npc_name)
-			npc.set("npc_type", "deer")
-			npc.set("traits", [])
-			var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-			if sprite:
-				var texture: Texture2D = AssetRegistry.get_deer_sprite()
-				if texture:
-					sprite.texture = texture
-					sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-					var tint := _get_random_sheep_goat_tint()
-					sprite.modulate = tint
-					npc.set_meta("sheep_goat_tint", tint)
-					sprite.visible = true
-					if npc.has_method("apply_sprite_offset_for_texture"):
-						npc.apply_sprite_offset_for_texture()
-			spawn_parent.add_child(npc)
-			_finalize_migratory_npc(npc, dpos, entry_side, exit_x_val)
-			npc.visible = true
-			print("✓ Spawned Deer: %s at %s" % [npc_name, dpos])
-			spawned += 1
-
-func _start_women_respawn_system() -> void:
-	# Spawn 1 woman every 60 seconds (BalanceConfig)
-	var timer := Timer.new()
-	timer.wait_time = BalanceConfig.woman_respawn_interval_sec if BalanceConfig else 60.0
-	timer.timeout.connect(_spawn_single_woman)
-	timer.autostart = true
-	add_child(timer)
-	timer.name = "WomenRespawnTimer"
-
-func _spawn_single_woman() -> void:
-	# Respawn cap: skip if at or above cap
-	var cap: int = BalanceConfig.women_respawn_cap if BalanceConfig else 12
-	var wild_women: int = 0
-	for n in get_tree().get_nodes_in_group("npcs"):
-		if is_instance_valid(n) and n.get("npc_type") == "woman":
-			var h = n.get("herder")
-			if h == null or not is_instance_valid(h):
-				wild_women += 1
-	if wild_women >= cap:
-		return
-	_spawn_wild_woman(1)
 
 func _spawn_wild_woman(count: int) -> void:
 	if not player or not world_objects:
 		return
 	
+	var ws: int = _playtest_world_seed_value()
 	var center_pos := player.global_position
 	var radius_min: float = BalanceConfig.woman_spawn_radius_min if BalanceConfig else 1200.0
 	var radius_max: float = BalanceConfig.woman_spawn_radius_max if BalanceConfig else 2800.0
 	
 	for i in count:
-		var angle := randf() * TAU
-		var distance := randf_range(radius_min, radius_max)
+		var woman_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(Vector3i(i, int(center_pos.x), 44001)))
+		var angle := woman_rng.randf() * TAU
+		var distance := woman_rng.randf_range(radius_min, radius_max)
 		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
 		
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
 			continue
 		
-		var npc_name: String = NamingUtils.generate_caveman_name()  # Random name
+		var npc_name: String = NamingUtils.generate_caveman_name_seeded(hash(Vector3i(ws, i, 44002)))
 		
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "woman")
 		# Women need the "herd" trait to follow cavemen/player
-		if not npc.has_trait("herd"):
-			npc.traits.append("herd")
-		npc.set("age", randi_range(13, 50))
 		npc.set("traits", ["herd"])
+		npc.set("age", woman_rng.randi_range(13, 50))
 		
 		_apply_placeholder_card_to_npc(npc)
 		
@@ -8083,7 +7602,7 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 		return
 	
 	# Generate random name for baby
-	var npc_name: String = NamingUtils.generate_caveman_name()
+	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(spawn_pos.x), int(spawn_pos.y), hash(mother_name))))
 	
 	UnifiedLogger.log_system("SPAWN_BABY: Baby NPC instantiated, setting properties", {
 		"clan": clan_name,
@@ -8199,129 +7718,6 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 	if playtest_pi and playtest_pi.is_enabled() and playtest_pi.has_method("baby_spawned"):
 		var slot_count: int = npc.inventory.slot_count if npc.inventory else -1
 		playtest_pi.baby_spawned(clan_name, mother_name, father_name, slot_count)
-
-func _start_sheep_goats_respawn_system() -> void:
-	# Spawn 1 sheep AND 1 goat every 60 seconds (BalanceConfig)
-	var timer := Timer.new()
-	timer.wait_time = BalanceConfig.sheep_goat_respawn_interval_sec if BalanceConfig else 60.0
-	timer.timeout.connect(_spawn_respawn_batch_sheep_goats)
-	timer.autostart = true
-	add_child(timer)
-	timer.name = "SheepGoatsRespawnTimer"
-
-func _spawn_respawn_batch_sheep_goats() -> void:
-	if not player or not world_objects:
-		return
-	
-	var center_pos := player.global_position
-	var spawn_radius := 1200.0
-	
-	# Spawn 1 sheep (if under cap)
-	var sheep_cap: int = BalanceConfig.sheep_respawn_cap if BalanceConfig else 15
-	var sheep_count: int = 0
-	for n in get_tree().get_nodes_in_group("npcs"):
-		if is_instance_valid(n) and n.get("npc_type") == "sheep":
-			sheep_count += 1
-	if sheep_count < sheep_cap:
-		_spawn_one_sheep_or_goat(center_pos, spawn_radius, true)
-	
-	# Spawn 1 goat (if under cap)
-	var goat_cap: int = BalanceConfig.goat_respawn_cap if BalanceConfig else 15
-	var goat_count: int = 0
-	for n in get_tree().get_nodes_in_group("npcs"):
-		if is_instance_valid(n) and n.get("npc_type") == "goat":
-			goat_count += 1
-	if goat_count < goat_cap:
-		_spawn_one_sheep_or_goat(center_pos, spawn_radius, false)
-	var deer_cap: int = BalanceConfig.deer_respawn_cap if BalanceConfig else 12
-	var deer_count: int = 0
-	for n in get_tree().get_nodes_in_group("npcs"):
-		if is_instance_valid(n) and n.get("npc_type") == "deer":
-			deer_count += 1
-	if deer_count < deer_cap:
-		_spawn_one_deer(center_pos, spawn_radius)
-
-func _spawn_one_deer(_center_pos: Vector2, _spawn_radius: float) -> void:
-	var bounds := _get_migration_bounds()
-	var entry_side: int = -1 if randf() < 0.5 else 1
-	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
-	var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
-	var pos_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
-	var pos := Vector2(entry_x, pos_y)
-	var npc: Node = NPC_SCENE.instantiate()
-	if not npc:
-		return
-	var npc_name: String = "Deer %d" % Time.get_ticks_msec()
-	npc.set("npc_name", npc_name)
-	npc.set("npc_type", "deer")
-	npc.set("traits", [])
-	npc.set("age", 0)
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_deer_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			var tint := _get_random_sheep_goat_tint()
-			sprite.modulate = tint
-			npc.set_meta("sheep_goat_tint", tint)
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-	world_objects.add_child(npc)
-	_finalize_migratory_npc(npc, pos, entry_side, exit_x_val)
-	npc.visible = true
-	print("✓ Respawned Wild Deer: %s at %s" % [npc_name, pos])
-
-func _spawn_one_sheep_or_goat(_center_pos: Vector2, _spawn_radius: float, is_sheep: bool) -> void:
-	var bounds := _get_migration_bounds()
-	var entry_side: int = -1 if randf() < 0.5 else 1
-	var entry_x: float = bounds.position.x if entry_side == -1 else bounds.end.x
-	var exit_x_val: float = bounds.end.x if entry_side == -1 else bounds.position.x
-	var pos_y: float = clampf(randf_range(bounds.position.y + 200.0, bounds.end.y - 200.0), bounds.position.y + 80.0, bounds.end.y - 80.0)
-	var pos := Vector2(entry_x, pos_y)
-	
-	var npc: Node = NPC_SCENE.instantiate()
-	if not npc:
-		return
-	
-	var npc_name: String
-	var npc_type: String
-	var texture_path: String
-	
-	if is_sheep:
-		npc_name = "Sheep %d" % Time.get_ticks_msec()
-		npc_type = "sheep"
-		texture_path = "res://assets/sprites/sheep.png"
-		npc.set("traits", ["herd", "group"])
-	else:
-		npc_name = "Goat %d" % Time.get_ticks_msec()
-		npc_type = "goat"
-		texture_path = "res://assets/sprites/goat.png"
-		npc.set("traits", ["herd"])
-	
-	npc.set("npc_name", npc_name)
-	npc.set("npc_type", npc_type)
-	npc.set("age", 0)
-	
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = load(texture_path) as Texture2D
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			var tint := _get_random_sheep_goat_tint()
-			sprite.modulate = tint
-			npc.set_meta("sheep_goat_tint", tint)
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-	
-	world_objects.add_child(npc)
-	_finalize_migratory_npc(npc, pos, entry_side, exit_x_val)
-	npc.visible = true
-	var type_display: String = npc_type.substr(0, 1).to_upper() + npc_type.substr(1)
-	print("✓ Respawned Wild %s: %s at %s" % [type_display, npc_name, pos])
 
 func _setup_node_cache() -> void:
 	# Initialize NodeCache singleton for performance optimization
@@ -8793,57 +8189,21 @@ func _playtest_world_seed_value() -> int:
 
 
 func _caveman_init_spawn_rng(slot: int) -> RandomNumberGenerator:
-	var rng := RandomNumberGenerator.new()
 	var ws: int = _playtest_world_seed_value()
-	if ws != 0:
-		rng.seed = hash(Vector3i(ws, slot, 90210))
-	else:
-		rng.randomize()
-	return rng
+	if ws == 0:
+		var sim: Node = get_node_or_null("/root/SimRng")
+		if sim and sim.has_method("get_world_seed"):
+			ws = int(sim.get_world_seed())
+	return SimRng.make_scoped_rng(ws, slot)
 
 
-func _generate_caveman_name() -> String:
-	# Generate a name in CvCv or CvvC format (consonant-vowel pattern)
-	const CONSONANTS: String = "BCDFGHJKLMNPQRSTVWXYZ"
-	const VOWELS: String = "AEIOU"
-	
-	var pattern: int = randi() % 2  # 0 = CvCv, 1 = CvvC
-	
-	if pattern == 0:
-		# CvCv format
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
-		return c1 + v1 + c2 + v2
-	else:
-		# CvvC format
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
-		return c1 + v1 + v2 + c2
+func _seeded_caveman_name(salt: int) -> String:
+	return NamingUtils.generate_caveman_name_seeded(salt)
 
-func _generate_random_clan_name() -> String:
-	# Same format as build_state: "Xy Xxxx" (2-letter + space + 4-letter) for land claim clan names
-	const CONSONANTS: String = "BCDFGHJKLMNPQRSTVWXYZ"
-	const VOWELS: String = "AEIOU"
-	var prefix_c: String = CONSONANTS[randi() % CONSONANTS.length()]
-	var prefix_v: String = VOWELS[randi() % VOWELS.length()]
-	var prefix: String = prefix_c + prefix_v
-	var pattern: int = randi() % 2
-	if pattern == 0:
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
-		return prefix + " " + c1 + v1 + c2 + v2
-	else:
-		var c1: String = CONSONANTS[randi() % CONSONANTS.length()]
-		var v1: String = VOWELS[randi() % VOWELS.length()]
-		var v2: String = VOWELS[randi() % VOWELS.length()]
-		var c2: String = CONSONANTS[randi() % CONSONANTS.length()]
-		return prefix + " " + c1 + v1 + v2 + c2
+
+func _seeded_clan_name(salt: int) -> String:
+	return NamingUtils.generate_landclaim_name_seeded(salt)
+
 
 # Task system logger for women, land claims, ovens (only called when --debug)
 func _log_task_system_data() -> void:

@@ -64,6 +64,17 @@ const INTENT_DELAY_MIN: float = 0.1
 const INTENT_DELAY_MAX: float = 0.3
 const ARRIVAL_OFFSET_RANGE: float = 6.0  # ±6px random offset for arrival targets
 
+func _npc_rngf() -> float:
+	if npc and npc.has_method("npc_randf"):
+		return npc.npc_randf()
+	push_warning("SteeringAgent: missing NPC EntityRng")
+	return 0.5
+
+
+func _npc_rngf_range(from_f: float, to_f: float) -> float:
+	return lerpf(from_f, to_f, _npc_rngf())
+
+
 func initialize(npc_ref: Node) -> void:
 	npc = npc_ref
 	
@@ -90,12 +101,12 @@ func initialize(npc_ref: Node) -> void:
 	wander_target = _get_random_wander_point()
 	
 	# Phase 3 Part B: Randomize intent delay per NPC (100-300ms)
-	_intent_delay = randf_range(INTENT_DELAY_MIN, INTENT_DELAY_MAX)
+	_intent_delay = _npc_rngf_range(INTENT_DELAY_MIN, INTENT_DELAY_MAX)
 	_pending_intent_time = 0.0
 
 func _apply_arrival_offset(pos: Vector2) -> Vector2:
 	"""Add small random offset so NPCs don't stop perfectly on spot (foot shuffle)."""
-	return pos + Vector2(randf_range(-ARRIVAL_OFFSET_RANGE, ARRIVAL_OFFSET_RANGE), randf_range(-ARRIVAL_OFFSET_RANGE * 0.5, ARRIVAL_OFFSET_RANGE * 0.5))
+	return pos + Vector2(_npc_rngf_range(-ARRIVAL_OFFSET_RANGE, ARRIVAL_OFFSET_RANGE), _npc_rngf_range(-ARRIVAL_OFFSET_RANGE * 0.5, ARRIVAL_OFFSET_RANGE * 0.5))
 
 func _commit_pending_target() -> void:
 	"""Commit pending target after intent delay."""
@@ -626,7 +637,7 @@ func _wander() -> Vector2:
 			var claim: Node2D = inside_claim.get("land_claim")
 			var radius: float = inside_claim.get("radius", 400.0)
 			# Pick a point outside the land claim
-			var angle := randf() * TAU
+			var angle := _npc_rngf() * TAU
 			var safe_distance: float = radius + 100.0  # Safe distance outside
 			wander_target = claim.global_position + Vector2(cos(angle), sin(angle)) * safe_distance
 			wander_change_time = Time.get_ticks_msec() / 1000.0
@@ -653,7 +664,7 @@ func _wander() -> Vector2:
 				if distance_to_claim < claim_radius:
 					if not npc.can_enter_land_claim(claim):
 						# Pick a new target outside this land claim
-						var angle := randf() * TAU
+						var angle := _npc_rngf() * TAU
 						var safe_distance: float = claim_radius + 100.0
 						wander_target = claim_pos + Vector2(cos(angle), sin(angle)) * safe_distance
 						wander_change_time = Time.get_ticks_msec() / 1000.0
@@ -671,8 +682,8 @@ func _wander() -> Vector2:
 	return _arrive(wander_target)
 
 func _get_random_wander_point() -> Vector2:
-	var angle := randf() * TAU
-	var distance := randf() * wander_radius
+	var angle := _npc_rngf() * TAU
+	var distance := _npc_rngf() * wander_radius
 	var point: Vector2 = wander_center + Vector2(cos(angle), sin(angle)) * distance
 	
 	# If NPC is part of a clan, restrict wander point to stay inside their land claim

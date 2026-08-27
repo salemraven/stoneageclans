@@ -9,11 +9,7 @@ const _SALT_CLANS := &"clans"
 
 
 func _rng(world_seed: int, cx: int, cy: int, salt: StringName) -> RandomNumberGenerator:
-	var rng := RandomNumberGenerator.new()
-	var h: int = hash(Vector3i(int(world_seed), cx, cy))
-	h = hash(str(h) + str(salt))
-	rng.seed = int(h) if h != 0 else 1
-	return rng
+	return ChunkRng.create(world_seed, cx, cy, salt)
 
 
 func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:

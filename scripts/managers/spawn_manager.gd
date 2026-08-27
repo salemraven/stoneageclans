@@ -24,8 +24,4 @@ func setup_npcs() -> void:
 		var cm: Node = main.get_node_or_null("/root/ChunkManager")
 		if cm and cm.has_method("ensure_initial_load"):
 			cm.call("ensure_initial_load", main)
-	else:
-		await main._spawn_initial_resources()
-		main._spawn_tallgrass()
-		main._spawn_decorative_trees()
 	await main._spawn_rts_playtest_pack_if_requested()

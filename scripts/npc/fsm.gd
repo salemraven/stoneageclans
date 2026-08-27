@@ -703,7 +703,7 @@ func _evaluate_states() -> void:
 	var should_skip_idle: bool = (npc_type_str == "caveman" or npc_type_str == "clansman")
 	
 	# Random chance to enter idle state (1% - was 5%, caused NPCs to get stuck) - skip for cavemen/clansmen
-	var rchance: float = npc.npc_randf() if npc and npc.has_method("npc_randf") else randf()
+	var rchance: float = npc.npc_randf()
 	if not should_skip_idle and rchance < 0.01 and current_state_name != "idle":
 		var idle_state: Node = _get_state("idle")
 		if idle_state and idle_state.has_method("can_enter") and idle_state.can_enter():

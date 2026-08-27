@@ -266,7 +266,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 		return TaskStatus.SUCCESS  # Inventory full, stop gathering
 
 	# Hidden nut find while chopping wood (matches player forage-on-tree)
-	if resource_type == ResourceData.ResourceType.WOOD and randf() < 0.25:
+	if resource_type == ResourceData.ResourceType.WOOD and npc.npc_randf() < 0.25:
 		if npc.inventory.add_item(ResourceData.ResourceType.NUTS, 1):
 			_playtest_gather_completed(npc, ResourceData.ResourceType.NUTS as int, 1)
 

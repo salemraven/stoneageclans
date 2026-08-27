@@ -73,6 +73,9 @@ func receive_world_snapshot(snapshot: Dictionary) -> void:
 	var ms: Node = get_node_or_null("/root/MutationStore")
 	if wgc:
 		wgc.world_seed = int(snapshot.get("seed", wgc.world_seed))
+	var sim: Node = get_node_or_null("/root/SimRng")
+	if sim and sim.has_method("set_sim_seed"):
+		sim.set_sim_seed(int(wgc.world_seed) if wgc else 0)
 	if ms and snapshot.has("mutations") and ms.has_method("load_from_dict"):
 		ms.call("load_from_dict", snapshot["mutations"])
 

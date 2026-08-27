@@ -186,8 +186,12 @@ func initialize(claim: Node2D) -> void:
 		territory.remove_meta("start_in_nomadic_brain")
 	
 	# Initial state
-	_evaluation_timer = randf_range(0.0, EVALUATION_INTERVAL)  # Stagger evaluations
-	_threat_cache_timer = randf_range(0.0, THREAT_CACHE_INTERVAL)
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	var stagger_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(clan_name))
+	_evaluation_timer = stagger_rng.randf_range(0.0, EVALUATION_INTERVAL)  # Stagger evaluations
+	_threat_cache_timer = stagger_rng.randf_range(0.0, THREAT_CACHE_INTERVAL)
 	
 	# Run one full evaluation immediately so quotas/weights are set from frame 0 (no 0-5s delay)
 	_evaluate_clan_state()

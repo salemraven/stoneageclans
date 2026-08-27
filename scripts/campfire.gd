@@ -614,8 +614,10 @@ func _clear_nomad_player_meta() -> void:
 
 
 func _pick_ai_nomad_target() -> Vector2:
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	var rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(StringName("%s_%s" % [clan_name, str(global_position)])))
 	var min_dist: float = BalanceConfig.ai_nomad_reloc_min_dist if BalanceConfig else 800.0
 	var max_dist: float = BalanceConfig.ai_nomad_reloc_max_dist if BalanceConfig else 1500.0
 	var min_center: float = BalanceConfig.get_land_claim_min_center_distance() if BalanceConfig else 1200.0

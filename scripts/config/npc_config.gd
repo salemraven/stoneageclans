@@ -435,11 +435,15 @@ func is_passive_hunt_prey(npc_type_str: String) -> bool:
 static func get_max_speed(agility: float) -> float:
 	return agility * NPCConfig.speed_agility_multiplier
 
-static func get_idle_duration() -> float:
-	return randf_range(NPCConfig.idle_duration_min, NPCConfig.idle_duration_max)
+static func get_idle_duration(npc: Node = null) -> float:
+	if npc != null and npc.has_method("npc_randf_range"):
+		return npc.npc_randf_range(NPCConfig.idle_duration_min, NPCConfig.idle_duration_max)
+	return SimRng.sim_randf_range(NPCConfig.idle_duration_min, NPCConfig.idle_duration_max)
 
-static func get_animation_duration() -> float:
-	return randf_range(NPCConfig.animation_duration_min, NPCConfig.animation_duration_max)
+static func get_animation_duration(npc: Node = null) -> float:
+	if npc != null and npc.has_method("npc_randf_range"):
+		return npc.npc_randf_range(NPCConfig.animation_duration_min, NPCConfig.animation_duration_max)
+	return SimRng.sim_randf_range(NPCConfig.animation_duration_min, NPCConfig.animation_duration_max)
 
 static func get_detection_range(perception: float) -> float:
 	return perception * NPCConfig.perception_range_multiplier

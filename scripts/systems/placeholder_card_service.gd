@@ -6,6 +6,7 @@ const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat
 const TunerMannequinLayoutScript = preload("res://scripts/tools/tuner_mannequin_layout.gd")
 const TunerBodyVisualScript = preload("res://scripts/tools/tuner_body_visual.gd")
 const TunerIdlePreviewScript = preload("res://scripts/tools/tuner_idle_preview.gd")
+const PawnDeathAnimationScript = preload("res://scripts/systems/pawn_death_animation.gd")
 const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const ProceduralArmControllerScript = preload("res://scripts/systems/procedural_arm_controller.gd")
 const MannequinPoseRuntimeScript = preload("res://scripts/systems/mannequin_pose_runtime.gd")
@@ -66,6 +67,39 @@ func uses_legacy_baked_card(entity: Node) -> bool:
 		return false
 	var nt: Variant = entity.get("npc_type")
 	return nt != null and str(nt) in LEGACY_BAKED_CARD_NPC_TYPES
+
+
+func entity_is_dead_or_dying(entity: Node) -> bool:
+	if entity == null or not is_instance_valid(entity):
+		return true
+	if entity.get_meta("holdables_hidden_on_death", false):
+		return true
+	if PawnDeathAnimationScript.is_playing(entity) or PawnDeathAnimationScript.is_pose_locked(entity):
+		return true
+	if entity.has_method("is_dead") and entity.is_dead():
+		return true
+	var hc: Node = entity.get_node_or_null("HealthComponent")
+	if hc != null and hc.get("is_dead") == true:
+		return true
+	return bool(entity.get_meta("is_dead", false))
+
+
+## Hide floating weapon overlay (and procedural arms) when a pawn dies — idempotent.
+func hide_holdables_on_death(entity: Node) -> void:
+	if entity == null or not is_instance_valid(entity):
+		return
+	entity.set_meta("holdables_hidden_on_death", true)
+	if not uses_placeholder_cards(entity):
+		return
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	var overlay: Sprite2D = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
+	if overlay:
+		overlay.visible = false
+		overlay.set_meta("card_overlay_thrust_ready_final", false)
+	WeaponOverlayCombat.set_overlay_state(entity, WeaponOverlayCombat.OverlayState.IDLE)
+	_disable_procedural_arms(entity)
 
 
 func apply_to_npc(npc: Node) -> void:
@@ -157,6 +191,10 @@ func apply_card_layout_only(npc: Node) -> void:
 func tick_card_bounce(npc: Node, delta: float, moving: bool) -> void:
 	if npc == null or not uses_placeholder_cards(npc):
 		return
+	if PawnDeathAnimationScript.is_playing(npc) or PawnDeathAnimationScript.is_pose_locked(npc):
+		return
+	if npc.has_method("is_dead") and npc.is_dead():
+		return
 	if WeaponOverlayCombat.get_overlay_state(npc) == WeaponOverlayCombat.OverlayState.STRIKING:
 		npc.set("_card_bounce_moving", moving)
 		return
@@ -179,6 +217,9 @@ func tick_card_bounce(npc: Node, delta: float, moving: bool) -> void:
 func sync_weapon_overlay_flip(entity: Node) -> void:
 	if entity == null or not is_instance_valid(entity) or not uses_placeholder_cards(entity):
 		return
+	if entity_is_dead_or_dying(entity):
+		hide_holdables_on_death(entity)
+		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 	if sprite == null:
 		return
@@ -187,18 +228,45 @@ func sync_weapon_overlay_flip(entity: Node) -> void:
 		return
 	if WeaponOverlayCombat.get_overlay_state(entity) == WeaponOverlayCombat.OverlayState.STRIKING:
 		return
-	var base_offset: Vector2 = overlay.get_meta("card_overlay_offset", Vector2.ZERO)
-	var mirror_tex: bool = true
-	if entity.has_method("get_equipped_weapon_type"):
-		var wt: ResourceData.ResourceType = entity.get_equipped_weapon_type()
-		if wt != ResourceData.ResourceType.NONE:
-			mirror_tex = WeaponOverlayCombat.uses_overlay_texture_mirror(registry, wt)
-	var bounce_y: float = 0.0
-	var swing_delta := Vector2.ZERO
+	if overlay.get_meta("card_overlay_thrust_ready_final", false):
+		var mirror_ready: bool = true
+		if entity.has_method("get_equipped_weapon_type"):
+			var wt_ready: ResourceData.ResourceType = entity.get_equipped_weapon_type()
+			if wt_ready != ResourceData.ResourceType.NONE:
+				mirror_ready = WeaponOverlayCombat.uses_overlay_texture_mirror(registry, wt_ready)
+		overlay.flip_h = sprite.flip_h if mirror_ready else false
+		overlay.position = overlay.get_meta("card_overlay_offset", Vector2.ZERO)
+		return
 	var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 	if entity.has_method("get_equipped_weapon_type"):
 		weapon_type = entity.get_equipped_weapon_type()
-	if entity.get("_card_bounce_moving") == true:
+	elif entity.get("_equipped_item") != null:
+		weapon_type = entity.get("_equipped_item") as ResourceData.ResourceType
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(entity)
+	var base_offset: Vector2 = overlay.get_meta("card_overlay_offset", Vector2.ZERO)
+	# Layered pawn swing weapons: read registry every frame (meta alone ignored Y tuning).
+	if (
+		uses_layered_body_mannequin(entity)
+		and weapon_type != ResourceData.ResourceType.NONE
+		and _is_swing_overlay_weapon(weapon_type)
+		and ostate != WeaponOverlayCombat.OverlayState.STRIKING
+	):
+		if ostate == WeaponOverlayCombat.OverlayState.READY:
+			# Windup pose (rotation + mirror) comes from apply_ready_pose each frame.
+			return
+		var local_pos: Vector2 = layered_pawn_tool_overlay_local_pos(sprite, weapon_type)
+		overlay.set_meta("card_overlay_offset", Vector2(local_pos.x, local_pos.y))
+		overlay.flip_h = false
+		overlay.position = _mirrored_layered_overlay_pos(sprite, local_pos)
+		return
+	var mirror_tex: bool = true
+	if weapon_type != ResourceData.ResourceType.NONE:
+		mirror_tex = WeaponOverlayCombat.uses_overlay_texture_mirror(registry, weapon_type)
+	var bounce_y: float = 0.0
+	var swing_delta := Vector2.ZERO
+	## Pawn mode: WeaponOverlay is a Sprite child — it inherits body bounce; no extra lag/sway.
+	var pawn_mode := uses_layered_body_mannequin(entity)
+	if entity.get("_card_bounce_moving") == true and not pawn_mode:
 		var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
 		bounce_y = CardVisualController.weapon_overlay_walk_bounce_offset_y(bounce_time, true)
 		if weapon_type == ResourceData.ResourceType.SPEAR and LimbPresetRegistry != null and uses_procedural_mannequin(entity):
@@ -263,6 +331,9 @@ func _apply_spear_overlay_walk_sway(
 func sync_weapon_overlay(entity: Node, weapon_type: ResourceData.ResourceType, should_show: bool) -> void:
 	if entity == null or not is_instance_valid(entity) or not uses_placeholder_cards(entity):
 		return
+	if entity_is_dead_or_dying(entity):
+		hide_holdables_on_death(entity)
+		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 	if sprite == null:
 		return
@@ -315,6 +386,9 @@ func sync_weapon_overlay(entity: Node, weapon_type: ResourceData.ResourceType, s
 func update_weapon_overlay_combat(entity: Node, weapon_type: ResourceData.ResourceType, aim_dir: Vector2) -> void:
 	if entity == null or not is_instance_valid(entity) or not uses_placeholder_cards(entity):
 		return
+	if entity_is_dead_or_dying(entity):
+		hide_holdables_on_death(entity)
+		return
 	if weapon_type == ResourceData.ResourceType.NONE or weapon_type == ResourceData.ResourceType.TRAVOIS:
 		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
@@ -348,6 +422,9 @@ func play_weapon_overlay_strike(
 	on_recovery_done: Callable = Callable()
 ) -> void:
 	if entity == null or not is_instance_valid(entity):
+		return
+	if entity_is_dead_or_dying(entity):
+		hide_holdables_on_death(entity)
 		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 	if sprite == null:
@@ -461,19 +538,62 @@ func _resolve_overlay_aim(entity: Node, aim_override: Vector2) -> Vector2:
 	return Vector2(1, 0)
 
 
+func layered_pawn_tool_overlay_display_px(weapon_type: ResourceData.ResourceType) -> Vector2:
+	return registry.get_tool_overlay_offset_px(weapon_type) * registry.get_runtime_mannequin_display_scale()
+
+
+func layered_pawn_tool_overlay_local_pos(sprite: Sprite2D, weapon_type: ResourceData.ResourceType) -> Vector2:
+	if sprite == null:
+		return Vector2.ZERO
+	var display_px: Vector2 = layered_pawn_tool_overlay_display_px(weapon_type)
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	# Unflipped side-slot base (+X = registry right). Mirror once in _mirrored_layered_overlay_pos.
+	return Vector2(display_px.x / sx, display_px.y / sx)
+
+
+func _mirrored_layered_overlay_pos(sprite: Sprite2D, local_pos: Vector2) -> Vector2:
+	## Body flip_h mirrors texture only — child WeaponOverlay must mirror local X manually.
+	if sprite != null and sprite.flip_h:
+		return Vector2(-local_pos.x, local_pos.y)
+	return local_pos
+
+
+func apply_layered_pawn_tool_overlay_position(
+	sprite: Sprite2D,
+	overlay: Sprite2D,
+	weapon_type: ResourceData.ResourceType
+) -> Vector2:
+	if sprite == null or overlay == null:
+		return Vector2.ZERO
+	var local_pos: Vector2 = layered_pawn_tool_overlay_local_pos(sprite, weapon_type)
+	overlay.set_meta("card_overlay_offset", Vector2(local_pos.x, local_pos.y))
+	overlay.flip_h = false
+	overlay.position = _mirrored_layered_overlay_pos(sprite, local_pos)
+	return local_pos
+
+
 func _effective_overlay_offset_px(entity: Node, weapon_type: ResourceData.ResourceType) -> Vector2:
-	var offset_px: Vector2
-	if LimbPresetRegistry:
+	var offset_px: Vector2 = registry.get_tool_overlay_offset_px(weapon_type)
+	if not uses_layered_body_mannequin(entity) and LimbPresetRegistry:
 		offset_px = LimbPresetRegistry.get_overlay_offset_idle_px(weapon_type)
-	else:
-		offset_px = registry.get_tool_overlay_offset_px(weapon_type)
 	return offset_px * get_runtime_display_scale(entity)
+
+
+func _is_swing_overlay_weapon(weapon_type: ResourceData.ResourceType) -> bool:
+	var profile: Dictionary = registry.get_weapon_combat_profile(weapon_type)
+	return int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN)) == WeaponOverlayCombat.AttackKind.SWING_DOWN
 
 
 func get_runtime_display_scale(entity: Node) -> float:
 	if uses_layered_body_mannequin(entity):
 		return registry.get_runtime_mannequin_display_scale()
 	return 1.0
+
+
+func play_pawn_death_animation(entity: Node, on_complete: Callable = Callable()) -> bool:
+	return PawnDeathAnimationScript.play(entity, on_complete)
 
 
 func _runtime_layered_mannequin_layout(card_index: int):
@@ -542,7 +662,10 @@ func resolve_father_card_index(father: Node) -> int:
 	idx = get_card_index_from_entity(player)
 	if idx > 0:
 		return idx
-	return randi_range(1, registry.CLANSMEN_CARD_COUNT)
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	return SimRng.make_scoped_rng(ws, hash("father_card_fallback")).randi_range(1, registry.CLANSMEN_CARD_COUNT)
 
 
 func assign_inherited_card_index(child: Node, father: Node) -> int:
@@ -578,7 +701,11 @@ func _resolve_card_index(entity: Node, allow_npc_rng: bool) -> int:
 		if allow_npc_rng and entity.has_method("npc_randi_range"):
 			card_index = entity.npc_randi_range(1, registry.CLANSMEN_CARD_COUNT)
 		else:
-			card_index = randi_range(1, registry.CLANSMEN_CARD_COUNT)
+			var ws: int = 0
+			if SimRng and SimRng.has_method("get_world_seed"):
+				ws = int(SimRng.get_world_seed())
+			var salt: int = EntityRegistry.get_id(entity) if EntityRegistry else hash(entity.get_instance_id())
+			card_index = SimRng.make_scoped_rng(ws, salt).randi_range(1, registry.CLANSMEN_CARD_COUNT)
 	entity.set("card_index", card_index)
 	entity.set_meta("card_index", card_index)
 	return card_index
@@ -655,12 +782,8 @@ func _apply_layered_body_mannequin(entity: Node, card_index: int) -> void:
 		entity._store_sprite_base_position()
 	elif "_sprite_base_position" in entity:
 		entity.set("_sprite_base_position", sprite.position)
-	if entity.get("npc_type") != null:
-		_apply_skin_modulate(entity)
+	_apply_skin_modulate(entity)
 	sync_progress_display_position(entity)
-	var preview = _get_idle_preview(entity)
-	preview.set_playing(true)
-	preview.reset()
 
 
 func _disable_procedural_arms(entity: Node) -> void:
@@ -757,6 +880,9 @@ func _ensure_procedural_rig(entity: Node) -> void:
 
 
 func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, moving: bool) -> void:
+	if uses_layered_body_mannequin(entity):
+		_tick_pawn_body_mannequin(entity, sprite, delta, moving)
+		return
 	var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
 	var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
 	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
@@ -833,6 +959,33 @@ func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, 
 		_sync_procedural_arm_process(entity)
 	entity.set("_card_bounce_time", bounce_time)
 	entity.set("_card_bounce_moving", moving)
+
+
+## In-game pawn: body+head layers, walk bounce, floating weapon (RimWorld-style side slot).
+func _tick_pawn_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, moving: bool) -> void:
+	var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+	var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	var direction: int = -1 if sprite.flip_h else 1
+	if moving:
+		bounce_time = CardVisualController.tick_walk_bounce(sprite, foot_y, bounce_time, true, delta)
+		if body_visual and body_visual.has_method("set_walk_state"):
+			body_visual.call("set_walk_state", true, bounce_time, direction)
+	else:
+		bounce_time = 0.0
+		sprite.position.y = roundf(foot_y)
+		if body_visual and body_visual.has_method("clear_motion_state"):
+			body_visual.call("clear_motion_state")
+	entity.set("_card_bounce_time", bounce_time)
+	entity.set("_card_bounce_moving", moving)
+	var ostate: int = WeaponOverlayCombat.get_overlay_state(entity)
+	if ostate == WeaponOverlayCombat.OverlayState.STRIKING:
+		return
+	# Layered pawn: keep swing overlay anchored to registry in idle AND ready (Shift).
+	if uses_layered_body_mannequin(entity):
+		sync_weapon_overlay_flip(entity)
+	elif ostate != WeaponOverlayCombat.OverlayState.READY:
+		sync_weapon_overlay_flip(entity)
 
 
 func _get_mannequin_layout(card_index: int):
@@ -954,14 +1107,37 @@ func _body_visual_for_sprite(sprite: Sprite2D) -> Node:
 	return MannequinPoseRuntimeScript.get_body_visual(sprite)
 
 
-func _apply_skin_modulate(npc: Node) -> void:
-	if npc == null:
+func _apply_skin_modulate(entity: Node) -> void:
+	if entity == null:
 		return
-	var profile: Variant = npc.get("genetics_profile")
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	sprite.modulate = _resolve_skin_modulate(entity)
+
+
+func _resolve_skin_modulate(entity: Node) -> Color:
+	var profile: Variant = entity.get("genetics_profile")
 	if profile is Dictionary and (profile as Dictionary).has("skin_modulate"):
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
+		return (profile as Dictionary)["skin_modulate"]
+	var tone: Variant = entity.get("skin_tone")
+	if tone != null and str(tone) != "":
+		return _skin_tone_to_color(str(tone))
+	if entity.has_method("_update_visual_tier"):
+		entity._update_visual_tier()
+		var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 		if sprite:
-			sprite.modulate = (profile as Dictionary)["skin_modulate"]
-		return
-	if npc.has_method("_update_visual_tier"):
-		npc._update_visual_tier()
+			return sprite.modulate
+	return _skin_tone_to_color("Medium")
+
+
+func _skin_tone_to_color(tone: String) -> Color:
+	match tone:
+		"Dark":
+			return Color(0.55, 0.42, 0.35, 1.0)
+		"Light":
+			return Color(1.05, 0.92, 0.82, 1.0)
+		"Medium":
+			return Color(0.88, 0.72, 0.58, 1.0)
+		_:
+			return Color(0.88, 0.72, 0.58, 1.0)

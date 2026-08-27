@@ -147,6 +147,26 @@ func player_left_gather_range() -> void:
 	else:
 		clear_player_proximity()
 
+func _layout_rng(salt: StringName) -> RandomNumberGenerator:
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	var pos := global_position
+	var cx := int(floor(pos.x / ChunkUtils.CHUNK_SIZE))
+	var cy := int(floor(pos.y / ChunkUtils.CHUNK_SIZE))
+	return ChunkRng.create(ws, cx, cy, salt)
+
+
+func _gather_roll_chance(gatherer: Node, threshold: float) -> bool:
+	if gatherer != null and gatherer.has_method("npc_randf"):
+		return gatherer.npc_randf() < threshold
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	var salt: int = hash(Vector3i(int(global_position.x), int(global_position.y), 991))
+	return SimRng.make_scoped_rng(ws, salt).randf() < threshold
+
+
 func _setup_tree_from_sheet() -> void:
 	"""Load trees.png sprite sheet (5 cols x 3 rows = 15 trees) and pick random frame."""
 	var tex := AssetRegistry.get_treess_sprite()
@@ -159,7 +179,7 @@ func _setup_tree_from_sheet() -> void:
 	if tree_sheet_index >= 0 and tree_sheet_index <= 14:
 		tree_idx = tree_sheet_index
 	else:
-		tree_idx = randi_range(0, 14)
+		tree_idx = _layout_rng(&"tree_idx").randi_range(0, 14)
 	var cols := 5
 	var rows := 3
 	var cell_w := tex.get_width() / cols
@@ -195,7 +215,7 @@ func _setup_visuals() -> void:
 				"res://assets/sprites/bugs2.png",
 				"res://assets/sprites/bugs3.png"
 			]
-			sprite_path = bug_paths[randi() % bug_paths.size()]
+			sprite_path = bug_paths[_layout_rng(&"bug_sprite").randi() % bug_paths.size()]
 		ResourceData.ResourceType.NUTS:
 			var nut_paths: Array[String] = [
 				"res://assets/sprites/nuts1.png",
@@ -203,7 +223,7 @@ func _setup_visuals() -> void:
 				"res://assets/sprites/nuts3.png",
 				"res://assets/sprites/nuts4.png"
 			]
-			sprite_path = nut_paths[randi() % nut_paths.size()]
+			sprite_path = nut_paths[_layout_rng(&"nut_sprite").randi() % nut_paths.size()]
 	
 	if resource_type == ResourceData.ResourceType.WOOD:
 		return  # Already handled above
@@ -667,7 +687,7 @@ func _finish_wood_nut_search() -> void:
 	if collection_progress:
 		collection_progress.stop_collection(false)
 	if main and main.has_method("add_to_inventory"):
-		if randf() < 0.25:
+		if _gather_roll_chance(gathering_player, 0.25):
 			main.add_to_inventory(ResourceData.ResourceType.NUTS, 1)
 		elif main.has_method("_show_placement_warning"):
 			main._show_placement_warning("Nothing here")
@@ -730,7 +750,7 @@ func _finish_collection() -> void:
 		main_finish.add_to_inventory(item_type, 1)
 		_emit_gather_diagnostic("gather_complete", gathering_player, main_finish, {"item": ResourceData.get_resource_name(item_type)})
 		# Hidden nut find while chopping / working the tree (no extra spot on the map)
-		if resource_type == ResourceData.ResourceType.WOOD and randf() < 0.25:
+		if resource_type == ResourceData.ResourceType.WOOD and _gather_roll_chance(gathering_player, 0.25):
 			main_finish.add_to_inventory(ResourceData.ResourceType.NUTS, 1)
 	else:
 		_emit_gather_diagnostic("gather_complete_no_inventory", gathering_player, main_finish, {"item": ResourceData.get_resource_name(item_type)})

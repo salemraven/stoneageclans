@@ -106,6 +106,10 @@ func _init_gameplay_rng() -> void:
 func npc_randf() -> float:
 	return _gameplay_rng.randf()
 
+func npc_randf_range(from_f: float, to_f: float) -> float:
+	return lerpf(from_f, to_f, npc_randf())
+
+
 func npc_randi_range(from_i: int, to_i: int) -> int:
 	return _gameplay_rng.randi_range(from_i, to_i)
 
@@ -868,7 +872,7 @@ func _ready() -> void:
 	_update_quality_tier()
 	# Randomize skin tone (Dark, Medium, Light) for variety - skip for sheep/goat (they use tint from spawn)
 	if npc_type != "sheep" and npc_type != "goat" and npc_type != "deer":
-		skin_tone = ["Dark", "Medium", "Light"][randi() % 3]
+		skin_tone = ["Dark", "Medium", "Light"][npc_randi_range(0, 2)]
 		_update_visual_tier()
 	elif sprite and has_meta("sheep_goat_tint"):
 		sprite.modulate = get_meta("sheep_goat_tint")
@@ -1217,7 +1221,7 @@ func _physics_process(delta: float) -> void:
 			var claim_pos: Vector2 = claim.global_position
 			var direction: Vector2 = (global_position - claim_pos)
 			if direction.length() < 0.1:
-				var angle := randf() * TAU
+				var angle := npc_randf() * TAU
 				direction = Vector2(cos(angle), sin(angle))
 			else:
 				direction = direction.normalized()
@@ -1380,7 +1384,7 @@ func _physics_process(delta: float) -> void:
 			
 			# Update variation target periodically
 			if variation_time - last_update >= update_interval:
-				var new_variation: float = randf_range(-0.08, 0.08)  # Slightly reduced range
+				var new_variation: float = npc_randf_range(-0.08, 0.08)  # Slightly reduced range
 				set_meta("movement_variation_target", new_variation)
 				set_meta("last_variation_update", variation_time)
 			
@@ -1577,7 +1581,13 @@ func _physics_process(delta: float) -> void:
 		combat_idle = (combat_comp.state == CombatComponent.CombatState.IDLE)
 	var moving := velocity.length_squared() > 50.0
 	if moving:
-		_last_facing = velocity.normalized()
+		if absf(velocity.x) > 15.0:
+			_last_facing = velocity.normalized()
+		else:
+			var keep_x: float = _last_facing.x
+			if absf(keep_x) <= 0.05 and sprite:
+				keep_x = -1.0 if sprite.flip_h else 1.0
+			_last_facing = Vector2(keep_x, velocity.y).normalized()
 	var should_walk := (is_caveman_clansman or is_woman or is_goat) and moving and combat_idle and not is_dead()
 	if uses_placeholder_cards():
 		if PlaceholderCardService:
@@ -2479,7 +2489,7 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 			return false  # Still on cooldown, can't steal yet
 	
 	# Roll the chance (skip when influence-driven transfer)
-	var roll_success: bool = force_influence_transfer or (randf() < chance)
+	var roll_success: bool = force_influence_transfer or (npc_randf() < chance)
 	if roll_success:
 		# Resist: chance animal resists; cooldown prevents spam. Disabled during playtests for deterministic transport.
 		var resist_chance: float = 0.0
@@ -2494,7 +2504,7 @@ func _try_herd_chance(leader: Node2D, force_influence_transfer: bool = false) ->
 			resist_cooldown = NPCConfig.herd_resist_cooldown_sec as float
 		var last_resist: float = get_meta("herd_last_resist_time", -999.0)
 		var on_cooldown: bool = (current_time - last_resist) < resist_cooldown
-		if resist_chance > 0 and not on_cooldown and randf() < resist_chance:
+		if resist_chance > 0 and not on_cooldown and npc_randf() < resist_chance:
 			set_meta("herd_last_resist_time", current_time)
 			var herder_id: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else (str(leader.name) if leader else "?")
 			if leader.is_in_group("player"):
@@ -2728,7 +2738,7 @@ func _apply_caveman_seek_push_behavior(_delta: float) -> void:
 		seek_priority = NPCConfig.caveman_push_seek_priority
 	
 	# Roll chance to seek push target
-	if randf() > seek_priority:
+	if npc_randf() > seek_priority:
 		return  # Skip this check
 	
 	# Find nearby entities to push (within seek_range)

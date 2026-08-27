@@ -242,22 +242,21 @@ func is_attack_target_alive(target: Node) -> bool:
 		return not bool(target.is_dead())
 	return true
 
-## Seeded NPC RNG helpers (fallback to global if not on npc yet).
 func _npc_rngf() -> float:
-	if npc and npc.has_method("npc_randf"):
-		return npc.npc_randf()
-	return randf()
+	if npc == null:
+		push_warning("State requires NPC for EntityRng")
+		return 0.5
+	return npc.npc_randf()
 
-## Uniform random float in [from_f, to_f] using seeded NPC RNG when available.
+
 func _npc_rngf_range(from_f: float, to_f: float) -> float:
 	return lerpf(from_f, to_f, _npc_rngf())
+
 
 func _npc_rngi_max(exclusive_max: int) -> int:
 	if exclusive_max <= 0:
 		return 0
-	if npc and npc.has_method("npc_randi_range"):
-		return npc.npc_randi_range(0, exclusive_max - 1)
-	return randi() % exclusive_max
+	return npc.npc_randi_range(0, exclusive_max - 1)
 
 ## Clear combat target fields on the owning NPC (safe no-op if no npc).
 func clear_npc_combat_target() -> void:
