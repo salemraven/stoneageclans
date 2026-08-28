@@ -75,7 +75,7 @@ static func validate_raise_elbow_arc(
 	var prev_blend := -1.0
 	var got_sample := false
 	for blend in RAISE_SAMPLE_BLEND:
-		var lowering := prev_blend >= 0.0 and blend < prev_blend and blend < 0.999
+		var lowering: bool = prev_blend >= 0.0 and blend < prev_blend and blend < 0.999
 		var elbow := sample_support_elbow_display(
 			preset, blend, upper_len_px, lower_len_px, lowering
 		)

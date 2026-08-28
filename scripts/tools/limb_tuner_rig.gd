@@ -27,6 +27,7 @@ const MannequinAnchorResolver = preload("res://scripts/systems/mannequin_anchor_
 const CharacterCardPartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const LimbAnimationBakerScript = preload("res://scripts/tools/limb_animation_baker.gd")
 const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
+const TunerMotionResolverScript = preload("res://scripts/tools/tuner_motion_resolver.gd")
 
 ## Tuner handle 3 — grip on overlay texture (normalized Y from top). Spear = shaft midpoint.
 const WEAPON_HANDLE_Y_FRAC := PlaceholderCardRegistry.SPEAR_GRIP_TEXTURE_NY
@@ -52,6 +53,7 @@ var _last_overlay_base := Vector2.ZERO
 var _preview_idle_mode := true
 var _preview_gather_mode := false
 var _preview_walk_mode := false
+var _preview_walk_keyframe_overlay := false
 var _preview_windup_mode := false
 var _shift_ready_windup_mode := false
 var _windup_preview_preset: WeaponLimbPreset = null
@@ -195,7 +197,7 @@ func set_preview_playing(on: bool) -> void:
 			apply_preset_overlay_ready(_windup_preview_preset, aim_from_facing())
 	_windup_idle.set_playing(windup_on or _shift_ready_windup_mode)
 	_gather.set_playing(on and _preview_gather_mode)
-	_walk.set_playing(on and _preview_walk_mode)
+	_walk.set_playing(on and (_preview_walk_mode or _preview_walk_keyframe_overlay))
 	_idle.set_playing(on and _preview_idle_mode)
 
 
@@ -338,9 +340,24 @@ func set_preview_gather_mode(on: bool) -> void:
 
 func set_preview_walk_mode(on: bool) -> void:
 	_preview_walk_mode = on
-	if not on:
+	if not on and not _preview_walk_keyframe_overlay:
 		_walk.set_playing(false)
 		_walk.set_pose_edit(false)
+
+
+func sync_walk_keyframe_preview(keyframe_active: bool, walk_tab: bool, anim_playing: bool) -> void:
+	## Walk 1 keyframe loop: walk tab Play/A/D, or temporary overlay from Idle + A/D.
+	_preview_walk_keyframe_overlay = keyframe_active and not walk_tab
+	var should_play := false
+	if walk_tab:
+		should_play = anim_playing or _walk.is_moving()
+	elif keyframe_active:
+		should_play = _walk.is_moving()
+	_walk.set_playing(should_play)
+
+
+func is_walk_keyframe_overlay() -> bool:
+	return _preview_walk_keyframe_overlay
 
 
 func is_walk_keyframe_playing() -> bool:
@@ -980,6 +997,21 @@ func set_neck_socket_from_global(global_pos: Vector2) -> void:
 		body_visual.call("set_neck_socket_from_global", global_pos)
 
 
+func hair_attach_global() -> Vector2:
+	if body_visual and body_visual.has_method("hair_attach_global"):
+		return body_visual.call("hair_attach_global")
+	return neck_socket_global()
+
+
+func set_hair_attach_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_hair_attach_from_global"):
+		body_visual.call("set_hair_attach_from_global", global_pos)
+
+
+func has_hair_layer() -> bool:
+	return body_visual != null and body_visual.has_method("has_hair_layer") and body_visual.call("has_hair_layer")
+
+
 func torso_pin_global_for_shoulder(shoulder_global: Vector2) -> Vector2:
 	if body_visual and body_visual.has_method("torso_surface_global_for"):
 		return body_visual.call("torso_surface_global_for", shoulder_global)
@@ -1146,7 +1178,7 @@ func _update_motion_preview(delta: float) -> void:
 		_sync_overlay_walk_bounce(true)
 		_sync_body_visual_head_draw()
 		return
-	if _walk.is_keyframe_playing() and _preview_walk_mode:
+	if _walk.is_keyframe_playing() and (_preview_walk_mode or _preview_walk_keyframe_overlay):
 		_walk.tick(delta)
 		if sprite != null:
 			if _walk.direction < 0:
@@ -1720,7 +1752,7 @@ func support_shoulder_global_from_preset(preset: WeaponLimbPreset) -> Vector2:
 func support_shoulder_global_with_idle_raise(preset: WeaponLimbPreset, raise_blend: float) -> Vector2:
 	if preset == null:
 		return global_position
-	var lowering := is_idle_arm2_lowering()
+	var lowering: bool = is_idle_arm2_lowering()
 	var display_px := preset.resolve_support_shoulder_for_idle_raise(raise_blend, lowering)
 	return MannequinAnchorResolver.shoulder_global_from_display(
 		sprite, body_visual, display_px

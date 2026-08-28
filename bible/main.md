@@ -24,7 +24,7 @@
 5. **Produce** – Oven: Wood + Grain → Bread; (future) Dairy, Farm, Armory, Tailor, Medic Hut.
 6. **Expand** – Grow clan (reproduction, baby pool, surplus → clansmen); more buildings, more capacity.
 7. **Defend** – ClanBrain assigns defenders; agro on intruders; combat when enemies enter/raid.
-8. **Raid** – ClanBrain organizes raid parties; attack enemy land claims; loot buildings; destroy flag = total wipe.
+8. **Raid** – ClanBrain organizes raid parties; attack enemy land claims; loot buildings; destroy flag = **territory wipe** (wild cavemen / founder — planned).
 9. **Hunt** – AI clans: AoH prey → hunt parties; player: RTS hunt modes (see `bible/hunting.md`).
 10. **Reproduce** – Women in claim radius birth babies; babies grow to clansmen; baby pool cap from Living Huts.
 11. **Age & continue** – Player ages (future: die at 101); next generation; repeat until map dominated.
@@ -97,7 +97,7 @@
 - **Placement**: Drag land claim from inventory; must be valid position (e.g. min distance from other claims for NPCs: 800px in Phase 1; 200px in checklist).
 - **Radius**: 400px (configurable); defines “clan territory.”
 - **Behavior**: NPCs deposit at claim; wild NPCs entering radius become clan-owned; claim holds unlimited inventory; build menu (I) shows claim inventory + building cards.
-- **Clan death**: If claim is destroyed (flag destroyed = total wipe per GDD), inventories vanish, baby pool cleared, clansmen die, women/animals scatter wild.
+- **Clan death**: If claim is destroyed (flag = **territory wipe**), inventories vanish, baby pool cleared, women/animals scatter wild. **Wild cavemen** (surviving males) — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)); **today** clansmen are not handled on flag destroy.
 - **Upgrades**: Flag → Tower → Keep → Castle planned (radius, storage, relics); not implemented.
 
 ### 4.3 Buildings
@@ -185,7 +185,7 @@
 
 - **Loot**: Open building/flag inventories (I); drag items out.
 - **Combat**: Kill defenders; ClanBrain sends raiders to target claim.
-- **Destroy flag**: Total wipe (inventory, baby pool, clansmen die, women/animals scatter) – per GDD; exact wipe behavior in code to be confirmed.
+- **Destroy flag**: **Territory wipe** (inventory, buildings gone; herdables scatter wild). **Wild cavemen** / founder — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
 
 ---
 

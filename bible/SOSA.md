@@ -193,7 +193,7 @@ The GDD (`bible/gdd.md`) is the canonical design. Current implementation gaps:
 | Invisible fence (NPCs can't leave) | Not fully in |
 | Flag → Tower → Keep → Castle | Not implemented |
 | War Horn (H) | Not implemented |
-| Destroy enemy flag = total wipe | Raid exists; total wipe logic partial |
+| Destroy enemy flag = territory wipe | Raid exists; wild cavemen/founder planned ([clan_founding_and_exile.md](clan_founding_and_exile.md)) |
 | Baby pool capacity, Living Huts | Baby pool exists; capacity/hut link partial |
 | 1 woman per production building | OccupationSystem does this |
 | Full building list (Spinner, Dairy, Bakery, Armory, Tailor, Medic, Storage, Shrine) | Oven, Farm, Dairy exist; others shells or missing |

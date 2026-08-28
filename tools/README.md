@@ -86,6 +86,8 @@ godot --headless --path . -s res://tools/analyze_lag_profile.gd
 
 The analyzer scores: NPC sleep/wake, area monitoring sleep, world density config, boot chunk stagger, resource `_process`, perception script cost.
 
+**Full write-up:** [`guides/lag.md`](../guides/lag.md) — baseline numbers, root causes, config knobs, MP strategy, roadmap.
+
 **Web export:** append `?lag_profile=1` to the page URL. Profiler keeps the last 60 interval rows in memory and prints `ANALYZE_LAG_PROFILE_OK` + JSON summary on tab close (no `user://` file write).
 
 ## Wild NPC JSONL trace (`--wild-npc-trace`)

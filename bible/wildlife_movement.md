@@ -1,8 +1,10 @@
 # Wildlife movement & classification
 
-**Last updated:** May 2026 · **Hunting:** `bible/hunting.md` · **Index:** `bible/README.md`
+**Last updated:** August 2026 · **Hunting:** `bible/hunting.md` · **Cross-plane seasons:** `bible/wildlife_migration.md` · **Index:** `bible/README.md`
 
 This doc matches the wild NPC pipeline in code (`NPCConfig`, `NPCBase`, `wander_state.gd`, spawn helpers in `main.gd`).
+
+> **Design direction:** Full **seasonal migrations across the continuous world plane** (spawn one edge → cross map → return later) are specified in **[wildlife_migration.md](wildlife_migration.md)**. This doc describes **what is implemented today** (local chunk-band corridors).
 
 ## Concepts (plain English)
 
@@ -42,9 +44,7 @@ Player-led hunts use RTS **Peace / Agro / Hunt** and can attack valid combat tar
 
 ## Spawning (`main.gd` + `ChunkManager`)
 
-- **`WorldGenConfig.use_chunk_content_streaming == true`** (default): Migratory deer / sheep / goats are **rolled per streamed terrain chunk** when it loads (`Main._spawn_wildlife_for_loaded_chunk`). Corridor is **across that chunk’s width** (west↔east edge): animals sit on **`world_objects`**, so **chunk unload does not delete them** while they migrate. The old “one mega ring near the player” batch in `_initialize_minigame` is **skipped** to avoid doubling. Tune rolls in **`WorldGenConfig`** — `wild_migratory_chunk_spawns_enabled`, `wild_migratory_chunk_pass_chance`, `wild_migratory_packs_min` / `_max`.
-
-- **`use_chunk_content_streaming == false`**: Legacy single batch — **`_spawn_sheep_and_goats`** + **`_deer`** still use **`_get_migration_bounds()`** (player-centered band) plus **`_finalize_migratory_npc()`**.
+- **Chunk streaming (always on):** Migratory deer / sheep / goats are **rolled per streamed terrain chunk** when it loads (`Main._spawn_wildlife_for_loaded_chunk`). Corridor is **across that chunk’s width** (west↔east edge): animals sit on **`world_objects`**, so **chunk unload does not delete them** while they migrate. Tune rolls in **`WorldGenConfig`** — `wild_migratory_chunk_spawns_enabled`, `wild_migratory_chunk_pass_chance`, `wild_migratory_packs_min` / `_max`.
 
 - Respawn timers still top up hunted species after corridors complete / caps allow.
 

@@ -10,7 +10,8 @@
 #   bash tools/run_limb_tuner.sh spear-prep          # validate + save spear_clansmen_1 for tuning
 #   bash tools/run_limb_tuner.sh spear-evaluate      # audit + tests, then GUI spear preview
 #   bash tools/run_limb_tuner.sh gui                 # windowed Godot tuner (needs display)
-#   bash tools/run_limb_tuner.sh gui --tuner-instrument
+#   bash tools/run_limb_tuner.sh prep                 # elbow/pose prep gate before authoring
+#   bash tools/run_limb_tuner.sh gui --tuner-elbow-instrument
 #   bash tools/run_limb_tuner.sh share-web           # browser preview + optional public link
 #
 # Env: GODOT=/path/to/Godot  SKIP_SINGLE_INSTANCE=1 (default)
@@ -63,8 +64,15 @@ run_headless_script() {
 	shift
 	local log_file="$LOG_DIR/${log_label}_${STAMP}.log"
 	echo ">>> $log_label"
+	set +e
 	"$GODOT_BIN" --path "$ROOT" --headless --script "$script_path" -- "$@" 2>&1 | tee "$log_file"
+	local exit_code=${PIPESTATUS[0]}
+	set -e
 	echo "Log: $log_file"
+	if [[ "$exit_code" -ne 0 ]]; then
+		echo "FAILED: $log_label (exit $exit_code)" >&2
+		exit "$exit_code"
+	fi
 }
 
 case "$MODE" in
@@ -76,12 +84,27 @@ case "$MODE" in
 		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
 		run_headless_script "res://tools/test_tuner_startup_no_clobber.gd" "tuner_startup_no_clobber"
 		run_headless_script "res://tools/test_tuner_save_playback_guard.gd" "tuner_save_playback_guard"
-		run_headless_script "res://tools/lockin_walk_clansmen_1.gd" "lockin_walk_clansmen_1"
 		run_headless_script "res://tools/test_tuner_pin_snap.gd" "tuner_pin_snap"
+		run_headless_script "res://tools/test_tuner_elbow_pose_prep.gd" "tuner_elbow_pose_prep"
 		run_headless_script "res://tools/test_limb_bake.gd" "limb_bake_test"
 		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_cli_smoke" smoke
 		echo ""
 		echo "LIMB_TUNER_VERIFY_OK"
+		;;
+	prep)
+		echo "=============================================="
+		echo "Animation prep gate ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/test_tuner_elbow_pose_prep.gd" "tuner_elbow_pose_prep"
+		run_headless_script "res://tools/test_tuner_pin_snap.gd" "tuner_pin_snap"
+		run_headless_script "res://tools/test_tuner_save_playback_guard.gd" "tuner_save_playback_guard"
+		run_headless_script "res://tools/test_tuner_startup_no_clobber.gd" "tuner_startup_no_clobber"
+		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_smoke" smoke
+		echo ""
+		echo "ANIMATION_PREP_OK — safe to open Pose Tuner and author Pose 1 / Pose 2"
+		echo "  bash tools/launch_tuner_mac.sh --walk1-edit"
+		echo "  Optional live logs: --tuner-elbow-instrument --tuner-pin-instrument"
 		;;
 	smoke)
 		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_smoke" smoke "$@"
@@ -100,7 +123,7 @@ case "$MODE" in
 		echo "Headless gates passed — opening Character Animation Tuner (instrumentation on)."
 		echo "Preset: assets/limb_presets/club_clansmen_1.tres"
 		echo "Session: Club · Idle standing (default startup)"
-		echo "  1. A/D — walk carry"
+		echo "  1. A/D on Idle — Walk keyframe preview (Preview: Walk in status line)"
 		echo "  2. Shift (hold) — windup loop rest→A→B→rest"
 		echo "  3. Shift+click — keyframed strike to peak → recover to windup B"
 		echo "  Yellow pin 3 must stay on club grip; green 1h + arms follow."
@@ -184,7 +207,7 @@ case "$MODE" in
 		echo "Headless gates passed — opening Character Animation Tuner (spear preview)."
 		echo "Preset: assets/limb_presets/spear_clansmen_1.tres"
 		echo "Session: Spear · Idle standing (--spear-preview)"
-		echo "  1. A/D — walk carry (shaft grip pinned)"
+		echo "  1. A/D on Idle — Walk keyframe preview (Preview: Walk in status line)"
 		echo "  2. Shift (hold) — two-hand windup on shaft (Y1 + Y2)"
 		echo "  3. Shift+click — thrust to strike_offset_px peak"
 		echo "  Yellow pin 3 on shaft art; green 1h stacked on yellow."
@@ -195,6 +218,43 @@ case "$MODE" in
 			exit 0
 		fi
 		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --spear-preview "$@"
+		;;
+	walk-evaluate|evaluate-ux)
+		echo "=============================================="
+		echo "Walk UX evaluation prep ${STAMP}"
+		echo "godot: ${GODOT_BIN}"
+		echo "=============================================="
+		run_headless_script "res://tools/test_limb_tuner.gd" "limb_tuner_test"
+		run_headless_script "res://tools/test_tuner_save_playback_guard.gd" "tuner_save_playback_guard"
+		run_headless_script "res://tools/test_tuner_pin_snap.gd" "tuner_pin_snap"
+		run_headless_script "res://tools/limb_tuner_cli.gd" "limb_tuner_cli_smoke" smoke
+		echo ""
+		echo "Headless gates passed — opening Character Animation Tuner."
+		echo ""
+		echo "=== YOUR CHECKLIST (5 min) ==="
+		echo "Context line (top of panel): Holdable · Walk/Idle · Pose · Preview: Walk/Idle · Saved"
+		echo ""
+		echo "1. None · Idle — hold A/D → status says Preview: Walk, arms loop (Walk 1 keyframes)"
+		echo "   Release A/D → Preview: Idle, idle pose returns"
+		echo "2. Category Walk — only ONE variant labeled Walk (not Walk + Walk 1)"
+		echo "3. Walk row — A/D loops arms WITHOUT pressing Play first"
+		echo "4. Walk row — Play loops same motion as A/D"
+		echo "5. Animation Reviewer tab — pick None · Walk — same loop, pins ghosted"
+		echo "6. Edit in Pose Tuner — jumps to Walk row, paused"
+		echo "7. F1 or ? — shortcut overlay"
+		echo "8. Bake disabled until Save all; warn if Pose 2 unsaved"
+		echo ""
+		echo "Club: repeat 1 on Club · Idle (carry + off-arm keyframes)"
+		echo "Spear: repeat 1 on Spear · Idle (shaft follows Walk grip, not sway)"
+		echo ""
+		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
+			echo "No DISPLAY — run locally: bash tools/run_limb_tuner.sh gui --walk1-preview" >&2
+			exit 0
+		fi
+		if [[ "$(uname -s)" == "Darwin" ]] && [[ -d "/Applications/Godot.app" ]]; then
+			exec bash "$ROOT/tools/launch_tuner_mac.sh" --walk1-preview "$@"
+		fi
+		exec "$GODOT_BIN" --path "$ROOT" "res://scenes/tools/LimbTuner.tscn" --walk1-preview "$@"
 		;;
 	gui)
 		if [[ -z "${DISPLAY:-}" ]] && [[ "$(uname -s)" != "Darwin" ]]; then
@@ -216,7 +276,7 @@ case "$MODE" in
 		"$GODOT_BIN" --path "$ROOT" --headless --script res://tools/limb_tuner_cli.gd -- --help
 		;;
 	*)
-		echo "Unknown mode: $MODE (verify|smoke|bake|evaluate|lockin|gather-lockin|gather-evaluate|spear-prep|spear-lockin|spear-evaluate|gui|share-web|help)" >&2
+		echo "Unknown mode: $MODE (verify|prep|smoke|bake|evaluate|walk-evaluate|lockin|gather-lockin|gather-evaluate|spear-prep|spear-lockin|spear-evaluate|gui|share-web|help)" >&2
 		exit 1
 		;;
 esac

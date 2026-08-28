@@ -1,8 +1,9 @@
 # Genetics & evolution simulation (future)
 
 **Status:** Idea / design draft — **not implemented**.  
+**Canonical overview:** [../genetics.md](../genetics.md) — start there for vision, baby metabolism, and build order.  
 **Scope:** Extends `§IX Hominid Classes` and `bible/future implementations/reproductiontraits.md`. Pairs with the **lineage system** (also planned — see "Open question" at bottom).  
-**Drafted:** May 2026
+**Drafted:** May 2026 · **Cross-linked:** Aug 2026
 
 ---
 

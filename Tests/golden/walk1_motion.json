@@ -2,14 +2,14 @@
   "animation": "walk1",
   "holdable": "none",
   "body": "clansmen_1",
-  "description": "Walk 1 pendulum — locked 2026-08-15 from animation receipt",
+  "description": "Walk 1 pendulum — locked 2026-08-18 with pendulum ease (CharacterAnimationSampler)",
   "locked": true,
   "samples": [
-    {"phase": 0.0, "hand_1": [115.7, 60.39], "hand_2": [20.18, 31.88]},
-    {"phase": 0.25, "hand_1": [174.43, 44.92], "hand_2": [-71.61, 38.01]},
-    {"phase": 0.5, "hand_1": [233.16, 29.45], "hand_2": [-163.4, 44.14]},
-    {"phase": 0.75, "hand_1": [174.43, 44.92], "hand_2": [-71.61, 38.01]},
-    {"phase": 1.0, "hand_1": [115.7, 60.39], "hand_2": [20.18, 31.88]}
+    {"phase": 0.0, "hand_1": [277.23, -28.68], "hand_2": [-158.5, 30.07]},
+    {"phase": 0.25, "hand_1": [263.25, -18.97], "hand_2": [-129.1, 25.81]},
+    {"phase": 0.5, "hand_1": [229.49, 4.48], "hand_2": [-58.14, 15.51]},
+    {"phase": 0.75, "hand_1": [195.74, 27.65], "hand_2": [12.81, 5.11]},
+    {"phase": 1.0, "hand_1": [181.76, 37.65], "hand_2": [42.23, 0.93]}
   ],
   "tolerance_px": 2.0
 }

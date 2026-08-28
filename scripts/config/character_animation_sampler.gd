@@ -5,6 +5,7 @@ class_name CharacterAnimationSampler
 
 const CharacterAnimationPoseScript = preload("res://scripts/config/character_animation_pose.gd")
 const ProceduralArmScript = preload("res://scripts/systems/procedural_arm.gd")
+const WalkArmMotionScript = preload("res://scripts/systems/walk_arm_motion.gd")
 
 
 static func ping_pong_phase(elapsed_sec: float, duration_sec: float) -> float:
@@ -31,9 +32,15 @@ static func sample_clip(clip, elapsed_sec: float):
 static func sample_between(pose_a, pose_b, t: float):
 	if pose_a == null or pose_b == null:
 		return pose_a.duplicate_pose() if pose_a else CharacterAnimationPoseScript.new()
+	var blend := _motion_blend01(t)
 	if _needs_front_sweep(pose_a, pose_b):
-		return _sample_with_front_sweep(pose_a, pose_b, t)
-	return pose_a.lerp_to(pose_b, t)
+		return _sample_with_front_sweep(pose_a, pose_b, blend)
+	return pose_a.lerp_to_blend(pose_b, blend)
+
+
+static func _motion_blend01(t: float) -> float:
+	## Pendulum ease — arms linger at stride extremes, accelerate through mid-swing.
+	return WalkArmMotionScript.pendulum_ease01(t)
 
 
 static func _needs_front_sweep(pose_a, pose_b) -> bool:
@@ -50,9 +57,9 @@ static func _needs_front_sweep(pose_a, pose_b) -> bool:
 	return weapon_flip or support_flip
 
 
-static func _sample_with_front_sweep(pose_a, pose_b, t: float):
-	var eased := CharacterAnimationPoseScript._smoothstep01(t)
-	var base = pose_a.lerp_to(pose_b, eased)
+static func _sample_with_front_sweep(pose_a, pose_b, blend: float):
+	var eased := clampf(blend, 0.0, 1.0)
+	var base = pose_a.lerp_to_blend(pose_b, eased)
 	if not _needs_front_sweep(pose_a, pose_b):
 		return base
 	var weapon_sweep := _sweep_elbow_display(

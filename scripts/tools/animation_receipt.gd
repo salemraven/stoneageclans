@@ -295,7 +295,7 @@ static func _build_clip_motion(clip) -> Dictionary:
 			"hand_2": _vec2_array(sampled.hand_support_px),
 		})
 	return {
-		"driver": "CharacterAnimationSampler.sample_between (Pose 1 ↔ Pose 2)",
+		"driver": "CharacterAnimationSampler.sample_between (Pose 1 ↔ Pose 2, pendulum ease)",
 		"duration_sec": snappedf(clip.duration_sec, 0.001),
 		"samples": samples,
 	}

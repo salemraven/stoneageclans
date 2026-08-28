@@ -1,18 +1,137 @@
-[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=16 format=3]
 
-[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_d4ehs"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_pose.gd" id="1_g0a7y"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_clip.gd" id="2_hcfdw"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="3_jcqle"]
+
+[sub_resource type="Resource" id="Resource_u7e2y"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_sfr8a"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_6y2o0"]
+script = ExtResource("2_hcfdw")
+pose_a = SubResource("Resource_u7e2y")
+pose_b = SubResource("Resource_sfr8a")
+duration_sec = 2.0
+
+[sub_resource type="Resource" id="Resource_vp4os"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_4cq1i"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_3va24"]
+script = ExtResource("2_hcfdw")
+clip_id = &"walk"
+pose_a = SubResource("Resource_vp4os")
+pose_b = SubResource("Resource_4cq1i")
+duration_sec = 0.8
+
+[sub_resource type="Resource" id="Resource_xf2fy"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_5x0ts"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_8luav"]
+script = ExtResource("2_hcfdw")
+clip_id = &"windup"
+pose_a = SubResource("Resource_xf2fy")
+pose_b = SubResource("Resource_5x0ts")
+duration_sec = 0.6
+
+[sub_resource type="Resource" id="Resource_e7ywm"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_hgjln"]
+script = ExtResource("1_g0a7y")
+shoulder_weapon_px = Vector2(118, -179)
+shoulder_support_px = Vector2(-95, -178)
+hand_weapon_px = Vector2(4.966575, 101.0588)
+hand_support_px = Vector2(-136.47, 41.69)
+elbow_weapon_bend_sign = -1.0
+elbow_support_bend_sign = 1.0
+overlay_offset_px = Vector2(63.5, -116)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_644ie"]
+script = ExtResource("2_hcfdw")
+clip_id = &"strike"
+pose_a = SubResource("Resource_e7ywm")
+pose_b = SubResource("Resource_hgjln")
+duration_sec = 0.6
 
 [resource]
-script = ExtResource("1_d4ehs")
+script = ExtResource("3_jcqle")
 body_card_id = "test_roundtrip"
+animation_clips = [SubResource("Resource_6y2o0"), SubResource("Resource_3va24"), SubResource("Resource_8luav"), SubResource("Resource_644ie")]
+unified_clips_initialized = true
 shoulder_offset_px = Vector2(5, -12)
 hand_grip_offset_px = Vector2(2, 80)
-support_shoulder_offset_px = Vector2(-95.000244, -178.00005)
-support_hand_idle_offset_px = Vector2(17.749899, 24.559978)
+support_shoulder_offset_px = Vector2(-95, -178)
+support_hand_idle_offset_px = Vector2(-136.47, 41.69)
 overlay_offset_idle_px = Vector2(63.5, -116)
 upper_arm_length = 120.0
 lower_arm_length = 120.0
 weapon_elbow_pole_idle_px = Vector2(3, -5)
-support_elbow_pole_idle_px = Vector2(-65.75702, -61.61787)
-weapon_elbow_bend_sign_override = 1.0
+support_elbow_pole_idle_px = Vector2(-65.77, -61.62)
+weapon_elbow_bend_sign_override = -1.0
 support_elbow_bend_sign_override = 1.0

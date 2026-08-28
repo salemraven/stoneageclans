@@ -60,7 +60,7 @@
 
 ### 2.3 Raiding
 - [ ] ClanBrain raid_intent → NPCs self-assign to Raid state
-- [ ] Raid flow: move to enemy claim → loot buildings → destroy flag = total wipe
+- [ ] Raid flow: move to enemy claim → loot buildings → destroy flag = **territory wipe** (wild cavemen/founder planned — [clan_founding_and_exile.md](../clan_founding_and_exile.md))
 - [ ] War Horn + Herd = instant war party formation
 
 ### 2.4 New NPCs & Items

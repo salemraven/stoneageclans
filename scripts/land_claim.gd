@@ -27,6 +27,10 @@ var _clan_name_label: Label = null
 const CLAN_NAME_LABEL_OFFSET_Y: float = -100.0
 
 # Clan death decay system (inherits from BuildingBase health system)
+## Per-clan extinction guard — one MutationStore increment per clan wipe (soft + hard paths).
+static var _extinction_recorded_clans: Dictionary = {}
+var _clan_death_recorded: bool = false
+
 var is_decaying: bool = false
 var decay_health: float = 100.0  # Building health (0 = destroyed) - legacy, use current_health from BuildingBase
 var decay_rate: float = 0.5  # Health lost per second (land claim decays slowest)
@@ -725,10 +729,46 @@ func _process(delta: float) -> void:
 	if decay_health <= 0.0:
 		_destroy_building()
 
+func try_record_clan_extinction(reason: String) -> bool:
+	"""Record one clan extinction for chunk budget. Returns true if newly recorded."""
+	if clan_name.is_empty():
+		return false
+	if _clan_death_recorded or bool(_extinction_recorded_clans.get(clan_name, false)):
+		_clan_death_recorded = true
+		return false
+	_clan_death_recorded = true
+	_extinction_recorded_clans[clan_name] = true
+	if MutationStore:
+		MutationStore.record_clan_death_at_world_pos(global_position)
+	var chunk := ChunkUtils.get_chunk_coords(global_position) if ChunkUtils else Vector2i.ZERO
+	if UnifiedLogger:
+		UnifiedLogger.log_system("CLAN_DEATH", {
+			"clan": clan_name,
+			"reason": reason,
+			"chunk_x": chunk.x,
+			"chunk_y": chunk.y,
+			"x": global_position.x,
+			"y": global_position.y,
+		})
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("clan_death"):
+		pi.clan_death(clan_name, chunk, reason, global_position)
+	print("💀 CLAN DEATH recorded: clan=%s reason=%s chunk=(%d,%d)" % [clan_name, reason, chunk.x, chunk.y])
+	return true
+
+
+static func clear_extinction_record_for_tests(clan_name: String = "") -> void:
+	if clan_name.is_empty():
+		_extinction_recorded_clans.clear()
+	else:
+		_extinction_recorded_clans.erase(clan_name)
+
+
 func _destroy_building() -> void:
 	"""Destroy the building when decay completes or is attacked (Phase 2)"""
 	print("💀 Land claim building for clan %s has been destroyed" % clan_name)
-	
+	try_record_clan_extinction("flag_destroyed")
+
 	# Revert women and herd NPCs (sheep, goats) to wild
 	_revert_clan_women_to_wild()
 	
@@ -743,7 +783,8 @@ func _destroy_building() -> void:
 	queue_free()
 
 func _revert_clan_women_to_wild() -> void:
-	"""When land claim is destroyed, women and herd NPCs (sheep, goats) of this clan become wild again."""
+	"""When land claim is destroyed, women and herd NPCs (sheep, goats) of this clan become wild again.
+	In-utero pregnancies are cancelled via become_wild() → ReproductionComponent.cancel_pregnancy()."""
 	var npcs := get_tree().get_nodes_in_group("npcs")
 	for n in npcs:
 		if not is_instance_valid(n):

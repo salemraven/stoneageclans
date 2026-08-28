@@ -178,7 +178,7 @@ func enter_ready(new_aim: Vector2) -> void:
 		var wt: ResourceData.ResourceType = _get_equipped_weapon_type()
 		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
 			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
-			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite, aim_dir)
 		_sync_overlay_facing_from_aim()
 		PlaceholderCardService.set_overlay_combat_state(npc, WeaponOverlayCombat.OverlayState.READY)
 		PlaceholderCardService.sync_weapon_overlay(npc, _get_equipped_weapon_type(), true)
@@ -203,7 +203,7 @@ func update_ready_aim(new_aim: Vector2) -> void:
 		if PlaceholderCardService and _uses_overlay_combat():
 			if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
 				var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
-				WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+				WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite, aim_dir)
 			_sync_overlay_facing_from_aim()
 			PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
 		return
@@ -212,7 +212,7 @@ func update_ready_aim(new_aim: Vector2) -> void:
 	if PlaceholderCardService and _uses_overlay_combat():
 		if not WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, wt):
 			var body_sprite: Sprite2D = npc.get_node_or_null("Sprite") as Sprite2D
-			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite)
+			WeaponOverlayCombat.sync_swing_body_facing(npc, body_sprite, aim_dir)
 		_sync_overlay_facing_from_aim()
 		PlaceholderCardService.update_weapon_overlay_combat(npc, wt, aim_dir)
 

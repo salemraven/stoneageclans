@@ -6,6 +6,7 @@ const _SALT_TREES := &"trees"
 const _SALT_GRASS := &"grass"
 const _SALT_GROUND := &"ground"
 const _SALT_CLANS := &"clans"
+const _SALT_WOMEN := &"women"
 
 
 func _rng(world_seed: int, cx: int, cy: int, salt: StringName) -> RandomNumberGenerator:
@@ -22,6 +23,7 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 		"grass_bug_patches": [],
 		"ground_items": [],
 		"clans": [],
+		"wild_women": [],
 	}
 	if cfg == null:
 		return out
@@ -150,5 +152,20 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 			"caveman_offset": Vector2(rng_clan.randf_range(-120.0, 120.0), rng_clan.randf_range(-120.0, 120.0)),
 			"clan_name_seed": rng_clan.randi(),
 		})
+
+	var woman_chance: float = float(cfg.get("wild_woman_chunk_chance"))
+	var woman_max: int = maxi(1, int(cfg.get("wild_woman_per_chunk_max")))
+	var rng_women := _rng(world_seed, cx, cy, _SALT_WOMEN)
+	if rng_women.randf() < woman_chance:
+		var count: int = rng_women.randi_range(1, woman_max)
+		for wi in count:
+			out["wild_women"].append({
+				"position": origin + Vector2(
+					rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0),
+					rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
+				),
+				"name_seed": rng_women.randi(),
+				"age": rng_women.randi_range(13, 50),
+			})
 
 	return out

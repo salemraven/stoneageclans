@@ -65,7 +65,7 @@ All major systems in one place. Each row links to the section where that system 
 | **NPCs** | Types: women, sheep, goats, clansmen, cavemen; spawn sources; purpose (reproduction, herd, combat, work). | §VIII NPCs |
 | **Hominid species & genetics** | 5 species; traits; 50/50 hybridization; species/trait/stat inheritance at birth. (Visuals = 2D art, not morph genomes.) | §IX Hominid classes |
 | **Combat & healing** | Agro meter (70/60); CombatComponent (windup → hit → recovery); attack arc; stagger; death/corpse; Medic Hut planned. | §X Combat & healing |
-| **Raiding** | Loot buildings/flag; destroy flag = total wipe; ClanBrain sets raid_intent; NPCs self-assign to Raid state. | §XI Raiding |
+| **Raiding** | Loot buildings/flag; destroy flag = **territory wipe** (+ wild cavemen / founder pipeline planned); ClanBrain sets raid_intent; NPCs self-assign to Raid state. | §XI Raiding |
 | **Food & production** | Oven (Wood + Grain → Bread); consumables (berries, grain, bread); wild wheat rule; Dairy/Meat planned. | §XII Food & production |
 | **Items & resources** | Wood, stone, wheat, fiber, leather; tools (axe, pick, club); equipment slots (hotbar 1–0). | §XIII Items & resources |
 | **Relics & shrine** | Rare items; place in Shrine → clan-wide buff; flag upgrades may require relics. | §XIV Relics & shrine |
@@ -170,7 +170,7 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 ### Behavior
 - Own drag-and-drop storage inventory.
 - War Horn (**H**) — rally clansmen (RTS); see §XVIII and `bible/rts.md`.
-- **Destroy enemy flag = total wipe**: all inventories vanish, huts destroyed, clansmen drop dead, women/animals scatter as wild.
+- **Destroy enemy flag = territory wipe**: inventories/buildings gone; women/animals scatter wild. **Wild cavemen** (survivors) → founder/exile pipeline — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
 
 ### Campfire vs Land Claim
 | Dimension | Campfire (Nomadic) | Land Claim (Stationary) |
@@ -359,7 +359,7 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 ## XI. Raiding
 
 - **Loot** every building + flag inventory first (drag-and-drop).
-- **Destroy enemy flag** → total wipe.
+- **Destroy enemy flag** → **territory wipe** (herdables scatter wild; **wild cavemen** / founder — planned — [clan_founding_and_exile.md](clan_founding_and_exile.md)).
 - **War Horn + Herd** = instant massive war parties.
 - **ClanBrain** sets raid_intent; NPCs self-assign to Raid state.
 
@@ -922,7 +922,9 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **AOP_PHASE2_PLAN.md** | Herdables in PerceptionArea (event-driven); resources in AOP for gather; trait-based AOP radius; fix EnemiesInClaim mask = 3. | PerceptionArea: add `nearby_herdables` dict, body_entered/exited for woman/sheep/goat (wild only). Expose `get_herdables_in_range()`, `has_herdables()`. herd_wildnpc_state: use PerceptionArea when in range, fallback get_nodes_in_group for 1700px. land_claim.gd: set `_enemies_zone.collision_mask = 3`. |
 | **CRITICAL_FIXES.md** *(removed Apr 2026)* | Was a prioritized fix checklist in repo; **file deleted** to avoid stale P0 lists. Use issue tracker / small Cursor plans for urgent bugs. | — |
 | **daynight.md** | Day/night cycle; AOP lowers at night; torches broaden AOP but make you easier to see. | Global `game_time` or EnvironmentController; day_phase 0–1 (0=midnight, 0.5=noon). Shader or CanvasModulate for darkness. NPCConfig or PerceptionArea: `aop_radius_night = aop_radius * 0.5`. Torch: held item or building that adds AOP bonus and sets "torch_active" so hostiles get range bonus to detect carrier. |
-| **food.md** | Housing = clansmen cap; food = baby throttle + starvation; daily consumption per role; fertility scales with surplus. | **Partial (2026-06):** kcal values in `BalanceConfig`, tick drain via `Stats` + `SimulationManager`, breeding gate uses `calories_days_buffer`. Still TODO: starvation kill order, spoilage, fertility scaling. |
+| **food.md** | Housing = clansmen cap; food = baby throttle + starvation; daily consumption per role; fertility scales with surplus. | **Partial (2026-06):** kcal values in `BalanceConfig`, tick drain via `Stats` + `SimulationManager`, breeding gate uses `calories_days_buffer`. Still TODO: starvation kill order, spoilage, fertility scaling. **Baby feeding / genetics metabolism:** documented in [genetics.md](genetics.md) + [reproduction_guide.md](reproduction_guide.md) — not coded. |
+| **genetics.md** | Lineage + discrete/continuous inheritance; metabolism → baby/adult food need; climate selection; allele ledger. | **Not implemented.** Hub: [genetics.md](genetics.md). Deep spec: [future implementations/genetics.md](future%20implementations/genetics.md). Build: `LocusCatalog`, `BirthEngine`, Person record, baby auto-feed, starvation wave. **Founder lineage:** [clan_founding_and_exile.md](clan_founding_and_exile.md) §5. |
+| **clan_founding_and_exile.md** | **Wild cavemen** after flag destroy; **clan slot** budget; **one founder per wipe**; spawn **existing** NPC + claim at chunk edge; clan name = founder name; age-weighted despawn; replaces unconditional `_spawn_replacement_caveman` when survivors exist. Voluntary defectors share pipeline. **Major systems update.** | **Not implemented.** Hub: [clan_founding_and_exile.md](clan_founding_and_exile.md). Add `max_ai_clans_near_player`, `found_clan_from_exile_npc()`, gate replacement spawn. |
 | **knapping.md** | Flint knapping minigame: Polygon2D core, target outline, strike drag, progress bar, fracture on bad strike. | New scene KnappingMinigame: CorePolygon (Polygon2D), TargetOutline (Line2D), StrikePreview (Line2D), ProgressBar. On drag release: ray/arc vs core polygon; subtract chip polygon or adjust vertices; compare to target, update progress. Bad angle → add FractureLines or fail. On success: yield tool item (Oldowan, etc.). |
 | **building_improvements.md** | Two-phase commit: placement mode (ghost, no cost) → confirm (consume materials, spawn building). Single place for effects. | UI: on build icon click enter "placement_mode"; show ghost BuildingPreview; on valid click call main._place_building() which consumes inventory and instances. Never consume on click card only. Centralize "building placed" effects in main or land_claim. |
 | **optimizations.md** | Event-driven perception, sticky targets, scheduled combat, optional Zone B; disable AOP when sleeping/far. | Already partly done (CombatScheduler, PerceptionArea). Add: target reselect only on enemy_entered/exited, ally_hit, target_died. For Zone B: when distance_to_player > threshold, run simplified combat tick or skip AOP. monitoring = false when sleeping/morale broken. |

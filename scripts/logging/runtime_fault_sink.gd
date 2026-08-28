@@ -3,15 +3,33 @@ extends Node
 ## Disable: env SKIP_RUNTIME_FAULT_SINK=1
 ## Extra stderr: --runtime-boot-audit (also audits a few ResourceLoader paths)
 ## Logs: user://runtime_boot_audit.log (overwrite each boot + append on tree exit)
+## Exit trace lines prefixed GAME_EXIT for: grep GAME_EXIT Tests/logs/game_exit_*.log
 
 const AUDIT_FILE := "user://runtime_boot_audit.log"
+const EXIT_PREFIX := "GAME_EXIT"
 
 var _verbose_audit: bool = false
+var _boot_msec: int = 0
+static var quit_reason: String = "unknown"
+static var quit_detail: String = ""
+
+
+static func mark_quit(reason: String, detail: String = "") -> void:
+	quit_reason = reason if not reason.is_empty() else "unspecified"
+	quit_detail = detail
+	var line := "%s mark reason=%s detail=%s ticks=%s" % [
+		EXIT_PREFIX, quit_reason, quit_detail, Time.get_ticks_msec()
+	]
+	print(line)
+	var sink: Node = Engine.get_main_loop().root.get_node_or_null("RuntimeFaultSink") if Engine.get_main_loop() else null
+	if sink:
+		sink._append_exit_line(line)
 
 
 func _ready() -> void:
 	if OS.get_environment("SKIP_RUNTIME_FAULT_SINK") == "1":
 		return
+	_boot_msec = Time.get_ticks_msec()
 	for a in OS.get_cmdline_user_args():
 		if str(a) == "--runtime-boot-audit":
 			_verbose_audit = true
@@ -20,16 +38,30 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	_append_line(
-		AUDIT_FILE,
-		"runtime_fault_sink_exit ticks=%s frames=%s" % [Time.get_ticks_msec(), Engine.get_frames_drawn()]
+	var uptime_sec: float = (Time.get_ticks_msec() - _boot_msec) / 1000.0
+	var line := (
+		"%s exit_tree reason=%s detail=%s uptime_sec=%.2f ticks=%s frames=%s"
+		% [
+			EXIT_PREFIX,
+			quit_reason,
+			quit_detail,
+			uptime_sec,
+			Time.get_ticks_msec(),
+			Engine.get_frames_drawn(),
+		]
 	)
+	print(line)
+	_append_exit_line(line)
 
 
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if quit_reason == "unknown":
+			mark_quit("window_close_request", "RuntimeFaultSink_notification")
 	# Engine may send this on fatal faults in some builds; harmless if never received.
 	if what == 1015:
-		_append_line(AUDIT_FILE, "notification_1015 (possible crash hook) t=%s" % Time.get_ticks_msec())
+		mark_quit("notification_1015", "possible_engine_crash_hook")
+		_append_exit_line("%s notification_1015 t=%s" % [EXIT_PREFIX, Time.get_ticks_msec()])
 
 
 func _deferred_boot_audit() -> void:
@@ -73,6 +105,30 @@ func _deferred_boot_audit() -> void:
 	_write_audit(AUDIT_FILE, lines)
 	for i in range(lines.size()):
 		print("[RuntimeFaultSink] %s" % lines[i])
+
+
+func _append_exit_line(line: String) -> void:
+	_append_line(AUDIT_FILE, line)
+	_mirror_exit_line_to_repo_log(line)
+
+
+func _mirror_exit_line_to_repo_log(line: String) -> void:
+	var repo_log := "res://Tests/logs/game_exit_latest.log"
+	var abs_path: String = ProjectSettings.globalize_path(repo_log)
+	if abs_path.is_empty():
+		return
+	var f: FileAccess = FileAccess.open(abs_path, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(abs_path, FileAccess.WRITE)
+	if f == null:
+		return
+	if f.get_length() > 0:
+		f.seek_end()
+	else:
+		f.store_string("=== game exit trace (append per run) ===\n")
+	f.store_string(line + "\n")
+	f.flush()
+	f.close()
 
 
 func _write_audit(path: String, lines: PackedStringArray) -> void:

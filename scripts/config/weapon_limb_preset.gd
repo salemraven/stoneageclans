@@ -2390,6 +2390,65 @@ func ensure_unified_clips(registry: Node = null) -> void:
 	unified_clips_initialized = true
 
 
+## Fresh unified slate — clears legacy animation rows and rebuilds default clips (unsaved).
+func reset_unified_animation_data(registry: Node = null) -> void:
+	clear_legacy_animation_pose_fields()
+	unified_clips_initialized = false
+	animation_clips.clear()
+	CharacterAnimationPresetStoreScript.ensure_all_clips(self, registry)
+	for clip in animation_clips:
+		if clip == null:
+			continue
+		clip.saved = false
+		clip.pose_b_saved = false
+	unified_clips_initialized = true
+
+
+func clear_legacy_animation_pose_fields() -> void:
+	walk_hand_grip_offset_px = Vector2.ZERO
+	walk_support_hand_offset_px = Vector2.ZERO
+	walk_overlay_offset_px = Vector2.ZERO
+	walk_weapon_elbow_pole_px = Vector2.ZERO
+	walk_support_elbow_pole_px = Vector2.ZERO
+	walk1_hand_grip_offset_px = Vector2.ZERO
+	walk1_support_hand_offset_px = Vector2.ZERO
+	walk1_overlay_offset_px = Vector2.ZERO
+	walk1_weapon_elbow_pole_px = Vector2.ZERO
+	walk1_support_elbow_pole_px = Vector2.ZERO
+	walk1_weapon_elbow_bend_sign_override = 0.0
+	walk1_support_elbow_bend_sign_override = 0.0
+	walk1_pull_hand_grip_offset_px = Vector2.ZERO
+	walk1_pull_support_hand_offset_px = Vector2.ZERO
+	walk1_pull_weapon_elbow_pole_px = Vector2.ZERO
+	walk1_pull_support_elbow_pole_px = Vector2.ZERO
+	walk1_pull_weapon_elbow_bend_sign_override = 0.0
+	walk1_pull_support_elbow_bend_sign_override = 0.0
+	walk1_pose_a_saved = false
+	walk1_pose_b_saved = false
+	gather1_hand_grip_offset_px = Vector2.ZERO
+	gather1_support_hand_offset_px = Vector2.ZERO
+	gather1_pull_hand_grip_offset_px = Vector2.ZERO
+	gather1_pull_support_hand_offset_px = Vector2.ZERO
+	gather1_reach_saved = false
+	gather1_pull_saved = false
+	support_shoulder_idle_raise_offset_px = Vector2.ZERO
+	support_hand_idle_raise_offset_px = Vector2.ZERO
+	support_hand_idle_raise_lookback_offset_px = Vector2.ZERO
+	support_elbow_pole_idle_raise_px = Vector2.ZERO
+	support_elbow_pole_idle_raise_sweep_px = Vector2.ZERO
+	support_elbow_bend_sign_raise_override = 0.0
+	ready_offset_px = Vector2.ZERO
+	strike_offset_px = Vector2.ZERO
+	hand_grip_ready_offset_px = Vector2.ZERO
+	support_hand_offset_px = Vector2.ZERO
+	weapon_elbow_pole_ready_px = Vector2.ZERO
+	support_elbow_pole_ready_px = Vector2.ZERO
+	weapon_elbow_bend_sign_ready_override = 0.0
+	support_elbow_bend_sign_ready_override = 0.0
+	spear_attack_pose_saved = false
+	club_attack_pose_saved = false
+
+
 func get_unified_clip(clip_id: StringName):
 	return CharacterAnimationPresetStoreScript.get_clip(self, clip_id)
 

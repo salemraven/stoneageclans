@@ -31,30 +31,36 @@ const TOOL_OVERLAY_PATHS := {
 const TOOL_OVERLAY_REFERENCE_HEIGHT := 835.0
 ## Card overlay spear — larger than 1:1 PNG so it reads on the body card; grip stays at SPEAR_GRIP_TEXTURE_NY.
 const SPEAR_OVERLAY_SCALE := 1.52
+const CLUB_OVERLAY_SCALE := 1.58
 ## Half-size runtime mannequin scales overlays down; this boost keeps tools readable (all types).
 const RUNTIME_TOOL_OVERLAY_SCALE_MUL := 2.0
 
 ## Display-pixel nudge after body card scale (x = right, y = up). Same top-right slot as spear.
 const TOOL_OVERLAY_OFFSET_PX := {
-	ResourceData.ResourceType.SPEAR: Vector2(22.0, -34.0),
+	ResourceData.ResourceType.SPEAR: Vector2(62.0, -74.0),
 	ResourceData.ResourceType.AXE: Vector2(22.0, -34.0),
-	ResourceData.ResourceType.WOOD: Vector2(22.0, -34.0),
+	ResourceData.ResourceType.WOOD: Vector2(62.0, -6.0),
 	ResourceData.ResourceType.PICK: Vector2(22.0, -34.0),
 	ResourceData.ResourceType.OLDOWAN: Vector2(22.0, -34.0),
 }
 
+## Shift-ready windup nudge from idle spear slot (display px: +X forward, -Y up).
+const SPEAR_WINDUP_OFFSET_DELTA_PX := Vector2(15.0, 39.0)
+
 const TOOL_OVERLAY_SCALE := {
 	ResourceData.ResourceType.SPEAR: SPEAR_OVERLAY_SCALE,
 	ResourceData.ResourceType.AXE: 1.0,
-	ResourceData.ResourceType.WOOD: 1.0,
+	ResourceData.ResourceType.WOOD: CLUB_OVERLAY_SCALE,
 	ResourceData.ResourceType.PICK: TOOL_OVERLAY_REFERENCE_HEIGHT / 32.0,
 	ResourceData.ResourceType.OLDOWAN: TOOL_OVERLAY_REFERENCE_HEIGHT / 64.0,
 }
 
-const WALK_BOUNCE_AMPLITUDE := 2.5
-const WALK_BOUNCE_SPEED := 8.0
+const WALK_BOUNCE_AMPLITUDE := 4.0
+const WALK_BOUNCE_SPEED := 13.0
 ## Shared walk tempo — body bounce, head bob, overlay lag, and arm swing stay in sync.
-const WALK_RHYTHM_SPEED_SCALE := 0.62
+const WALK_RHYTHM_SPEED_SCALE := 0.95
+## Hop curve: pow(abs(sin), sharpness). Lower = brief pop up, longer grounded (choppier).
+const WALK_BOUNCE_HOP_SHARPNESS := 0.42
 const WALK_ARM_SWING_FORWARD_PX := 20.0
 const WALK_ARM_SWING_ANGLE_DEG := 24.0
 ## Weapon overlay lags the card body bounce (radians) so the tool follows slightly behind.
@@ -99,15 +105,15 @@ const WEAPON_COMBAT_PROFILES := {
 		"ready_rotation_offset_deg": 50.0,
 		"pivot_x_frac": CLUB_HANDLE_TEXTURE_NX,
 		"pivot_y_frac": CLUB_HANDLE_TEXTURE_NY,
-		# Smooth heavy smash — long downswing, lower hit point.
-		"swing_windup_deg": 28.0,
-		"swing_arc_deg": 114.0,
+		# Smooth heavy smash — tighter arc, hit stays closer to body.
+		"swing_windup_deg": 22.0,
+		"swing_arc_deg": 76.0,
 		"swing_windup_frac": 0.08,
 		"swing_strike_frac": 0.64,
-		"swing_pull_back_px": 14.0,
-		"swing_pull_up_px": 10.0,
-		"swing_lunge_forward_px": 20.0,
-		"swing_lunge_down_px": 72.0,
+		"swing_pull_back_px": 10.0,
+		"swing_pull_up_px": 6.0,
+		"swing_lunge_forward_px": 12.0,
+		"swing_lunge_down_px": 38.0,
 		"swing_windup_trans": "sine",
 		"swing_windup_ease": "out",
 		"swing_strike_trans": "cubic",
@@ -224,6 +230,10 @@ func get_tool_overlay(resource_type: ResourceData.ResourceType) -> Texture2D:
 
 func get_tool_overlay_offset_px(resource_type: ResourceData.ResourceType) -> Vector2:
 	return TOOL_OVERLAY_OFFSET_PX.get(resource_type, Vector2.ZERO)
+
+
+func get_spear_ready_overlay_offset_px() -> Vector2:
+	return get_tool_overlay_offset_px(ResourceData.ResourceType.SPEAR) + SPEAR_WINDUP_OFFSET_DELTA_PX
 
 
 func get_tool_overlay_scale(resource_type: ResourceData.ResourceType) -> float:

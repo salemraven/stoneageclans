@@ -55,6 +55,7 @@ var _walk_swing_elbow_pick_locked := false
 var _walk_swing_support_elbow_pick_a := true
 var _walk_swing_weapon_elbow_pick_a := true
 var _keyed_motion_elbow_authority := false
+var _static_pose_elbow_authority := false
 
 
 func _ready() -> void:
@@ -302,7 +303,7 @@ func _process(_delta: float) -> void:
 		support_bend = _cached_limb_preset.resolve_support_elbow_bend_sign_for_idle_raise(
 			idle_raise_blend, _resolve_support_bend_sign_auto(), idle_arm2_lowering
 		)
-	if not _keyed_motion_elbow_authority:
+	if not _keyed_motion_elbow_authority and not _static_pose_elbow_authority:
 		_support_elbow_override = false
 		_weapon_elbow_override = false
 	if use_idle_raise_ik:
@@ -474,9 +475,15 @@ func clear_all_elbow_overrides() -> void:
 	clear_support_elbow_override()
 
 
+func set_static_pose_elbow_authority(active: bool) -> void:
+	_static_pose_elbow_authority = active
+	if not active and not _keyed_motion_elbow_authority:
+		clear_all_elbow_overrides()
+
+
 func set_keyed_motion_elbow_authority(active: bool) -> void:
 	_keyed_motion_elbow_authority = active
-	if not active:
+	if not active and not _static_pose_elbow_authority:
 		clear_all_elbow_overrides()
 
 

@@ -393,6 +393,18 @@ func perception_query(npc_name: String, query_type: String, result_count: int, r
 func npc_died(npc_name: String, clan_name: String, cause: String) -> void:
 	_write({"evt": "npc_died", "npc": npc_name, "clan": clan_name, "cause": cause})
 
+
+func clan_death(clan_name: String, chunk: Vector2i, reason: String, pos: Vector2) -> void:
+	_write({
+		"evt": "clan_death",
+		"clan": clan_name,
+		"chunk_x": chunk.x,
+		"chunk_y": chunk.y,
+		"reason": reason,
+		"x": pos.x,
+		"y": pos.y,
+	})
+
 func npc_hunger_threshold(npc_name: String, clan_name: String, threshold: int, direction: String, hunger_percent: float) -> void:
 	_write({"evt": "npc_hunger_threshold", "npc": npc_name, "clan": clan_name, "threshold": threshold, "direction": direction, "hunger_pct": hunger_percent})
 
@@ -552,11 +564,81 @@ func land_claim_placed(clan_name: String, x: float, y: float, nearest_dist: floa
 	"""Placement verification: min distance to existing claims (player or AI)."""
 	_write({"evt": "land_claim_placed", "clan": clan_name, "x": x, "y": y, "nearest_dist": nearest_dist, "source": source})
 
-func baby_spawned(clan_name: String, mother_name: String, father_name: String, slot_count: int = -1) -> void:
+
+func session_started(mode: String, world_seed: int, player_count: int) -> void:
+	_write({"evt": "session_started", "mode": mode, "world_seed": world_seed, "player_count": player_count})
+
+
+func player_spawned(player_id: int, x: float, y: float, spawn_reason: String) -> void:
+	_write({"evt": "player_spawned", "player_id": player_id, "x": x, "y": y, "spawn_reason": spawn_reason})
+
+
+func chunk_npc_spawned(
+	chunk_x: int,
+	chunk_y: int,
+	npc_type: String,
+	source: String,
+	x: float,
+	y: float,
+	clan_name: String = ""
+) -> void:
+	var obj: Dictionary = {
+		"evt": "chunk_npc_spawned",
+		"cx": chunk_x,
+		"cy": chunk_y,
+		"npc_type": npc_type,
+		"source": source,
+		"x": x,
+		"y": y,
+	}
+	if clan_name != "":
+		obj["clan"] = clan_name
+	_write(obj)
+
+
+func chunk_woman_spawned(chunk_x: int, chunk_y: int, npc_name: String, x: float, y: float) -> void:
+	_write({"evt": "chunk_woman_spawned", "cx": chunk_x, "cy": chunk_y, "npc": npc_name, "x": x, "y": y})
+
+
+func spawn_flow_summary(summary: Dictionary) -> void:
+	var obj: Dictionary = {"evt": "spawn_flow_summary"}
+	for k in summary.keys():
+		obj[k] = summary[k]
+	_write(obj)
+
+func baby_spawned(clan_name: String, mother_name: String, father_name: String, slot_count: int = -1, cap_breakdown: Dictionary = {}) -> void:
 	var obj: Dictionary = {"evt": "baby_spawned", "clan": clan_name, "mother": mother_name, "father": father_name}
 	if slot_count >= 0:
 		obj["slot_count"] = slot_count
+	if not cap_breakdown.is_empty():
+		obj["baby_cap"] = cap_breakdown
 	_write(obj)
+
+
+func baby_cap_snapshot(clan_name: String, breakdown: Dictionary) -> void:
+	_write({"evt": "baby_cap_snapshot", "clan": clan_name, "breakdown": breakdown})
+
+
+func baby_pregnancy_blocked(clan_name: String, npc_name: String, reason: String, breakdown: Dictionary = {}) -> void:
+	var obj := {"evt": "baby_pregnancy_blocked", "clan": clan_name, "npc": npc_name, "reason": reason}
+	if not breakdown.is_empty():
+		obj["breakdown"] = breakdown
+	_write(obj)
+
+
+func baby_pregnancy_cancelled(clan_name: String, npc_name: String, reason: String, buffer_days: float = -1.0) -> void:
+	var obj := {"evt": "baby_pregnancy_cancelled", "clan": clan_name, "npc": npc_name, "reason": reason}
+	if buffer_days >= 0.0:
+		obj["buffer_days"] = buffer_days
+	_write(obj)
+
+
+func baby_pregnancy_frozen(clan_name: String, npc_name: String, timer: float) -> void:
+	_write({"evt": "baby_pregnancy_frozen", "clan": clan_name, "npc": npc_name, "timer": timer})
+
+
+func baby_pregnancy_resumed(clan_name: String, npc_name: String, timer: float) -> void:
+	_write({"evt": "baby_pregnancy_resumed", "clan": clan_name, "npc": npc_name, "timer": timer})
 
 func baby_grew_to_clansman(npc_name: String, clan_name: String) -> void:
 	_write({"evt": "baby_grew_to_clansman", "npc": npc_name, "clan": clan_name})

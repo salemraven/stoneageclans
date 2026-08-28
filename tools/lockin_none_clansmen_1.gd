@@ -11,8 +11,8 @@ const TOLERANCE_PX := 0.05
 const SHOULDER_1 := Vector2(118.0, -179.0)
 const SHOULDER_2 := Vector2(-95.0, -178.0)
 
-const IDLE_HAND_1 := Vector2(127.90, 51.48)
-const IDLE_HAND_2 := Vector2(17.75, 24.56)
+const IDLE_HAND_1 := Vector2(186.65, 34.35)
+const IDLE_HAND_2 := Vector2(-136.47, 41.69)
 const IDLE_ELBOW_1_POLE := Vector2(89.89, -62.34)
 const IDLE_ELBOW_2_POLE := Vector2(-65.77, -61.62)
 const IDLE_OVERLAY := Vector2(22.0, -34.0)

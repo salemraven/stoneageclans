@@ -3,7 +3,7 @@
 **Design intent** lives here; **implementation truth** is `bible.md` + `bible/main.md` + `bible/game_dictionary.md`.  
 All previous documents (July 2025 PDFs) are officially obsolete. **Guide index:** `bible/README.md`.
 
-**Implementation note (May 2026):** The world uses **chunk-based streaming** for procedural resources, trees, grass, ground items, and optional seeded AI clans when `WorldGenConfig.use_chunk_content_streaming` is on. Infinite plain, seed, load/unload, and file map → **`bible/game_map.md`**. GDD §2 “world” remains the **player-facing** description; technical spawn split (minigame NPCs vs chunk filler) is documented there.
+**Implementation note (May 2026):** The world uses **chunk-based streaming** for procedural resources, trees, grass, ground items, wild women, migratory wildlife, and optional seeded AI clans. Infinite plain, seed, load/unload, and file map → **`bible/game_map.md`**. GDD §2 “world” remains the **player-facing** description.
 
 ## 1. Core Fantasy & Win Condition
 Generational permadeath + brutal raiding.  
@@ -33,7 +33,7 @@ Pure sandbox – no hard victory screen.
 - Own drag-and-drop storage inventory  
 - Upgradable in-place: Flag → Tower → Keep → Castle (X radius, X storage, X costs + relics for higher tiers)  
 - **War Horn** built-in (H key)  
-- Destroy enemy flag = **total wipe** (all inventories vanish, baby pool erased, clansmen drop dead, women/animals scatter as wild)
+- Destroy enemy flag = **territory wipe** (inventories/buildings gone; herdables scatter wild). **Wild cavemen** / founder pipeline — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md))
 
 ## 6. Baby Pool & Living Huts
 - Baby pool has a maximum capacity  
@@ -74,7 +74,7 @@ Pure sandbox – no hard victory screen.
 
 ## 11. Raiding
 - Loot every building + flag inventory first (drag-and-drop)  
-- Destroy enemy flag → total wipe  
+- Destroy enemy flag → **territory wipe** (wild cavemen / founder — planned — [clan_founding_and_exile.md](clan_founding_and_exile.md))
 - War Horn + Herd = instant massive war parties
 
 ## 12. Food – Bakery & Bread

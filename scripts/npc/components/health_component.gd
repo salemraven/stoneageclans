@@ -2,6 +2,7 @@ extends Node
 class_name HealthComponent
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+const PawnDeathAnimation = preload("res://scripts/systems/pawn_death_animation.gd")
 
 # Health Component - tracks HP, handles death, sets corpse sprite
 
@@ -85,6 +86,10 @@ func die() -> void:
 		is_dead = true
 		current_hp = 0
 		health_changed.emit(current_hp, max_hp)
+		if PlaceholderCardService:
+			PlaceholderCardService.hide_holdables_on_death(npc)
+		if PlaceholderCardService and PlaceholderCardService.uses_layered_body_mannequin(npc):
+			PlaceholderCardService.play_pawn_death_animation(npc)
 		if npc.has_method("on_vitals_death"):
 			var cause := death_cause if death_cause != "" else "health"
 			npc.call("on_vitals_death", cause)
@@ -93,6 +98,9 @@ func die() -> void:
 	
 	is_dead = true
 	current_hp = 0
+	
+	if PlaceholderCardService and npc:
+		PlaceholderCardService.hide_holdables_on_death(npc)
 	
 	# Emit combat_ended if NPC was in combat (for playtest instrumentation)
 	if npc:
@@ -241,17 +249,30 @@ func _set_corpse_sprite() -> void:
 		sprite.modulate = Color(0.35, 0.35, 0.35)
 		var name_str: String = npc.get("npc_name") if npc else "NPC"
 		print("💀 CORPSE: Dark grey modulate for %s (%s)" % [name_str, npc_type])
-	else:
-		# Cavemen: corpsecm.png
-		var corpse_texture = AssetRegistry.get_corpse_caveman_sprite()
-		if corpse_texture:
-			sprite.texture = corpse_texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-			print("💀 CORPSE: Set corpse sprite for %s" % (npc.npc_name if npc else "NPC"))
+	elif PlaceholderCardService and PlaceholderCardService.uses_layered_body_mannequin(npc):
+		if PawnDeathAnimation.play(npc):
+			print("💀 CORPSE: Pawn death fall for %s" % (npc.npc_name if npc else "NPC"))
 		else:
-			print("❌ CORPSE: Failed to load corpse texture for %s" % (npc.npc_name if npc else "NPC"))
+			_apply_legacy_caveman_corpse_sprite(sprite, npc)
+	else:
+		_apply_legacy_caveman_corpse_sprite(sprite, npc)
+
+
+func _apply_legacy_caveman_corpse_sprite(sprite: Sprite2D, npc: Node) -> void:
+	if sprite == null:
+		return
+	if PlaceholderCardService and npc:
+		PlaceholderCardService.hide_holdables_on_death(npc)
+	# Cavemen: corpsecm.png
+	var corpse_texture = AssetRegistry.get_corpse_caveman_sprite()
+	if corpse_texture:
+		sprite.texture = corpse_texture
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		if npc and npc.has_method("apply_sprite_offset_for_texture"):
+			npc.apply_sprite_offset_for_texture()
+		print("💀 CORPSE: Set corpse sprite for %s" % (npc.npc_name if npc else "NPC"))
+	else:
+		print("❌ CORPSE: Failed to load corpse texture for %s" % (npc.npc_name if npc else "NPC"))
 
 func _drop_travois_at_corpse(npc_ref: Node) -> void:
 	"""Spawn TravoisGround at corpse position, transfer carried inventory, clear carried state"""
@@ -489,14 +510,15 @@ func _handle_clan_death(clan_name: String) -> void:
 	var land_claims = _get_land_claims()
 	var buildings = npc.get_tree().get_nodes_in_group("buildings")
 	
+	var extinction_recorded := false
 	for claim in land_claims:
 		if not is_instance_valid(claim):
 			continue
 		var claim_clan_prop = claim.get("clan_name")
 		var claim_clan: String = claim_clan_prop as String if claim_clan_prop != null else ""
 		if claim_clan == clan_name:
-			if MutationStore and claim is Node2D:
-				MutationStore.record_clan_death_at_world_pos((claim as Node2D).global_position)
+			if not extinction_recorded and claim.has_method("try_record_clan_extinction"):
+				extinction_recorded = claim.try_record_clan_extinction("soft_last_caveman")
 			# Hide the area circle
 			if claim.has_method("hide_area_circle"):
 				claim.hide_area_circle()

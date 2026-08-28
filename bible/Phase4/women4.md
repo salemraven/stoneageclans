@@ -20,7 +20,7 @@ Women are NPCs with `npc_type == "woman"`. They exist in two forms:
 ### Who Is Wild
 
 `is_wild()` returns true when:
-- `npc_type` is "woman", "sheep", or "goat" (cavemen are never wild)
+- `npc_type` is "woman", "sheep", or "goat" for **herdable wild** types (wild cavemen are males — see [clan_founding_and_exile.md](../clan_founding_and_exile.md))
 - `clan_name == ""`
 - Outside every land claim (distance to claim center > claim radius, default 400px)
 

@@ -4,4 +4,5 @@
 
 [resource]
 script = ExtResource("1")
-body_neck_socket_px = Vector2(179.2085, 66.09204)
+body_neck_socket_px = Vector2(179.21, 66.09)
+hair_attach_local_px = Vector2(-36.607056, -487.67432)

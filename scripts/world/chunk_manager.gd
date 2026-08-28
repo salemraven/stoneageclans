@@ -63,8 +63,6 @@ func update_streaming(player_world_pos: Vector2, delta: float) -> void:
 		return
 	if _wgc == null:
 		_wgc = get_node_or_null("/root/WorldGenConfig")
-	if not _wgc or not bool(_wgc.use_chunk_content_streaming):
-		return
 	var interest: Node = get_node_or_null("/root/WorldInterestManager")
 	if interest and interest.has_method("recompute"):
 		interest.call("recompute", _main)
@@ -174,6 +172,8 @@ func _load_chunk(chunk: Vector2i) -> void:
 	_spawn_clans(root, chunk, data.get("clans", []))
 	if _main and _main.has_method("_spawn_wildlife_for_loaded_chunk"):
 		_main.call("_spawn_wildlife_for_loaded_chunk", chunk)
+	if _main and _main.has_method("_spawn_wild_women_for_loaded_chunk"):
+		_main.call("_spawn_wild_women_for_loaded_chunk", chunk, data.get("wild_women", []))
 	var sleep_mgr: Node = get_node_or_null("/root/NPCSleepManager")
 	if sleep_mgr and sleep_mgr.has_method("wake_npcs_in_chunk") and _main:
 		var wo_parent: Node2D = _main.get("world_objects") as Node2D

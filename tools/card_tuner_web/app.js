@@ -74,7 +74,7 @@ const state = {
 const handleDefs = [
   { id: "neck", label: "H", color: "#73bff2", kind: "layout", key: "body_neck_socket_px", texture: "body" },
   { id: "shoulder", label: "1", color: "#e64d4d", kind: "preset", key: "shoulder_offset_px" },
-  { id: "weapon_elbow", label: "1e", color: "#f28c1a", kind: "preset", key: "weapon_elbow_pole_idle_px", onArm: true },
+  { id: "weapon_elbow", label: "1e", color: "#33bfd9", kind: "preset", key: "weapon_elbow_pole_idle_px", onArm: true },
   { id: "hand", label: "1", color: "#36d95c", kind: "preset", key: "hand_grip_offset_px" },
   { id: "support_shoulder", label: "2", color: "#bf2626", kind: "preset", key: "support_shoulder_offset_px" },
   { id: "support_elbow", label: "2e", color: "#33bfd9", kind: "preset", key: "support_elbow_pole_idle_px", onArm: true },

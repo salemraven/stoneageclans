@@ -248,7 +248,7 @@ Items that can be worn/equipped on the character. Includes armor, accessories, a
 **Notes:**
 - Can be dragged from inventory to world map for placement
 - Essential for establishing a clan
-- Destroying enemy flag = total wipe (all inventories vanish, baby pool erased, clansmen drop dead)
+- Destroying enemy flag = **territory wipe** (inventories/buildings gone; herdables wild). **Wild cavemen** / founder — planned ([clan_founding_and_exile.md](clan_founding_and_exile.md))
 
 ---
 

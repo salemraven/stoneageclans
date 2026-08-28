@@ -84,4 +84,4 @@ func head_gap_local() -> float:
 
 
 func head_bob_local() -> float:
-	return display_to_local(2.5)
+	return display_to_local(4.0)

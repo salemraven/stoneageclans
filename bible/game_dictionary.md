@@ -12,7 +12,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 
 | Term | Definition |
 |------|------------|
-| **Caveman** | Any **male** NPC in the game. All males are cavemen. Cavemen **always** belong to a clan — they are **never** wild, **never** “unclaimed,” and **never** wander the map without a clan. |
+| **Caveman** | Any **male** NPC in the game. All males are cavemen. In **settled** play, cavemen belong to a clan with a land claim. A **wild caveman** has no claim (exiled/defected) — see [clan_founding_and_exile.md](clan_founding_and_exile.md) (**planned**). |
 | **Clansman** / **clansmen** | A caveman who **belongs to your (or a) clan**. Same male units; “clansman” stresses **clan membership** and duties (work, defend, follow, raid). **Women and herd animals are not clansmen**, even when they are part of the clan. |
 | **Woman** | Female NPC type. Not a clansman; not a wild NPC in the same category as herdables or predators. Can be **part of the clan** if claimed / assigned. |
 | **Worker** | A clansman who is **not** currently acting as a **defender** (gathering, building, crafting, following orders, etc.). |
@@ -21,7 +21,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **Baby** | Child NPC before promotion; grows in the mother’s **Living Hut** context, then timer promotes to **clansman** (male). Not a clansman until promoted. |
 | **Bloodline** | Player’s lineage run: one founder species at start, **hybridization** each generation. **Permadeath** on wipe — no soft continue of the same bloodline unless design adds it. |
 
-*Legacy docs sometimes call AI male leaders “wild cavemen.” **Canon:** all males are **cavemen**; they always have a **clan** — there are no clanless male wanderers. AI leaders are still clan-affiliated.*
+*Legacy docs sometimes call AI male leaders “wild cavemen” when seeding new clans. **Canon (Aug 2026):** settled males have a clan; **wild caveman** = male without a claim after exile/defection — [clan_founding_and_exile.md](clan_founding_and_exile.md).*
 
 ---
 
@@ -30,12 +30,13 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | Term | Definition |
 |------|------------|
 | **Wild** | **Without a clan** — no clan owns or claims that NPC. |
+| **Wild caveman** | Male with **no land claim** — exiled after flag destroy, defector, or founder-in-waiting. **Planned** — [clan_founding_and_exile.md](clan_founding_and_exile.md). Not the same as herdable `become_wild()`. |
 | **Wild NPC** | An NPC that is **wild**. Includes **herdables** (e.g. goats, sheep) and **enemies** (e.g. wolves). **Enemy NPCs cannot be herded.** |
 | **Wilderness** | **Land that is not claimed** — no land claim (flag) covers it. |
 | **Part of the clan** | Women and herd NPCs **can** be part of the clan when **claimed** by that clan. They are **not** clansmen, but they **are** clan members for ownership / UI / systems. |
 | **Claimed** (herd NPC) | A herdable (or similar) tied to a clan. Opposite of **wild**. |
 
-**Raid / clan destroyed:** When a clan is wiped and the **land claim** goes away, **wild** NPCs that belonged to the clan (herd animals, etc.) **return to the wilderness** — they become **wild / unclaimed** again. **Cavemen do not become wild**; they are not in that pipeline.
+**Raid / clan destroyed:** When a clan’s **land claim (flag)** is destroyed, **territory** is gone (inventories, buildings). **Herdables** (women, sheep, goats) **return to wild** via `become_wild()`. **Babies** despawn with the claim (today). **Male fighters** may become **wild cavemen** (exile → founder or die/despawn) — **planned**, [clan_founding_and_exile.md](clan_founding_and_exile.md). **Not implemented yet** — today males keep a dead `clan_name` with no claim.
 
 ---
 
@@ -70,7 +71,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 |------|------------|
 | **Land claim** | The **territory**: the **land inside** the claim **circle / radius** (plus the claim object as anchor). |
 | **Campfire** | A **small, movable** clan base — a **mobile land claim** (same role as a claim, smaller radius, nomadic). |
-| **Flag** | The **permanent** land claim — settled clan territory (the main **LandClaim**-style base). Destroying an **enemy** flag triggers a **total wipe** (inventories, buildings, clansmen dead, women/herdables scatter as **wild**). |
+| **Flag** | The **permanent** land claim — settled clan territory (the main **LandClaim**-style base). Destroying an **enemy** flag wipes **territory** (inventories, buildings). **Herdables** scatter wild. **Wild cavemen** (planned): [clan_founding_and_exile.md](clan_founding_and_exile.md). |
 | **Village** | **Land claim at scale**: large radius, many huts/buildings; **ClanBrain** drives **supply/demand** and (planned) richer task assignment. Campfire supports up to **3 Living Huts** then you need a **flag** claim. |
 | **Nomadic base** | Synonym context for **campfire** — smaller radius, fewer slots; **ClanBrain** runs in **nomadic** mode (same script as the flag, lighter defense weights). |
 

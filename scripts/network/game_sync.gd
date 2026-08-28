@@ -5,7 +5,7 @@ signal server_player_joined(peer_id: int)
 signal need_world_snapshot_for_peer(peer_id: int)
 
 var _spawn_slot: int = 0
-var _peer_spawn_zone_index: Dictionary = {}
+var _peer_spawn_world_pos: Dictionary = {}
 
 
 func _ready() -> void:
@@ -25,23 +25,27 @@ func _on_net_peer_connected(id: int) -> void:
 		need_world_snapshot_for_peer.emit(id)
 
 
-## Server: assign next spawn zone from WorldGenConfig; stable for same peer_id.
+## Server: pick world spawn far from existing players (Main.find_mp_spawn_location_for_peer).
 func consume_spawn_world_position_for_peer(peer_id: int) -> Vector2:
+	if _peer_spawn_world_pos.has(peer_id):
+		return _peer_spawn_world_pos[peer_id] as Vector2
+	var main_n := get_tree().get_first_node_in_group("main")
+	if main_n and main_n.has_method("find_mp_spawn_location_for_peer"):
+		var pos: Vector2 = main_n.call("find_mp_spawn_location_for_peer", peer_id) as Vector2
+		_peer_spawn_world_pos[peer_id] = pos
+		return pos
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
 	if not wgc:
 		return Vector2.ZERO
 	var zones: Array = wgc.player_spawn_zones
 	if zones.is_empty():
 		return Vector2.ZERO
-	if _peer_spawn_zone_index.has(peer_id):
-		var zi0: int = int(_peer_spawn_zone_index[peer_id])
-		var c0: Vector2i = zones[zi0] as Vector2i
-		return ChunkUtils.get_chunk_center(c0)
 	var zi: int = _spawn_slot % zones.size()
 	_spawn_slot += 1
-	_peer_spawn_zone_index[peer_id] = zi
 	var c: Vector2i = zones[zi] as Vector2i
-	return ChunkUtils.get_chunk_center(c)
+	var fallback: Vector2 = ChunkUtils.get_chunk_center(c)
+	_peer_spawn_world_pos[peer_id] = fallback
+	return fallback
 
 
 @rpc("authority", "call_remote", "reliable")

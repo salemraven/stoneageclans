@@ -1,13 +1,92 @@
-[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_f4bun"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_pose.gd" id="1_ywmph"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_clip.gd" id="2_at7f6"]
+
+[sub_resource type="Resource" id="Resource_55fsi"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_er8pv"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_qctf0"]
+script = ExtResource("2_at7f6")
+pose_a = SubResource("Resource_55fsi")
+pose_b = SubResource("Resource_er8pv")
+duration_sec = 2.0
+
+[sub_resource type="Resource" id="Resource_udy5i"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_pcxfv"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_u0jma"]
+script = ExtResource("2_at7f6")
+clip_id = &"walk"
+pose_a = SubResource("Resource_udy5i")
+pose_b = SubResource("Resource_pcxfv")
+duration_sec = 0.8
+
+[sub_resource type="Resource" id="Resource_dx28d"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_4twxy"]
+script = ExtResource("1_ywmph")
+shoulder_weapon_px = Vector2(117.999886, -178.99998)
+shoulder_support_px = Vector2(-95.000244, -178)
+hand_support_px = Vector2(17.749899, 24.559978)
+elbow_weapon_bend_sign = 1.0
+elbow_support_bend_sign = 1.0
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_j3mu7"]
+script = ExtResource("2_at7f6")
+clip_id = &"gather"
+pose_a = SubResource("Resource_dx28d")
+pose_b = SubResource("Resource_4twxy")
 
 [resource]
 script = ExtResource("1_f4bun")
 weapon_type = 9
+animation_clips = [SubResource("Resource_qctf0"), SubResource("Resource_u0jma"), SubResource("Resource_j3mu7")]
+unified_clips_initialized = true
 shoulder_offset_px = Vector2(117.999886, -178.99998)
 support_shoulder_offset_px = Vector2(-95.000244, -178)
 support_hand_idle_offset_px = Vector2(17.749899, 24.559978)
+support_hand_offset_px = Vector2(0, 0)
+ready_offset_px = Vector2(0, 0)
 upper_arm_length = 120.0
 lower_arm_length = 120.0
 weapon_elbow_pole_idle_px = Vector2(0, 235)

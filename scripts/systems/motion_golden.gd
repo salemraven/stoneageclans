@@ -37,7 +37,7 @@ static func validate_walk1_pendulum(
 		var want_h2: Array = sample.get("hand_2", [])
 		if want_h1.size() >= 2:
 			var want := Vector2(float(want_h1[0]), float(want_h1[1]))
-			var got := WalkArmMotion.body_snapshot_between_keyframes(
+			var got := _walk_sample_hand(
 				pose_a_hand_1, pose_b_hand_1, phase
 			)
 			if got.distance_to(want) > tolerance:
@@ -46,7 +46,7 @@ static func validate_walk1_pendulum(
 				)
 		if want_h2.size() >= 2:
 			var want2 := Vector2(float(want_h2[0]), float(want_h2[1]))
-			var got2 := WalkArmMotion.body_snapshot_between_keyframes(
+			var got2 := _walk_sample_hand(
 				pose_a_hand_2, pose_b_hand_2, phase
 			)
 			if got2.distance_to(want2) > tolerance:
@@ -54,6 +54,10 @@ static func validate_walk1_pendulum(
 					"walk1 hand_2 phase %.2f expected %s got %s" % [phase, str(want2), str(got2)]
 				)
 	return errors
+
+
+static func _walk_sample_hand(pose_a: Vector2, pose_b: Vector2, phase: float) -> Vector2:
+	return pose_a.lerp(pose_b, WalkArmMotion.pendulum_ease01(phase))
 
 
 static func validate_idle_rest(golden_path: String, preset: WeaponLimbPreset) -> Array[String]:

@@ -19,6 +19,9 @@ func _ready() -> void:
 		push_error(
 			"Stone Age Clans: another instance is already running (lock port %d in use)." % LOCK_PORT
 		)
+		var sink = get_node_or_null("/root/RuntimeFaultSink")
+		if sink and sink.has_method("mark_quit"):
+			sink.mark_quit("single_instance_blocked", "port %d in use" % LOCK_PORT)
 		get_tree().quit()
 
 

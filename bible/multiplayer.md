@@ -155,11 +155,11 @@ Players spawn and move. Server-authoritative.
 
 Server spawns world (NPCs, land claims, resources). Clients receive and render.
 
-**Today (solo / headless):** `SpawnManager` runs **`Main._initialize_minigame()`** then either **`ChunkManager.ensure_initial_load`** (when `WorldGenConfig.use_chunk_content_streaming`) or legacy **`_spawn_initial_resources`** + grass + trees — see **`bible/game_map.md`**. None of this is yet described as **network broadcast** to remote peers.
+**Today (solo / headless):** `SpawnManager` logs **`session_started`**, places the player (origin for SP, far-spread for online MP), then **`ChunkManager.ensure_initial_load`**. All NPCs/resources come from **chunk generation** — see **`bible/game_map.md` §5.1. None of this is yet **network broadcast** to remote peers.
 
 ### 5.1 World Initialization (Server Only)
 
-- [ ] Server runs `_setup_npcs()`, resource/chunk pipeline, etc. (existing logic — **must match** streaming toggle above)
+- [ ] Server runs `_setup_npcs()` + chunk pipeline (always chunk-seeded today)
 - [ ] For each spawned entity: assign network_id, add to registry
 - [ ] Broadcast spawn messages to all connected clients
 - [ ] New clients joining mid-game: server sends full world state (all entities)

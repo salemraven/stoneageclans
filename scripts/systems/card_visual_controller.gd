@@ -19,6 +19,32 @@ static func apply_card_layout(sprite: Sprite2D, texture: Texture2D, registry) ->
 	return foot_y
 
 
+## 0..1 hop factor — quick pop up, snap back to ground (not a smooth float).
+static func walk_bounce_hop_factor(bounce_time: float) -> float:
+	var hop := absf(sin(bounce_time))
+	var sharpness: float = Registry.WALK_BOUNCE_HOP_SHARPNESS
+	if sharpness > 0.0 and sharpness != 1.0:
+		hop = pow(hop, sharpness)
+	return hop
+
+
+## Negative offset = up from foot anchor (screen Y decreases).
+static func walk_bounce_offset(bounce_time: float, amplitude: float = Registry.WALK_BOUNCE_AMPLITUDE) -> float:
+	return -walk_bounce_hop_factor(bounce_time) * amplitude
+
+
+## Keep last left/right facing when travel is vertical-only (RimWorld-style side lock).
+static func apply_travel_facing_flip(
+	sprite: Sprite2D,
+	travel: Vector2,
+	horizontal_threshold: float = 0.05
+) -> void:
+	if sprite == null or travel.length_squared() < 0.0001:
+		return
+	if absf(travel.x) > horizontal_threshold:
+		sprite.flip_h = travel.x < 0.0
+
+
 static func tick_walk_bounce(
 	sprite: Sprite2D,
 	foot_y: float,
@@ -32,7 +58,7 @@ static func tick_walk_bounce(
 		return bounce_time
 	if moving:
 		bounce_time += delta * speed
-		var offset := sin(bounce_time) * amplitude
+		var offset := walk_bounce_offset(bounce_time, amplitude)
 		sprite.position.y = roundf(foot_y + offset)
 	else:
 		bounce_time = 0.0

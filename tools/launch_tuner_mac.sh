@@ -14,7 +14,8 @@
 #   bash tools/launch_tuner_mac.sh --club-walk-edit
 #   bash tools/launch_tuner_mac.sh --idle-club1-edit
 #   bash tools/launch_tuner_mac.sh --none-idle-play
-#   bash tools/launch_tuner_mac.sh --club-walk-edit --tuner-pin-instrument
+#   bash tools/launch_tuner_mac.sh --hair-edit
+#   bash tools/launch_tuner_mac.sh --walk1-edit --tuner-elbow-instrument
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

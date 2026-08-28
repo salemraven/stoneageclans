@@ -87,6 +87,8 @@ func _update_weapon_visibility() -> void:
 		is_dead = npc.get_meta("is_dead", false)
 	
 	if is_dead:
+		if PlaceholderCardService:
+			PlaceholderCardService.hide_holdables_on_death(npc)
 		# NPC is dead - don't change sprite, keep corpse sprite
 		return
 	

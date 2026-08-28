@@ -32,29 +32,24 @@ func _run() -> void:
 
 
 func _check_node_counts() -> void:
-	var wgc: Node = root.get_node_or_null("/root/WorldGenConfig")
-	var streaming: bool = wgc != null and bool(wgc.get("use_chunk_content_streaming"))
 	var tallgrass: int = get_nodes_in_group("tallgrass").size()
 	var deco_trees: int = get_nodes_in_group("decorative_trees").size()
 	var total := _count_nodes(current_scene)
-	print("VISUAL_SIM_METRIC tallgrass=%d decorative_trees=%d total_nodes=%d streaming=%s" % [
-		tallgrass, deco_trees, total, streaming
+	print("VISUAL_SIM_METRIC tallgrass=%d decorative_trees=%d total_nodes=%d" % [
+		tallgrass, deco_trees, total
 	])
-	if streaming:
-		if tallgrass == 0:
-			_pass("tallgrass group empty under chunk streaming")
-		else:
-			_fail("tallgrass group empty", "count=%d" % tallgrass)
-		if deco_trees == 0:
-			_pass("decorative_trees group empty (batched)")
-		else:
-			_fail("decorative_trees group empty", "count=%d" % deco_trees)
-		if total < 22000:
-			_pass("total node count reduced", "total=%d" % total)
-		else:
-			_fail("total node count reduced", "total=%d (expected <22000)" % total)
+	if tallgrass == 0:
+		_pass("tallgrass group empty under chunk streaming")
 	else:
-		_pass("chunk streaming off — skip tallgrass=0 gate")
+		_fail("tallgrass group empty", "count=%d" % tallgrass)
+	if deco_trees == 0:
+		_pass("decorative_trees group empty (batched)")
+	else:
+		_fail("decorative_trees group empty", "count=%d" % deco_trees)
+	if total < 22000:
+		_pass("total node count reduced", "total=%d" % total)
+	else:
+		_fail("total node count reduced", "total=%d (expected <22000)" % total)
 
 
 func _check_chunk_visual_layers() -> void:

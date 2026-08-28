@@ -1,0 +1,79 @@
+
+=== Playtest Analysis: playtest_session.jsonl (12897 events) ===
+
+Session path: /Users/macbook/Desktop/stoneageclans/Tests/logs/clanbrain_report_5min_20260620_222341/playtest_session.jsonl
+  npc_only_world: true
+  world_seed: 0
+  playtest_world_seed_cli: 424242
+
+--- Herd enter/exit patterns ---
+  (rapid re-enter = exit then enter within 1.5s)
+  NIAM: enters=5, exits=4
+  QOLI: enters=12, exits=12
+  TIRI: enters=6, exits=6
+
+--- herd_count_change ---
+  ✓ Count changes look consistent
+
+--- Snapshots ---
+  Last snapshot @ t=298.8s: herders=1, herdable_wild=10, total_herded=0
+
+--- herd_wildnpc_can_enter rejections ---
+  is_depositing: 1254
+  too_far_from_claim: 846
+  not_caveman_or_clansman: 494
+  searcher_quota_full: 370
+  max_active_herders: 300
+  mode_ARC: 281
+  delivery_cooldown: 215
+  inventory_full: 195
+  exit_cooldown: 149
+
+--- Herd influence activity ---
+  entered: 303, transfer: 633, contested: 633
+
+--- Coverage (herd session density) ---
+  herd_wildnpc_enter count: 37, max t: 300.6s
+  (no min thresholds — use --min-herd-wildnpc-enters / --min-session-sec for strict herd proof)
+
+--- Combat / flee FSM touch rate (fighters only) ---
+  (window=14s, fail if >14 touches involving combat/flee_combat)
+  ✓ No fighter exceeded combat/flee churn threshold
+
+--- Agro threshold crossings (above vs below hysteresis band) ---
+  (window=30s, fail if >14 directional flips)
+  ✓ No NPC exceeded agro flip rate threshold
+
+--- Frozen combat probes (velocity vs target proximity) ---
+  (need ≥6 successive snapshots at capture interval, v≤4, ctl_d<360px, excluding windup/recovery locks)
+  ✓ No frozen combat streak detected (or no ctl_d-enhanced probes in capture)
+
+=== Done ===
+
+
+--- ClanBrain strict (JSONL oracle) ---
+  hunt_started rows: 7
+  friendly_fire signals: combat_started=0, combat_hit(ff)=0, test_failed=0
+  clan_brain_eval: 427, clan_brain_quota_update: 0
+  ✓ ClanBrain strict thresholds satisfied
+
+--- Clansmen actions (JSONL) ---
+  baby_grew_to_clansman: 26
+  unique clansmen tracked: 26
+  gather_completed (clansmen): 171
+  deposit_completed (clansmen): 38
+  task_completed / task_failed / task_cancel: 192 / 8 / 72
+  gather FSM touches (clansman): 110
+  npc_productivity_snapshot rows: 10
+  top task_cancel reasons: state_exit_clear_tasks=18, exited_tree=17, resource_node_invalid=17, assign_job_supersede=12, task_failed=8
+  ✓ Clansmen action thresholds satisfied
+STRICT CLANBRAIN OK
+
+--- NPC world sim strict (AI gather / hunt / growth) ---
+  npc_fsm_transition gather touches (caveman/clansman): 156
+  hunt world (prey flee_prey FSM): 116
+  hunt brain (hunt_started/joined/phase + fighter hunt FSM): 118
+  growth unique (spawn keys=6, grew keys=26 total=32)
+  max event t: 300.6s
+  ✓ NPC sim strict thresholds satisfied
+STRICT NPC SIM OK

@@ -1,0 +1,63 @@
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://scripts/config/character_animation_pose.gd" id="1_8fqed"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_clip.gd" id="2_ywrii"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="3_gogri"]
+
+[sub_resource type="Resource" id="Resource_6lwlr"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_hei2j"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_kylyv"]
+script = ExtResource("2_ywrii")
+pose_a = SubResource("Resource_6lwlr")
+pose_b = SubResource("Resource_hei2j")
+duration_sec = 2.0
+
+[sub_resource type="Resource" id="Resource_7af3q"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(11, 22)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_10eqj"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(33, 44)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_j5s0m"]
+script = ExtResource("2_ywrii")
+clip_id = &"walk"
+pose_a = SubResource("Resource_7af3q")
+pose_b = SubResource("Resource_10eqj")
+duration_sec = 0.65
+pose_b_saved = true
+
+[sub_resource type="Resource" id="Resource_6ew2a"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_nx0rp"]
+script = ExtResource("1_8fqed")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_iql60"]
+script = ExtResource("2_ywrii")
+clip_id = &"gather"
+pose_a = SubResource("Resource_6ew2a")
+pose_b = SubResource("Resource_nx0rp")
+
+[resource]
+script = ExtResource("3_gogri")
+weapon_type = 0
+body_card_id = "test_unified_rt"
+animation_clips = [SubResource("Resource_kylyv"), SubResource("Resource_j5s0m"), SubResource("Resource_iql60")]
+unified_clips_initialized = true
+hand_grip_offset_px = Vector2(24, 8)

@@ -19,8 +19,13 @@ var chunk_unload_no_interest_grace_ms: float = 500.0
 var chunk_defer_unload_if_npcs_active: bool = true
 var chunk_defer_unload_if_player_building: bool = true
 
-# When true, SpawnManager uses ChunkManager for resources/trees/grass instead of radius spawn.
-var use_chunk_content_streaming: bool = true
+# --- Player spawn (MP join) ---
+## Minimum distance (px) between joining players when picking a spawn location.
+var player_spawn_min_distance_px: float = 3000.0
+
+# --- Wild women (chunk-seeded) ---
+var wild_woman_chunk_chance: float = 0.15
+var wild_woman_per_chunk_max: int = 2
 
 # --- Adaptive radius (MP) ---
 var adaptive_load_radius_enabled: bool = true

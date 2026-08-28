@@ -31,18 +31,23 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [hunting.md](hunting.md) | **Hunting hub** — NPC AoH hunts + player RTS hunt modes |
 | [Phase4/raiding_hunting.md](Phase4/raiding_hunting.md) | RTS PEACE/AGRO/HUNT, stances, deer flee |
 | [rts.md](rts.md) | War Horn, formations, `RTS_CONFIG`, engineering |
-| [wildlife_movement.md](wildlife_movement.md) | Deer, mammoth, herdables, `WildRole` |
+| [wildlife_movement.md](wildlife_movement.md) | Deer, mammoth, herdables, `WildRole` — **current code** |
+| [wildlife_migration.md](wildlife_migration.md) | **Seasonal cross-plane** herd migration (design lock) |
 | [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) | Herd influence, steal, claim join |
 | [movement.md](movement.md) | Speed, formation debuffs, steering |
 | [GatherGuide.md](GatherGuide.md) | Gather jobs, deposit, ResourceIndex |
 | [tasks_guide.md](tasks_guide.md) | Tasks, jobs, TaskRunner |
 | [raid.md](raid.md) | Raiding flow (player + AI) |
 | [AgroGuide.md](AgroGuide.md) | Agro meter, combat entry |
-| [reproduction_guide.md](reproduction_guide.md) | Huts, pregnancy, babies |
+| [reproduction_guide.md](reproduction_guide.md) | Huts, pregnancy, babies, **baby feeding gap (planned)** |
+| [genetics.md](genetics.md) | **Genetics vision** — inheritance, metabolism, evolution (planned) |
 | [Buildings.md](Buildings.md) | Building list, placement |
 | [items_guide.md](items_guide.md) | Items, hotbar, resources |
 | [traits.md](traits.md) | Species, traits, stats |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
+| [clan_founding_and_exile.md](clan_founding_and_exile.md) | **Planned (major):** wild cavemen, exile, clan slots, founder spawn |
+| [settlement_sim.md](settlement_sim.md) | **Off-screen villages** — actor sleep vs settlement tick (babies, build, craft) |
+| [visual_vs_sim_layers.md](visual_vs_sim_layers.md) | Chunk visual/sim/data layers + NPC tier A/B/C |
 | [environment_goal.md](environment_goal.md) | **Environment vision** — island map, water, lushness, ClanBrain resources (goals) |
 | [multiplayer.md](multiplayer.md) | MP roadmap + repo stubs |
 | [earlygame.md](earlygame.md) | Nomadic loop, territory tiers |
@@ -60,6 +65,8 @@ Unimplemented mechanics (prisoners, full starvation sim, etc.) belong in **bible
 | [Ultimate_npc_clanbrain_test.md](Ultimate_npc_clanbrain_test.md) | Strict gates, AoH, hunts |
 | [console.md](console.md) | Log patterns, debug |
 | [dev_resources.md](dev_resources.md) | Cursor plans, playtest pipeline |
+| [../guides/lag.md](../guides/lag.md) | Lag baseline, profiler, scale roadmap (Aug 2026) |
+| [../guides/character_layers.md](../guides/character_layers.md) | **Layered identity** — hair/cloth/hats, atlas, sleep, visual LOD |
 
 ---
 
@@ -82,6 +89,10 @@ Older phase docs may be partially stale — cross-check **`bible.md` §XXI** bef
 ## Future / aspirational only
 
 Everything under **[future implementations/](future%20implementations/)** — village, predators, knapping, prisoner flows (if added), etc. See **`bible.md` §XXII** for the master table.
+
+**Genetics hub:** [genetics.md](genetics.md) (canonical overview) · deep spec: [future implementations/genetics.md](future%20implementations/genetics.md)
+
+**Wild cavemen / clan founding (planned — major update):** [clan_founding_and_exile.md](clan_founding_and_exile.md)
 
 **Also aspirational:** [future implementations/warhorn.md](future%20implementations/warhorn.md) (leader-carried trophy horn — **H rally is implemented**; see [rts.md](rts.md)).
 

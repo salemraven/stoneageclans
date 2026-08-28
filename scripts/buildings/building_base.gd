@@ -266,11 +266,19 @@ func _process(delta: float) -> void:
 
 func _destroy_building() -> void:
 	"""Destroy the building when health reaches 0"""
+	var destroyed_clan: String = str(clan_name).strip_edges()
+	var destroyed_type := building_type
 	print("💀 Building %s for clan %s has been destroyed" % [ResourceData.get_resource_name(building_type), clan_name])
 	if OccupationSystem:
 		OccupationSystem.notify_building_destroyed(self)
 	if ClaimBuildingIndex:
 		ClaimBuildingIndex.unregister_building(self)
+	if destroyed_type == ResourceData.ResourceType.LIVING_HUT and not destroyed_clan.is_empty():
+		var main := get_tree().get_first_node_in_group("main")
+		if main and main.has_method("get_baby_pool_manager"):
+			var pool: BabyPoolManager = main.get_baby_pool_manager()
+			if pool:
+				pool.on_living_hut_destroyed(destroyed_clan)
 	# Inventory despawns with building (no drop)
 	# Remove the building
 	queue_free()

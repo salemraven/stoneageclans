@@ -571,9 +571,7 @@ func _circle_polygon(radius: float, segments: int) -> PackedVector2Array:
 
 static var _cached_default_texture: Texture2D
 
-static func _elbow_joint_color(side_label: String) -> Color:
-	if side_label == "R":
-		return Color(0.95, 0.55, 0.1, 1.0)
+static func _elbow_joint_color(_side_label: String) -> Color:
 	return Color(0.2, 0.75, 0.85, 1.0)
 
 

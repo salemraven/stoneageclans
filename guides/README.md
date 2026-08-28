@@ -7,6 +7,7 @@ Most design docs live under **`bible/`** — see [bible/README.md](../bible/READ
 | Guide | Topic |
 |-------|--------|
 | [animation_tuner.md](animation_tuner.md) | **Animation Tuner** — purpose, agent workflow, future plans |
+| [lag.md](lag.md) | **Lag & performance** — baseline metrics, profiler workflow, scale roadmap |
 
 ## Legacy note
 

@@ -5,23 +5,32 @@
 **Animation catalog:** `scripts/config/character_animation_catalog.gd`  
 **Pawn vision (north star):** [pawn_goal.md](pawn_goal.md) — layered pivots, genetics, RimWorld readability  
 **Canonical preset example:** `assets/limb_presets/none_clansmen_1.tres`  
-**Last updated:** August 17, 2026 (unified two-pose clips + shared sampler)
+**Last updated:** August 17, 2026 (unified-only Pose Tuner — legacy walk1_* rows retired in editor)
 
 ---
 
 ## Quick start — how to use the tuner
 
-The **Character Animation Tuner** is where you pose clansmen: hand positions, elbows, weapon grip, and walk cycles. What you save here becomes the numbers the game uses.
+The **Character Animation Tuner** is where you pose clansmen: hand positions, elbows, weapon grip, and walk cycles. What you save here becomes **`animation_clips[]`** on each holdable preset — not the old flat `walk1_*` / `gather1_*` rows.
 
 ### Unified animation model (current)
 
 - Every animation is **Pose 1 + Pose 2**, ping-pong loop, smooth easing, same duration both directions.
 - Clips live on each holdable preset as **`animation_clips[]`** (`idle`, `walk`, `gather`, `windup`, `strike` per holdable).
-- **One sampler** drives Pose Tuner A/D preview, Animation Reviewer, bake, and runtime visuals.
-- **Pose Tuner is always static** on entry (Pose 1). No Play button — use **A/D** for temporary Walk preview.
+- **Pose Tuner uses unified clips only** — legacy sync paths are off in the Pose Tuner tab.
+- **One sampler** drives Pose Tuner A/D preview, Animation Reviewer, and bake.
+- **Pose Tuner is always static** on entry (Pose 1). Use **A/D** for temporary Walk preview.
 - **1e/2e: right-click only** to flip elbow bend (no drag).
-- **Save Animation** (not “Save all”) saves the active clip; brief “Animation saved” message.
+- **Save Animation** saves the active clip; brief “Animation saved” message.
 - Per-clip **Duration (sec)** spinbox under Pose 1 / Pose 2.
+
+### Fresh start (reset all presets)
+
+All production presets were reset to **default unified clips** (unsaved). Re-pose from scratch, then Save Animation:
+
+```bash
+godot --headless -s res://tools/reset_all_presets_unified.gd   # re-run if you need factory defaults again
+```
 
 ### 1. Open the tuner
 
@@ -76,16 +85,15 @@ CLI flags like `--walk1-preview` open **Reviewer** already playing the right cli
 5. Click **Save Animation**.
 6. Use **Animation Reviewer** tab to loop saved clips read-only.
 
-### 5. After you’re happy — lock it in
-
-Lock-in scripts snapshot your saved poses so they can’t drift silently later. Run from repo root:
+### 5. Verification tests
 
 ```bash
-godot --headless -s res://tools/lockin_none_clansmen_1.gd   # idle + walk
-godot --headless -s res://tools/lockin_spear_clansmen_1.gd  # spear idle
+godot --headless -s res://tools/test_tuner_pin_snap.gd
+godot --headless -s res://tools/test_tuner_save_playback_guard.gd
+godot --headless -s res://tools/test_tuner_startup_no_clobber.gd
 ```
 
-You should see `PASS` in the terminal. If not, don’t merge — something changed on disk.
+Legacy lock-in scripts (`walk1_*` rows) are archived under `archive/legacy_animation/`. In-game runtime still reads some legacy fields until Milestone 4 — re-save in the tuner after re-posing.
 
 ### 6. Rules of thumb
 

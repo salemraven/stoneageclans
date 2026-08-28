@@ -4,8 +4,8 @@
   "body": "clansmen_1",
   "description": "Idle rest pose — static pin positions",
   "rest": {
-    "hand_1": [127.9, 51.48],
-    "hand_2": [17.75, 24.56],
+    "hand_1": [186.65, 34.35],
+    "hand_2": [-136.47, 41.69],
     "elbow_1_pole": [89.89, -62.34],
     "elbow_2_pole": [-65.77, -61.62]
   },

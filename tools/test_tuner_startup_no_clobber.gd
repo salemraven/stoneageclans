@@ -1,9 +1,12 @@
 extends SceneTree
-## Regression: tuner startup must not clobber saved pose rows (club walk, walk1, gather1).
+## Regression: tuner startup must not clobber saved unified animation clips.
 ## Run: godot --headless -s res://tools/test_tuner_startup_no_clobber.gd
 
 const LimbPresetRegistryScript = preload("res://scripts/systems/limb_preset_registry.gd")
-const TunerPoseSeedGuardScript = preload("res://scripts/tools/tuner_pose_seed_guard.gd")
+const CharacterAnimationPresetStoreScript = preload(
+	"res://scripts/config/character_animation_preset_store.gd"
+)
+const CharacterAnimationPoseScript = preload("res://scripts/config/character_animation_pose.gd")
 const WeaponLimbPresetScript = preload("res://scripts/config/weapon_limb_preset.gd")
 
 
@@ -13,11 +16,9 @@ func _init() -> void:
 
 func _run_all() -> void:
 	var failures: Array[String] = []
-	failures.append_array(_test_club_preset_seeds_do_not_import_none_carry())
-	failures.append_array(_test_club_walk_off_arm_skips_when_tuned())
-	failures.append_array(_test_walk1_saved_skips_idle_seed())
-	failures.append_array(_test_gather1_saved_skips_reach_seed())
-	failures.append_array(await _test_club_walk_preview_session_keeps_disk_carry())
+	failures.append_array(_test_unified_saved_skips_walk_seed())
+	failures.append_array(_test_unified_saved_skips_gather_seed())
+	failures.append_array(await _test_walk_edit_session_keeps_saved_clip())
 	if failures.is_empty():
 		print("test_tuner_startup_no_clobber: PASS")
 		quit(0)
@@ -28,81 +29,59 @@ func _run_all() -> void:
 		quit(1)
 
 
-func _test_club_preset_seeds_do_not_import_none_carry() -> Array[String]:
-	var out: Array[String] = []
-	var registry := LimbPresetRegistryScript.new()
-	var club: WeaponLimbPreset = registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
-	var none: WeaponLimbPreset = registry.get_preset(ResourceData.ResourceType.NONE, "clansmen_1", 1)
-	if club == null or none == null:
-		out.append("club/none preset missing")
-		return out
-	var before := TunerPoseSeedGuardScript.fingerprint(club)
-	var none_carry := none.hand_grip_offset_px
-	club.seed_club_walk1_dominant_from_idle_carry(none_carry)
-	club.seed_club_walk_off_arm_from_none(none)
-	club.repair_club_carry_body_hand_from_none(none)
-	var after := TunerPoseSeedGuardScript.fingerprint(club)
-	if after.get("hand_grip_offset_px") != before.get("hand_grip_offset_px"):
-		out.append(
-			"club hand_grip changed after startup seeds: %s"
-			% str(TunerPoseSeedGuardScript.fingerprint_diff(before, after))
-		)
-	if after.get("walk1_hand_grip_offset_px") != before.get("walk1_hand_grip_offset_px"):
-		out.append("club walk1_hand changed after startup seeds (must stay disk carry)")
-	return out
-
-
-func _test_club_walk_off_arm_skips_when_tuned() -> Array[String]:
-	var out: Array[String] = []
-	var club: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.WOOD, 1)
-	var none: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
-	club.mark_walk1_pose_a_saved()
-	club.walk1_support_hand_offset_px = Vector2(-88.0, 12.0)
-	club.walk1_pull_support_hand_offset_px = Vector2(-150.0, 40.0)
-	none.walk1_support_hand_offset_px = Vector2(-1.0, -1.0)
-	none.walk1_pull_support_hand_offset_px = Vector2(-2.0, -2.0)
-	club.seed_club_walk_off_arm_from_none(none)
-	if club.walk1_support_hand_offset_px != Vector2(-88.0, 12.0):
-		out.append("seed_club_walk_off_arm overwrote tuned walk1_support_hand")
-	if club.walk1_pull_support_hand_offset_px != Vector2(-150.0, 40.0):
-		out.append("seed_club_walk_off_arm overwrote tuned walk1_pull_support_hand")
-	return out
-
-
-func _test_walk1_saved_skips_idle_seed() -> Array[String]:
+func _test_unified_saved_skips_walk_seed() -> Array[String]:
 	var out: Array[String] = []
 	var none: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
 	none.hand_grip_offset_px = Vector2(10.0, 20.0)
-	none.walk1_hand_grip_offset_px = Vector2(99.0, 88.0)
-	none.mark_walk1_pose_a_saved()
-	var before := TunerPoseSeedGuardScript.fingerprint(none)
+	none.ensure_unified_clips(null)
+	var walk = CharacterAnimationPresetStoreScript.ensure_clip(
+		none, CharacterAnimationPresetStoreScript.CLIP_WALK, null
+	)
+	var pose = CharacterAnimationPoseScript.new()
+	pose.hand_weapon_px = Vector2(99.0, 88.0)
+	walk.set_pose_at_index(0, pose)
+	walk.saved = true
+	none.unified_clips_initialized = true
 	none.seed_walk1_from_idle_if_unset()
-	var after := TunerPoseSeedGuardScript.fingerprint(none)
-	if after.get("walk1_hand_grip_offset_px") != before.get("walk1_hand_grip_offset_px"):
-		out.append("seed_walk1_from_idle_if_unset clobbered saved walk1 pose A")
+	var after = walk.pose_at_index(0).hand_weapon_px
+	if after.distance_to(Vector2(99.0, 88.0)) > 0.01:
+		out.append("seed_walk1 should no-op when unified_clips_initialized")
 	return out
 
 
-func _test_gather1_saved_skips_reach_seed() -> Array[String]:
+func _test_unified_saved_skips_gather_seed() -> Array[String]:
 	var out: Array[String] = []
 	var none: WeaponLimbPreset = WeaponLimbPresetScript.defaults_for(ResourceData.ResourceType.NONE, 1)
-	none.gather1_hand_grip_offset_px = Vector2(12.0, 34.0)
-	none.mark_gather1_reach_saved()
-	var before := none.gather1_hand_grip_offset_px
+	none.ensure_unified_clips(null)
+	var gather = CharacterAnimationPresetStoreScript.ensure_clip(
+		none, CharacterAnimationPresetStoreScript.CLIP_GATHER, null
+	)
+	var pose = CharacterAnimationPoseScript.new()
+	pose.hand_weapon_px = Vector2(12.0, 34.0)
+	gather.set_pose_at_index(0, pose)
+	gather.saved = true
+	none.unified_clips_initialized = true
 	none.seed_gather1_from_idle_if_unset()
-	if none.gather1_hand_grip_offset_px != before:
-		out.append("seed_gather1_from_idle_if_unset clobbered saved gather reach")
+	if gather.pose_at_index(0).hand_weapon_px.distance_to(Vector2(12.0, 34.0)) > 0.01:
+		out.append("seed_gather1 should no-op when unified_clips_initialized")
 	return out
 
 
-func _test_club_walk_preview_session_keeps_disk_carry() -> Array[String]:
+func _test_walk_edit_session_keeps_saved_clip() -> Array[String]:
 	var out: Array[String] = []
 	var registry := LimbPresetRegistryScript.new()
-	var club: WeaponLimbPreset = registry.reload_preset(ResourceData.ResourceType.WOOD, "clansmen_1")
-	if club == null:
-		out.append("club preset missing for preview session test")
+	var none: WeaponLimbPreset = registry.reload_preset(ResourceData.ResourceType.NONE, "clansmen_1")
+	if none == null:
+		out.append("none preset missing")
 		return out
-	var before := TunerPoseSeedGuardScript.fingerprint(club)
+	none.ensure_unified_clips(null)
+	var walk = CharacterAnimationPresetStoreScript.ensure_clip(
+		none, CharacterAnimationPresetStoreScript.CLIP_WALK, null
+	)
+	var saved_hand := Vector2(55.0, 66.0)
+	walk.pose_at_index(0).hand_weapon_px = saved_hand
+	walk.saved = true
+	registry.save_preset(none)
 	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
 	if packed == null:
 		out.append("LimbTuner.tscn missing")
@@ -111,26 +90,17 @@ func _test_club_walk_preview_session_keeps_disk_carry() -> Array[String]:
 	root.add_child(app)
 	for _i in range(8):
 		await process_frame
-	if not app.has_method("_begin_club_walk_preview_session"):
-		out.append("LimbTuner missing _begin_club_walk_preview_session")
-		app.queue_free()
-		return out
-	app.call("_begin_club_walk_preview_session")
+	app.call("_begin_walk1_edit_session")
 	for _i in range(6):
 		await process_frame
 	var preset: WeaponLimbPreset = app.get("_preset")
-	if preset == null:
-		out.append("preview session preset missing")
-		app.queue_free()
-		return out
-	var after := TunerPoseSeedGuardScript.fingerprint(preset)
-	if after.get("hand_grip_offset_px") != before.get("hand_grip_offset_px"):
+	var walk_after = preset.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
+	if walk_after == null:
+		out.append("walk clip missing after edit session")
+	elif walk_after.pose_at_index(0).hand_weapon_px.distance_to(saved_hand) > 0.5:
 		out.append(
-			"club walk preview changed hand_grip: %s"
-			% str(TunerPoseSeedGuardScript.fingerprint_diff(before, after))
+			"walk edit session clobbered saved pose_a hand: %s"
+			% str(walk_after.pose_at_index(0).hand_weapon_px)
 		)
-	var body := preset.resolve_club_carry_body_hand_px()
-	if preset.walk1_hand_grip_offset_px.distance_to(body) > 0.5:
-		out.append("club walk preview: walk1_hand must match saved carry body")
 	app.queue_free()
 	return out

@@ -19,7 +19,7 @@ Early game survival loop: mechanics, progression, and feel.
 
 ## Spawn & Initial Situation
 
-**Implemented today:** You spawn on an **infinite 2D plain** with **dirt-style ground** and **Y-sorted** entities under `WorldObjects`. The **minigame** still spawns starting **AI cavemen** (with land claims), **wild women**, and **sheep/goats** around you (`BalanceConfig` radii). When **`WorldGenConfig.use_chunk_content_streaming`** is on (default), **extra** world filler—**gatherables** (stone, berries, wheat, fiber, wood nodes), **forest-style trees**, **tall grass**, **ground piles**, and sometimes **seeded AI clans**—**streams in as you move** from deterministic **chunk generation** (`world_seed` + chunk coords). Turn streaming **off** to use the legacy **one-shot** resource/grass/tree ring around spawn instead.
+**Implemented today:** You spawn on an **infinite 2D plain** with **dirt-style ground** and **Y-sorted** entities under `WorldObjects`. **Single-player** starts at **world origin** with no claim — you gather and build from scratch. **All world content** (gatherables, trees, grass, ground piles, wild women, migratory wildlife, seeded AI clans) **streams in from deterministic chunk generation** (`world_seed` + chunk coords) as you move. See **`bible/game_map.md` §5.1**.
 
 **Design target (future flavor):** Present this as a **procedural biome** (plains edge, forest margin, etc.) in UI/lore once **biome-per-chunk** (or similar) exists.
 

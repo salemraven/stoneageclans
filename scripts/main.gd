@@ -153,6 +153,8 @@ var _playtest_2min_start_time: float = -1.0
 
 ## `--npc-only-world`: hub at origin — AI clans + wildlife; player hidden, collisions off (headless ClanBrain proof).
 var _npc_only_world: bool = false
+## Session tracker: prevent duplicate wild-woman spawns when the same chunk reloads.
+var _wild_women_spawned_chunks: Dictionary = {}
 ## NPC-only observer: WASD/arrows pan camera instead of locking to hidden player at origin.
 var _observer_cam_active: bool = false
 var _observer_cam_pos: Vector2 = Vector2.ZERO
@@ -496,6 +498,19 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 		npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)
 	_equip_spear_to_npc(npc)
 	npc.visible = true
+	var pi_clan: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if ChunkUtils and pi_clan and pi_clan.has_method("chunk_npc_spawned"):
+		var cc: Vector2i = ChunkUtils.get_chunk_coords(claim_center_world)
+		pi_clan.call(
+			"chunk_npc_spawned",
+			cc.x,
+			cc.y,
+			"caveman",
+			"chunk_seeded_clan",
+			claim_center_world.x,
+			claim_center_world.y,
+			clan_name
+		)
 
 
 func _apply_placeholder_card_to_npc(npc: Node) -> void:
@@ -737,13 +752,8 @@ func _ready() -> void:
 		UnifiedLogger.log_system("Camera set as current")
 	else:
 		UnifiedLogger.log_error("Camera is null!", UnifiedLogger.Category.SYSTEM)
-	
-	if world and player:
-		world.ensure_chunks_for_position(player.global_position)
-		UnifiedLogger.log_system("World chunks initialized for player position")
-	else:
-		UnifiedLogger.log_error("World or player is null! world=%s player=%s" % [world != null, player != null], UnifiedLogger.Category.SYSTEM)
-	
+
+	# Chunk load + player placement happen in SpawnManager.setup_npcs().
 	_setup_node_cache()  # Initialize NodeCache for performance
 	
 	# NPCs cache: invalidate when world_objects gains/loses children (NPCs spawn/die)
@@ -811,6 +821,71 @@ func _on_player_health_died(dead_node: Node) -> void:
 	if possessed_npc != null and is_instance_valid(possessed_npc):
 		return
 	PlayerSuccessionScript.transfer_to_heir(self, dead_node)
+
+
+func _handle_clan_extinction(clan_name: String) -> void:
+	"""Player clan wiped — no living heir. Same territory decay as AI soft death + game-over feedback."""
+	if clan_name.is_empty():
+		return
+	UnifiedLogger.log_system("PLAYER_CLAN_EXTINCTION", {"clan": clan_name})
+	_make_clan_members_wild_for_extinction(clan_name)
+	var extinction_recorded := false
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim):
+			continue
+		if str(claim.get("clan_name")) != clan_name:
+			continue
+		if not extinction_recorded and claim.has_method("try_record_clan_extinction"):
+			extinction_recorded = claim.try_record_clan_extinction("player_extinction")
+		if claim.has_method("hide_area_circle"):
+			claim.hide_area_circle()
+		if claim.has_method("start_decay"):
+			claim.start_decay()
+		print("💀 PLAYER EXTINCTION: Land claim for clan %s is now decaying" % clan_name)
+	for building in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(building):
+			continue
+		var building_clan: String = str(building.get("clan_name")) if building.get("clan_name") != null else ""
+		if building_clan == clan_name and building.has_method("start_decay"):
+			building.start_decay()
+			print("💀 PLAYER EXTINCTION: Building for clan %s is now decaying" % clan_name)
+	_show_clan_extinction_game_over(clan_name)
+
+
+func _make_clan_members_wild_for_extinction(clan_name: String) -> void:
+	var made_wild_count := 0
+	for other_npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(other_npc):
+			continue
+		if other_npc.has_method("is_dead") and other_npc.is_dead():
+			continue
+		var other_type: String = str(other_npc.get("npc_type")) if other_npc.get("npc_type") != null else ""
+		var other_clan: String = other_npc.get_clan_name() if other_npc.has_method("get_clan_name") else str(other_npc.get("clan_name") if other_npc.get("clan_name") else "")
+		if other_clan != clan_name:
+			continue
+		if other_type != "woman" and other_type != "sheep" and other_type != "goat":
+			continue
+		if other_npc.has_method("become_wild"):
+			other_npc.become_wild()
+		else:
+			other_npc.set("clan_name", "")
+			other_npc.set("is_herded", false)
+			other_npc.set("herder", null)
+			other_npc.set("herd_mentality_active", false)
+			var other_fsm = other_npc.get("fsm")
+			if other_fsm:
+				other_fsm.evaluation_timer = 0.0
+		made_wild_count += 1
+	if made_wild_count > 0:
+		print("💀 PLAYER EXTINCTION: Made %d NPCs wild from clan %s" % [made_wild_count, clan_name])
+
+
+func _show_clan_extinction_game_over(clan_name: String) -> void:
+	print("💀 GAME OVER: Clan %s is extinct — no heirs remain." % clan_name)
+	show_gather_feedback("Your clan is extinct. No heirs remain.")
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("log_event"):
+		pi.log_event("player_clan_extinction", {"clan": clan_name})
 
 
 func set_possessed_npc(npc: Node2D) -> void:
@@ -1765,22 +1840,12 @@ func _get_random_sheep_goat_tint(rng: RandomNumberGenerator = null) -> Color:
 	return Color(v, v, v)
 
 func _despawn_tallgrass_near(center_pos: Vector2, radius: float) -> void:
-	"""Persist grass clear + bug depletion; rebuild batched visuals when chunk streaming is on."""
+	"""Persist grass clear + bug depletion; rebuild batched visuals."""
 	if MutationStore:
 		MutationStore.deplete_in_radius(center_pos, radius)
 	var cm: Node = get_node_or_null("/root/ChunkManager")
 	if cm and cm.has_method("rebuild_grass_in_loaded_chunks_near"):
 		cm.call("rebuild_grass_in_loaded_chunks_near", center_pos, radius)
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc and bool(wgc.use_chunk_content_streaming):
-		return
-	# Legacy non-streaming fallback
-	var nodes := get_tree().get_nodes_in_group("tallgrass")
-	for node in nodes:
-		if not is_instance_valid(node):
-			continue
-		if node.global_position.distance_to(center_pos) <= radius:
-			node.queue_free()
 
 func _despawn_decorative_trees_near(center_pos: Vector2, radius: float) -> void:
 	"""Remove decorative tree nodes within radius of the given position."""
@@ -5752,13 +5817,11 @@ func _handle_building_placed(building: BuildingBase, land_claim: Node) -> void:
 		ClaimBuildingIndex.register_building(building, land_claim)
 	match building.building_type:
 		ResourceData.ResourceType.LIVING_HUT:
-			# Living Hut increases baby pool capacity by +5
-			# DISABLED: Caps are disabled for now
-			# if baby_pool_manager:
-			# 	baby_pool_manager.on_living_hut_built(land_claim.clan_name)
-			# 	var new_capacity = baby_pool_manager.get_capacity(land_claim.clan_name)
-			# 	print("Living Hut placed! Baby pool capacity now: %d" % new_capacity)
-			print("Living Hut placed! (Baby pool capacity increase disabled)")
+			if baby_pool_manager:
+				var hut_clan: String = str(land_claim.get("clan_name")) if land_claim.get("clan_name") else str(building.clan_name)
+				baby_pool_manager.on_living_hut_built(hut_clan)
+				var breakdown: Dictionary = baby_pool_manager.get_capacity_breakdown(hut_clan)
+				print("Living Hut placed! Baby pool capacity: %d (current: %d)" % [int(breakdown.get("total", 0)), int(breakdown.get("current", 0))])
 		ResourceData.ResourceType.OVEN:
 			# Oven requires a woman to operate - women will auto-occupy
 			print("Oven placed! Women will auto-occupy when available.")
@@ -6146,6 +6209,140 @@ func _setup_npcs() -> void:
 		await SpawnManager.setup_npcs()
 	else:
 		push_error("Main: SpawnManager autoload missing; cannot set up NPCs")
+
+
+## Dev/test harness entry — returns true when a harness handled bootstrap (skip normal player spawn).
+func _try_run_dev_test_harness() -> bool:
+	await get_tree().process_frame
+	if _cmdline_has("--headless"):
+		await get_tree().process_frame
+	if _cmdline_has("--repro-harness"):
+		print("REPRO_HARNESS: skipping default spawn (isolated claim at 12000,12000)")
+		return true
+	if _cmdline_has("--production-chain-test"):
+		print("PRODUCTION_CHAIN_TEST: skipping default spawn (isolated production harness at 50000,50000)")
+		return true
+	if _cmdline_has("--milestone-chain-test"):
+		print("MILESTONE_CHAIN_TEST: skipping default spawn (isolated milestone harness at 51000,50000)")
+		return true
+	if DebugConfig and DebugConfig.enable_session_quickstart:
+		await _setup_session_quickstart_environment()
+		return true
+	if DebugConfig and DebugConfig.enable_woman_transport_test:
+		await _setup_task_system_test_environment()
+		return true
+	if DebugConfig and DebugConfig.enable_agro_combat_test:
+		await _setup_agro_combat_test_environment()
+		return true
+	if DebugConfig and DebugConfig.enable_raid_test:
+		await _setup_raid_test_environment()
+		return true
+	if _npc_only_world:
+		if player and is_instance_valid(player):
+			player.global_position = Vector2.ZERO
+			player.velocity = Vector2.ZERO
+		if world:
+			world.ensure_chunks_for_position(Vector2.ZERO)
+		print("NPC_ONLY_WORLD: spawn hub at origin (AI-only simulation)")
+		_finalize_npc_only_world_player()
+		return true
+	return false
+
+
+func _resolve_player_spawn_location() -> Vector2:
+	if _is_online_multiplayer():
+		return find_mp_spawn_location_for_peer(multiplayer.get_unique_id())
+	return Vector2.ZERO
+
+
+func _is_online_multiplayer() -> bool:
+	var nm: Node = get_node_or_null("/root/NetworkManager")
+	if nm and nm.has_method("get_network_peer"):
+		return nm.get_network_peer() != null
+	return false
+
+
+func find_mp_spawn_location_for_peer(peer_id: int) -> Vector2:
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	var min_dist: float = float(wgc.get("player_spawn_min_distance_px")) if wgc else 3000.0
+	var ws: int = _playtest_world_seed_value()
+	if ws == 0:
+		var sim: Node = get_node_or_null("/root/SimRng")
+		if sim and sim.has_method("get_world_seed"):
+			ws = int(sim.get_world_seed())
+	var occupied: Array[Vector2] = []
+	for node in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(node):
+			continue
+		if node is Node2D:
+			occupied.append((node as Node2D).global_position)
+	var rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash("mp_spawn_%d" % peer_id))
+	var best: Vector2 = Vector2.ZERO
+	var best_nearest: float = -1.0
+	for _attempt in 32:
+		var cx: int = rng.randi_range(-40, 40)
+		var cy: int = rng.randi_range(-40, 40)
+		var candidate: Vector2
+		if ChunkUtils:
+			candidate = ChunkUtils.get_chunk_center(Vector2i(cx, cy))
+		else:
+			candidate = Vector2(float(cx), float(cy)) * 512.0
+		var nearest: float = INF
+		for o in occupied:
+			nearest = minf(nearest, candidate.distance_to(o))
+		if nearest > best_nearest:
+			best_nearest = nearest
+			best = candidate
+	if occupied.size() > 0 and best_nearest < min_dist:
+		var nearest_pos: Vector2 = occupied[0]
+		for o in occupied:
+			if best.distance_to(o) < best.distance_to(nearest_pos):
+				nearest_pos = o
+		var dir: Vector2 = best - nearest_pos
+		if dir.length_squared() < 1.0:
+			dir = Vector2.RIGHT
+		else:
+			dir = dir.normalized()
+		best = nearest_pos + dir * min_dist
+	return best
+
+
+func _place_player_at_spawn(spawn_pos: Vector2, spawn_reason: String) -> void:
+	if not player or not is_instance_valid(player):
+		push_warning("SPAWN: player null — cannot place")
+		return
+	player.global_position = spawn_pos
+	player.velocity = Vector2.ZERO
+	if world:
+		world.ensure_chunks_for_position(spawn_pos)
+	var player_id: int = multiplayer.get_unique_id() if _is_online_multiplayer() else 1
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("player_spawned"):
+		pi.call("player_spawned", player_id, spawn_pos.x, spawn_pos.y, spawn_reason)
+	UnifiedLogger.log_system("player_spawned", {"x": spawn_pos.x, "y": spawn_pos.y, "reason": spawn_reason})
+	print("SPAWN: player at %s (%s)" % [spawn_pos, spawn_reason])
+
+
+func _log_spawn_flow_summary() -> void:
+	var type_counts: Dictionary = {}
+	for node in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(node):
+			continue
+		var t: String = str(node.get("npc_type"))
+		type_counts[t] = int(type_counts.get(t, 0)) + 1
+	var claim_count: int = get_cached_land_claims().size()
+	var summary: Dictionary = {
+		"npc_counts": type_counts,
+		"land_claims": claim_count,
+		"player_x": player.global_position.x if player else 0.0,
+		"player_y": player.global_position.y if player else 0.0,
+	}
+	UnifiedLogger.log_system("spawn_flow_summary", summary)
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("spawn_flow_summary"):
+		pi.call("spawn_flow_summary", summary)
+	print("SPAWN_FLOW_SUMMARY: claims=%d npcs=%s player=%s" % [claim_count, type_counts, str(player.global_position if player else Vector2.ZERO)])
+
 
 # Session / playtest: player-owned claim + 2 women + 2 Living Huts (Player = designated father via herder path). Skips AI cavemen.
 # Claim is centered on the player so you start inside it (reproduction needs player in claim for father eligibility).
@@ -6911,246 +7108,6 @@ func _setup_gather_test_logging() -> void:
 	# This will be called from _process() to log NPC states and resource flows
 	print("✓ Gather test logging enabled (logs every %.1f seconds)" % GATHER_TEST_LOG_INTERVAL)
 
-func _initialize_minigame() -> void:
-	# Wait a frame to ensure player position is set
-	await get_tree().process_frame
-	
-	# Headless: extra frame so scene tree is fully ready
-	if _cmdline_has("--headless"):
-		await get_tree().process_frame
-	
-	# Resolve spawn center and parent - fallbacks for headless/edge cases
-	var npc_only := _npc_only_world
-	var center_pos: Vector2
-	var spawn_parent: Node2D
-	if npc_only:
-		center_pos = Vector2.ZERO
-		if player and is_instance_valid(player):
-			player.global_position = center_pos
-			player.velocity = Vector2.ZERO
-		if world:
-			world.ensure_chunks_for_position(center_pos)
-		print("NPC_ONLY_WORLD: spawn hub at origin (AI-only simulation)")
-	elif player and is_instance_valid(player):
-		center_pos = player.global_position
-	else:
-		center_pos = Vector2.ZERO
-		print("WARNING: Player null, using fallback center (0,0) for NPC spawn")
-	
-	if world_objects and is_instance_valid(world_objects):
-		spawn_parent = world_objects
-	else:
-		spawn_parent = get_node_or_null("WorldObjects") as Node2D
-		if not spawn_parent:
-			spawn_parent = get_node_or_null("WorldLayer") as Node2D
-		if not spawn_parent:
-			print("ERROR: WorldObjects is null, cannot spawn NPCs")
-			return
-		print("WARNING: Using fallback spawn parent: %s" % spawn_parent.name)
-	
-	# GATHER TASK SYSTEM TEST: Enable test environment
-	# await _setup_gather_test_environment()  # DISABLED - normal play
-	# Repro harness builds its own isolated claim — skip default cavemen/wildlife bootstrap.
-	if _cmdline_has("--repro-harness"):
-		print("REPRO_HARNESS: skipping default minigame NPC spawn (isolated claim at 12000,12000)")
-		return
-	if _cmdline_has("--production-chain-test"):
-		print("PRODUCTION_CHAIN_TEST: skipping default NPC spawn (isolated production harness at 50000,50000)")
-		return
-	if _cmdline_has("--milestone-chain-test"):
-		print("MILESTONE_CHAIN_TEST: skipping default NPC spawn (isolated milestone harness at 51000,50000)")
-		return
-	# Session quickstart: player claim + 2 women + 2 Living Huts (before woman-test / agro / raid)
-	if DebugConfig.enable_session_quickstart:
-		await _setup_session_quickstart_environment()
-		return
-	# Woman transport test: only player + land claim + ovens + 2 women (no cavemen)
-	if DebugConfig.enable_woman_transport_test:
-		await _setup_task_system_test_environment()
-		return
-	# Agro/combat test: 2 clans x 10 clansmen (1 leader + 9 followers), clubs, follow, 2 claims
-	if DebugConfig.enable_agro_combat_test:
-		await _setup_agro_combat_test_environment()
-		return
-	# Raid test: 2 NPC clans (no follow/guard), ClanBrain initiates raids
-	if DebugConfig.enable_raid_test:
-		await _setup_raid_test_environment()
-		return
-
-	# Playtest: 4 cavemen spread far apart
-	var caveman_count := BalanceConfig.caveman_count if BalanceConfig else 4
-	var caveman_spawn_radius_min := BalanceConfig.caveman_spawn_radius_min if BalanceConfig else 900.0
-	var caveman_spawn_radius_max := BalanceConfig.caveman_spawn_radius_max if BalanceConfig else 1200.0
-	var caveman_angle_step: float = TAU / float(max(caveman_count, 1))
-	
-	# Spawn land claim + caveman together (no LANDCLAIM item; caveman is assigned to claim at spawn)
-	print("Spawning %d cavemen with land claims" % caveman_count)
-	
-	for i in caveman_count:
-		var base_angle := i * caveman_angle_step
-		var ws: int = _playtest_world_seed_value()
-		var angle_offset: float
-		var distance: float
-		var clan_name: String
-		var npc_name: String
-		var npc_age: int
-		var npc_protective: bool
-		if ws == 0:
-			var sim_node: Node = get_node_or_null("/root/SimRng")
-			if sim_node and sim_node.has_method("get_world_seed"):
-				ws = int(sim_node.get_world_seed())
-		var spawn_rng := _caveman_init_spawn_rng(i)
-		angle_offset = spawn_rng.randf_range(-PI / 6.0, PI / 6.0)
-		distance = spawn_rng.randf_range(caveman_spawn_radius_min, caveman_spawn_radius_max)
-		clan_name = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", hash(Vector3i(ws, i, 7770013))))
-		npc_name = str(_NAMING_UTILS_SCRIPT.call("generate_caveman_name_seeded", hash(Vector3i(ws, i, 7770014))))
-		npc_age = spawn_rng.randi_range(13, 50)
-		npc_protective = spawn_rng.randf() < 0.3
-		var angle := base_angle + angle_offset
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		# Snap claim position to 64px grid (matches build_state placement)
-		var claim_pos := Vector2(round(pos.x / 64.0) * 64.0, round(pos.y / 64.0) * 64.0)
-		
-		# 1) Create land claim first
-		var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
-		if not land_claim:
-			print("ERROR: Failed to instantiate land claim for AI caveman")
-			continue
-		land_claim.global_position = claim_pos
-		land_claim.set_clan_name(clan_name)
-		land_claim.player_owned = false
-		if not land_claim.inventory:
-			land_claim.inventory = _new_land_claim_inventory()
-		if BalanceConfig:
-			BalanceConfig.seed_ai_claim_starting_food(land_claim.inventory)
-		spawn_parent.add_child(land_claim)
-		_despawn_tallgrass_near(claim_pos, land_claim.radius)
-		_despawn_decorative_trees_near(claim_pos, land_claim.radius)
-		register_land_claim(land_claim)
-		land_claim.visible = true
-		
-		# 2) Spawn caveman and assign to claim (set clan/meta BEFORE add_child so npc_base doesn't add LANDCLAIM)
-		var npc: Node = NPC_SCENE.instantiate()
-		if not npc:
-			print("ERROR: Failed to instantiate NPC scene")
-			continue
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "caveman")
-		npc.set("age", npc_age)
-		# Trait-driven defend: ~30% protective (fill defender slot when 2+), 70% solitary (prefer herd/gather)
-		npc.set("traits", ["protective"] if npc_protective else ["solitary"])
-		npc.set("agro_meter", 0.0)
-		npc.set("clan_name", clan_name)
-		npc.set_meta("clan_name", clan_name)
-		npc.set_meta("land_claim_clan_name", clan_name)
-		npc.set_meta("has_land_claim", true)
-		
-		spawn_parent.add_child(npc)
-		npc.global_position = pos
-		npc.set("spawn_position", pos)
-		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
-		if npc.has_method("set_clan_name"):
-			npc.set_clan_name(clan_name, "main._initialize_minigame")
-		
-		land_claim.owner_npc = npc
-		land_claim.owner_npc_name = npc_name
-		land_claim.set_meta("owner_npc_name", npc_name)
-		
-		await get_tree().process_frame
-		
-		_apply_placeholder_card_to_npc(npc)
-		
-		var npc_inventory = npc.get("inventory")
-		if npc_inventory:
-			npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)  # Starter spear; no LANDCLAIM — already have claim
-		
-		_equip_spear_to_npc(npc)
-		npc.visible = true
-		print("✓ Spawned Caveman: %s at %s with land claim '%s'" % [npc_name, pos, clan_name])
-		
-		# Optional legacy boost (1 woman + baby in claim) — off by default; fresh AI clans start solo.
-		if BalanceConfig and BalanceConfig.get("caveman_spawn_with_boost") == true:
-			var woman_pos := claim_pos + Vector2(SimRng.sim_randf_range(-80.0, 80.0), SimRng.sim_randf_range(-80.0, 80.0))
-			var woman_npc: Node = NPC_SCENE.instantiate()
-			if woman_npc:
-				woman_npc.set("npc_name", _seeded_caveman_name(hash(Vector3i(int(woman_pos.x), int(woman_pos.y), 2))))
-				woman_npc.set("npc_type", "woman")
-				woman_npc.set("traits", ["herd"])
-				woman_npc.set("age", SimRng.sim_randi_range(13, 50))
-				woman_npc.set("clan_name", clan_name)
-				woman_npc.set_meta("clan_name", clan_name)
-				_apply_placeholder_card_to_npc(woman_npc)
-				spawn_parent.add_child(woman_npc)
-				woman_npc.global_position = woman_pos
-				woman_npc.set("spawn_position", woman_pos)
-				if woman_npc.has_method("set_clan_name"):
-					woman_npc.set_clan_name(clan_name, "main._initialize_minigame")
-				await get_tree().process_frame
-				woman_npc.visible = true
-				var stats_node = woman_npc.get_node_or_null("Stats")
-				if stats_node and stats_node.has_method("set_stat"):
-					stats_node.set_stat("agility", 9.0)
-				elif stats_node:
-					stats_node.agility = 9.0
-				var baby_pos := claim_pos + Vector2(SimRng.sim_randf_range(-60.0, 60.0), SimRng.sim_randf_range(-60.0, 60.0))
-				await _spawn_baby(clan_name, baby_pos, woman_npc as NPCBase, npc as NPCBase)
-				print("✓ Boost: 1 woman + 1 baby in claim '%s'" % clan_name)
-	
-	# Playtest: wild women spread in a band (not clustered in center)
-	var woman_count := BalanceConfig.woman_initial if BalanceConfig else 3
-	var woman_radius_min: float = BalanceConfig.woman_spawn_radius_min if BalanceConfig else 1200.0
-	var woman_radius_max: float = BalanceConfig.woman_spawn_radius_max if BalanceConfig else 2800.0
-	print("Spawning %d women" % woman_count)
-	
-	for i in woman_count:
-		var angle := SimRng.sim_randf() * TAU
-		var distance := SimRng.sim_randf_range(woman_radius_min, woman_radius_max)
-		var pos := Vector2(cos(angle), sin(angle)) * distance + center_pos
-		
-		var npc: Node = NPC_SCENE.instantiate()
-		if not npc:
-			print("ERROR: Failed to instantiate NPC scene")
-			continue
-		
-		var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(pos.x), int(pos.y), i)))
-		
-		# Set properties
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "woman")
-		# Women need the "herd" trait to follow cavemen/player
-		# Set traits directly (has_trait may not be available until _ready() is called)
-		npc.set("traits", ["herd"])  # Women have herd mentality
-		npc.set("age", SimRng.sim_randi_range(13, 50))
-		# Set sprite texture
-		_apply_placeholder_card_to_npc(npc)
-		
-		spawn_parent.add_child(npc)
-		npc.global_position = pos
-		npc.set("spawn_position", pos)
-		
-		await get_tree().process_frame
-		
-		# NORMAL CONFIGURATION: Women spawn as wild (no clan assignment)
-		# They can be assigned to clans by player later
-		
-		# Women move slightly slower than player/cavemen (agility 9.0 = 288.0 speed vs 320.0)
-		var stats: Node = npc.get_node_or_null("Stats")
-		if stats and stats.has_method("set_stat"):
-			stats.set_stat("agility", 9.0)
-		elif stats:
-			stats.agility = 9.0
-		
-		npc.visible = true
-		print("✓ Spawned Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
-	
-	
-	# Wildlife: ChunkManager rolls seeded herds per terrain chunk load.
-	if DebugConfig and DebugConfig.enable_party_hunt_debug:
-		await _seed_party_hunt_debug_deer_near_claims(spawn_parent)
-
-	if npc_only:
-		_finalize_npc_only_world_player()
-
 ## Test-only: place stationary deer in each AI claim's AoH ring so `--party-hunt-debug` hunts have prey.
 const PARTY_HUNT_DEBUG_DEER_PER_CLAIM := 2
 
@@ -7290,10 +7247,51 @@ func _wildlife_chunk_migratory_corridor(origin: Vector2, rng: RandomNumberGenera
 	return {"entry_side": entry_side, "entry_edge_x": entry_edge_x, "exit_x": exit_x_val}
 
 
+## ChunkManager calls this once per streamed terrain chunk — wild women parent to world_objects.
+func _spawn_wild_women_for_loaded_chunk(chunk: Vector2i, women_data: Array) -> void:
+	if women_data.is_empty():
+		return
+	if _wild_women_spawned_chunks.get(chunk, false):
+		return
+	if not world_objects:
+		return
+	_wild_women_spawned_chunks[chunk] = true
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	for desc in women_data:
+		if typeof(desc) != TYPE_DICTIONARY:
+			continue
+		var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
+		var name_seed: int = int(desc.get("name_seed", 0))
+		var age: int = int(desc.get("age", 25))
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var npc_name: String = _seeded_caveman_name(name_seed)
+		npc.set("npc_name", npc_name)
+		npc.set("npc_type", "woman")
+		npc.set("traits", ["herd"])
+		npc.set("age", age)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		var stats: Node = npc.get_node_or_null("Stats")
+		if stats and stats.has_method("set_stat"):
+			stats.set_stat("agility", 9.0)
+		elif stats:
+			stats.agility = 9.0
+		npc.visible = true
+		if pi and pi.has_method("chunk_woman_spawned"):
+			pi.call("chunk_woman_spawned", chunk.x, chunk.y, npc_name, pos.x, pos.y)
+		if pi and pi.has_method("chunk_npc_spawned"):
+			pi.call("chunk_npc_spawned", chunk.x, chunk.y, "woman", "chunk_seeded_woman", pos.x, pos.y)
+		print("✓ Chunk woman: %s at %s (chunk %s)" % [npc_name, pos, chunk])
+
+
 ## ChunkManager calls this once per streamed terrain chunk — migratory herds are parented under world_objects.
 func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc == null or not bool(wgc.get("use_chunk_content_streaming")):
+	if wgc == null:
 		return
 	if not bool(wgc.get("wild_migratory_chunk_spawns_enabled")):
 		return
@@ -7568,6 +7566,26 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 		print("ERROR: Cannot spawn baby - mother is null or invalid")
 		return
 	
+	if mother.has_meta("nomad_pregnancy_frozen"):
+		UnifiedLogger.log_system("SPAWN_BABY: blocked — nomad transit frozen", {
+			"clan": clan_name,
+			"mother": mother_name
+		})
+		return
+	
+	if mother.has_method("is_wild") and mother.is_wild():
+		UnifiedLogger.log_system("SPAWN_BABY: blocked — mother is wild", {
+			"clan": clan_name,
+			"mother": mother_name
+		})
+		return
+	
+	if clan_name.is_empty():
+		UnifiedLogger.log_system("SPAWN_BABY: blocked — no clan", {
+			"mother": mother_name
+		})
+		return
+	
 	# Safety check: Ensure baby pool manager is initialized
 	if not baby_pool_manager:
 		UnifiedLogger.log_system("SPAWN_BABY: Baby pool manager not initialized, creating it", {
@@ -7575,22 +7593,6 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 			"mother": mother_name
 		})
 		_setup_baby_pool_manager()
-	
-	# Double-check capacity before spawning
-	if baby_pool_manager:
-		var can_add = baby_pool_manager.can_add_baby(clan_name)
-		UnifiedLogger.log_system("SPAWN_BABY: Baby pool check - can_add: %s" % can_add, {
-			"clan": clan_name,
-			"mother": mother_name,
-			"can_add": can_add
-		})
-		if not can_add:
-			UnifiedLogger.log_system("SPAWN_BABY: Baby pool full for clan %s - spawn cancelled" % clan_name, {
-				"clan": clan_name,
-				"mother": mother_name
-			})
-			print("⚠ Baby pool full for clan %s - baby spawn cancelled" % clan_name)
-			return
 	
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
@@ -7717,7 +7719,8 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 	var playtest_pi = get_node_or_null("/root/PlaytestInstrumentor")
 	if playtest_pi and playtest_pi.is_enabled() and playtest_pi.has_method("baby_spawned"):
 		var slot_count: int = npc.inventory.slot_count if npc.inventory else -1
-		playtest_pi.baby_spawned(clan_name, mother_name, father_name, slot_count)
+		var cap_breakdown: Dictionary = baby_pool_manager.get_capacity_breakdown(clan_name) if baby_pool_manager else {}
+		playtest_pi.baby_spawned(clan_name, mother_name, father_name, slot_count, cap_breakdown)
 
 func _setup_node_cache() -> void:
 	# Initialize NodeCache singleton for performance optimization

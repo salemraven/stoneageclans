@@ -2,7 +2,7 @@
 
 **Purpose:** Single source of truth for splitting cheap world visuals from gameplay simulation. Enables higher decor density and more tribes without linear node-count lag.
 
-**See also:** [game_map.md](game_map.md), [multiplayer.md](multiplayer.md)
+**See also:** [game_map.md](game_map.md), [multiplayer.md](multiplayer.md), [settlement_sim.md](settlement_sim.md) (canonical off-screen village framework)
 
 ---
 
@@ -92,10 +92,12 @@ Wake: chunk load containing position, ClanBrain job assignment, hunt target, pla
 
 ## ClanBrain dormant mode
 
+> **Canonical detail:** [settlement_sim.md](settlement_sim.md) — actor sleep vs settlement tick, hot/warm/cold, full village domains (babies, build, craft, genetics).
+
 | Mode | Condition | Update |
 |------|-----------|--------|
 | Active | Claim chunk loaded OR member awake nearby | Full `update()` — hunt/raid + 5s eval |
-| Dormant | No awake members in interest chunks | `dormant_update()` every 30s — abstract food/pop only |
+| Dormant | No awake members in interest chunks | `dormant_update()` every 30s — **today:** abstract food/pop only; **target:** full settlement tick |
 
 Set by `WorldInterestManager.is_claim_active(claim)`.
 

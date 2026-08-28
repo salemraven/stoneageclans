@@ -14,6 +14,8 @@ The character system is designed around five core principles:
 
 The visual goal is to combine the readability and scalability of RimWorld with much richer facial features and individual identity.
 
+**Implementation plan (sleep, LOD, atlas, art sizes):** [character_layers.md](character_layers.md)
+
 ---
 
 # Character Philosophy

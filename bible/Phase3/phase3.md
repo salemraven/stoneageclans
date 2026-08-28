@@ -856,7 +856,13 @@ After Phase 3 you should have: **NPCs that feel better to watch, herding that do
 
 ## Defectors & clan propagation (post-Phase 3 design)
 
-*Builds on Phase 3: defectors are clansmen who leave; clan propagation = new clans forming when males strike out. Not in Phase 3 scope—design now, implement later.*
+**Superseded by canonical doc:** [clan_founding_and_exile.md](../clan_founding_and_exile.md) (**wild cavemen**, clan slots, founder spawn — **major planned update**).
+
+The notes below are kept for history; do not extend here — edit the canonical file instead.
+
+---
+
+### Legacy summary (Aug 2026)
 
 ### Defectors
 

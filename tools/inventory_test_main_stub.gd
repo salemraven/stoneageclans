@@ -7,6 +7,3 @@ var player_inventory_ui: Node = null
 
 func _ready() -> void:
 	add_to_group("main")
-	player = Node2D.new()
-	player.name = "TestPlayer"
-	add_child(player)

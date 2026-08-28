@@ -466,6 +466,11 @@ func _clear_herd(reason: String = "") -> void:
 
 func become_wild() -> void:
 	"""Clan → wild transition. Clears clan/claim, resets defend/worker, reinitializes chunk roaming."""
+	var repro := get_node_or_null("ReproductionComponent")
+	if repro == null:
+		repro = get("reproduction_component")
+	if repro and repro.has_method("cancel_pregnancy") and repro.get("is_pregnant"):
+		repro.cancel_pregnancy("went_wild")
 	set_clan_name("", "become_wild")
 	_cached_land_claim = null
 	_cached_land_claim_clan = ""

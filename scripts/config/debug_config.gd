@@ -71,6 +71,9 @@ var enable_wild_npc_trace: bool = false
 ## Seconds between `wild_migratory_tick` lines per NPC instance.
 var wild_npc_trace_interval_sec: float = 2.5
 
+## Player starts with club (WOOD) in hotbar slot 1 instead of spear. CLI: `--start-club`
+var enable_start_club: bool = false
+
 ## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
 var enable_session_quickstart: bool = false
 var session_quit_after_seconds: float = 0.0
@@ -258,6 +261,17 @@ func _parse_command_line_args() -> void:
 
 	if "--movement-stress-test" in args:
 		print("✓ Movement stress test will run after boot (auto quit)")
+
+	if "--start-club" in args:
+		enable_start_club = true
+		print("✓ Start club: hotbar slot 1 = WOOD (club overlay + pivot swing)")
+
+	if "--hair2" in args:
+		CharacterCardPartsRegistry.set_runtime_hair_texture_path(CharacterCardPartsRegistry.HAIR2_PATH)
+		print("✓ Hair preview: hair2.png (same attach pivot as hair1)")
+	elif "--hair1" in args:
+		CharacterCardPartsRegistry.set_runtime_hair_texture_path(CharacterCardPartsRegistry.HAIR1_PATH)
+		print("✓ Hair preview: hair1.png")
 
 func _apply_debug_settings() -> void:
 	# Apply settings to UnifiedLogger if it exists

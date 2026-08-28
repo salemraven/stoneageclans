@@ -1,0 +1,6 @@
+=== verify_sweep 20260415_133704 ===
+
+>>> [1] run_earlygame_verify.sh
+exit:0
+exit:0
+exhaustive_full_exit:0

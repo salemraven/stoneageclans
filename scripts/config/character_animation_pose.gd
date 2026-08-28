@@ -20,6 +20,26 @@ const ROTATION_UNSET := -1000.0
 @export var grip_on_art_px: Vector2 = Vector2.ZERO
 
 
+func resolved_shoulder_weapon_px(preset) -> Vector2:
+	if preset != null and shoulder_weapon_px.length_squared() < 0.0001:
+		return preset.shoulder_offset_px
+	return shoulder_weapon_px
+
+
+func resolved_shoulder_support_px(preset) -> Vector2:
+	if preset == null:
+		return shoulder_support_px
+	if shoulder_support_px.length_squared() < 0.0001:
+		return preset.support_shoulder_offset_px
+	# Factory pose default (-18,-20) is not a tuned clansmen anchor — inherit morph.
+	if (
+		shoulder_weapon_px.length_squared() < 0.0001
+		and shoulder_support_px.distance_to(Vector2(-18.0, -20.0)) < 0.05
+	):
+		return preset.support_shoulder_offset_px
+	return shoulder_support_px
+
+
 func duplicate_pose():
 	var copy = SelfScript.new()
 	copy.shoulder_weapon_px = shoulder_weapon_px
@@ -35,8 +55,12 @@ func duplicate_pose():
 	return copy
 
 
-func lerp_to(other, t: float):
-	var eased := _smoothstep01(t)
+func lerp_to(other, t: float) -> Resource:
+	return lerp_to_blend(other, _smoothstep01(t))
+
+
+func lerp_to_blend(other, blend: float) -> Resource:
+	var eased := clampf(blend, 0.0, 1.0)
 	var out = SelfScript.new()
 	out.shoulder_weapon_px = shoulder_weapon_px.lerp(other.shoulder_weapon_px, eased)
 	out.shoulder_support_px = shoulder_support_px.lerp(other.shoulder_support_px, eased)

@@ -524,6 +524,10 @@ func _freeze_clan_pregnancies(collected: Array) -> void:
 		if repro and repro.get("is_pregnant"):
 			npc.set_meta("nomad_pregnancy_frozen", true)
 			npc.set_meta("nomad_pregnancy_timer", repro.birth_timer)
+			var npc_name: String = str(npc.get("npc_name")) if npc.get("npc_name") else "unknown"
+			var pi := get_node_or_null("/root/PlaytestInstrumentor")
+			if pi and pi.has_method("baby_pregnancy_frozen"):
+				pi.baby_pregnancy_frozen(clan_name, npc_name, float(repro.birth_timer))
 
 
 func _convert_clan_babies_to_icons(collected: Array) -> void:
@@ -573,9 +577,15 @@ static func resume_clan_after_nomad(clan: String, tree: SceneTree) -> void:
 			var repro = npc.get("reproduction_component")
 			if repro == null:
 				repro = npc.get_node_or_null("ReproductionComponent")
+			var resumed_timer: float = 0.0
 			if repro and npc.has_meta("nomad_pregnancy_timer"):
 				repro.birth_timer = float(npc.get_meta("nomad_pregnancy_timer"))
 				repro.is_pregnant = true
+				resumed_timer = float(repro.birth_timer)
+			var npc_name: String = str(npc.get("npc_name")) if npc.get("npc_name") else "unknown"
+			var pi := tree.root.get_node_or_null("PlaytestInstrumentor")
+			if pi and pi.has_method("baby_pregnancy_resumed"):
+				pi.baby_pregnancy_resumed(clan, npc_name, resumed_timer)
 			npc.remove_meta("nomad_pregnancy_frozen")
 			npc.remove_meta("nomad_pregnancy_timer")
 		if npc.has_meta("nomad_carried_babies"):

@@ -916,18 +916,40 @@ func _test_body_head_flip_with_travel_facing() -> void:
 		return
 	if body_sprite.flip_h or head_sprite.flip_h:
 		_fail("east-facing body/head should not flip_h at rest")
+	var hair_sprite: Sprite2D = sprite.get_node_or_null("HeadPivot/HairFront") as Sprite2D
+	if hair_sprite == null:
+		_fail("hair layer missing for travel facing test")
+		app.queue_free()
+		return
+	var east_attach: Vector2 = body_visual.call("hair_attach_global")
+	var east_neck: Vector2 = body_visual.call("neck_socket_global")
+	var east_delta := east_attach - east_neck
 	rig.apply_travel_facing_direction(-1)
+	await process_frame
 	if not sprite.flip_h:
 		_fail("apply_travel_facing_direction should set sprite.flip_h for west")
 	if not body_sprite.flip_h:
 		_fail("west-facing body sprite should flip_h=true")
 	if not head_sprite.flip_h:
 		_fail("west-facing head sprite should flip_h=true at default look")
+	if not hair_sprite.flip_h:
+		_fail("west-facing hair should flip_h=true with travel facing")
+	var west_attach: Vector2 = body_visual.call("hair_attach_global")
+	var west_neck: Vector2 = body_visual.call("neck_socket_global")
+	var west_delta := west_attach - west_neck
+	if not is_equal_approx(east_delta.x, -west_delta.x):
+		_fail(
+			"hair attach should mirror X when travel facing flips (east %s west %s)"
+			% [str(east_delta), str(west_delta)]
+		)
+	if not is_equal_approx(east_delta.y, west_delta.y):
+		_fail("hair attach Y should stay stable when travel facing flips")
 	rig.apply_travel_facing_direction(1)
+	await process_frame
 	if sprite.flip_h or body_sprite.flip_h:
 		_fail("east-facing body should flip_h=false after turn back")
-	if head_sprite.flip_h:
-		_fail("east-facing head should flip_h=false at default look")
+	if head_sprite.flip_h or hair_sprite.flip_h:
+		_fail("east-facing head/hair should flip_h=false after turn back")
 	app.queue_free()
 
 
@@ -2455,7 +2477,7 @@ func _test_none_idle_sun_shield_keeps_walk_lock() -> void:
 	if none == null:
 		_fail("none preset missing")
 		return
-	if none.hand_grip_offset_px.distance_to(Vector2(127.90, 51.48)) > 0.5:
+	if none.hand_grip_offset_px.distance_to(Vector2(186.65, 34.35)) > 0.5:
 		_fail("none idle hand must match locked rest pose")
 	if none.walk1_hand_grip_offset_px.distance_to(Vector2(115.7, 60.39)) > 0.05:
 		_fail("idle work must not change locked Walk 1 Pose A")
@@ -2516,10 +2538,10 @@ func _test_golden_motion_files() -> void:
 		_fail(err_msg)
 	for err_msg in MotionGolden.validate_walk1_pendulum(
 		"res://Tests/golden/walk1_motion.json",
-		Vector2(115.7, 60.39),
-		Vector2(233.16, 29.45),
-		Vector2(20.18, 31.88),
-		Vector2(-163.4, 44.14)
+		Vector2(277.23, -28.68),
+		Vector2(181.76, 37.65),
+		Vector2(-158.5, 30.07),
+		Vector2(42.23, 0.93)
 	):
 		_fail(err_msg)
 	var spear_data := MotionGolden.load_json("res://Tests/golden/spear_idle1_motion.json")

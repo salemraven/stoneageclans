@@ -1,11 +1,64 @@
-[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="WeaponLimbPreset" load_steps=13 format=3]
 
-[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="1_7ww5o"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_pose.gd" id="1_6rxpj"]
+[ext_resource type="Script" path="res://scripts/config/character_animation_clip.gd" id="2_elvjy"]
+[ext_resource type="Script" path="res://scripts/config/weapon_limb_preset.gd" id="3_t52cd"]
+
+[sub_resource type="Resource" id="Resource_iwibv"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_1hxi6"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_eg4km"]
+script = ExtResource("2_elvjy")
+pose_a = SubResource("Resource_iwibv")
+pose_b = SubResource("Resource_1hxi6")
+duration_sec = 2.0
+
+[sub_resource type="Resource" id="Resource_knk6q"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_bsoxa"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_l3m4u"]
+script = ExtResource("2_elvjy")
+clip_id = &"walk"
+pose_a = SubResource("Resource_knk6q")
+pose_b = SubResource("Resource_bsoxa")
+duration_sec = 0.8
+
+[sub_resource type="Resource" id="Resource_br12m"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_3odex"]
+script = ExtResource("1_6rxpj")
+hand_weapon_px = Vector2(24, 8)
+weapon_rotation_deg = 0.0
+
+[sub_resource type="Resource" id="Resource_cnhd1"]
+script = ExtResource("2_elvjy")
+clip_id = &"gather"
+pose_a = SubResource("Resource_br12m")
+pose_b = SubResource("Resource_3odex")
 
 [resource]
-script = ExtResource("1_7ww5o")
+script = ExtResource("3_t52cd")
 weapon_type = 0
 body_card_id = "test_thickness"
+animation_clips = [SubResource("Resource_eg4km"), SubResource("Resource_l3m4u"), SubResource("Resource_cnhd1")]
+unified_clips_initialized = true
 hand_grip_offset_px = Vector2(24, 8)
 arm_width = 22.0
 hand_width = 15.714285714285715

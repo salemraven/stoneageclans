@@ -2,7 +2,7 @@
 
 **Status:** Implemented. Defense, searcher, raid, **NPC-clan hunting** (Area of Hunt), and **production economy** (WorkRequests) active; strategic pressures drive quotas.  
 **Last Updated:** 2026-06-13 (production economy + Living Hut home binding)  
-**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md`
+**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md` · **Off-screen villages:** `bible/settlement_sim.md`
 
 ## Overview
 

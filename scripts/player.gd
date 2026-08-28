@@ -3,6 +3,7 @@ extends CharacterBody2D
 const WalkAnimation = preload("res://scripts/systems/walk_animation.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
 @export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
@@ -48,6 +49,7 @@ var player_name: String = ""
 var _player_name_meta_key: String = "player_name"
 var card_index: int = 0
 var genetics_profile: Dictionary = {}
+@export var skin_tone: String = "Medium"  # Dark, Medium, Light — same as clan NPCs
 var _card_foot_y: float = -28.0
 var _card_bounce_time: float = 0.0
 
@@ -282,7 +284,13 @@ func _physics_process(_delta: float) -> void:
 	if input_vector.length_squared() > 1.0:
 		input_vector = input_vector.normalized()
 	if input_vector != Vector2.ZERO:
-		last_facing = input_vector.normalized()
+		if absf(input_vector.x) > 0.05:
+			last_facing = input_vector.normalized()
+		else:
+			var keep_x: float = last_facing.x
+			if absf(keep_x) <= 0.05 and sprite:
+				keep_x = -1.0 if sprite.flip_h else 1.0
+			last_facing = Vector2(keep_x, input_vector.y).normalized()
 
 	# Speed debuff when very hungry
 	var speed_mult: float = 0.7 if get_calorie_percent() < 0.3 else 1.0
@@ -301,11 +309,12 @@ func _physics_process(_delta: float) -> void:
 	if shift_ready and combat_component != null:
 		aim_dir = _get_combat_aim_direction()
 		if sprite and PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
-			if _weapon_overlay_uses_aim_facing_flip():
-				last_facing = aim_dir
-				sprite.flip_h = aim_dir.x < 0.0
+			if _weapon_ready_tracks_cursor_facing():
+				if absf(aim_dir.x) > 0.05:
+					last_facing = aim_dir
+					sprite.flip_h = aim_dir.x < 0.0
 			elif combat_component.state == CombatComponent.CombatState.READY or shift_ready:
-				WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+				WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim_dir)
 	if in_weapon_ready:
 		speed_mult *= WEAPON_READY_SPEED_MULT
 	velocity = input_vector * (move_speed * speed_mult)
@@ -328,12 +337,14 @@ func _physics_process(_delta: float) -> void:
 
 	if input_vector != Vector2.ZERO:
 		if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
-			if in_weapon_ready and _weapon_overlay_uses_aim_facing_flip():
-				sprite.flip_h = aim_dir.x < 0.0
+			if in_weapon_ready and _weapon_ready_tracks_cursor_facing():
+				aim_dir = _get_combat_aim_direction()
+				if absf(aim_dir.x) > 0.05:
+					sprite.flip_h = aim_dir.x < 0.0
 			else:
-				sprite.flip_h = velocity.x < 0.0
+				CardVisualController.apply_travel_facing_flip(sprite, input_vector)
 				if in_weapon_ready or shift_ready:
-					WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+					WeaponOverlayCombat.sync_swing_body_facing(self, sprite, input_vector)
 			PlaceholderCardService.tick_card_bounce(self, _delta, true)
 		else:
 			_update_bounce(true, _delta)
@@ -383,11 +394,12 @@ func _physics_process(_delta: float) -> void:
 		if PlaceholderCardService and PlaceholderCardService.uses_placeholder_cards(self):
 			if in_weapon_ready:
 				aim_dir = _get_combat_aim_direction()
-				if _weapon_overlay_uses_aim_facing_flip():
-					last_facing = aim_dir
-					sprite.flip_h = aim_dir.x < 0.0
+				if _weapon_ready_tracks_cursor_facing():
+					if absf(aim_dir.x) > 0.05:
+						last_facing = aim_dir
+						sprite.flip_h = aim_dir.x < 0.0
 				else:
-					WeaponOverlayCombat.sync_swing_body_facing(self, sprite)
+					WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim_dir)
 			PlaceholderCardService.tick_card_bounce(self, _delta, false)
 		else:
 			_update_bounce(false, _delta)
@@ -418,10 +430,26 @@ func _physics_process(_delta: float) -> void:
 			var bounce_offset := sin(_bounce_time) * bounce_amplitude if input_vector != Vector2.ZERO else 0.0
 			sprite.position.y = roundf(_sprite_base_position.y + bounce_offset)
 		else:
-			_sync_card_weapon_overlay()
-			# Weapon overlay: legacy card offset path (layered body in game; full cards for women/babies).
+			# Bounce flip first; combat pose update must run last so ready thrust keeps tuned offset.
 			if not PlaceholderCardService.uses_procedural_mannequin(self):
-				PlaceholderCardService.sync_weapon_overlay_flip(self)
+				var ostate: int = WeaponOverlayCombat.get_overlay_state(self)
+				var hold_ready: bool = (
+					InputMap.has_action("weapon_ready")
+					and Input.is_action_pressed("weapon_ready")
+				)
+				var combat_sets_pose: bool = (
+					ostate == WeaponOverlayCombat.OverlayState.STRIKING
+					or ostate == WeaponOverlayCombat.OverlayState.READY
+					or (
+						ostate == WeaponOverlayCombat.OverlayState.RECOVERING
+						and hold_ready
+					)
+				)
+				if PlaceholderCardService.uses_layered_body_mannequin(self):
+					PlaceholderCardService.sync_weapon_overlay_flip(self)
+				elif not combat_sets_pose:
+					PlaceholderCardService.sync_weapon_overlay_flip(self)
+			_sync_card_weapon_overlay()
 
 func _apply_player_equipment_sprite_scale() -> void:
 	if not sprite:
@@ -463,6 +491,9 @@ func _update_entity_draw_order() -> void:
 
 func _sync_card_weapon_overlay() -> void:
 	if not PlaceholderCardService or not PlaceholderCardService.uses_placeholder_cards(self):
+		return
+	if health_component and health_component.is_dead:
+		PlaceholderCardService.hide_holdables_on_death(self)
 		return
 	var weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 	if ResourceData.is_equipment(_equipped_item) and _equipped_item != ResourceData.ResourceType.TRAVOIS:
@@ -637,6 +668,25 @@ func _weapon_overlay_uses_aim_facing_flip() -> bool:
 	if not PlaceholderCardService or not PlaceholderCardService.uses_placeholder_cards(self):
 		return false
 	return WeaponOverlayCombat.uses_aim_facing_flip(PlaceholderCardService.registry, get_equipped_weapon_type())
+
+
+func _weapon_ready_tracks_cursor_facing() -> bool:
+	## Spear thrust + club swing ready: cursor (not travel velocity) picks left/right.
+	if not PlaceholderCardService or not PlaceholderCardService.uses_placeholder_cards(self):
+		return false
+	var wt: ResourceData.ResourceType = get_equipped_weapon_type()
+	if wt == ResourceData.ResourceType.NONE:
+		return false
+	var reg = PlaceholderCardService.registry
+	if reg == null:
+		return false
+	if WeaponOverlayCombat.uses_aim_facing_flip(reg, wt):
+		return true
+	var profile: Dictionary = reg.get_weapon_combat_profile(wt)
+	return (
+		int(profile.get("attack_kind", WeaponOverlayCombat.AttackKind.SWING_DOWN))
+		== WeaponOverlayCombat.AttackKind.SWING_DOWN
+	)
 
 func _ensure_sprite_scale() -> void:
 	if sprite:

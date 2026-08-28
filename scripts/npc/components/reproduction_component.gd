@@ -82,6 +82,8 @@ func update(delta: float) -> void:
 	
 	var clan_name: String = _get_npc_clan_name()
 	if clan_name == "":
+		if is_pregnant:
+			cancel_pregnancy("went_wild")
 		return  # Wild women cannot reproduce
 	
 	_refresh_designated_father_if_invalid()
@@ -93,10 +95,8 @@ func update(delta: float) -> void:
 	
 	# Pregnancy requires Living Hut (or Oven/Farm/Dairy - special Living Huts)
 	if not _has_living_hut_assigned():
-		# Cancel pregnancy if woman lost hut
 		if is_pregnant:
-			is_pregnant = false
-			birth_timer = 0.0
+			cancel_pregnancy("hut_lost")
 		return
 	
 	# Update birth timer if pregnant
@@ -275,7 +275,73 @@ func _can_reproduce() -> bool:
 			return false
 	
 	var time_since_last_birth = (Time.get_ticks_msec() / 1000.0) - last_birth_time
-	return time_since_last_birth >= config.birth_cooldown
+	if time_since_last_birth < config.birth_cooldown:
+		return false
+	if not _has_baby_room_for_conception():
+		return false
+	return true
+
+
+func _has_baby_room_for_conception() -> bool:
+	var clan: String = _get_npc_clan_name()
+	if clan.is_empty():
+		return false
+	var pool := _get_baby_pool_manager()
+	if pool == null:
+		return true
+	return pool.has_baby_room(clan)
+
+
+func can_hold_pregnancy() -> bool:
+	if not npc or not is_instance_valid(npc):
+		return false
+	if _get_npc_clan_name().is_empty():
+		return false
+	if npc.has_method("is_wild") and npc.is_wild():
+		return false
+	if npc.has_meta("nomad_pregnancy_frozen"):
+		return true
+	return true
+
+
+func cancel_pregnancy(reason: String) -> void:
+	if not is_pregnant:
+		return
+	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
+	var clan_name: String = _get_npc_clan_name()
+	var buffer_days: float = _clan_calorie_days_buffer()
+	is_pregnant = false
+	birth_timer = 0.0
+	current_mate = null
+	UnifiedLogger.log_system("REPRODUCTION_CANCEL: %s pregnancy cancelled (%s)" % [npc_name, reason], {
+		"npc": npc_name,
+		"clan": clan_name,
+		"reason": reason,
+		"buffer_days": buffer_days,
+	})
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("baby_pregnancy_cancelled"):
+		pi.baby_pregnancy_cancelled(clan_name, npc_name, reason, buffer_days)
+	print("⚠ REPRODUCTION: %s pregnancy cancelled (%s)" % [npc_name, reason])
+
+
+func _get_baby_pool_manager() -> BabyPoolManager:
+	if not is_inside_tree():
+		return null
+	var main := get_tree().get_first_node_in_group("main")
+	if main and main.has_method("get_baby_pool_manager"):
+		return main.get_baby_pool_manager() as BabyPoolManager
+	return null
+
+
+func _clan_food_allows_pregnancy_while_pregnant() -> bool:
+	var cfg := config if config else ReproductionConfig.new()
+	var min_buffer: float = cfg.pregnancy_cancel_food_buffer_days
+	if ClanBrainTuningConfig:
+		min_buffer = maxf(min_buffer, float(ClanBrainTuningConfig.reproduction_min_food_buffer_days))
+	elif BalanceConfig:
+		min_buffer = maxf(min_buffer, float(BalanceConfig.reproduction_min_food_buffer_days))
+	return _clan_calorie_days_buffer() >= min_buffer
 
 
 func _clan_calorie_days_buffer() -> float:
@@ -551,6 +617,19 @@ func _start_pregnancy() -> void:
 		})
 	
 	if not is_pregnant and can_reproduce_result:
+		if not _has_baby_room_for_conception():
+			var clan_blocked: String = _get_npc_clan_name()
+			var pool := _get_baby_pool_manager()
+			var breakdown: Dictionary = pool.get_capacity_breakdown(clan_blocked) if pool else {}
+			UnifiedLogger.log_system("REPRODUCTION_PREGNANCY: blocked — baby cap for %s" % npc_name, {
+				"npc": npc_name,
+				"clan": clan_blocked,
+				"breakdown": breakdown,
+			})
+			var pi := get_node_or_null("/root/PlaytestInstrumentor")
+			if pi and pi.has_method("baby_pregnancy_blocked"):
+				pi.baby_pregnancy_blocked(clan_blocked, npc_name, "baby_cap", breakdown)
+			return
 		if not config:
 			config = ReproductionConfig.new()
 			if config and BalanceConfig:
@@ -586,13 +665,17 @@ func _start_pregnancy() -> void:
 		print("✓ REPRODUCTION: %s started pregnancy (mate: %s, clan: %s, timer: %.1fs)" % [npc_name, mate_name, clan_name, birth_timer])
 
 func _update_birth_timer(delta: float) -> void:
-	# Nomad Mode: pregnancy timer frozen until new camp placed
+	# Nomad transit: timer frozen on pack-up — do NOT cancel (see campfire.gd _freeze_clan_pregnancies).
 	if npc and npc.has_meta("nomad_pregnancy_frozen"):
 		return
-	# Cancel pregnancy if woman lost hut
+	if not can_hold_pregnancy():
+		cancel_pregnancy("went_wild")
+		return
 	if not _has_living_hut_assigned():
-		is_pregnant = false
-		birth_timer = 0.0
+		cancel_pregnancy("hut_lost")
+		return
+	if not _clan_food_allows_pregnancy_while_pregnant():
+		cancel_pregnancy("starvation")
 		return
 	birth_timer -= delta
 	if birth_timer <= 0.0:
@@ -620,6 +703,14 @@ func _spawn_baby() -> void:
 		UnifiedLogger.log_system("REPRODUCTION_SPAWN: ERROR - npc has no clan_name for %s" % npc_name, {
 			"npc": npc_name
 		})
+		return
+	
+	if npc.has_meta("nomad_pregnancy_frozen"):
+		UnifiedLogger.log_system("REPRODUCTION_SPAWN: blocked — nomad transit frozen for %s" % npc_name, {"npc": npc_name})
+		return
+	
+	if npc.has_method("is_wild") and npc.is_wild():
+		cancel_pregnancy("went_wild")
 		return
 	
 	var clan_name = npc.get("clan_name")
@@ -670,35 +761,6 @@ func _spawn_baby() -> void:
 		"land_claim_valid": land_claim != null,
 		"main_valid": main != null
 	})
-	
-	# Check baby pool capacity
-	if main.has_method("get_baby_pool_manager"):
-		var pool_manager = main.get_baby_pool_manager()
-		if not pool_manager:
-			UnifiedLogger.log_system("REPRODUCTION_SPAWN: WARNING - Baby pool manager not initialized, spawning baby anyway for %s" % npc_name, {
-				"npc": npc_name,
-				"clan": clan_name
-			})
-			print("WARNING: Baby pool manager not initialized, spawning baby anyway")
-		else:
-			var can_add = pool_manager.can_add_baby(clan_name)
-			UnifiedLogger.log_system("REPRODUCTION_SPAWN: Baby pool check for %s (clan: %s) - can_add: %s" % [npc_name, clan_name, can_add], {
-				"npc": npc_name,
-				"clan": clan_name,
-				"can_add": can_add
-			})
-			if not can_add:
-				UnifiedLogger.log_system("REPRODUCTION_SPAWN: Baby pool full for clan %s - baby not spawned (npc: %s)" % [clan_name, npc_name], {
-					"npc": npc_name,
-					"clan": clan_name
-				})
-				print("⚠ Baby pool full for clan %s - baby not spawned" % clan_name)
-				# Reset pregnancy state even if baby can't be spawned
-				is_pregnant = false
-				birth_timer = 0.0
-				last_birth_time = Time.get_ticks_msec() / 1000.0
-				current_mate = null
-				return
 	
 	# Spawn baby at land claim center
 	if main.has_method("_spawn_baby"):
@@ -872,5 +934,9 @@ func _get_reproduction_block_reason() -> String:
 			return "Blocked — low food (%.2f days buffer, need %.2f)" % [buf, min_buffer]
 	if not current_mate and not designated_father:
 		return "Blocked — no mate"
+	var pool := _get_baby_pool_manager()
+	if pool and not pool.has_baby_room(_get_npc_clan_name()):
+		var bd: Dictionary = pool.get_capacity_breakdown(_get_npc_clan_name())
+		return "Blocked — baby cap (%d/%d)" % [int(bd.get("current", 0)), int(bd.get("total", 0))]
 	return "Ready to conceive"
 

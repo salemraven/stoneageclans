@@ -3,10 +3,15 @@ class_name TunerBodyVisual
 
 ## Layered blank body + head sprites in card texture space (feet at card bottom).
 
+const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
+
 const PartsRegistry = preload("res://scripts/config/character_card_parts_registry.gd")
 const BODY_DRAW_Z_INDEX := 1
 const HEAD_DRAW_Z_INDEX := 2
 const WEAPON_DRAW_Z_INDEX := 3
+## Hair front on HeadPivot — above HeadSprite (0), below future hat layer.
+const HAIR_FRONT_Z_INDEX := 1
+const HAT_DRAW_Z_INDEX := 2
 
 @export var body_texture_path: String = PartsRegistry.BLANK_BODY_PATH
 @export var head_texture_path: String = PartsRegistry.BLANK_HEAD_PATH
@@ -16,10 +21,12 @@ var _layer_layout: CharacterCardLayerLayout
 var _body_sprite: Sprite2D
 var _head_pivot: Node2D
 var _head_sprite: Sprite2D
+var _hair_sprite: Sprite2D
 var _head_rest_y := 0.0
 var _head_bob_y := 0.0
 var _look_right := true
 var _body_tex: Texture2D
+var _death_active := false
 
 
 func _ready() -> void:
@@ -43,11 +50,15 @@ func apply_layer_layout(layer_layout: CharacterCardLayerLayout) -> void:
 		_layer_layout == null
 		or layer_layout.body_texture_path != body_texture_path
 		or layer_layout.head_texture_path != head_texture_path
+		or layer_layout.hair_texture_path != (
+			_layer_layout.hair_texture_path if _layer_layout else ""
+		)
 	)
 	_layer_layout = layer_layout
 	if paths_changed or _body_sprite == null or _head_sprite == null:
 		_build_layers()
 	else:
+		_build_hair_layer()
 		_apply_head_attachment()
 
 
@@ -75,6 +86,9 @@ func apply_tuner_draw_layers() -> void:
 	if _head_sprite:
 		_head_sprite.z_as_relative = true
 		_head_sprite.z_index = 0
+	if _hair_sprite:
+		_hair_sprite.z_as_relative = true
+		_hair_sprite.z_index = HAIR_FRONT_Z_INDEX
 
 
 ## In-game mannequin: stack body/head/weapon relative to card Sprite Y-sort z_index.
@@ -90,6 +104,9 @@ func apply_runtime_draw_layers() -> void:
 	if _head_sprite:
 		_head_sprite.z_as_relative = true
 		_head_sprite.z_index = 0
+	if _hair_sprite:
+		_hair_sprite.z_as_relative = true
+		_hair_sprite.z_index = HAIR_FRONT_Z_INDEX
 	var sprite_root := get_parent() as Node2D
 	if sprite_root:
 		var weapon := sprite_root.get_node_or_null("WeaponOverlay") as Sprite2D
@@ -117,6 +134,9 @@ func _apply_draw_layers() -> void:
 
 
 func sync_head_draw_transform() -> void:
+	if _death_active:
+		sync_attached_head_transform()
+		return
 	if _head_pivot == null or _layer_layout == null or _body_tex == null:
 		return
 	var neck_local := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
@@ -130,6 +150,28 @@ func sync_head_draw_transform() -> void:
 	_apply_layer_facing_flips()
 	if _uses_runtime_draw_layers():
 		apply_runtime_draw_layers()
+
+
+## Death fall: keep head on neck without re-sorting draw layers every frame.
+func sync_attached_head_transform() -> void:
+	if _head_pivot == null or _layer_layout == null or _body_tex == null:
+		return
+	var neck_local := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
+	if _facing_left():
+		neck_local.x = -neck_local.x
+	var neck_global := to_global(neck_local)
+	_head_pivot.global_position = neck_global.round()
+	_head_pivot.global_rotation = global_rotation
+	if _head_pivot:
+		_head_pivot.scale = Vector2.ONE
+
+
+func prepare_for_death_fall() -> void:
+	_death_active = true
+	_head_bob_y = 0.0
+	rotation = 0.0
+	position = Vector2.ZERO
+	sync_attached_head_transform()
 
 
 func _card_sprite_root() -> Sprite2D:
@@ -159,14 +201,25 @@ func _apply_layer_facing_flips() -> void:
 		_body_sprite.flip_h = facing_left
 	if _head_sprite:
 		_head_sprite.flip_h = _resolve_head_sprite_flip_h()
+	if _hair_sprite:
+		_hair_sprite.flip_h = _resolve_head_sprite_flip_h()
+	_apply_hair_attachment()
+
+
+func _resolved_hair_attach_local_px() -> Vector2:
+	if _layer_layout == null:
+		return Vector2.ZERO
+	return PartsRegistry.resolved_hair_attach_local_px(_layer_layout, _facing_left())
 
 
 func layer_facing_in_sync() -> bool:
 	if _body_sprite == null:
 		return true
+	var head_flip := _resolve_head_sprite_flip_h()
+	var hair_ok := _hair_sprite == null or _hair_sprite.flip_h == head_flip
 	return _body_sprite.flip_h == _facing_left() and (
-		_head_sprite == null or _head_sprite.flip_h == _resolve_head_sprite_flip_h()
-	)
+		_head_sprite == null or _head_sprite.flip_h == head_flip
+	) and hair_ok
 
 
 func _apply_facing(look_right: bool) -> void:
@@ -213,17 +266,47 @@ func set_neck_socket_from_global(global_pos: Vector2) -> void:
 	_apply_head_attachment()
 
 
+func hair_attach_global() -> Vector2:
+	if _head_pivot == null:
+		return global_position
+	return _head_pivot.to_global(_resolved_hair_attach_local_px())
+
+
+func set_hair_attach_from_global(global_pos: Vector2) -> void:
+	if _head_pivot == null or _layer_layout == null:
+		return
+	var local_pos := _head_pivot.to_local(global_pos)
+	if _facing_left():
+		local_pos.x = -local_pos.x
+	_layer_layout.hair_attach_local_px = local_pos
+	_apply_hair_attachment()
+
+
+func has_hair_layer() -> bool:
+	return _hair_sprite != null and _hair_sprite.texture != null
+
+
+func get_hair_sprite() -> Sprite2D:
+	return _hair_sprite
+
+
 func is_facing_right() -> bool:
 	return not _facing_left()
 
 
 func set_walk_state(moving: bool, bounce_time: float, direction: int) -> void:
+	if _death_active:
+		return
 	_apply_facing(direction > 0)
 	var tilt_sign := -1.0 if direction < 0 else 1.0
 	var bob: float = _layout.head_bob_local() if _layout else 2.5
 	if moving:
-		_apply_torso_sway(sin(bounce_time) * 0.06 * tilt_sign)
-		_head_bob_y = sin(bounce_time - 0.45) * bob
+		var hop := CardVisualController.walk_bounce_hop_factor(bounce_time)
+		var hop_dir := signf(sin(bounce_time))
+		if hop_dir == 0.0:
+			hop_dir = tilt_sign
+		_apply_torso_sway(hop * hop_dir * 0.11 * tilt_sign)
+		_head_bob_y = -CardVisualController.walk_bounce_hop_factor(bounce_time - 0.28) * bob
 		sync_head_draw_transform()
 	else:
 		clear_motion_state()
@@ -243,12 +326,30 @@ func set_gather_state(bend_rad: float, head_forward_local: float) -> void:
 
 
 func clear_motion_state() -> void:
+	if _death_active:
+		return
 	rotation = 0.0
 	position = Vector2.ZERO
 	_head_bob_y = 0.0
 	var sprite_root := _card_sprite_root()
 	_look_right = not sprite_root.flip_h if sprite_root else true
 	sync_head_draw_transform()
+
+
+func set_death_active(on: bool) -> void:
+	_death_active = on
+
+
+func is_death_active() -> bool:
+	return _death_active
+
+
+## Bottom-center of body art — pivot for tipping over onto the ground.
+func get_death_fall_pivot_local() -> Vector2:
+	if _body_sprite == null or _body_tex == null:
+		return Vector2.ZERO
+	var half_h := float(_body_tex.get_height()) * 0.5
+	return _body_sprite.position + Vector2(0.0, half_h)
 
 
 func _build_layers() -> void:
@@ -297,8 +398,31 @@ func _build_layers() -> void:
 	_head_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_head_sprite.centered = true
 	_head_pivot.add_child(_head_sprite)
+	_build_hair_layer()
 	_apply_head_attachment()
 	_apply_draw_layers()
+
+
+func _build_hair_layer() -> void:
+	if _head_pivot == null or _layer_layout == null:
+		return
+	if _hair_sprite != null:
+		_hair_sprite.queue_free()
+		_hair_sprite = null
+	var path := _layer_layout.hair_texture_path
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return
+	var hair_tex := _load_texture(path)
+	if hair_tex == null:
+		return
+	_hair_sprite = Sprite2D.new()
+	_hair_sprite.name = "HairFront"
+	_hair_sprite.texture = hair_tex
+	_hair_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_hair_sprite.centered = true
+	_head_pivot.add_child(_hair_sprite)
+	_head_pivot.move_child(_hair_sprite, -1)
+	_apply_hair_attachment()
 
 
 func _clear_sprite_head_pivots(sprite_root: Node2D) -> void:
@@ -321,6 +445,20 @@ func _apply_head_attachment() -> void:
 	_head_rest_y = PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout).y
 	_head_sprite.position = PartsRegistry.head_sprite_offset_local(head_tex, _layer_layout)
 	sync_head_draw_transform()
+	_apply_hair_attachment()
+
+
+func _apply_hair_attachment() -> void:
+	if _hair_sprite == null or _layer_layout == null:
+		return
+	var hair_tex := _hair_sprite.texture
+	if hair_tex == null:
+		return
+	_hair_sprite.position = PartsRegistry.hair_sprite_offset_local(
+		hair_tex, _layer_layout, _facing_left()
+	)
+	if _head_sprite:
+		_hair_sprite.flip_h = _head_sprite.flip_h
 
 
 func _load_texture(path: String) -> Texture2D:

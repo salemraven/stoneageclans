@@ -40,6 +40,7 @@ static func apply_pose_to_handles(app: Node, pose) -> void:
 	if app == null or pose == null:
 		return
 	var rig: LimbTunerRig = app.get("_rig")
+	var preset: WeaponLimbPreset = app.get("_preset")
 	var shoulder: Node2D = app.get("_shoulder_handle")
 	var support_shoulder: Node2D = app.get("_support_shoulder_handle")
 	var hand: Node2D = app.get("_hand_handle")
@@ -47,34 +48,35 @@ static func apply_pose_to_handles(app: Node, pose) -> void:
 	var head: Node2D = app.get("_head_handle")
 	var spear: Node2D = app.get("_spear_handle")
 	if shoulder:
-		shoulder.global_position = _body_global(rig, pose.shoulder_weapon_px)
+		shoulder.global_position = _body_global(rig, pose.resolved_shoulder_weapon_px(preset))
 	if support_shoulder:
-		support_shoulder.global_position = _body_global(rig, pose.shoulder_support_px)
+		support_shoulder.global_position = _body_global(
+			rig, pose.resolved_shoulder_support_px(preset)
+		)
 	if hand:
-		if (
-			rig
-			and rig.has_weapon_overlay()
-			and pose.grip_on_art_px.length_squared() > 0.0001
-		):
-			hand.global_position = LimbPresetCoords.overlay_grip_global(
-				rig.weapon_overlay, pose.grip_on_art_px
-			)
-		else:
-			hand.global_position = _body_global(rig, pose.hand_weapon_px)
+		hand.global_position = _body_global(rig, pose.hand_weapon_px)
 	if support_hand:
 		support_hand.global_position = _body_global(rig, pose.hand_support_px)
+	var clip_id := clip_id_for_app(app)
 	if head and rig:
-		head.global_position = rig.neck_socket_global() + _body_global(rig, pose.head_offset_px) - rig.global_position
+		if _clip_uses_head_offset(clip_id):
+			var neck_g := rig.neck_socket_global()
+			var neck_display := LimbPresetCoords.body_display_from_global(rig.sprite, neck_g)
+			head.global_position = _body_global(rig, neck_display + pose.head_offset_px)
+		else:
+			head.global_position = rig.neck_socket_global()
 	if spear and rig and rig.has_weapon_overlay() and pose.grip_on_art_px.length_squared() > 0.0001:
 		spear.global_position = LimbPresetCoords.overlay_grip_global(
 			rig.weapon_overlay, pose.grip_on_art_px
 		)
-	_sync_elbow_handles_from_pose(app, pose)
+	_sync_elbow_handles_from_pose(app, pose, preset)
 
 
-static func read_handles_into_pose(app: Node):
+static func read_handles_into_pose(app: Node, existing = null):
 	var pose = CharacterAnimationPoseScript.new()
 	var rig: LimbTunerRig = app.get("_rig")
+	var clip_id := clip_id_for_app(app)
+	var weapon: ResourceData.ResourceType = app.get("_selected_weapon")
 	var shoulder: Node2D = app.get("_shoulder_handle")
 	var support_shoulder: Node2D = app.get("_support_shoulder_handle")
 	var hand: Node2D = app.get("_hand_handle")
@@ -87,25 +89,27 @@ static func read_handles_into_pose(app: Node):
 		pose.shoulder_support_px = LimbPresetCoords.body_display_from_global(
 			rig.sprite, support_shoulder.global_position
 		)
-	if spear and rig and rig.weapon_overlay:
+	if hand and rig:
+		pose.hand_weapon_px = LimbPresetCoords.body_display_from_global(rig.sprite, hand.global_position)
+	if spear and rig and rig.weapon_overlay and _clip_uses_grip_on_art(clip_id, weapon):
 		pose.grip_on_art_px = LimbPresetCoords.overlay_grip_px_from_global(
 			rig.weapon_overlay, spear.global_position
 		)
-		if hand:
-			pose.hand_weapon_px = LimbPresetCoords.body_display_from_global(
-				rig.sprite, spear.global_position
-			)
-	elif hand and rig:
-		pose.hand_weapon_px = LimbPresetCoords.body_display_from_global(rig.sprite, hand.global_position)
+	elif existing != null:
+		pose.grip_on_art_px = existing.grip_on_art_px
+	elif hand == null and spear and rig:
+		pose.hand_weapon_px = LimbPresetCoords.body_display_from_global(rig.sprite, spear.global_position)
 	if support_hand and rig:
 		pose.hand_support_px = LimbPresetCoords.body_display_from_global(
 			rig.sprite, support_hand.global_position
 		)
-	if head and rig:
+	if head and rig and _clip_uses_head_offset(clip_id):
 		var neck := rig.neck_socket_global()
 		pose.head_offset_px = LimbPresetCoords.body_display_from_global(
 			rig.sprite, head.global_position
 		) - LimbPresetCoords.body_display_from_global(rig.sprite, neck)
+	elif existing != null:
+		pose.head_offset_px = existing.head_offset_px
 	var weapon_elbow: Node2D = app.get("_weapon_elbow_handle")
 	var support_elbow: Node2D = app.get("_support_elbow_handle")
 	if weapon_elbow:
@@ -133,6 +137,18 @@ static func sync_elbows_live(app: Node) -> void:
 	_sync_elbow_handles_from_pose(app, live)
 
 
+static func apply_elbow_overrides_to_arms(app: Node) -> void:
+	var rig: LimbTunerRig = app.get("_rig")
+	if rig == null or rig.arm_controller == null:
+		return
+	var weapon_elbow: Node2D = app.get("_weapon_elbow_handle")
+	var support_elbow: Node2D = app.get("_support_elbow_handle")
+	if weapon_elbow:
+		rig.arm_controller.set_weapon_elbow_override_from_global(weapon_elbow.global_position)
+	if support_elbow:
+		rig.arm_controller.set_support_elbow_override_from_global(support_elbow.global_position)
+
+
 static func commit_active_pose(app: Node) -> void:
 	var preset: WeaponLimbPreset = app.get("_preset")
 	if preset == null:
@@ -142,7 +158,7 @@ static func commit_active_pose(app: Node) -> void:
 	var clip = CharacterAnimationPresetStoreScript.ensure_clip(preset, clip_id, LimbPresetRegistry)
 	if clip == null:
 		return
-	clip.set_pose_at_index(pose_index, read_handles_into_pose(app))
+	clip.set_pose_at_index(pose_index, read_handles_into_pose(app, clip.pose_at_index(pose_index)))
 	if pose_index == 1:
 		clip.pose_b_saved = true
 	preset.unified_clips_initialized = true
@@ -210,9 +226,24 @@ static func _body_global(rig: LimbTunerRig, display_px: Vector2) -> Vector2:
 	return LimbPresetCoords.body_global_from_display(rig.sprite, display_px)
 
 
-static func _sync_elbow_handles_from_pose(app: Node, pose) -> void:
+static func _clip_uses_head_offset(clip_id: StringName) -> bool:
+	return clip_id == AnimCatalogScript.CLIP_IDLE
+
+
+static func _clip_uses_grip_on_art(clip_id: StringName, weapon: ResourceData.ResourceType) -> bool:
+	if weapon == ResourceData.ResourceType.NONE:
+		return false
+	return (
+		clip_id == AnimCatalogScript.CLIP_IDLE
+		or clip_id == CharacterAnimationPresetStoreScript.CLIP_WINDUP
+		or clip_id == CharacterAnimationPresetStoreScript.CLIP_STRIKE
+	)
+
+
+static func _sync_elbow_handles_from_pose(app: Node, pose, preset: WeaponLimbPreset = null) -> void:
 	var rig: LimbTunerRig = app.get("_rig")
-	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		preset = app.get("_preset")
 	if rig == null or preset == null or pose == null:
 		return
 	var weapon_elbow: Node2D = app.get("_weapon_elbow_handle")
@@ -256,6 +287,42 @@ static func _elbow_global(
 	var pick_a := signf(bend_sign) >= 0.0 if absf(bend_sign) > 0.001 else true
 	var elbow_local: Vector2 = candidates[0] if pick_a else candidates[1]
 	return rig.to_global(elbow_local)
+
+
+static func expected_elbow_global(app: Node, pose, dominant: bool) -> Vector2:
+	var rig: LimbTunerRig = app.get("_rig")
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if rig == null or preset == null or pose == null:
+		return Vector2.ZERO
+	var shoulder: Node2D = app.get("_shoulder_handle") if dominant else app.get("_support_shoulder_handle")
+	var hand: Node2D = app.get("_hand_handle") if dominant else app.get("_support_hand_handle")
+	if shoulder == null or hand == null:
+		return Vector2.ZERO
+	var sx := absf(rig.sprite.scale.x) if rig.sprite else 1.0
+	var bend: float = pose.elbow_weapon_bend_sign if dominant else pose.elbow_support_bend_sign
+	return _elbow_global(
+		rig,
+		shoulder.global_position,
+		hand.global_position,
+		preset.resolve_upper_arm_length(dominant) * sx,
+		preset.resolve_lower_arm_length(dominant) * sx,
+		bend
+	)
+
+
+static func elbow_handle_delta_px(app: Node, dominant: bool) -> float:
+	var elbow: Node2D = app.get("_weapon_elbow_handle") if dominant else app.get("_support_elbow_handle")
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if elbow == null or preset == null:
+		return 0.0
+	var clip_id := clip_id_for_app(app)
+	var pose_index := pose_index_for_app(app)
+	var clip = preset.get_unified_clip(clip_id)
+	if clip == null:
+		return 0.0
+	var pose = clip.pose_at_index(pose_index)
+	var expected := expected_elbow_global(app, pose, dominant)
+	return elbow.global_position.distance_to(expected)
 
 
 static func _read_bend_from_handle(app: Node, dominant: bool, elbow_global: Vector2) -> float:

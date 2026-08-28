@@ -1,21 +1,60 @@
 # Reproduction Guide
 
-**Last Updated:** 2026-04-16  
+**Last Updated:** 2026-08-27  
 **Status:** Active System
 
-**Regression gate:** `bash tools/run_repro_harness.sh` (also step **[4/5]** in `tools/run_earlygame_verify.sh`). Headless `Main` + isolated claim + woman + Living Hut + Player as designated father; expects **two births** (exit 0). The **Player** node has no `clan_name` property—mate eligibility for repeat pregnancies uses `_is_player_in_land_claim()` / `get_clan_name()`, not `_is_npc_in_land_claim(player)` alone.
+**Regression gate:** `bash tools/run_repro_harness.sh` (also step **[4/5]** in `tools/run_earlygame_verify.sh`). Headless baby-cap unit tests: `SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_baby_cap.gd`
 
 ## Overview
 
-Clan women reproduce with male cavemen (or the player) inside a land claim. Babies spawn as NPCs, grow to clansmen after a timer, and receive clubs. Wild women cannot reproduce—they must be herded into a land claim and join the clan first.
+Clan women reproduce with male cavemen (or the player) inside a land claim. Babies spawn as NPCs, grow to clansmen after a timer, and receive clubs. **Wild women cannot reproduce or stay pregnant** — they must be herded into a land claim and join the clan first.
 
 ## Flow
 
 1. Cavemen (or player) herd wild women into the land claim via `herd_wildnpc` / `herd` states.
 2. When a herded woman enters the land claim radius, she joins the clan via `set_clan_name(clan_name)`.
-3. `ReproductionComponent` runs each frame: finds a mate (player or caveman in same clan, inside claim), starts pregnancy, counts down birth timer.
+3. `ReproductionComponent` runs each frame: finds a mate (player or caveman in same clan, inside claim), starts pregnancy (if cap allows when enforced), counts down birth timer.
 4. When timer hits 0, `main._spawn_baby()` spawns a baby NPC at the land claim center.
-5. `BabyGrowthComponent` ages the baby; after 35 seconds the baby becomes a clansman and gets a club.
+5. `BabyGrowthComponent` ages the baby; after the growth timer the baby becomes a clansman and gets a club.
+
+---
+
+## Baby cap (dynamic per clan)
+
+Capacity = **base** + **Living Huts × bonus** + **fertility stub** (`baby_cap_bonus` meta summed from clan women).
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `enforce_baby_cap` | `false` | When OFF (dev/stress tests), capacity is computed and logged but **never blocks** new pregnancies. |
+| When ON | — | Blocks **starting** new pregnancies only. **Does not** block birth when an in-progress pregnancy finishes. |
+
+Modifiers refresh when Living Huts are built or destroyed (`BabyPoolManager.refresh_clan_modifiers`).
+
+---
+
+## Wild vs nomad vs sedentary
+
+**Pregnancy is tied to clan membership / wild state — not “standing on a claim this frame.”**
+
+| State | Pregnancy |
+|-------|-----------|
+| Sedentary clan woman at claim | OK (normal rules) |
+| Nomad woman marching (clan still set) | OK — timer **frozen** (`nomad_pregnancy_frozen`); **not cancelled** on pack-up |
+| Nomad woman after new camp placed | Timer **resumed**; birth allowed at camp |
+| Woman after claim destroyed (`become_wild()`) | **Cancel** — no wild pregnancies |
+| Wild herdable woman | **Never** start or keep pregnancy |
+
+Nomad freeze/resume lives in `campfire.gd` (`_freeze_clan_pregnancies`, `resume_clan_after_nomad`). Do **not** cancel pregnancy on nomad pack-up.
+
+---
+
+## Pregnancy cancellation
+
+| Reason | Trigger |
+|--------|---------|
+| `went_wild` / `claim_destroyed` | `become_wild()` after claim lost |
+| `starvation` | Clan food buffer below `pregnancy_cancel_food_buffer_days` while pregnant (no berry bypass) |
+| `hut_lost` | No home Living Hut assigned |
 
 ---
 
@@ -26,12 +65,14 @@ All must be true:
 | Requirement | Where checked |
 |-------------|---------------|
 | `npc_type == "woman"` | `reproduction_component.gd`, `reproduction_state.gd` |
-| `clan_name != ""` | `reproduction_component.gd` |
+| `clan_name != ""` / not wild | `reproduction_component.gd`, `become_wild()` |
 | Woman inside land claim radius | `_is_in_land_claim()` |
 | Mate (player or caveman) in same clan | `_try_find_mate()` |
-| Mate inside land claim | `_is_player_in_land_claim()` (Player), `_is_npc_in_land_claim()` (NPCs); designated-father path uses `_father_eligible_for_current_pregnancy()` |
+| Mate inside land claim | `_is_player_in_land_claim()` (Player), `_is_npc_in_land_claim()` (NPCs) |
 | Not pregnant | `is_pregnant == false` |
 | Birth cooldown expired | `time_since_last_birth >= config.birth_cooldown` |
+| Baby room (when enforce ON) | `BabyPoolManager.has_baby_room()` |
+| Home Living Hut | `OccupationSystem.get_home_living_hut()` |
 
 ---
 
@@ -39,12 +80,13 @@ All must be true:
 
 | File | Purpose |
 |------|---------|
-| `scripts/npc/components/reproduction_component.gd` | Pregnancy logic, mate finding, birth timer, spawn call |
+| `scripts/npc/components/reproduction_component.gd` | Pregnancy logic, mate finding, birth timer, `cancel_pregnancy()` |
 | `scripts/npc/states/reproduction_state.gd` | FSM state (priority 8.0); logic in component |
-| `scripts/config/reproduction_config.gd` | Birth timer, cooldown, baby pool capacity |
-| `scripts/systems/baby_pool_manager.gd` | Capacity tracking; `can_add_baby()` always returns true |
+| `scripts/config/reproduction_config.gd` | Timers, capacity, `enforce_baby_cap`, starvation threshold |
+| `scripts/systems/baby_pool_manager.gd` | Per-clan capacity modifiers and breakdown |
 | `scripts/npc/components/baby_growth_component.gd` | Baby aging → clansman transition |
 | `scripts/main.gd` | `_spawn_baby()` – instantiates baby, sets lineage, sprite |
+| `tools/test_baby_cap.gd` | Headless cap / wild / nomad / starvation tests |
 
 ---
 
@@ -54,12 +96,14 @@ All must be true:
 
 | Property | Default | Notes |
 |----------|---------|------|
-| `birth_timer_base` | 30.0 | Pregnancy duration (seconds) |
-| `birth_cooldown` | 20.0 | Seconds between births per woman |
+| `birth_timer_base` | 15.0 | Pregnancy duration (seconds) |
+| `birth_cooldown` | 10.0 | Seconds between births per woman |
 | `baby_pool_base_capacity` | 3 | Base capacity from land claim |
 | `living_hut_capacity_bonus` | 5 | Per Living Hut |
-| `baby_growth_time_testing` | 35.0 | Seconds until baby → clansman |
+| `baby_growth_time_testing` | 17.5 | Seconds until baby → clansman |
 | `baby_growth_age_normal` | 13 | Age for normal mode (unused) |
+| `enforce_baby_cap` | `false` | Gate new pregnancies when true |
+| `pregnancy_cancel_food_buffer_days` | 0.28 | Cancel pregnancy below this buffer |
 
 ### BalanceConfig
 
@@ -70,61 +114,62 @@ All must be true:
 
 ---
 
-## Mate Selection
-
-- Candidates: player (if same clan, inside claim) + NPC cavemen (same clan, inside claim).
-- Selection: prefer player, else first NPC. No distance or trait checks.
-
----
-
-## ClanBrain Integration
-
-ClanBrain stores on land claim meta:
-
-| Meta key | Source | Used by |
-|----------|--------|---------|
-| `breeding_females` | Count of women in clan | `gather_state`, `herd_wildnpc_state` |
-| `reproduction_pressure` | 0–1, how much clan needs women | `herd_wildnpc_state` |
-
-### reproduction_pressure
-
-- `desired_women = max(2, population * 0.4)`
-- `pressure = clamp((desired_women - women) / desired_women, 0, 1)`
-- When 0 women: pressure ≈ 1.0.
-
-### breeding_females == 0
-
-- **gather_state:** `can_enter()` returns false.
-- **herd_wildnpc_state:** Skips return-to-claim and timeout exits; caveman keeps searching.
-- **herd_wildnpc_state:** Uses full detection range (1700px) for women instead of perception (250px).
-
----
-
 ## Baby Spawning
 
-1. `reproduction_component._spawn_baby()` checks `baby_pool_manager.can_add_baby()` (always true).
-2. `main._spawn_baby(clan_name, spawn_pos, mother, father)`:
-   - Instantiates NPC, sets `npc_type = "baby"`, `clan_name`, `age = 0`.
-   - Sets `father_name`, `mother_name` (lineage).
-   - Uses `baby.png` sprite.
-   - Adds to `world_objects`, positions at land claim center.
-3. Baby gets `BabyGrowthComponent`; after 35s becomes clansman, gets club, inventory upgraded to 10 slots.
+1. `reproduction_component._spawn_baby()` — no cap check at birth; refuses wild/frozen mothers.
+2. `main._spawn_baby(clan_name, spawn_pos, mother, father)` — same; logs capacity breakdown on spawn event.
+3. Baby gets `BabyGrowthComponent`; after growth timer becomes clansman, gets club.
 
 ---
 
-## State Priorities
+## Playtest JSONL events
 
-| State | Priority | Notes |
-|-------|----------|------|
-| Herd Wild NPC (leading) | 11.5 | Caveman leading herd |
-| Herd Wild NPC (searching, target) | 6.1 | When `reproduction_pressure >= 0.8` |
-| Herd Wild NPC (searching, no target) | 5.5 | Below gather |
-| Reproduction | 8.0 | Women seeking mates or gestating |
-| Gather | 5.6–6.0 | Blocked when `breeding_females == 0` |
+| Event | When |
+|-------|------|
+| `baby_cap_snapshot` | Modifier refresh |
+| `baby_pregnancy_blocked` | Conception refused (cap, food, wild) |
+| `baby_pregnancy_cancelled` | starvation, hut_lost, went_wild |
+| `baby_pregnancy_frozen` / `baby_pregnancy_resumed` | Nomad pack-up / new camp |
+| `baby_spawned` | Includes optional `baby_cap` breakdown |
 
 ---
 
-## Baby Pool
+## Baby Pool formula
 
-- Capacity: base 3 + (Living Huts × 5).
-- `can_add_baby()` always returns true (cap disabled).
+```
+effective_capacity = base + (living_huts × hut_bonus) + sum(women.baby_cap_bonus)
+has_baby_room = current_babies < effective   (always true when enforce_baby_cap is false)
+```
+
+---
+
+## Baby feeding & starvation (planned — not shipped)
+
+**Design intent:** Born babies consume food at a rate driven by **genetics (`metabolism` locus)** and role base calories. If unfed, they starve and are removed. See **[genetics.md](genetics.md)** for the full genetics + food plan.
+
+### Shipped today (partial)
+
+| Behavior | Status | Where |
+|----------|--------|-------|
+| Baby has 2 inventory slots (food intended) | Yes | `NPCConfig.baby_inventory_slots`, `npc_base._initialize_inventory()` |
+| Calorie tracking on sim tick | Yes | `Stats` — babies use `base_daily_calories_baby` (720) |
+| Need scales with strength/intelligence | Yes | `Stats.get_daily_calorie_need()` — **not** genetics yet |
+| Growth timer → clansman | Yes | `BabyGrowthComponent` |
+| Auto-feed from land claim when hungry | **No** | Old phase2 doc only; no code |
+| Baby can enter `eat` state | **No** | FSM: babies limited to wander/idle |
+| Genetics-based consumption rate | **No** | `genetics_profile` exists; not wired to food |
+| Starvation despawn for born babies | **No** | Babies lack `HealthComponent`; no famine kill order |
+| Cancel pregnancy on clan starvation | Yes | In utero only — `cancel_pregnancy("starvation")` |
+
+**Practical note:** Babies currently **lose calories** but **cannot refill**. Short growth timer (~17.5s) usually completes before empty calories matter. This is acceptable for dev/stress tests until feeding + genetics land.
+
+### Planned (future implementation)
+
+1. **`BirthEngine`** resolves child genome; **`metabolism`** locus sets daily need.  
+2. **Auto-transfer** food from claim/storage → baby inventory below hunger threshold.  
+3. **Starvation:** health drain → infant death / despawn; log `baby_starved`.  
+4. **Famine order:** babies die first when clan buffer negative (see [food.md](future%20implementations/food.md)).  
+5. **JSONL:** `baby_fed`, `baby_starved`, tie into genetics ledger.
+
+**Out of scope for v1:** player infanticide choice, baby corpses, spoilage.
+

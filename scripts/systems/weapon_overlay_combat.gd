@@ -98,11 +98,21 @@ static func uses_aim_facing_flip(registry, weapon_type: ResourceData.ResourceTyp
 static func apply_idle_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, weapon_type: ResourceData.ResourceType) -> void:
 	if body_sprite == null or overlay == null or registry == null:
 		return
+	overlay.set_meta("card_overlay_thrust_ready_final", false)
 	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var idle_deg: float = float(profile.get("idle_rotation_deg", 0.0))
 	_ensure_weapon_pivot(overlay, profile)
+	var entity: Node = body_sprite.get_parent()
 	var base_offset: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, false)
 	overlay.rotation = deg_to_rad(idle_deg)
+	if (
+		entity != null
+		and PlaceholderCardService
+		and PlaceholderCardService.uses_layered_body_mannequin(entity)
+		and int(profile.get("attack_kind", AttackKind.SWING_DOWN)) == AttackKind.SWING_DOWN
+	):
+		PlaceholderCardService.apply_layered_pawn_tool_overlay_position(body_sprite, overlay, weapon_type)
+		return
 	overlay.set_meta("card_overlay_offset", base_offset)
 	CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, base_offset)
 
@@ -198,7 +208,7 @@ static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry,
 		rot = compute_aim_rotation(body_sprite, aim_dir, tip_deg, 0.0)
 		_ensure_weapon_pivot(overlay, profile)
 	else:
-		sync_swing_body_facing(body_sprite.get_parent(), body_sprite)
+		sync_swing_body_facing(body_sprite.get_parent(), body_sprite, aim_dir)
 		_ensure_weapon_pivot(overlay, profile)
 		if use_tuned_swing(profile):
 			var targets: Dictionary = compute_tuned_swing_strike_targets(body_sprite, profile)
@@ -213,11 +223,43 @@ static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry,
 	else:
 		base_offset = _pose_offset(body_sprite, registry, weapon_type, profile, true)
 	overlay.set_meta("card_overlay_offset", base_offset)
-	CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, base_offset, _overlay_mirror_texture(registry, weapon_type))
+	var mirror_tex: bool = _overlay_mirror_texture(registry, weapon_type)
+	CardVisualController.sync_weapon_overlay_flip(body_sprite, overlay, base_offset, mirror_tex)
+	if kind != AttackKind.THRUST:
+		overlay.set_meta("card_overlay_thrust_ready_final", false)
+		if (
+			entity != null
+			and PlaceholderCardService
+			and PlaceholderCardService.uses_layered_body_mannequin(entity)
+		):
+			PlaceholderCardService.apply_layered_pawn_tool_overlay_position(
+				body_sprite, overlay, weapon_type
+			)
+		return
 	if kind == AttackKind.THRUST:
 		var forward_px: float = float(profile.get("ready_forward_px", 0.0))
 		if forward_px > 0.0 and aim_dir.length_squared() > 0.0001:
 			overlay.position += _aim_delta_local(body_sprite, aim_dir, forward_px)
+		overlay.set_meta("card_overlay_thrust_ready_final", true)
+		overlay.set_meta("card_overlay_offset", overlay.position)
+		if OS.is_debug_build() and weapon_type == ResourceData.ResourceType.SPEAR:
+			var entity_debug: Node = body_sprite.get_parent()
+			if (
+				entity_debug != null
+				and PlaceholderCardService
+				and PlaceholderCardService.uses_layered_body_mannequin(entity_debug)
+			):
+				var display_px: Vector2 = registry.get_spear_ready_overlay_offset_px()
+				if overlay.get_meta("_spear_ready_debug_px", Vector2.INF) != display_px:
+					overlay.set_meta("_spear_ready_debug_px", display_px)
+					print(
+						"Spear windup offset (display px): idle=",
+						registry.get_tool_overlay_offset_px(ResourceData.ResourceType.SPEAR),
+						" ready=",
+						display_px,
+						" delta=",
+						display_px - registry.get_tool_overlay_offset_px(ResourceData.ResourceType.SPEAR)
+					)
 
 
 static func play_strike(
@@ -438,15 +480,32 @@ static func _base_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceD
 
 
 static func _pose_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceData.ResourceType, profile: Dictionary, ready: bool) -> Vector2:
-	# Get idle offset from LimbPresetRegistry if available (tuned value), else fall back to registry default
+	var entity: Node = body_sprite.get_parent() if body_sprite else null
+	var layered_pawn := (
+		entity != null
+		and PlaceholderCardService
+		and PlaceholderCardService.uses_layered_body_mannequin(entity)
+	)
 	var offset_px: Vector2
-	if LimbPresetRegistry:
+	if layered_pawn:
+		if ready and weapon_type == ResourceData.ResourceType.SPEAR:
+			offset_px = registry.get_spear_ready_overlay_offset_px()
+		else:
+			offset_px = registry.get_tool_overlay_offset_px(weapon_type)
+	elif LimbPresetRegistry:
 		offset_px = LimbPresetRegistry.get_overlay_offset_idle_px(weapon_type)
 	else:
 		offset_px = registry.get_tool_overlay_offset_px(weapon_type)
 	# ready_offset_px is an absolute position (same as idle format)
-	if ready and profile.has("ready_offset_px"):
-		offset_px = profile["ready_offset_px"] as Vector2
+	if (
+		ready
+		and profile.has("ready_offset_px")
+		and not (layered_pawn and weapon_type == ResourceData.ResourceType.SPEAR)
+	):
+		var ready_px: Vector2 = profile["ready_offset_px"] as Vector2
+		# Unsaved limb preset uses Vector2.ZERO — keep registry idle anchor for layered pawns.
+		if ready_px.length_squared() > 0.0001:
+			offset_px = ready_px
 	return _offset_px_to_local(body_sprite, offset_px)
 
 
@@ -524,11 +583,14 @@ static func sync_swing_body_facing(entity: Node, body_sprite: Sprite2D, aim_hint
 	if aim.length_squared() > 0.0001 and absf(aim.x) > 0.05:
 		body_sprite.flip_h = aim.x < 0.0
 		return
+	if aim_hint.length_squared() > 0.0001:
+		CardVisualController.apply_travel_facing_flip(body_sprite, aim_hint)
+		return
 	var vel: Vector2 = Vector2.ZERO
 	if entity is CharacterBody2D:
 		vel = (entity as CharacterBody2D).velocity
 	if vel.length_squared() > 25.0:
-		body_sprite.flip_h = vel.x < 0.0
+		CardVisualController.apply_travel_facing_flip(body_sprite, vel)
 		return
 	if entity.get("last_facing") != null:
 		var lf: Vector2 = entity.get("last_facing") as Vector2
@@ -623,7 +685,10 @@ static func club_overlay_strike_enabled(profile: Dictionary, weapon_type: Resour
 	if uses_club_keyframed_strike(profile):
 		return true
 	var strike_px: Vector2 = profile.get("strike_offset_px", Vector2.ZERO) as Vector2
-	return strike_px.length_squared() > 0.0001
+	if strike_px.length_squared() > 0.0001:
+		return true
+	# Registry procedural swing-down (no saved limb strike pose required).
+	return int(profile.get("attack_kind", AttackKind.SWING_DOWN)) == AttackKind.SWING_DOWN
 
 
 static func uses_club_keyframed_strike_for_weapon(registry, weapon_type: ResourceData.ResourceType) -> bool:

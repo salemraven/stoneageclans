@@ -184,9 +184,9 @@ static func _none_preset(registry: Node):
 static func apply_pose_to_arm_config(config, pose, preset) -> void:
 	if config == null or pose == null or preset == null:
 		return
-	config.weapon_shoulder_offset_px = pose.shoulder_weapon_px
-	config.shoulder_offset_left = pose.shoulder_support_px
-	config.shoulder_offset_right = Vector2(-pose.shoulder_support_px.x, pose.shoulder_support_px.y)
+	config.weapon_shoulder_offset_px = pose.resolved_shoulder_weapon_px(preset)
+	config.shoulder_offset_left = pose.resolved_shoulder_support_px(preset)
+	config.shoulder_offset_right = Vector2(-pose.resolved_shoulder_support_px(preset).x, pose.resolved_shoulder_support_px(preset).y)
 	if (
 		preset.weapon_type == ResourceData.ResourceType.WOOD
 		and pose.grip_on_art_px.length_squared() > 0.0001

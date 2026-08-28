@@ -6,7 +6,7 @@
 
 **Status:** Living doc — update when `Main`, `ChunkManager`, `ChunkGenerator`, `WorldGenConfig`, or world-related scenes change.
 
-**See also:** `bible/draw_order.md` (Y-sort / `WorldObjects`), `bible/main.md` (overall loop), `bible/game_dictionary.md` (terms), `bible/multiplayer.md` (network roadmap), `bible/hunting.md`.
+**See also:** `bible/draw_order.md` (Y-sort / `WorldObjects`), `bible/main.md` (overall loop), `bible/game_dictionary.md` (terms), `bible/multiplayer.md` (network roadmap), `bible/hunting.md`, `bible/settlement_sim.md` (continuous plane + off-screen village sim).
 
 ---
 
@@ -35,6 +35,7 @@
 ## 1. What “the map” is in this project
 
 - The game world is a **large 2D plane** in **pixels**. There is **no hard world border** in code; content is **infinite in principle** because new chunks can be generated as coordinates grow.
+- **Design lock:** **One continuous plane** — the player walks from their settlement to any other on the same map (not instanced colony maps like RimWorld / Dwarf Fortress). Settlements persist at fixed coordinates; sim fidelity tiers by distance ([settlement_sim.md](settlement_sim.md)).
 - **Gameplay entities** (player, NPCs, gatherables, land claims, buildings, grass, corpses, etc.) live under **`Main` → `WorldObjects`**, which uses **Y-sorting** so depth looks correct when moving north/south.
 - **Ground appearance** is mostly **not** the `World` TileMap’s tiles: **`world.gd`** documents that **DirtBase** (elsewhere in the scene) draws **repeating dirt**; the **TileMap** is reserved for optional overlays / collision, not procedural tile painting.
 - **Optional chunk streaming** adds/removes **procedural** resources, trees, grass, ground piles, and **some** AI clans **based on player position** and a **world seed**.
@@ -114,12 +115,29 @@ Defined in **`ChunkUtils`** (`scripts/world/chunk_utils.gd`):
 
 ## 5. Chunk streaming (full flow)
 
-### 5.1 Toggle
+### 5.1 Session bootstrap (chunk-only)
 
-**`WorldGenConfig.use_chunk_content_streaming`** (default `true`):
+**All world content** is **chunk-seeded** — there is no legacy radius burst and no player-centered minigame ring.
 
-- **`true`:** After **`SpawnManager.setup_npcs()`** finishes **`Main._initialize_minigame()`**, it calls **`ChunkManager.ensure_initial_load(main)`** instead of legacy `_spawn_initial_resources` / tallgrass / decorative trees.
-- **`false`:** Legacy burst: **`_spawn_initial_resources()`**, **`_spawn_tallgrass()`**, **`_spawn_decorative_trees()`** around the player using **`BalanceConfig.resource_spawn_radius`** (etc.).
+**`SpawnManager.setup_npcs()`** flow:
+
+1. Log **`session_started`** (PlaytestInstrumentor + UnifiedLogger).  
+2. Run **`Main._try_run_dev_test_harness()`** if a dev flag/cmdline test is active (quickstart, agro test, `--repro-harness`, etc.).  
+3. **Normal play:** place player at **`(0,0)`** (single-player) or **`Main.find_mp_spawn_location_for_peer()`** (online multiplayer — far from other players).  
+4. **`ChunkManager.ensure_initial_load(main)`** — loads the disk around the player.  
+5. Log **`spawn_flow_summary`**.
+
+Per-chunk NPC rolls (deterministic from **`world_seed + chunk_coords`**):
+
+| Content | Source |
+|---------|--------|
+| AI clans + claims | `ChunkGenerator` → `ChunkManager._spawn_clans` |
+| Wild women | `ChunkGenerator` → `Main._spawn_wild_women_for_loaded_chunk` |
+| Migratory wildlife | `Main._spawn_wildlife_for_loaded_chunk` |
+| Resources / trees / grass | `ChunkGenerator` → `ChunkManager` |
+
+Tune women: **`WorldGenConfig.wild_woman_chunk_chance`**, **`wild_woman_per_chunk_max`**.  
+Tune MP spawn spacing: **`player_spawn_min_distance_px`**.
 
 ### 5.2 Binding `Main`
 
@@ -141,7 +159,7 @@ Defined in **`ChunkUtils`** (`scripts/world/chunk_utils.gd`):
 world.ensure_chunks_for_position(player.global_position, delta)
 ```
 
-**`world.gd`** forwards to **`ChunkManager.update_streaming(pos, delta)`** when streaming is **on**.
+**`world.gd`** forwards to **`ChunkManager.update_streaming(pos, delta)`**.
 
 Inside **`update_streaming`**:
 
@@ -236,7 +254,9 @@ Inside **`update_streaming`**:
 | `chunk_unload_no_interest_grace_ms` | `500` | Time a chunk must stay **outside** the expanded `want` set before unload. |
 | `chunk_defer_unload_if_npcs_active` | `true` | **Planned / config only** — `ChunkManager` does **not** yet consult this when unloading. |
 | `chunk_defer_unload_if_player_building` | `true` | **Planned / config only** — same as above. |
-| `use_chunk_content_streaming` | `true` | Switches **SpawnManager** between chunk pipeline and legacy radius spawn. |
+| `wild_woman_chunk_chance` | `0.15` | Per-chunk roll for wild women. |
+| `wild_woman_per_chunk_max` | `2` | Max women per chunk when roll succeeds. |
+| `player_spawn_min_distance_px` | `3000` | MP join: minimum spacing from other players. |
 
 ### Adaptive radius (multiplayer-oriented)
 
@@ -323,7 +343,17 @@ Inside **`update_streaming`**:
 - **`record_clan_death(chunk)`** / **`get_clan_deaths_in_chunk(chunk)`** / **`reset_chunk(chunk)`**.  
 - **`to_dict()` / `load_from_dict()`** — used by **`GameSync.receive_world_snapshot`** on clients.
 
-**Today:** Nothing in the combat / death pipeline **automatically** calls **`record_clan_death`** yet; wiring that is a **gameplay TODO** if you want `clan_max_deaths_per_chunk` to matter during a session without manual testing hooks.
+**Wired (gameplay):** Clan extinction records **`clan_deaths`** once per wiped clan via **`LandClaim.try_record_clan_extinction(reason)`**:
+
+| Reason | Trigger |
+|--------|---------|
+| **`soft_last_caveman`** | Last caveman dies and no clansmen remain (`health_component._handle_clan_death`) |
+| **`flag_destroyed`** | Land claim HP/decay reaches zero (`land_claim._destroy_building`) |
+| **`player_extinction`** | Player dies with no living heir (`main._handle_clan_extinction`) |
+
+Double-count guard: static per-clan set on **`LandClaim`** so soft death + later flag destroy counts **once**. Instrumentation: **`PlaytestInstrumentor.clan_death`**, **`UnifiedLogger` `CLAN_DEATH` / `PLAYER_CLAN_EXTINCTION`**.
+
+**Planned — wild cavemen / founder clans:** [clan_founding_and_exile.md](clan_founding_and_exile.md). Survivor-founded clans may bypass chunk death budget for **seeded** spawns but still respect **`max_ai_clans_*`** slot cap (not in code yet).
 
 ---
 
@@ -355,18 +385,13 @@ Inside **`update_streaming`**:
 
 ## 11. NPCs and the map (beyond chunks)
 
-### Minigame bootstrap (`Main._initialize_minigame`)
+### Player join (not minigame)
 
-Still the **authoritative** source for:
+- **Single-player:** player spawns at **world origin** `(0,0)` with no claim or clan.  
+- **Online multiplayer:** server assigns spawn via **`Main.find_mp_spawn_location_for_peer()`** (seeded, far from other players).  
+- **Dev harnesses** (`DebugConfig` flags, `--repro-harness`, etc.) bypass normal spawn via **`Main._try_run_dev_test_harness()`**.
 
-- **AI cavemen** + **land claims** (count **`BalanceConfig.caveman_count`**, radii **`caveman_spawn_radius_min/max`**, optional boost woman+baby).  
-- **Wild women** (`woman_initial`, `woman_spawn_radius_min/max`).  
-- **Sheep / goats** (`_spawn_sheep_and_goats`, radii / group rules).  
-- **Respawn loops** for women and sheep/goats.
-
-These NPCs are generally parented to **`world_objects`** (or spawn parent), **not** under `Chunk_*`, so **chunk unload does not remove them** unless you explicitly reparent or despawn them later.
-
-### Chunk-spawned AI
+### Chunk-spawned NPCs
 
 - **Seeded** and **density-fill** clans are parented under **`Chunk_*`** → **they disappear when that chunk unloads**. Design implication: **long-term persistence** of those clans would require **mutation / save** design or reparenting to a non-chunk node.
 
@@ -380,19 +405,15 @@ Wild NPCs track **`home_chunk`**, **`chunk_center`**, **`roam_radius`** (often *
 
 ---
 
-## 12. Legacy / non-chunk world content
+## 12. Removed legacy spawn paths
 
-When **`use_chunk_content_streaming`** is **false**, or for systems that **always** run:
+The old **one-shot radius burst** and **minigame ring** (`_initialize_minigame`) were **removed**. All static world fill and wild NPC rolls come from **chunk generation**.
 
 | System | Behavior |
-|--------|------------|
-| **`Main._spawn_initial_resources`** | ~75 gatherables in a **ring** up to **`BalanceConfig.resource_spawn_radius`** (~3200) with **`resource_min_distance`**. |
-| **`Main._spawn_tallgrass`** | Large random clusters in same radius band. |
-| **`Main._spawn_decorative_trees`** | Forest clusters; uses **`AssetRegistry.get_treess_sprite()`**. |
-| **`Main._spawn_ground_items_around_player`** | Called from **`_process`** — **continuous** small ground spawns near the player (independent of chunk streaming). |
-| **`Main._spawn_ground_items`** | Initial ground pass in **`_ready`** flow. |
+|--------|----------|
+| **`Main._spawn_ground_items_around_player`** | Called from **`_process`** — continuous small ground spawns near the player. |
 
-**BalanceConfig** map-related defaults (non-exhaustive): **`resource_spawn_radius`**, **`resource_min_distance`**, **`caveman_spawn_radius_*`**, **`woman_spawn_radius_*`**, **`sheep_goat_*`**, NPC counts — see full file.
+**BalanceConfig** radii/counts for cavemen/women remain for **dev test harnesses only**, not normal game start.
 
 ---
 
@@ -454,7 +475,7 @@ When **`use_chunk_content_streaming`** is **false**, or for systems that **alway
 | Area | Gap |
 |------|-----|
 | **Unload safety** | `chunk_defer_unload_if_npcs_active` / `..._player_building` are **not** enforced in **`ChunkManager._unload_chunk`**. |
-| **Mutation wiring** | **`record_clan_death`** not hooked to real death events yet. |
+| **Mutation wiring** | **`record_clan_death`** wired via **`LandClaim.try_record_clan_extinction`** (soft death, flag destroy, player extinction). Headless: **`tools/test_clan_death_mutation.gd`**. |
 | **MP interest** | Single-player **interest set** only. |
 | **Ground spawn** | **`_spawn_ground_items_around_player`** still spawns **globally** near player regardless of chunk mode → possible **overlap / double density** with chunk ground items. |
 | **Tall grass texture** | **`ChunkManager`** uses **`randi()`** for texture pick per blade — **not** fully determined by `world_seed` alone. |

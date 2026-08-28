@@ -46,10 +46,11 @@ Living Hut, Supply Hut, Shrine, Dairy Farm exist as structures but their product
 
 ## Clan & Raiding
 
-- **Enemy clans** – Multiple clans on map
-- **Raid mechanics** – Attack enemy land claims
-- **Total wipe** – Destroy enemy flag = wipe clan
-- **War parties** – War Horn + herd = instant army
+- **Enemy clans** – Multiple clans on map (partial)
+- **Raid mechanics** – Attack enemy land claims (partial)
+- **Territory wipe** – Destroy enemy flag = buildings/inventories gone; herdables wild (**today**)
+- **Wild cavemen & founder clans** – Exiled males, clan slot budget, spawn-with-claim — **planned (major)** → [clan_founding_and_exile.md](../clan_founding_and_exile.md)
+- **War parties** – War Horn + herd = instant army (partial)
 - **Clan Menu** – Clan management UI
 
 ---
@@ -60,7 +61,8 @@ Living Hut, Supply Hut, Shrine, Dairy Farm exist as structures but their product
 - **Surplus babies** – Become permanent AI clansmen
 - **Women assignment** – 1 woman per production building
 - **Birth timers** – Only run inside land-claim radius
-- **Housing = clansmen cap, food = baby throttle + starvation** – Full food/housing loop (see `food.md`)
+- **Housing = clansmen cap, food = baby throttle + starvation** – Full food/housing loop (see `food.md`, **`genetics.md`**)
+- **Baby auto-feed + genetics metabolism** – Documented in `reproduction_guide.md` + `genetics.md`; not coded
 
 ---
 

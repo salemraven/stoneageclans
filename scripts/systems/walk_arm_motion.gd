@@ -45,6 +45,12 @@ static func body_snapshot_blend(cycle_phase: float) -> float:
 	return (1.0 - cos(cycle_phase * TAU)) * 0.5
 
 
+## One ping-pong leg Pose A → Pose B: slow at extremes, smooth mid-swing (half cosine period).
+static func pendulum_ease01(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return (1.0 - cos(t * PI)) * 0.5
+
+
 static func body_snapshot_between_keyframes(
 	pose_a: Vector2,
 	pose_b: Vector2,

@@ -20,6 +20,7 @@ func _run_all() -> void:
 	failures.append_array(await _test_club_walk1_hand_drag_release())
 	failures.append_array(await _test_club_idle_standing_hand_drag_release())
 	failures.append_array(await _test_none_walk1_hand_drag_release())
+	failures.append_array(await _test_none_walk_elbow_flip())
 	failures.append_array(await _test_club_walk_yellow_locked_on_art())
 	if failures.is_empty():
 		print("test_tuner_pin_snap: PASS")
@@ -56,6 +57,48 @@ func _test_none_walk1_hand_drag_release() -> Array[String]:
 		WeaponLimbPresetScript.TunerAnimMode.WALK1,
 		Vector2(35.0, -18.0)
 	)
+
+
+func _test_none_walk_elbow_flip() -> Array[String]:
+	var out: Array[String] = []
+	var packed := load("res://scenes/tools/LimbTuner.tscn") as PackedScene
+	if packed == null:
+		out.append("elbow_flip: LimbTuner.tscn missing")
+		return out
+	var app: Node = packed.instantiate()
+	root.add_child(app)
+	for _i in range(8):
+		await process_frame
+	if not app.has_method("_begin_walk1_edit_session"):
+		out.append("elbow_flip: _begin_walk1_edit_session missing")
+		app.queue_free()
+		return out
+	app.call("_begin_walk1_edit_session")
+	for _i in range(6):
+		await process_frame
+	var preset: WeaponLimbPreset = app.get("_preset")
+	if preset == null:
+		out.append("elbow_flip: preset missing")
+		app.queue_free()
+		return out
+	var walk = preset.get_unified_clip(AnimCatalogScript.CLIP_WALK)
+	if walk == null:
+		out.append("elbow_flip: walk clip missing")
+		app.queue_free()
+		return out
+	var before: float = walk.pose_at_index(0).elbow_support_bend_sign
+	app.call("_flip_elbow_bend", false)
+	await process_frame
+	var after: float = walk.pose_at_index(0).elbow_support_bend_sign
+	if absf(after) < 0.001:
+		out.append("elbow_flip: support bend sign still zero after flip")
+	if signf(before) == signf(after) and absf(before) > 0.001:
+		out.append("elbow_flip: support bend sign did not flip")
+	var sync_delta := LimbTunerClipBridgeScript.elbow_handle_delta_px(app, false)
+	if sync_delta > SNAP_LIMIT_PX:
+		out.append("elbow_flip: support handle off IK by %.1fpx" % sync_delta)
+	app.queue_free()
+	return out
 
 
 func _test_club_walk_yellow_locked_on_art() -> Array[String]:
