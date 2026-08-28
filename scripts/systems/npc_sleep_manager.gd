@@ -82,3 +82,43 @@ func wake_npcs_in_chunk(chunk: Vector2i, parent: Node2D, main: Node) -> void:
 
 func get_sleeping_count() -> int:
 	return _sleeping.size()
+
+
+func get_sleeping_for_clan(clan_name: String) -> Array:
+	var out: Array = []
+	if clan_name.is_empty():
+		return out
+	var target := clan_name.to_upper()
+	for data in _sleeping.values():
+		if not (data is Dictionary):
+			continue
+		var rec: Dictionary = data as Dictionary
+		if str(rec.get("clan_name", "")).to_upper() == target:
+			out.append(rec.duplicate())
+	return out
+
+
+func clear_sleeping_for_clan(clan_name: String) -> int:
+	if clan_name.is_empty():
+		return 0
+	var target := clan_name.to_upper()
+	var removed := 0
+	var to_erase: Array[int] = []
+	for nid in _sleeping.keys():
+		var data: Dictionary = _sleeping[nid] as Dictionary
+		if str(data.get("clan_name", "")).to_upper() != target:
+			continue
+		to_erase.append(int(nid))
+	for nid in to_erase:
+		_sleeping.erase(nid)
+		removed += 1
+		_remove_from_chunk_index(nid)
+	return removed
+
+
+func _remove_from_chunk_index(network_id: int) -> void:
+	for ck in _by_chunk.keys():
+		var arr: Array = _by_chunk[ck] as Array
+		arr.erase(network_id)
+		if arr.is_empty():
+			_by_chunk.erase(ck)

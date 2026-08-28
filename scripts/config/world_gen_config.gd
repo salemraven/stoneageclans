@@ -27,6 +27,10 @@ var player_spawn_min_distance_px: float = 3000.0
 var wild_woman_chunk_chance: float = 0.15
 var wild_woman_per_chunk_max: int = 2
 
+# --- Settlement sim (warm tier / dormant claims) ---
+## Seconds between off-screen settlement ticks per claim (food, passive buildings, starvation).
+var settlement_tick_interval_sec: float = 30.0
+
 # --- Adaptive radius (MP) ---
 var adaptive_load_radius_enabled: bool = true
 var load_radius_tier_1_players: int = 5

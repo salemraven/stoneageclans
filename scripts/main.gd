@@ -2479,6 +2479,57 @@ func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
 	npc.visible = true
 
 
+func spawn_npcs_from_roster(roster: RefCounted, claim: Node2D) -> void:
+	"""Reconcile live NPC actors with warm-tier roster when a claim wakes."""
+	if roster == null or claim == null or not is_instance_valid(claim):
+		return
+	if not roster.has_method("get_population"):
+		return
+	var clan: String = str(claim.get("clan_name") if claim.get("clan_name") != null else "")
+	if clan.is_empty():
+		return
+	var parent: Node2D = npcs_container if npcs_container else self
+	var fallback_pos: Vector2 = claim.global_position
+	var alive_by_id: Dictionary = {}
+	for m in roster.get("members"):
+		if not (m is Dictionary):
+			continue
+		var rec: Dictionary = m as Dictionary
+		if not bool(rec.get("alive", false)):
+			continue
+		var mid: int = int(rec.get("id", -1))
+		if mid > 0:
+			alive_by_id[mid] = rec
+	var live_by_id: Dictionary = {}
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc) or npc == player:
+			continue
+		var npc_clan: String = str(npc.get("clan_name") if npc.get("clan_name") != null else "")
+		if npc_clan.to_upper() != clan.to_upper():
+			continue
+		var nid: int = EntityRegistry.get_network_id(npc) if EntityRegistry else -1
+		if nid > 0:
+			live_by_id[nid] = npc
+	for nid in live_by_id.keys():
+		if not alive_by_id.has(int(nid)):
+			var extra: Node = live_by_id[nid]
+			if is_instance_valid(extra):
+				extra.queue_free()
+	for nid in alive_by_id.keys():
+		var member: Dictionary = alive_by_id[nid] as Dictionary
+		var spawn_data: Dictionary = roster.call("to_spawn_data", member, fallback_pos) as Dictionary
+		if live_by_id.has(int(nid)):
+			var existing: Node = live_by_id[int(nid)]
+			if is_instance_valid(existing) and existing.has_method("apply_sleep_data"):
+				existing.call("apply_sleep_data", spawn_data)
+		else:
+			spawn_npc_from_sleep_data(spawn_data, parent)
+	invalidate_npcs_cache()
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("settlement_roster_snapshot"):
+		pi.settlement_roster_snapshot(clan, roster.get("members").size(), roster.call("get_population"), false)
+
+
 func _sync_party_selection_from_follower_cache() -> void:
 	"""After horn / drag-to-player / context follow: selection + outlines = full party."""
 	selected_clansmen.clear()

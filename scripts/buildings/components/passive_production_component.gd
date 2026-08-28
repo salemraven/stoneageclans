@@ -22,6 +22,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not building or not is_instance_valid(building) or not building.inventory:
 		return
+	if _is_territory_dormant():
+		return
 	if is_processing:
 		process_timer += delta
 		var craft_time: float = recipe.get("craft_time", 120.0)
@@ -96,3 +98,19 @@ func get_output_type() -> ResourceData.ResourceType:
 	if not recipe.has("output"):
 		return ResourceData.ResourceType.NONE
 	return recipe.get("output", {}).get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+
+
+func _is_territory_dormant() -> bool:
+	if not building or not is_instance_valid(building):
+		return false
+	var claim: LandClaim = null
+	if building.land_claim and is_instance_valid(building.land_claim):
+		claim = building.land_claim
+	elif building.has_method("_find_land_claim"):
+		claim = building.call("_find_land_claim")
+	if claim == null or not is_instance_valid(claim):
+		return false
+	var cb = claim.get("clan_brain")
+	if cb == null:
+		return false
+	return bool(cb.get("is_dormant"))

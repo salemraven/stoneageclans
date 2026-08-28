@@ -606,6 +606,81 @@ func spawn_flow_summary(summary: Dictionary) -> void:
 		obj[k] = summary[k]
 	_write(obj)
 
+
+func settlement_tick_started(clan_name: String, pop: int, food_count: int, wood_count: int) -> void:
+	_write({
+		"evt": "settlement_tick_started",
+		"clan": clan_name,
+		"pop": pop,
+		"food_count": food_count,
+		"wood_count": wood_count,
+	})
+
+
+func settlement_member_fed(clan_name: String, member_id: int, member_type: String, calories_gained: int) -> void:
+	_write({
+		"evt": "settlement_member_fed",
+		"clan": clan_name,
+		"member_id": member_id,
+		"member_type": member_type,
+		"calories_gained": calories_gained,
+	})
+
+
+func settlement_member_starved(clan_name: String, member_id: int, member_type: String, member_name: String = "") -> void:
+	var obj: Dictionary = {
+		"evt": "settlement_member_starved",
+		"clan": clan_name,
+		"member_id": member_id,
+		"member_type": member_type,
+	}
+	if member_name != "":
+		obj["member_name"] = member_name
+	_write(obj)
+
+
+func settlement_passive_produced(clan_name: String, building_type: String, item_type: int, count: int) -> void:
+	_write({
+		"evt": "settlement_passive_produced",
+		"clan": clan_name,
+		"building_type": building_type,
+		"item_type": item_type,
+		"item": ResourceData.get_resource_name(item_type as ResourceData.ResourceType),
+		"count": count,
+	})
+
+
+func settlement_wood_burned(clan_name: String, count: int) -> void:
+	_write({"evt": "settlement_wood_burned", "clan": clan_name, "count": count})
+
+
+func settlement_tick_completed(
+	clan_name: String,
+	pop_before: int,
+	pop_after: int,
+	food_before: int,
+	food_after: int
+) -> void:
+	_write({
+		"evt": "settlement_tick_completed",
+		"clan": clan_name,
+		"pop_before": pop_before,
+		"pop_after": pop_after,
+		"food_before": food_before,
+		"food_after": food_after,
+	})
+
+
+func settlement_roster_snapshot(clan_name: String, pop: int, alive: int, dormant: bool) -> void:
+	_write({
+		"evt": "settlement_roster_snapshot",
+		"clan": clan_name,
+		"pop": pop,
+		"alive": alive,
+		"dormant": dormant,
+	})
+
+
 func baby_spawned(clan_name: String, mother_name: String, father_name: String, slot_count: int = -1, cap_breakdown: Dictionary = {}) -> void:
 	var obj: Dictionary = {"evt": "baby_spawned", "clan": clan_name, "mother": mother_name, "father": father_name}
 	if slot_count >= 0:

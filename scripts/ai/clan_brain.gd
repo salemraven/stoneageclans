@@ -23,6 +23,8 @@ extends RefCounted
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
+const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
+const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
 
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
@@ -54,7 +56,7 @@ var clan_name: String = ""
 var territory: Node2D = null  # LandClaim or Campfire (group land_claims)
 var is_dormant: bool = false
 var _dormant_eval_timer: float = 0.0
-const DORMANT_EVAL_INTERVAL: float = 45.0
+var roster: RefCounted = null  # SettlementRoster while warm/dormant
 ## "settled" = full Land Claim AI; "nomadic" = higher herd/search/gather, lower defense (player nomad phase)
 var brain_mode: String = "settled"
 ## When true (AI clans): prioritize herd/gather — scale defender quota down until population reaches PRODUCTIVITY_DEFEND_CAP_POPULATION.
@@ -249,39 +251,124 @@ func update(delta: float) -> void:
 		_refresh_threat_cache()
 
 func set_dormant(value: bool) -> void:
+	var was_dormant: bool = is_dormant
 	is_dormant = value
-	if not value:
+	if value and not was_dormant:
+		_snapshot_roster_for_dormant()
+	elif not value and was_dormant:
+		_dormant_eval_timer = 0.0
+		_reconcile_roster_on_wake()
+	elif not value:
 		_dormant_eval_timer = 0.0
 
 
+func _get_dormant_eval_interval() -> float:
+	if WorldGenConfig:
+		return maxf(WorldGenConfig.settlement_tick_interval_sec, 1.0)
+	return 30.0
+
+
+func _snapshot_roster_for_dormant() -> void:
+	if not territory or not is_instance_valid(territory):
+		return
+	_refresh_clan_members()
+	if roster == null:
+		roster = SettlementRosterScript.new()
+	var leader_npc: Node = territory.get("owner_npc") if territory.get("owner_npc") != null else null
+	var sleep_records: Array = []
+	if NPCSleepManager and NPCSleepManager.has_method("get_sleeping_for_clan"):
+		sleep_records = NPCSleepManager.call("get_sleeping_for_clan", clan_name) as Array
+	(roster as RefCounted).snapshot_from_live_npcs(clan_members, clan_name, leader_npc, sleep_records)
+	if territory:
+		territory.set_meta("settlement_roster_pop", roster.call("get_population"))
+	var pi = _get_playtest_instrumentor()
+	if pi and pi.is_enabled() and pi.has_method("settlement_roster_snapshot"):
+		pi.settlement_roster_snapshot(clan_name, roster.get("members").size(), roster.call("get_population"), true)
+
+
+func _reconcile_roster_on_wake() -> void:
+	if roster == null or not territory or not is_instance_valid(territory):
+		return
+	if NPCSleepManager and NPCSleepManager.has_method("clear_sleeping_for_clan"):
+		NPCSleepManager.call("clear_sleeping_for_clan", clan_name)
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return
+	var main: Node = tree.current_scene
+	if main and main.has_method("spawn_npcs_from_roster"):
+		main.call("spawn_npcs_from_roster", roster, territory)
+	var pi = _get_playtest_instrumentor()
+	if pi and pi.is_enabled() and pi.has_method("settlement_roster_snapshot"):
+		pi.settlement_roster_snapshot(clan_name, roster.get("members").size(), roster.call("get_population"), false)
+
+
 func dormant_update(delta: float) -> void:
-	"""Slow abstract sim when claim is off-player interest — no spatial queries."""
+	"""Warm settlement tick when claim is off-player interest."""
 	if not is_dormant:
 		return
 	if not territory or not is_instance_valid(territory):
 		return
 	if not _is_server_authoritative():
 		return
+	var interval: float = _get_dormant_eval_interval()
 	_dormant_eval_timer += delta
-	if _dormant_eval_timer < DORMANT_EVAL_INTERVAL:
+	if _dormant_eval_timer < interval:
 		return
 	_dormant_eval_timer = 0.0
-	_update_alert_decay(DORMANT_EVAL_INTERVAL)
-	if not territory.inventory:
+	_update_alert_decay(interval)
+	if roster == null:
+		_snapshot_roster_for_dormant()
+	if roster == null or not territory.inventory:
 		return
-	var pop: int = int(territory.get_meta("dormant_population", 1))
-	if pop <= 0:
+	var settlement_roster: RefCounted = roster
+	if settlement_roster.call("get_population") <= 0:
 		return
-	var food_types: Array = [
-		ResourceData.ResourceType.BREAD,
-		ResourceData.ResourceType.GRAIN,
-		ResourceData.ResourceType.BERRIES,
-		ResourceData.ResourceType.MEAT,
-	]
-	for ft in food_types:
-		if territory.inventory.get_count(ft) > 0:
-			territory.inventory.remove_item(ft, mini(pop, 1))
-			return
+	var pop_before: int = settlement_roster.call("get_population")
+	var food_before: int = _count_claim_food(territory.inventory)
+	var wood_before: int = territory.inventory.get_count(ResourceData.ResourceType.WOOD)
+	var pi = _get_playtest_instrumentor()
+	if pi and pi.is_enabled() and pi.has_method("settlement_tick_started"):
+		pi.settlement_tick_started(clan_name, pop_before, food_before, wood_before)
+	var events: Dictionary = SettlementSimTickScript.tick(territory, settlement_roster, interval)
+	_log_settlement_events(events, pop_before, food_before)
+	var pop_after: int = settlement_roster.call("get_population")
+	var food_after: int = _count_claim_food(territory.inventory)
+	if pi and pi.is_enabled() and pi.has_method("settlement_tick_completed"):
+		pi.settlement_tick_completed(clan_name, pop_before, pop_after, food_before, food_after)
+	if territory:
+		territory.set_meta("settlement_roster_pop", pop_after)
+
+
+func _count_claim_food(inventory: InventoryData) -> int:
+	if not inventory:
+		return 0
+	var total := 0
+	for ft in ResourceData.EDIBLE_FOOD_TYPES:
+		total += inventory.get_count(ft)
+	return total
+
+
+func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: int) -> void:
+	var pi = _get_playtest_instrumentor()
+	if not pi or not pi.is_enabled():
+		return
+	for fed in events.get("fed", []):
+		if fed is Dictionary and pi.has_method("settlement_member_fed"):
+			pi.settlement_member_fed(clan_name, int(fed.get("id", -1)), str(fed.get("type", "?")), int(fed.get("calories", 0)))
+	for died in events.get("died", []):
+		if died is Dictionary and pi.has_method("settlement_member_starved"):
+			pi.settlement_member_starved(clan_name, int(died.get("id", -1)), str(died.get("type", "?")), str(died.get("name", "")))
+	for produced in events.get("produced", []):
+		if produced is Dictionary and pi.has_method("settlement_passive_produced"):
+			pi.settlement_passive_produced(
+				clan_name,
+				str(produced.get("building_type", "?")),
+				int(produced.get("item_type", -1)),
+				int(produced.get("count", 1))
+			)
+	var wood_burned: int = int(events.get("burned_wood", 0))
+	if wood_burned > 0 and pi.has_method("settlement_wood_burned"):
+		pi.settlement_wood_burned(clan_name, wood_burned)
 
 # === State Evaluation ===
 

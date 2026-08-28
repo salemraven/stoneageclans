@@ -701,7 +701,6 @@ func _process(delta: float) -> void:
 				if not clan_brain.is_dormant:
 					if clan_brain.has_method("_refresh_clan_members"):
 						clan_brain._refresh_clan_members()
-					set_meta("dormant_population", maxi(1, clan_brain.clan_members.size()))
 					if clan_brain.has_method("set_dormant"):
 						clan_brain.set_dormant(true)
 				if clan_brain.has_method("dormant_update"):
