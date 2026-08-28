@@ -449,9 +449,9 @@ The old **one-shot radius burst** and **minigame ring** (`_initialize_minigame`)
 
 - Set **`WorldGenConfig.world_seed`** to a **non-zero** fixed value before **`ensure_initial_load`** runs (e.g. from a debug menu or `Main._ready` guard in dev builds).
 
-**Compare legacy vs chunk**
+**Compare density**
 
-- Flip **`use_chunk_content_streaming`** and restart; compare density and CPU spikes (legacy loads many nodes in one burst).
+- Tune **`WorldGenConfig.resource_density_multiplier`**, **`wild_woman_chunk_chance`**, and **`clan_spawn_chance`**; restart with a fixed seed and compare **`spawn_flow_summary`** in logs.
 
 **Inspect loaded chunks**
 
