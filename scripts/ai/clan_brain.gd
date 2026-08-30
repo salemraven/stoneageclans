@@ -25,6 +25,7 @@ const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
+const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
 
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
@@ -254,10 +255,22 @@ func set_dormant(value: bool) -> void:
 	var was_dormant: bool = is_dormant
 	is_dormant = value
 	if value and not was_dormant:
+		work_requests.clear()
+		_refresh_clan_members()
+		AbstractGatherScript.snapshot_gather_carryover(territory, clan_members)
 		_snapshot_roster_for_dormant()
+		var pi_d := _get_playtest_instrumentor()
+		if pi_d and pi_d.is_enabled():
+			var pop_d: int = roster.call("get_population") if roster else 0
+			if pi_d.has_method("settlement_claim_dormant"):
+				pi_d.settlement_claim_dormant(clan_name, pop_d, _get_dormant_eval_interval())
 	elif not value and was_dormant:
 		_dormant_eval_timer = 0.0
 		_reconcile_roster_on_wake()
+		var pi_w := _get_playtest_instrumentor()
+		if pi_w and pi_w.is_enabled() and pi_w.has_method("settlement_claim_wake"):
+			var pop_w: int = roster.call("get_population") if roster else 0
+			pi_w.settlement_claim_wake(clan_name, pop_w)
 	elif not value:
 		_dormant_eval_timer = 0.0
 
@@ -284,6 +297,36 @@ func _snapshot_roster_for_dormant() -> void:
 	var pi = _get_playtest_instrumentor()
 	if pi and pi.is_enabled() and pi.has_method("settlement_roster_snapshot"):
 		pi.settlement_roster_snapshot(clan_name, roster.get("members").size(), roster.call("get_population"), true)
+		if pi.has_method("settlement_roster_detail"):
+			pi.settlement_roster_detail(clan_name, _roster_member_summaries(), true)
+
+
+func _roster_member_summaries() -> Array:
+	var out: Array = []
+	if roster == null:
+		return out
+	for m in roster.get("members"):
+		if not (m is Dictionary):
+			continue
+		var rec: Dictionary = m as Dictionary
+		var preg: float = float(rec.get("pregnancy_timer", -1.0))
+		var row: Dictionary = {
+			"name": str(rec.get("name", "?")),
+			"type": str(rec.get("type", "?")),
+			"alive": bool(rec.get("alive", false)),
+			"age": snappedf(float(rec.get("age", 0.0)), 0.1),
+		}
+		if preg >= 0.0:
+			row["pregnant"] = true
+			row["pregnancy_timer"] = snappedf(preg, 0.1)
+		var growth: float = float(rec.get("growth_timer", -1.0))
+		if growth >= 0.0:
+			row["growth_timer"] = snappedf(growth, 0.1)
+		var absent: int = int(rec.get("father_absent_ticks", 0))
+		if absent > 0:
+			row["father_absent_ticks"] = absent
+		out.append(row)
+	return out
 
 
 func _reconcile_roster_on_wake() -> void:
@@ -291,6 +334,15 @@ func _reconcile_roster_on_wake() -> void:
 		return
 	if NPCSleepManager and NPCSleepManager.has_method("clear_sleeping_for_clan"):
 		NPCSleepManager.call("clear_sleeping_for_clan", clan_name)
+	_refresh_clan_members()
+	if int(roster.call("get_population")) == 0 and not clan_members.is_empty():
+		var leader_npc: Node = territory.get("owner_npc") if territory.get("owner_npc") != null else null
+		var sleep_records: Array = []
+		if NPCSleepManager and NPCSleepManager.has_method("get_sleeping_for_clan"):
+			sleep_records = NPCSleepManager.call("get_sleeping_for_clan", clan_name) as Array
+		(roster as RefCounted).snapshot_from_live_npcs(clan_members, clan_name, leader_npc, sleep_records)
+		if territory:
+			territory.set_meta("settlement_roster_pop", roster.call("get_population"))
 	var tree: SceneTree = territory.get_tree()
 	if tree == null:
 		return
@@ -329,7 +381,14 @@ func dormant_update(delta: float) -> void:
 	var pi = _get_playtest_instrumentor()
 	if pi and pi.is_enabled() and pi.has_method("settlement_tick_started"):
 		pi.settlement_tick_started(clan_name, pop_before, food_before, wood_before)
-	var events: Dictionary = SettlementSimTickScript.tick(territory, settlement_roster, interval)
+	var chunk_coords: Vector2i = Vector2i.ZERO
+	if ChunkUtils and territory is Node2D:
+		chunk_coords = ChunkUtils.get_chunk_coords((territory as Node2D).global_position)
+	var clan_starving: bool = workforce_mode == WorkforceMode.STARVING
+	var hunt_state: int = int(hunt_intent.get("state", HuntIntentState.NONE))
+	var events: Dictionary = SettlementSimTickScript.tick(
+		territory, settlement_roster, interval, chunk_coords, clan_starving, hunt_state
+	)
 	_log_settlement_events(events, pop_before, food_before)
 	var pop_after: int = settlement_roster.call("get_population")
 	var food_after: int = _count_claim_food(territory.inventory)
@@ -369,6 +428,96 @@ func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: 
 	var wood_burned: int = int(events.get("burned_wood", 0))
 	if wood_burned > 0 and pi.has_method("settlement_wood_burned"):
 		pi.settlement_wood_burned(clan_name, wood_burned)
+	var biome: String = str(events.get("biome", ""))
+	for gathered in events.get("gathered", []):
+		if gathered is Dictionary and pi.has_method("settlement_gather_completed"):
+			var g: Dictionary = gathered as Dictionary
+			pi.settlement_gather_completed(
+				clan_name,
+				str(g.get("resource_key", "?")),
+				int(g.get("count", 0)),
+				biome,
+				bool(g.get("carryover", false))
+			)
+	for dep in events.get("depleted", []):
+		if dep is Dictionary and pi.has_method("settlement_chunk_depleted"):
+			var d: Dictionary = dep as Dictionary
+			pi.settlement_chunk_depleted(
+				Vector2i(int(d.get("chunk_x", 0)), int(d.get("chunk_y", 0))),
+				str(d.get("resource_key", "?")),
+				int(d.get("remaining", 0))
+			)
+	for produced in events.get("produced", []):
+		if produced is Dictionary and str((produced as Dictionary).get("building_type", "")) == "oven":
+			if pi.has_method("settlement_oven_produced"):
+				pi.settlement_oven_produced(clan_name, int((produced as Dictionary).get("count", 1)))
+	var hunt: Dictionary = events.get("hunt", {}) as Dictionary
+	if not hunt.is_empty():
+		if bool(hunt.get("hunted", false)):
+			var loot: Dictionary = hunt.get("loot", {}) as Dictionary
+			if pi.has_method("settlement_hunt_completed"):
+				pi.settlement_hunt_completed(
+					clan_name,
+					str(hunt.get("prey_type", "?")),
+					int(loot.get("meat", 0)),
+					int(loot.get("hide", 0)),
+					int(loot.get("bone", 0))
+				)
+			if pi.has_method("settlement_prey_despawned"):
+				pi.settlement_prey_despawned(
+					clan_name,
+					str(hunt.get("prey_type", "?")),
+					int(hunt.get("chunk_x", 0)),
+					int(hunt.get("chunk_y", 0))
+				)
+		elif pi.has_method("settlement_hunt_skipped") and not str(hunt.get("skip_reason", "")).is_empty():
+			pi.settlement_hunt_skipped(clan_name, str(hunt.get("skip_reason", "")))
+	for birth in events.get("births", []):
+		if birth is Dictionary and pi.has_method("settlement_birth"):
+			var b: Dictionary = birth as Dictionary
+			pi.settlement_birth(
+				clan_name,
+				str(b.get("mother_name", "?")),
+				str(b.get("baby_name", "?")),
+				str(b.get("father_name", "?"))
+			)
+	for started in events.get("pregnancies_started", []):
+		if started is Dictionary and pi.has_method("settlement_pregnancy_started"):
+			var s: Dictionary = started as Dictionary
+			pi.settlement_pregnancy_started(
+				clan_name,
+				str(s.get("mother_name", "?")),
+				str(s.get("father_name", "?"))
+			)
+	for cancelled in events.get("pregnancies_cancelled", []):
+		if cancelled is Dictionary and pi.has_method("settlement_pregnancy_cancelled"):
+			var c: Dictionary = cancelled as Dictionary
+			pi.settlement_pregnancy_cancelled(
+				clan_name,
+				str(c.get("mother_name", "?")),
+				str(c.get("reason", "?"))
+			)
+	for blocked in events.get("births_blocked", []):
+		if blocked is Dictionary and pi.has_method("settlement_birth_blocked"):
+			var bl: Dictionary = blocked as Dictionary
+			pi.settlement_birth_blocked(
+				clan_name,
+				str(bl.get("mother_name", "?")),
+				str(bl.get("reason", "?"))
+			)
+	for grew in events.get("grew_up", []):
+		if grew is Dictionary and pi.has_method("settlement_baby_grew"):
+			pi.settlement_baby_grew(clan_name, str((grew as Dictionary).get("name", "?")))
+	for reassigned in events.get("husband_reassigned", []):
+		if reassigned is Dictionary and pi.has_method("settlement_husband_reassigned"):
+			var r: Dictionary = reassigned as Dictionary
+			pi.settlement_husband_reassigned(
+				clan_name,
+				str(r.get("mother_name", "?")),
+				str(r.get("old_father_name", "?")),
+				str(r.get("new_father_name", "?")),
+				str(r.get("reason", "?"))
+			)
 
 # === State Evaluation ===
 

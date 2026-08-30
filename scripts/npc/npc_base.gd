@@ -4078,3 +4078,63 @@ func apply_sleep_data(data: Dictionary) -> void:
 		stats_component.set_hunger_percent(float(data.get("hunger_percent", 1.0)))
 	elif stats_component and stats_component.has_method("restore_hunger") and data.has("hunger_percent"):
 		stats_component.restore_hunger(float(data.get("hunger_percent", 1.0)))
+	if data.has("age"):
+		set("age", int(data.get("age", age)))
+	var repro: Node = get_node_or_null("ReproductionComponent")
+	if repro:
+		var pt: float = float(data.get("pregnancy_timer", -1.0))
+		if pt > 0.0:
+			repro.is_pregnant = true
+			repro.birth_timer = pt
+		else:
+			repro.is_pregnant = false
+			repro.birth_timer = 0.0
+		if data.has("last_birth_time"):
+			repro.last_birth_time = float(data.get("last_birth_time", -1.0))
+	if str(npc_type) == "baby" or str(data.get("npc_type", "")) == "baby":
+		var gt: float = float(data.get("growth_timer", -1.0))
+		if gt >= 0.0:
+			var growth: Node = get_node_or_null("BabyGrowthComponent")
+			if growth == null:
+				var growth_script: GDScript = load("res://scripts/npc/components/baby_growth_component.gd") as GDScript
+				if growth_script:
+					growth = growth_script.new()
+					growth.name = "BabyGrowthComponent"
+					add_child(growth)
+					if growth.has_method("initialize"):
+						growth.call("initialize", self)
+			if growth:
+				growth.growth_timer = gt
+		var mother_name: String = str(data.get("mother_name", ""))
+		var father_name: String = str(data.get("father_name", ""))
+		if not mother_name.is_empty():
+			set("mother_name", mother_name)
+			set_meta("mother_name", mother_name)
+		if not father_name.is_empty():
+			set("father_name", father_name)
+			set_meta("father_name", father_name)
+	_sync_roster_adult_type_on_wake(data)
+
+
+func _sync_roster_adult_type_on_wake(data: Dictionary) -> void:
+	var roster_type: String = str(data.get("npc_type", ""))
+	if roster_type != "clansman" or str(npc_type) != "baby":
+		return
+	_promote_baby_to_clansman_on_wake()
+
+
+func _promote_baby_to_clansman_on_wake() -> void:
+	var growth: Node = get_node_or_null("BabyGrowthComponent")
+	if growth == null:
+		var growth_script: GDScript = load("res://scripts/npc/components/baby_growth_component.gd") as GDScript
+		if growth_script:
+			growth = growth_script.new()
+			growth.name = "BabyGrowthComponent"
+			add_child(growth)
+			if growth.has_method("initialize"):
+				growth.call("initialize", self)
+			baby_growth_component = growth
+	if growth and growth.has_method("promote_to_clansman_now"):
+		growth.call("promote_to_clansman_now", "wake_sync")
+		return
+	push_warning("NPC %s: roster clansman wake sync failed — no BabyGrowthComponent" % str(npc_name))

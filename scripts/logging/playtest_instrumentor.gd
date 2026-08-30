@@ -26,6 +26,7 @@ var _playtest_duration_sec: float = 120.0  # Auto-quit after this many seconds
 var _combat_started_count: int = 0  # For invariant check
 var _friendly_fire_instrumented_hits: int = 0  # combat_hit where target is ally (should stay 0 if pipeline is correct)
 var _party_test: bool = false  # --party-test: same capture profile as agro, tag session for party validation
+var _phase7_console: bool = false  # Echo Phase 7 settlement rows to console for manual walk-away tests
 
 func _ready() -> void:
 	if OS.get_name() == "Web":
@@ -69,6 +70,10 @@ func _ready() -> void:
 	var dc = get_node_or_null("/root/DebugConfig")
 	if dc and dc.get("playtest_capture_always") == true:
 		_enabled = true
+	var ua: PackedStringArray = _all_cli_args()
+	if "--session-quickstart" in ua and "--session-instrument" in ua:
+		_enabled = true
+		_phase7_console = true
 	if "--agro-combat-test" in args and dc and dc.get("allow_agro_combat_test_from_cli") == true:
 		_enabled = true
 		_agro_combat_test = true
@@ -84,8 +89,14 @@ func _ready() -> void:
 		_snapshot_interval = 2.0  # Raid test: snapshots every 2s
 	if _enabled:
 		_start()
+	if "--playtest-capture" in args or "--herd-capture" in args:
+		_phase7_console = true
+	if "--session-quickstart" in ua:
+		_phase7_console = true
 	if _enabled:
 		print("✓ Playtest capture enabled: %s" % _get_file_path())
+		if _phase7_console:
+			print("✓ Phase 7 console tags: settlement_* + baby_* rows echo here; summarize with tools/summarize_phase7_playtest.sh")
 		print("✓ Gather diagnostics: gather_hitbox_ready (spawn), gather_space_pressed (each Space), gather_body_* / gather_* flow, hitbox vs node origin, overlaps[]")
 		if _party_test:
 			print("✓ Party test data collection (NPC-led party / formation ticks; snapshots every %.1fs)" % _snapshot_interval)
@@ -203,6 +214,26 @@ func _write(obj: Dictionary) -> void:
 	var line = JSON.stringify(obj) + "\n"
 	_file.store_string(line)
 	_file.flush()
+	_maybe_print_phase7_row(obj)
+
+
+func _maybe_print_phase7_row(obj: Dictionary) -> void:
+	if not _phase7_console:
+		return
+	var evt: String = str(obj.get("evt", ""))
+	if evt.is_empty():
+		return
+	var watch_prefixes: PackedStringArray = PackedStringArray([
+		"settlement_", "baby_", "phase7_",
+	])
+	var watch := false
+	for p in watch_prefixes:
+		if evt.begins_with(p):
+			watch = true
+			break
+	if not watch:
+		return
+	print("[PHASE7] %s" % JSON.stringify(obj))
 
 func is_enabled() -> bool:
 	return _enabled
@@ -681,6 +712,197 @@ func settlement_roster_snapshot(clan_name: String, pop: int, alive: int, dormant
 	})
 
 
+func settlement_gather_completed(
+	clan_name: String,
+	resource: String,
+	count: int,
+	biome: String = "",
+	carryover: bool = false
+) -> void:
+	var obj: Dictionary = {
+		"evt": "settlement_gather_completed",
+		"clan": clan_name,
+		"resource": resource,
+		"count": count,
+	}
+	if not biome.is_empty():
+		obj["biome"] = biome
+	if carryover:
+		obj["carryover"] = true
+	_write(obj)
+
+
+func settlement_chunk_depleted(chunk: Vector2i, resource: String, remaining: int) -> void:
+	_write({
+		"evt": "settlement_chunk_depleted",
+		"chunk_x": chunk.x,
+		"chunk_y": chunk.y,
+		"resource": resource,
+		"remaining": remaining,
+	})
+
+
+func settlement_oven_produced(clan_name: String, bread_count: int) -> void:
+	_write({
+		"evt": "settlement_oven_produced",
+		"clan": clan_name,
+		"count": bread_count,
+	})
+
+
+func settlement_hunt_completed(clan_name: String, prey_type: String, meat: int, hide: int, bone: int) -> void:
+	_write({
+		"evt": "settlement_hunt_completed",
+		"clan": clan_name,
+		"prey_type": prey_type,
+		"meat": meat,
+		"hide": hide,
+		"bone": bone,
+	})
+
+
+func settlement_prey_despawned(clan_name: String, prey_type: String, chunk_x: int, chunk_y: int) -> void:
+	_write({
+		"evt": "settlement_prey_despawned",
+		"clan": clan_name,
+		"prey_type": prey_type,
+		"chunk_x": chunk_x,
+		"chunk_y": chunk_y,
+	})
+
+
+func settlement_hunt_skipped(clan_name: String, reason: String) -> void:
+	_write({
+		"evt": "settlement_hunt_skipped",
+		"clan": clan_name,
+		"reason": reason,
+	})
+
+
+func settlement_birth(clan_name: String, mother_name: String, baby_name: String, father_name: String) -> void:
+	_write({
+		"evt": "settlement_birth",
+		"clan": clan_name,
+		"mother": mother_name,
+		"baby": baby_name,
+		"father": father_name,
+	})
+
+
+func settlement_pregnancy_started(clan_name: String, mother_name: String, father_name: String) -> void:
+	_write({
+		"evt": "settlement_pregnancy_started",
+		"clan": clan_name,
+		"mother": mother_name,
+		"father": father_name,
+	})
+
+
+func settlement_pregnancy_cancelled(clan_name: String, mother_name: String, reason: String) -> void:
+	_write({
+		"evt": "settlement_pregnancy_cancelled",
+		"clan": clan_name,
+		"mother": mother_name,
+		"reason": reason,
+	})
+
+
+func settlement_baby_grew(clan_name: String, baby_name: String) -> void:
+	_write({
+		"evt": "settlement_baby_grew",
+		"clan": clan_name,
+		"baby": baby_name,
+	})
+
+
+func settlement_husband_reassigned(
+	clan_name: String,
+	woman_name: String,
+	old_father: String,
+	new_father: String,
+	reason: String
+) -> void:
+	_write({
+		"evt": "settlement_husband_reassigned",
+		"clan": clan_name,
+		"woman": woman_name,
+		"old_father": old_father,
+		"new_father": new_father,
+		"reason": reason,
+	})
+
+
+func settlement_birth_blocked(clan_name: String, mother_name: String, reason: String) -> void:
+	_write({
+		"evt": "settlement_birth_blocked",
+		"clan": clan_name,
+		"mother": mother_name,
+		"reason": reason,
+	})
+
+
+func settlement_claim_dormant(clan_name: String, pop: int, tick_interval_sec: float) -> void:
+	_write({
+		"evt": "settlement_claim_dormant",
+		"clan": clan_name,
+		"pop": pop,
+		"tick_interval_sec": tick_interval_sec,
+	})
+
+
+func settlement_claim_wake(clan_name: String, pop: int) -> void:
+	_write({
+		"evt": "settlement_claim_wake",
+		"clan": clan_name,
+		"pop": pop,
+	})
+
+
+func settlement_roster_detail(clan_name: String, members: Array, dormant: bool) -> void:
+	_write({
+		"evt": "settlement_roster_detail",
+		"clan": clan_name,
+		"dormant": dormant,
+		"members": members,
+	})
+
+
+func phase7_playtest_briefing(clan_name: String, pregnancy_sec: float, tick_interval_sec: float) -> void:
+	_write({
+		"evt": "phase7_playtest_briefing",
+		"clan": clan_name,
+		"test": "off_screen_settlement_sim",
+		"steps": [
+			"Stay at claim until on-screen pregnancy/birth (baby_spawned) or check Living Hut",
+			"Walk far outside claim until settlement_claim_dormant",
+			"Wait 45-60s for settlement_tick_started on dormant claim",
+			"Return — look for settlement_claim_wake and new babies/clansmen",
+		],
+		"watch_events": [
+			"settlement_claim_dormant",
+			"settlement_tick_started",
+			"settlement_pregnancy_started",
+			"settlement_birth",
+			"settlement_baby_grew",
+			"settlement_husband_reassigned",
+			"settlement_claim_wake",
+			"baby_spawned",
+		],
+		"pregnancy_sec": pregnancy_sec,
+		"tick_interval_sec": tick_interval_sec,
+	})
+
+
+func baby_pregnancy_started(clan_name: String, npc_name: String, father_name: String, source: String = "live") -> void:
+	_write({
+		"evt": "baby_pregnancy_started",
+		"clan": clan_name,
+		"npc": npc_name,
+		"father": father_name,
+		"source": source,
+	})
+
+
 func baby_spawned(clan_name: String, mother_name: String, father_name: String, slot_count: int = -1, cap_breakdown: Dictionary = {}) -> void:
 	var obj: Dictionary = {"evt": "baby_spawned", "clan": clan_name, "mother": mother_name, "father": father_name}
 	if slot_count >= 0:
@@ -715,8 +937,8 @@ func baby_pregnancy_frozen(clan_name: String, npc_name: String, timer: float) ->
 func baby_pregnancy_resumed(clan_name: String, npc_name: String, timer: float) -> void:
 	_write({"evt": "baby_pregnancy_resumed", "clan": clan_name, "npc": npc_name, "timer": timer})
 
-func baby_grew_to_clansman(npc_name: String, clan_name: String) -> void:
-	_write({"evt": "baby_grew_to_clansman", "npc": npc_name, "clan": clan_name})
+func baby_grew_to_clansman(npc_name: String, clan_name: String, source: String = "timer") -> void:
+	_write({"evt": "baby_grew_to_clansman", "npc": npc_name, "clan": clan_name, "source": source})
 
 # --- ClanBrain eval (NPC / territory integration JSONL gates) ---
 func clan_brain_eval(clan_name: String, metrics: Dictionary) -> void:

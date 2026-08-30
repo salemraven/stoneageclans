@@ -13,6 +13,7 @@ const DEATH_TIER: Dictionary = {
 
 var clan_name: String = ""
 var members: Array = []
+var _next_offscreen_id: int = -1
 
 
 static func normalize_member_type(npc_type: String, is_leader: bool = false) -> String:
@@ -107,9 +108,24 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		if stats and stats.has_method("get_hunger_percent"):
 			hunger_pct = float(stats.get_hunger_percent())
 	var pregnancy_timer: float = -1.0
+	var growth_timer: float = -1.0
+	var designated_father_id: int = -1
+	var last_birth_time: float = -1.0
+	var father_absent_ticks: int = 0
 	var repro = npc.get_node_or_null("ReproductionComponent")
 	if repro and repro.get("is_pregnant") and repro.get("birth_timer") != null:
 		pregnancy_timer = float(repro.birth_timer)
+	if repro and repro.get("last_birth_time") != null:
+		last_birth_time = float(repro.last_birth_time)
+	if repro and repro.get("designated_father") != null:
+		var df: Node = repro.designated_father as Node
+		if df and is_instance_valid(df) and EntityRegistry:
+			var dfid: int = EntityRegistry.get_network_id(df)
+			if dfid > 0:
+				designated_father_id = dfid
+	var growth = npc.get_node_or_null("BabyGrowthComponent")
+	if growth and growth.get("growth_timer") != null:
+		growth_timer = float(growth.growth_timer)
 	var pos: Vector2 = npc.global_position if npc is Node2D else Vector2.ZERO
 	var traits_val = npc.get("traits")
 	var traits: Array = []
@@ -123,6 +139,10 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		"alive": true,
 		"hunger": clampf(hunger_pct, 0.0, 100.0),
 		"pregnancy_timer": pregnancy_timer,
+		"growth_timer": growth_timer,
+		"designated_father_id": designated_father_id,
+		"last_birth_time": last_birth_time,
+		"father_absent_ticks": father_absent_ticks,
 		"is_leader": is_leader,
 		"is_player": member_type == "player" or npc.is_in_group("player"),
 		"quality_tier": str(npc.get("quality_tier") if npc.get("quality_tier") != null else "Flawed"),
@@ -158,7 +178,11 @@ func _member_from_sleep_record(data: Dictionary, leader_npc: Node) -> Dictionary
 		"age": float(data.get("age", 13)),
 		"alive": true,
 		"hunger": clampf(hunger_pct, 0.0, 100.0),
-		"pregnancy_timer": -1.0,
+		"pregnancy_timer": float(data.get("pregnancy_timer", -1.0)),
+		"growth_timer": float(data.get("growth_timer", -1.0)),
+		"designated_father_id": int(data.get("designated_father_id", -1)),
+		"last_birth_time": float(data.get("last_birth_time", -1.0)),
+		"father_absent_ticks": int(data.get("father_absent_ticks", 0)),
 		"is_leader": is_leader,
 		"is_player": member_type == "player",
 		"quality_tier": str(data.get("quality_tier", "Flawed")),
@@ -268,7 +292,147 @@ func to_spawn_data(member: Dictionary, fallback_pos: Vector2) -> Dictionary:
 		"clan_name": clan_name,
 		"position": pos,
 		"hunger_percent": float(member.get("hunger", 100.0)) / 100.0,
+		"pregnancy_timer": float(member.get("pregnancy_timer", -1.0)),
+		"growth_timer": float(member.get("growth_timer", -1.0)),
+		"designated_father_id": int(member.get("designated_father_id", -1)),
+		"last_birth_time": float(member.get("last_birth_time", -1.0)),
+		"father_absent_ticks": int(member.get("father_absent_ticks", 0)),
+		"mother_name": str(member.get("mother_name", "")),
+		"father_name": str(member.get("father_name", "")),
 	}
+
+
+func get_pregnant_women() -> Array:
+	var out: Array = []
+	for m in members:
+		if not bool(m.get("alive", false)):
+			continue
+		if str(m.get("type", "")) != "woman":
+			continue
+		if float(m.get("pregnancy_timer", -1.0)) > 0.0:
+			out.append(m)
+	return out
+
+
+func get_fertile_women(now_sec: float, birth_cooldown: float) -> Array:
+	var out: Array = []
+	for m in members:
+		if not bool(m.get("alive", false)):
+			continue
+		if str(m.get("type", "")) != "woman":
+			continue
+		if float(m.get("pregnancy_timer", -1.0)) > 0.0:
+			continue
+		var last: float = float(m.get("last_birth_time", -1.0))
+		if last >= 0.0 and (now_sec - last) < birth_cooldown:
+			continue
+		out.append(m)
+	return out
+
+
+func get_babies() -> Array:
+	var out: Array = []
+	for m in members:
+		if not bool(m.get("alive", false)):
+			continue
+		if str(m.get("type", "")) == "baby":
+			out.append(m)
+	return out
+
+
+func get_alive_males() -> Array:
+	var out: Array = []
+	for m in members:
+		if not bool(m.get("alive", false)):
+			continue
+		var t: String = str(m.get("type", ""))
+		if t in ["caveman", "clansman", "leader"]:
+			out.append(m)
+	return out
+
+
+func get_member_name(member_id: int) -> String:
+	var m: Dictionary = find_member(member_id)
+	if m.is_empty():
+		return "?"
+	return str(m.get("name", "?"))
+
+
+func generate_baby_name(seed_salt: int) -> String:
+	var ws: int = int(WorldGenConfig.world_seed) if WorldGenConfig else 0
+	var salt: int = hash("%s|%d|%d" % [clan_name, seed_salt, ws])
+	return NamingUtils.generate_caveman_name_seeded(salt)
+
+
+func add_baby_member(mother_id: int, father_id: int, baby_name: String, fallback_pos: Vector2) -> Dictionary:
+	_next_offscreen_id -= 1
+	var baby_id: int = _next_offscreen_id
+	var mother: Dictionary = find_member(mother_id)
+	var father: Dictionary = find_member(father_id) if father_id > 0 else {}
+	var entry: Dictionary = {
+		"id": baby_id,
+		"name": baby_name,
+		"type": "baby",
+		"npc_type": "baby",
+		"age": 0,
+		"alive": true,
+		"hunger": 100.0,
+		"pregnancy_timer": -1.0,
+		"growth_timer": 0.0,
+		"designated_father_id": father_id,
+		"last_birth_time": -1.0,
+		"father_absent_ticks": 0,
+		"is_leader": false,
+		"is_player": false,
+		"quality_tier": "Flawed",
+		"skin_tone": "Medium",
+		"card_index": int(father.get("card_index", 0)) if not father.is_empty() else 0,
+		"traits": [],
+		"position": mother.get("position", fallback_pos) if not mother.is_empty() else fallback_pos,
+		"mother_name": str(mother.get("name", "unknown")) if not mother.is_empty() else "unknown",
+		"father_name": str(father.get("name", "unknown")) if not father.is_empty() else "unknown",
+	}
+	members.append(entry)
+	return entry
+
+
+func start_pregnancy(mother_id: int, father_id: int, pregnancy_seconds: float, now_sec: float) -> bool:
+	var m: Dictionary = find_member(mother_id)
+	if m.is_empty() or not bool(m.get("alive", false)):
+		return false
+	if str(m.get("type", "")) != "woman":
+		return false
+	m["pregnancy_timer"] = pregnancy_seconds
+	m["designated_father_id"] = father_id
+	m["last_birth_time"] = now_sec
+	return true
+
+
+func cancel_pregnancy(member_id: int) -> Dictionary:
+	var m: Dictionary = find_member(member_id)
+	if m.is_empty():
+		return {}
+	if float(m.get("pregnancy_timer", -1.0)) <= 0.0:
+		return {}
+	m["pregnancy_timer"] = -1.0
+	return m.duplicate()
+
+
+func promote_baby_to_clansman(member_id: int) -> Dictionary:
+	var m: Dictionary = find_member(member_id)
+	if m.is_empty() or not bool(m.get("alive", false)):
+		return {}
+	if str(m.get("type", "")) != "baby":
+		return {}
+	m["type"] = "clansman"
+	m["npc_type"] = "clansman"
+	m["age"] = 13
+	m["growth_timer"] = -1.0
+	return m.duplicate()
+
+
+func get_baby_count() -> int:
+	return get_babies().size()
 
 
 func _balance_type_for(member_type: String) -> String:

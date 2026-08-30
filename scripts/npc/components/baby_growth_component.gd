@@ -53,9 +53,18 @@ func update(delta: float) -> void:
 		}, UnifiedLogger.Level.DEBUG)
 	
 	if growth_timer >= growth_time:
-		_grow_to_clansman()
+		_grow_to_clansman("timer")
 
-func _grow_to_clansman() -> void:
+func promote_to_clansman_now(source: String = "wake_sync") -> void:
+	"""Force adult promotion (e.g. roster wake sync when off-screen growth already completed)."""
+	if not npc or not is_instance_valid(npc):
+		return
+	if npc.get("npc_type") != "baby":
+		return
+	growth_timer = maxf(growth_timer, growth_time)
+	_grow_to_clansman(source)
+
+func _grow_to_clansman(source: String = "timer") -> void:
 	if not npc or not is_instance_valid(npc):
 		UnifiedLogger.log_npc("ERROR: Cannot grow baby - npc is invalid", {}, UnifiedLogger.Level.ERROR)
 		return
@@ -122,7 +131,7 @@ func _grow_to_clansman() -> void:
 	
 	var pi = npc.get_tree().root.get_node_or_null("PlaytestInstrumentor") if npc.get_tree() else null
 	if pi and pi.has_method("is_enabled") and pi.is_enabled() and pi.has_method("baby_grew_to_clansman"):
-		pi.baby_grew_to_clansman(baby_name, clan_name)
+		pi.baby_grew_to_clansman(baby_name, clan_name, source)
 	
 	# Apply father's placeholder card (card_index stored at birth; skin tint stays random)
 	if PlaceholderCardService:

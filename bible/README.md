@@ -96,6 +96,10 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 
 **Also aspirational:** [future implementations/warhorn.md](future%20implementations/warhorn.md) (leader-carried trophy horn — **H rally is implemented**; see [rts.md](rts.md)).
 
+**Female babies (planned):** [future implementations/female_baby.md](future%20implementations/female_baby.md) — sex at birth, daughters → clanswomen, genetics/inbreeding notes; **not shipped**.
+
+**Hut husband assignment (planned):** [future implementations/hut_assignment.md](future%20implementations/hut_assignment.md) — drag-drop male to Living Hut, designated father UI; **not shipped**.
+
 ---
 
 ## Engine & UI
