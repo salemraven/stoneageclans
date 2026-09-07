@@ -72,3 +72,6 @@ desktop.ini
 .vs/
 *.suo
 *.user
+
+# Python bytecode from tools/
+__pycache__/
