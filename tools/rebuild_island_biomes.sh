@@ -10,7 +10,7 @@
 #   2. paint regional biomes from map2 colours + wedge clamps (glacier, desert, jungle, swamp)
 #   3. shape regions: drop stray blobs, smooth, seeded domain-warp  (organic borders)
 #   4. speck cleanup 3/4 rule + desert-off-river + ocean topology
-#   5. --check-only gate (specks, topology, straight borders >= 20 tiles)
+#   5. --check-only gate (specks, topology, straight borders >= 28 tiles)
 #   6. render maps/island/preview_biomes.png for eyeballing
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

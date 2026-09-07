@@ -236,3 +236,26 @@ python3 tools/discord_lore_bot.py
 ```
 
 Local search test: `python3 tools/lore_search.py "herding"`. Full setup: **`devblog/README.md`**.
+
+## Island biome mask pipeline
+
+Deterministic rebuild of **`maps/island/biome_mask.png`** from map2 + hand-painted rivers. Full spec: **`bible/island_map.md` §1c**.
+
+```bash
+bash tools/rebuild_island_biomes.sh          # rebuild + validate + preview
+bash tools/rebuild_island_biomes.sh --check  # validation gate only
+```
+
+**Headless topology test** (mirrors editor Validate):
+
+```bash
+SKIP_SINGLE_INSTANCE=1 godot --headless --path . -s res://tools/test_mask_topology.gd
+```
+
+**Launch map editor** (macOS):
+
+```bash
+bash tools/launch_map_editor_mac.sh
+```
+
+**Key rules:** `water_layer_guides.png` is the river truth (tools never mutate rivers). Organic borders come from **`shape_biome_regions.py`** (domain warp), not per-tile nibbling. Editor **Fix Map** = specks + topology only — re-run rebuild to reshape biomes.

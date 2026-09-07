@@ -1,9 +1,9 @@
 # Authored island map (art reference)
 
-**Status:** **Design lock — in active authoring.** Layout spec is final; Godot pipeline is **partially built** (water layer shipped in editor; biomes and export still pending). Today’s playable main loop still uses procedural chunks until authored chunks replace them.  
+**Status:** **Design lock — in active authoring.** Regional biomes are **generated** by the offline pipeline (§1c); rivers are **hand-painted**. Chunk export and Main wiring still pending — playable loop still uses procedural chunks until authored chunks replace them.  
 **Canonical design doc:** **[environment_goal.md](environment_goal.md)** — map, biomes, weather, resources, wildlife. **This file** is the **layout index + map2 checklist + implementation progress tracker**. **If art and environment_goal disagree, environment_goal wins** (update art unless map is explicitly re-approved).  
 **Canonical image:** [`assets/island_map2.jpg`](assets/island_map2.jpg) (`map2.jpg`) — **guide, not pixel law**  
-**Last updated:** September 2026 (water paint pipeline + progress tracker)
+**Last updated:** September 2026 (organic biome pipeline + river lock + validation gate)
 
 **See also:** [game_map.md](game_map.md) · [future implementations/island_mp.md](future%20implementations/island_mp.md) · [earlygame_vision.md](earlygame_vision.md) §7 · [roadmap_2026.md](roadmap_2026.md) Phase 5
 
@@ -64,7 +64,19 @@ All clans, AI tribes, and MP sessions play on **this fixed geography** once worl
 
 **Straight-border metric** (`biome_mask_shape_rules.py` ↔ `mask_topology.gd`): collinear edge chains (gaps ≤ 2 tiles merge, so dashed lines count). Fail at **≥ 28 tiles** — a smooth curve of radius R has grid flats ≈ 2√R, so regions this size legitimately produce flats up to ~25; ≥ 28 can only be a genuinely straight edge. 8–27 is reported as minor.
 
-**Current result:** savanna 66 %, jungle 14.7 %, swamp 9.9 %, desert 9.1 %, glacier 3.0 %, beach 0.8 %; longest straight chain 25.
+**Current result:** savanna 66 %, jungle 14.7 %, swamp 9.9 %, desert 9.1 %, glacier 3.1 %, beach 0.8 %; longest straight chain 25 (gate threshold 28). **Desert is below the ~20 % art target** — tune paint/shape if layout review says so.
+
+**Rivers are never mutated by tools.** `water_layer_guides.png` is the painted truth; the pipeline copies it to `water_layer.png` at step 0. The old cleanup path that invented H-shaped water inside the desert is retired.
+
+**Individual tools** (callable outside the shell script):
+
+| Tool | Role |
+|------|------|
+| `paint_biome_from_map2.py --biome <name>` | Paint one regional biome from map2 colours + wedge clamps |
+| `shape_biome_regions.py` | Organic borders (domain warp + smooth); `--report` only |
+| `clean_biome_mask_specks.py` | Specks + topology; `--check-only` for CI gate |
+| `render_biome_preview.py` | Colour PNG for eyeballing (`--crop x0,y0,x1,y1 --scale N`) |
+| `test_mask_topology.gd` | Headless gate mirroring editor Validate |
 
 **Runtime lookups:** `scripts/world/terrain_query.gd` — `get_biome()`, `is_water()` from masks + `island_meta.json`. Move cost, temperature, spring queries **planned**.
 
@@ -80,11 +92,11 @@ Update this section when a layer ships or validation passes.
 
 | Step | Task | Status |
 |------|------|--------|
-| 1 | Island silhouette + ocean boundary (from map2 / biome mask) | 🟡 Partial |
-| 2 | Paint **regional biomes** (savanna, desert NE, jungle SW, swamp W, glacier center) | ⬜ Next |
-| 3 | Paint **four river systems** from glacier (separate headwaters OK) | ✅ Done (`water_layer.png`) |
+| 1 | Island silhouette + ocean boundary (from map2 / biome mask) | 🟡 Partial (ocean from mask; silhouette follows map2) |
+| 2 | Paint **regional biomes** (savanna, desert NE, jungle SW, swamp W, glacier center) | ✅ **Generated** — `bash tools/rebuild_island_biomes.sh` (desert % below art target; see §1c) |
+| 3 | Paint **four river systems** from glacier (separate headwaters OK) | ✅ Done (`water_layer_guides.png` → `water_layer.png`) |
 | 4 | Paint **wetland** strips along river banks | ⬜ |
-| 5 | Paint **glacier** zone + **pass corridors** through center | ⬜ |
+| 5 | Paint **glacier** zone + **pass corridors** through center | 🟡 Glacier zone generated; pass corridors ⬜ |
 | 6 | Paint **forest patch** overlay (~10% on savanna) | ⬜ |
 | 7 | Place **SPRING** oases in desert | ⬜ |
 | 8 | Mark gameplay zones (quadrant rares, MP spawns, trade nodes) | ⬜ |
@@ -93,10 +105,11 @@ Update this section when a layer ships or validation passes.
 
 | Step | Task | Status |
 |------|------|--------|
-| A | WorldMapEditor **water paint** + save | ✅ |
-| B | WorldMapEditor **biome paint** brush | ⬜ Next |
+| A | WorldMapEditor **water paint** + save to `water_layer_guides.png` | ✅ |
+| B | Offline **biome generation** from map2 + organic shaping | ✅ `rebuild_island_biomes.sh` |
+| B2 | WorldMapEditor **biome paint** brush (manual touch-up) | ⬜ Optional — proc baseline exists |
 | C | Overlay brushes (wetland, forest, pass, spring) | ⬜ |
-| D | **Validation panel** (4 river systems → coast, desert-no-rivers, biome %) | ⬜ |
+| D | **Validation gate** — specks, topology, desert-off-river, straight borders | ✅ `--check-only` + editor **Validate Map Shape** |
 | E | Fix river check: **4 systems**, not one connected blob | ⬜ |
 | F | **Chunk export** pipeline | ⬜ |
 | G | `ChunkManager` loads authored chunks (suppress proc on shipping map) | ⬜ |
@@ -114,9 +127,11 @@ Update this section when a layer ships or validation passes.
 ### Validation (map data final)
 
 - [ ] Four river systems each reach coast (or NE lake chain → coast)
-- [ ] **No rivers in desert** (oases = SPRING only)
-- [ ] Glacier ~3–5% at center; at least one pass corridor
-- [ ] Biome percentages roughly match §4 table
+- [x] **No rivers in desert** (oases = SPRING only) — gated; desert retracts 2 tiles from rivers
+- [x] Speck cleanup (3/4 rule) — gated at 0 remaining
+- [x] Straight borders — gated at 0 chains ≥ 28 tiles (longest measured: 25)
+- [ ] Glacier ~3–5% at center; at least one pass corridor (glacier % OK; passes ⬜)
+- [ ] Biome percentages roughly match §4 table (jungle/swamp/glacier close; **desert low**)
 - [ ] All layers export to chunks; `TerrainQuery` spot-checks pass
 - [ ] MP: same authored files + seed = same world
 
@@ -141,7 +156,9 @@ Update this section when a layer ships or validation passes.
 
 **v1 rule:** Base PNGs (`water_layer.png`, `biome_mask.png`) are **never edited at runtime**. Climate = server overlays on top. Reserve **river system ids** at export time.
 
-**Suggested work order:** 2 → 5 → 4 → 6 → 7 → B–I → validation → art (J) → gameplay tables.
+**Suggested work order:** 4 → 5 (passes) → 6 → 7 → C–I → validation remainder → art (J) → gameplay tables.
+
+**Editor Fix button:** **Fix Map (Specks + Topology)** runs `mask_topology.gd` — specks, land/ocean topology, desert off rivers. It **never** edits rivers or nibbles biome edges; re-run **`rebuild_island_biomes.sh`** to regenerate organic borders.
 
 ---
 
@@ -221,13 +238,14 @@ Rivers may approach the desert boundary but **must not** enter cracked desert te
 
 ## 4. Land-use summary (land only)
 
-| Biome | ~% of island |
-|-------|----------------|
-| Great savanna / plains (base) | **55%** |
-| Great desert (NE) | **20%** |
-| Jungle (SW) | **15%** |
-| Swamp (mid-west) | **10%** |
-| Glacier / center | **3–5%** (counted inside savanna band above) |
+| Biome | ~% of island | Generated baseline (Sep 2026, `world_seed=882001`) |
+|-------|----------------|-----------------------------------------------------|
+| Great savanna / plains (base) | **55%** | **66.1%** (includes beach; glacier counted separately below) |
+| Great desert (NE) | **20%** | **9.1%** — **below target**; tune paint/shape |
+| Jungle (SW) | **15%** | **14.7%** |
+| Swamp (mid-west) | **10%** | **9.9%** |
+| Glacier / center | **3–5%** | **3.1%** |
+| Beach (ocean shore) | — | **0.8%** (auto-painted on coast; not on swamp shore) |
 
 **Overlay — scattered forest patches:** **~10%** of island total, **not** a separate ring. Dark green canopy + brown litter dots on savanna, especially **north of glacier** and **NE of central plain**.
 
@@ -413,7 +431,7 @@ Each authored cell: **`biome_id`** + overlays (`RIVER`, `WETLAND`, `FOREST_PATCH
 10. Biome gatherable + wildlife spawn tables per zone.
 11. **MutationStore** for player deltas (unchanged MP story).
 
-**Retired / dev-only:** JPG river trace and hub-and-spoke proc rivers (`build_biome_mask_from_map2.py --phase rivers-proc`) — replaced by **hand-painted `water_layer.png`**. Proc tools may remain for grass baseline only.
+**Retired / dev-only:** JPG river trace and hub-and-spoke proc rivers (`build_biome_mask_from_map2.py --phase rivers-proc`) — replaced by **hand-painted `water_layer_guides.png`**. Per-tile straight-border **nibbling** (turned lines into dashed lines) — replaced by **`shape_biome_regions.py`** domain warp. Cleanup **never writes `water_layer.png`** anymore.
 
 ---
 

@@ -2,11 +2,11 @@
 
 **Purpose:** Single reference for **everything about the world map**: how the scene is laid out, coordinates, **chunk streaming**, procedural fill, NPC/world interaction, spatial queries, legacy spawn paths, multiplayer hooks, and where to tune or extend behavior.
 
-**Last updated:** May 2026 · **Chunk constants:** `bible.md` §II · **Index:** `bible/README.md`
+**Last updated:** September 2026 · **Chunk constants:** `bible.md` §II · **Index:** `bible/README.md`
 
-**Status:** Living doc — update when `Main`, `ChunkManager`, `ChunkGenerator`, `WorldGenConfig`, or world-related scenes change.
+**Status:** Living doc — update when `Main`, `ChunkManager`, `ChunkGenerator`, `WorldGenConfig`, or world-related scenes change. **Authored island progress:** [island_map.md](island_map.md) §1c. **Climate Change (Phase 6):** [environment_goal.md](environment_goal.md) §19.
 
-**See also:** `bible/draw_order.md` (Y-sort / `WorldObjects`), `bible/main.md` (overall loop), `bible/game_dictionary.md` (terms), `bible/multiplayer.md` (network roadmap), `bible/hunting.md`, `bible/settlement_sim.md` (continuous plane + off-screen village sim).
+**See also:** `bible/draw_order.md` (Y-sort / `WorldObjects`), `bible/main.md` (overall loop), `bible/game_dictionary.md` (terms), `bible/multiplayer.md` (network roadmap), `bible/hunting.md`, `bible/settlement_sim.md` (continuous plane + off-screen village sim), **`bible/environment_goal.md`** (shipping island — biomes, weather, resources, wildlife), `bible/island_map.md` (map2 art checklist).
 
 ---
 
@@ -34,7 +34,7 @@
 
 ## 1. What “the map” is in this project
 
-- The game world is a **large 2D plane** in **pixels**. There is **no hard world border** in code; content is **infinite in principle** because new chunks can be generated as coordinates grow.
+- The game world is a **large 2D plane** in **pixels**. **Today:** no hard world border in code — infinite procedural chunks ([§16 gaps](#16-known-gaps-honest-list)). **Shipping target:** **one finite authored island** — ocean rim, wedge biomes, four river systems ([environment_goal.md](environment_goal.md), [island_map.md](island_map.md)).
 - **Design lock:** **One continuous plane** — the player walks from their settlement to any other on the same map (not instanced colony maps like RimWorld / Dwarf Fortress). Settlements persist at fixed coordinates; sim fidelity tiers by distance ([settlement_sim.md](settlement_sim.md)).
 - **Gameplay entities** (player, NPCs, gatherables, land claims, buildings, grass, corpses, etc.) live under **`Main` → `WorldObjects`**, which uses **Y-sorting** so depth looks correct when moving north/south.
 - **Ground appearance** is mostly **not** the `World` TileMap’s tiles: **`world.gd`** documents that **DirtBase** (elsewhere in the scene) draws **repeating dirt**; the **TileMap** is reserved for optional overlays / collision, not procedural tile painting.
@@ -206,6 +206,17 @@ Inside **`update_streaming`**:
 **Clan suppression before spawn**
 
 - If **`MutationStore.get_clan_deaths_in_chunk(chunk) >= clan_max_deaths_per_chunk`**, **`ChunkManager`** clears **`clans`** for that load so **no new seeded clan** appears in an “exhausted” chunk (design hook for anti-farming).
+
+### Pseudo-biome labels (off-screen gather only)
+
+**Not player-facing biomes** — the map does not yet show forest/plains/swamp regions to the player. These labels exist only for **abstract off-screen gather** (`AbstractGather` → `ChunkGenerator.get_biome_available_resources()`).
+
+| Method | Role |
+|--------|------|
+| `get_chunk_biome(world_seed, chunk_coords)` | Seeded roll: `forest`, `plains`, `rocky`, `swamp` |
+| `BIOME_RESOURCE_KEYS` | Which abstract resource keys a dormant clan may pull from that chunk’s pool |
+
+**Survivability rule (design lock 2026-09-05):** Until real biomes ship, no label may leave a clan with **zero edible gather options** for an entire run. Today **`rocky`** violates this (`stone`, `fiber` only). See [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md).
 
 ---
 
@@ -440,6 +451,12 @@ The old **one-shot radius burst** and **minigame ring** (`_initialize_minigame`)
 - **No** **union interest** over all peers in **`ChunkManager`** (server should eventually keep chunks loaded if **any** player needs them).  
 - **No** automatic **chunk preload** before `apply_spawn_position` on join.  
 - **No** full replication of gatherable state per client beyond stubs in **`multiplayer.md`**.
+
+**Authored island + Climate Change (design lock)**
+
+- **v1:** One static authored island — base layers only (`biome_mask`, `water_layer`, chunk export). **`TerrainQuery`** reads base; no runtime climate. Rebuild: **`bash tools/rebuild_island_biomes.sh`** — see [island_map.md](island_map.md) §1c.  
+- **Phase 6:** **Climate Change** — server `ClimateState` + per-chunk overlays (flood swell, **drought shrink**, glacier grow, aridification, ritual pressure). Base PNGs **never** edited at runtime. Spec: [environment_goal.md](environment_goal.md) §19.  
+- **`MutationStore`** today = depletions / grass clear; climate may extend it or use a parallel **`ClimateOverlayStore`**.
 
 ---
 

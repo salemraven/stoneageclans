@@ -1,9 +1,11 @@
 # Stone Age Clans — Lore Bible
 
 **Single source of truth for lore, design, mechanics, code, and systems.**  
-Compiled from guides, GDD, and implementation docs. Covers both design intent and actual scripts/logic. Last consolidated: May 2026.
+Compiled from guides, GDD, and implementation docs. Covers both design intent and actual scripts/logic. Last consolidated: **September 2026**.
 
-**Scope:** §I–§XXI describe **implemented or agreed-in-code** behavior. Ideas without implementation or locked design live only in **§XXII Future implementations** (and linked `bible/future implementations/` docs) — not in the core sections.
+**Scope:** §I–§XXI describe **implemented or agreed-in-code** behavior (with *planned* callouts where noted). Ideas without implementation live in **§XXII Future implementations** and linked docs — not as shipped systems.
+
+**Opening loop & tiers (design owner):** [earlygame_vision.md](earlygame_vision.md) · **Tier 1 = Campfire** land claim · **Tier 2 = Flag** (settled).
 
 ---
 
@@ -30,8 +32,9 @@ Definitions of project-specific terms used throughout design and code.
 | **Defender quota** | ClanBrain-assigned number of NPCs to patrol claim border. |
 | **Searcher quota** | ClanBrain-assigned number of NPCs to search for herdables (Herd Wild NPC state). |
 | **defend/search/gather pressure** | ClanBrain floats (0–1, renormalized) that bias quota and job urgency alongside legacy economic weights. |
-| **food_days_buffer** | Claim calorie buffer (days): stored kcal ÷ daily need; mirrors `calories_days_buffer`. Hunt/raid/breeding gate. |
-| **calories_days_buffer** | Same as food_days_buffer — kcal-based source of truth since tick calorie system. |
+| **food_days_buffer** | Claim **pantry days** (canonical): stored food kcal ÷ clan daily kcal need — same as `calories_days_buffer` on claim meta. Gates workforce, hunt, raid, breeding, off-screen sim. Computed by `ClanFoodBuffer`. |
+| **calories_days_buffer** | **Same number as `food_days_buffer`** on claims (legacy/sync alias). Detail fields: `calories_in_storage`, `calories_daily_need`. |
+| **pseudo-biome** | **Code-only** per-chunk label (`forest`, `plains`, `rocky`, `swamp`) in `ChunkGenerator.get_chunk_biome()` — drives **off-screen abstract gather** only. **Not** player-facing biomes (not shipped). See [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md). |
 | **SimulationManager** | Autoload: fixed sim tick (~120s) drains personal calories, farm/dairy pools; emits `simulation_tick`. |
 | **Survival mode** | AI clan with **&lt;2 fighters** skips hunt/raid; gather/herd only. |
 | **WildRole.PREY** | Deer, mammoth — AoH hunt targets, **`flee_prey`** FSM. Not herdables. |
@@ -41,7 +44,8 @@ Definitions of project-specific terms used throughout design and code.
 | **formation_slots** | Leader `meta` (player or NPC caveman/clansman): shared slot positions / steer targets (`main._update_formation_slots` for player; `FormationUtils.publish_slots_for_npc_leader` for NPC-led parties). |
 | **RTS_CONFIG** | `scripts/config/rts_formation_config.gd` — rally radius, horn cooldown, leash, catch-up multiplier, snapshot interval, etc. |
 | **Cavemen** | Wild humans; can place claims, become clan leaders; AI clans. |
-| **Clansmen** | Surplus babies promoted to permanent AI army; belong to a clan. |
+| **Clansmen** | Surplus babies promoted to permanent AI army; belong to a clan. *Planned:* daughters → **clanswomen** ([female_baby.md](future%20implementations/female_baby.md)). |
+| **Tier 1 / Tier 2** | **Tier 1 = Campfire** — nomadic land claim (250px, ABANDON CAMP). **Tier 2 = Flag** — settled land claim (400px, AoH, full production). Same claim family — see [nomad.md](nomad.md). |
 | **Village** | Land claim at scale: large radius, many huts; ClanBrain drives supply/demand and task assignment. |
 | **Supply/demand** | ClanBrain tracks what the clan needs (food, resources, buildings) and assigns work; see village.md. |
 | **Trait** | Inheritable bonus tied to hominid species (e.g. +20% Strength). Passed to offspring 50/50 per trait from mother/father. Max 6 per NPC. |
@@ -59,17 +63,17 @@ All major systems in one place. Each row links to the section where that system 
 |--------|----------------|-------------|
 | **World & resources** | Infinite 2D world; **chunk grid** (`ChunkUtils`); seeded layout + mutation deltas (MP partial); trees, boulders, berries, wheat, fiber; respawn rules; gatherable hitboxes aligned to sprite art (berries). | §II World, §XIII Items & resources, §XIX Gather & deposit |
 | **Player** | Movement, **vitals HUD** (health/calories/water), hotbar consumables (9/0), direct control; speed modifiers (low calories, herding, **formation stance** debuff with ordered followers). | §III Player character, §IV Universal controls & UI |
-| **Land claim & territory** | Placement (craft recipe); radius 400px; campfire (250px, 3 huts max, **ClanBrain**) vs land claim; **AoH** on claims; inventory; destroy flag = wipe. | §V Land claim & territory |
-| **Buildings** | Placement (50px min, 128×128); Living Hut, Supply Hut, Shrine, Dairy, Oven; costs; woman slots; production. | §VI Buildings |
-| **Reproduction & housing** | 1 woman per Living Hut; pregnancy requires hut; birth timer in radius; baby growth → clansman; trait inheritance. | §VII Reproduction & housing |
+| **Land claim & territory** | **Tier 1 Campfire** → **Tier 2 Flag**; same claim family; AoH on flag; ABANDON CAMP; destroy flag = wipe. | §V, [earlygame_vision.md](earlygame_vision.md), [nomad.md](nomad.md) |
+| **Buildings** | Living Hut, Supply Hut, Shrine, Dairy, Farm, Oven, Drying Rack; occupation + production. **Field** (proto farming) planned on flag only. | §VI, [farms.md](farms.md) |
+| **Reproduction & housing** | 1 woman per Living Hut; baby cap; growth → clansman today; **female babies planned** (sex at birth). | §VII, [female_baby.md](future%20implementations/female_baby.md) |
 | **NPCs** | Types: women, sheep, goats, clansmen, cavemen; spawn sources; purpose (reproduction, herd, combat, work). | §VIII NPCs |
 | **Hominid species & genetics** | 5 species; traits; 50/50 hybridization; species/trait/stat inheritance at birth. (Visuals = 2D art, not morph genomes.) | §IX Hominid classes |
 | **Combat & healing** | Agro meter (70/60); CombatComponent (windup → hit → recovery); attack arc; stagger; death/corpse; Medic Hut planned. | §X Combat & healing |
-| **Raiding** | Loot buildings/flag; destroy flag = **territory wipe** (+ wild cavemen / founder pipeline planned); ClanBrain sets raid_intent; NPCs self-assign to Raid state. | §XI Raiding |
-| **Food & production** | Oven (Wood + Grain → Bread); consumables (berries, grain, bread); wild wheat rule; Dairy/Meat planned. | §XII Food & production |
+| **Raiding** | Loot before wipe; `raid_intent` today. **Multi-goal + cordage STEAL** planned. | §XI, [raid.md](raid.md), [herdable_raiding.md](future%20implementations/herdable_raiding.md) |
+| **Food & production** | Forage / meat / grain-bread; `food_days_buffer`; Oven + Farm/Dairy; wild wheat outside claims. | §XII, [earlygame_vision.md](earlygame_vision.md) |
 | **Items & resources** | Wood, stone, wheat, fiber, leather; tools (axe, pick, club); equipment slots (hotbar 1–0). | §XIII Items & resources |
 | **Relics & shrine** | Rare items; place in Shrine → clan-wide buff; flag upgrades may require relics. | §XIV Relics & shrine |
-| **Herding** | HerdInfluenceArea on herdables; influence → attach to herder; follow; join clan in radius; cross-clan steal; follow_is_ordered. | §XV Herding system |
+| **Herding** | Influence on **wild** herdables; context menu + proximity; **cordage bond** for enemy claimed targets planned. | §XV, [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) |
 | **Hunting** | **AI:** AoH prey → **hunt_intent** → **hunt_state** (party phases). **Player:** RTS **PEACE / AGRO / HUNT** + stalk/arc/ambush; deer **flee_prey**. | §XV-A Hunting, §XVI, §XVIII, `bible/Phase4/raiding_hunting.md` |
 | **ClanBrain (AI)** | One brain per territory; defender/searcher/raid/**hunt** intent; pressures + food buffer; survival mode; strategic state; alert decay. | §XVI ClanBrain |
 | **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; **`party`**, **`herd`**, **`hunt_state`**, **`flee_prey`**, Agro, Combat, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
@@ -149,8 +153,8 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 | **I** | Open any flag or building inventory |
 | **Tab** | Stats panel (species mix, clansmen, women, raids, etc.) |
 | **9 / 0** | Consume item in hotbar slot 9 or 0 |
-| **Right-click NPC** | Herd (they follow you anywhere) |
-| **H** (War Horn) | Rally clansmen within **~1500 px**; ordered follow + **command_context**; clears herd on rallied herders so they join formation (see **`bible/rts.md`**) |
+| **Right-click NPC** | **Context menu** (Follow, Defend, Search, Work, Info — depends on target). **Wild herdables:** walk within **~250px** so **HerdInfluenceArea** attaches (not instant follow from menu alone). |
+| **H** (War Horn) | Rally clansmen within **~1500 px**; ordered follow + **command_context**. **Today:** clears herd on rallied herders. **Planned:** searchers with active herd **ignore Horn** ([rts.md](rts.md), [earlygame_vision.md](earlygame_vision.md)). |
 | **B** | **Break** — dismiss ordered follow; clansmen return toward land claim / work |
 | **Space** | **Gather** active resource / ground item (must overlap hitbox; berries use sprite-aligned collision) |
 | **Drag-and-drop** | Player ↔ flag ↔ buildings ↔ clansmen ↔ ground; **drop clansman on player** = ordered follow |
@@ -161,30 +165,42 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 
 ## V. Land Claim & Territory
 
-### Placement
-- First craftable: **Wood + Stone + Berries + Leather** (carryable at spawn).
+**Tier naming (locked):** **Tier 1 = Campfire** (nomadic land claim). **Tier 2 = Flag** (settled land claim). Both use the same claim systems (clan, radius, inventory, ClanBrain) — see [nomad.md](nomad.md), [earlygame_vision.md](earlygame_vision.md).
+
+### Progression (target opening)
+1. **Spawn** with no territory — gather, craft, survive.
+2. **Place Tier 1 Campfire** — first home: stash, small roster, **ABANDON CAMP** ([camp_relocation.md](camp_relocation.md)).
+3. **Upgrade to Tier 2 Flag** — placing the flag is the “settle down” beat; unlocks full production, AoH, AI raid economy (target).
+
+### Flag (Tier 2) placement
+- Craft recipe: **Wood + Stone + Berries + Leather** (carryable).
 - One-time **clan symbol + color picker** when placed.
 - **Radius**: 400px (invisible fence — NPCs cannot leave on their own).
 - **Upgrades** (planned): Flag → Tower → Keep → Castle (radius, storage, relics).
 
-### Behavior
+### Behavior (all tiers)
 - Own drag-and-drop storage inventory.
 - War Horn (**H**) — rally clansmen (RTS); see §XVIII and `bible/rts.md`.
-- **Destroy enemy flag = territory wipe**: inventories/buildings gone; women/animals scatter wild. **Wild cavemen** (survivors) → founder/exile pipeline — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
+- **Destroy enemy flag** → **territory wipe**: inventories/buildings gone; women/animals scatter wild. **Wild cavemen** — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
+- **Loot before smash** — flag destroy deletes what you did not extract ([earlygame_vision.md](earlygame_vision.md) §4).
 
-### Campfire vs Land Claim
-| Dimension | Campfire (Nomadic) | Land Claim (Stationary) |
-|-----------|--------------------|--------------------------|
-| Capacity | 20 slots | 12 slots |
+### Campfire (Tier 1) vs Flag (Tier 2)
+| Dimension | Campfire (Tier 1) | Flag (Tier 2) |
+|-----------|-------------------|---------------|
+| Identity | Nomadic **land claim** | Settled home |
+| Capacity | 20 slots | 12+ slots |
 | Radius | 250px | 400px |
-| ClanBrain | Yes (nomadic mode in same `clan_brain.gd`) | Yes |
-| Area of Hunt | No (campfire has no AoH ring) | Yes (`AreaOfHunt` on claim) |
-| Buildings | Living huts only (max 3) | Oven, dairy, farm, huts, etc. |
+| ClanBrain | Yes (`brain_mode = "nomadic"`) | Yes (settled) |
+| Area of Hunt | No AoH ring | Yes (`AreaOfHunt`) |
+| Buildings | Living Huts (**max 3**); **no Field** / proto farming | Oven, dairy, farm, Field (planned), huts, etc. |
+| Relocation | **ABANDON CAMP** | Fixed / upgrade chain |
+| Raid economy | Player-led hostile parties; **no full AI raid scoring** (target) | Full ClanBrain raids + multi-goal (planned) |
+
+*Code note:* Tier 1 may allow Oven/Drying Rack on campfire for bread/leather — **crop ring (Field) stays flag-only** ([proto_farming.md](future%20implementations/proto_farming.md)).
 
 ### Village & late-game scale
-- **Campfire** supports up to 3 Living Huts; then player must place a Land Claim.
-- **Village** = claim at scale: large radius (upgradable), many huts and buildings. ClanBrain keeps track of what the clan needs and has clansmen craft/farm accordingly (supply/demand; see `bible/future implementations/village.md`).
-- **Task assignment (planned):** clanspeople gain experience in what they do most; highest experience get picked for that task. Home huts (male + female) flavor; economy remains ClanBrain-driven.
+- **Village** = flag at scale: large radius, many huts and buildings. ClanBrain supply/demand ([future implementations/village.md](future%20implementations/village.md)).
+- **Task assignment (planned):** experience-based job pick; home huts flavor.
 
 ---
 
@@ -201,8 +217,12 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 | **Living Hut** | 1 Wood, 1 Stone | 1 | Houses 1 woman + her children. Required for pregnancy. |
 | **Supply Hut** | 1 Wood, 1 Stone | 0 | Extra storage (6 slots) |
 | **Shrine** | 1 Wood, 1 Stone | 0 | Place relics → clan-wide buffs |
-| **Dairy Farm** | 1 Wood, 1 Stone | 1 | Cheese & butter from milk |
-| **Oven** | 2 Stone | 0 | 1 Wood + 1 Grain → 1 Bread (15s) |
+| **Oven** | 2 Stone | 1 | 1 Wood + 1 Grain → 1 Bread (15s) |
+| **Farm** | 1 Wood, 1 Stone | 2 + sheep | Fiber → wool |
+| **Dairy Farm** | 1 Wood, 1 Stone | 2 + goats | Fiber → milk |
+| **Drying Rack** | 1 Wood, 1 Stone | 0 (passive) | Hide → leather over time |
+
+Detail: [farms.md](farms.md). **Field** (crop ring, proto farming) — **flag only, planned** ([proto_farming.md](future%20implementations/proto_farming.md)).
 
 ### Full GDD Building List (Aspirational)
 
@@ -240,8 +260,10 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 
 ### Baby Growth
 - Children live in mother's hut until promoted.
-- Timer (e.g. 90s test / 13 years design) → promote to clansman.
-- **Genetics**: Species, traits, and stats are resolved at birth from mother + father. See **§IX Genetics & hybridization** for full rules.
+- Timer (`BalanceConfig.baby_growth_seconds` test / 13 years design) → promote to **clansman** today.
+- **Planned:** sex at **birth**; daughters → **clanswomen**, sons → clansmen ([female_baby.md](future%20implementations/female_baby.md)).
+- **Baby cap:** Living Hut adds capacity; `enforce_baby_cap` on `ReproductionConfig` (default off in dev — enable for production).
+- **Genetics**: Species, traits, and stats resolved at birth from mother + father. UI: unique hybrids, not founder-species labels ([earlygame_vision.md](earlygame_vision.md) §8). See **§IX**.
 
 ---
 
@@ -252,7 +274,8 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 | **Women** | Wilderness | Reproduction + production buildings |
 | **Sheep / Goats** | Wilderness | Wool & milk |
 | **Horses** | Wilderness | Riding + travois (planned) |
-| **Clansmen** | Surplus babies | Permanent AI army |
+| **Clansmen** | Surplus babies (sons today) | Permanent AI army |
+| **Clanswomen** | *Planned:* daughters from birth | Reproduction + production buildings |
 | **Deer** | Wilderness | **PREY** — AoH hunt target; **`flee_prey`** from humans; not herdable |
 | **Mammoth** | Wilderness | **PREY** — AoH hunt target (when enabled); hostile/combat scale TBD |
 | **Predators** | Wilderness | Wolves etc. — hostile wildlife (mostly planned; see §XXII) |
@@ -352,20 +375,37 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 - **Death**: Health → 0 → corpse (lootable); leader succession (oldest clansman).
 
 ### Healing (Planned)
-- Wounds exist → hurt characters auto-path to Medic Hut if berries stocked.
+- **Living wounds** — not in code today. Target: hurt fighters fight worse until heal ([wounds.md](future%20implementations/wounds.md)); Medic Hut + berries (aspirational).
 
 ---
 
 ## XI. Raiding
 
-- **Loot** every building + flag inventory first (drag-and-drop).
+- **Loot** every building + flag inventory first (drag-and-drop) — **smash deletes what you left behind**.
 - **Destroy enemy flag** → **territory wipe** (herdables scatter wild; **wild cavemen** / founder — planned — [clan_founding_and_exile.md](clan_founding_and_exile.md)).
-- **War Horn + Herd** = instant massive war parties.
-- **ClanBrain** sets raid_intent; NPCs self-assign to Raid state.
+- **Today:** ClanBrain sets `raid_intent`; NPCs self-assign **Raid** state (march → engage at flag center).
+- **Planned:** four goals — **KILL / LOOT / STEAL / WIPE**; **cordage bond** for STEAL; STEAL never attacks flag ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
+- Player clans: manual hostile parties + context verbs (no auto ClanBrain raids).
 
 ---
 
 ## XII. Food & Production
+
+### Three foods, one hunger bar (design)
+| Food | Source | Role |
+|------|--------|------|
+| **Forage** | Berries, roots (future), hand gather | Stay alive on the walk |
+| **Meat** | AoH hunt or flock | Hunt / raid pressure |
+| **Grain / bread** | Wild wheat + Oven; **Field** on flag (planned) | Reason to settle |
+
+**Pantry UI (target):** `Food: N days` from `food_days_buffer` ([earlygame_vision.md](earlygame_vision.md)).
+
+### Environment-first survival (owner lock, 2026-08-31)
+
+- **Release bootstrap:** ~**1 meal** per new AI claim (`BalanceConfig.ai_claim_starting_food_berries_release`); dev/instrumented sessions may use **55 berries** via `--ai-dev-food-bootstrap` / `--session-quickstart`.
+- **Off-screen:** clans **gather** from chunk pools (deplete + regen), **hunt** abstract wild prey, **slaughter owned livestock** as last resort — same settlement tick rules for player and AI when dormant.
+- **Pantry ruler:** `ClanFoodBuffer` — one number for live brain + dormant sim (`food_days_buffer` == `calories_days_buffer`).
+- **Placeholder gather labels:** pseudo-biomes in `ChunkGenerator` can block edible gather (e.g. `rocky` = fiber/stone only) until real biomes ship or code adds food-first gather — see [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md).
 
 ### Bakery / Oven
 - **Wild Wheat** grows only outside land-claim radius.
@@ -425,9 +465,9 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 | Claim radius (join) | 400px |
 
 ### Stealing
-- Same-clan herders **cannot** steal from each other.
-- Cross-clan stealing allowed.
-- `follow_is_ordered` prevents stealing (player-ordered follow).
+- **Wild** herdables: cross-clan influence attach allowed; same-clan cannot steal from each other.
+- **Claimed** herdables inside enemy territory: influence **does not** attach today — **cordage bond** planned ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
+- `follow_is_ordered` prevents stealing (player-ordered follow / horn rally).
 
 ---
 
@@ -475,7 +515,7 @@ One **ClanBrain** per **territory** node (`land_claim.gd` or `campfire.gd` — s
 - **Work requests** — Tier 1 campfire + Tier 2 land claim: abundance-driven bread/leather chains; women claim via **`production_work`** (§XVI-A).
 - **Economic weights** — `food_weight`, `resource_weight`, `build_weight`, `herd_weight` (claim meta for FSM/job selection).
 - **Pressures** — `defend_pressure`, `search_pressure`, `gather_pressure` (renormalized; search/gather dominate population-maxing sim).
-- **Clan metrics** — `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` (and legacy `food_days_buffer`), meat/hide counts, population; refreshed on eval tick.
+- **Clan metrics** — `food_total`, `food_days_buffer` (item-based workforce gate), `calories_in_storage`, `calories_daily_need`, `calories_days_buffer` (kcal log), meat/hide counts, population; refreshed on eval tick.
 
 ### Strategic States
 PEACEFUL | DEFENSIVE | AGGRESSIVE | RAIDING | RECOVERING
@@ -885,14 +925,19 @@ Use a fixed **`--playtest-world-seed`** when comparing patches.
 | Combat | Working |
 | Herding | Production-ready |
 | Gather/Deposit | Production-ready |
-| Chunk grid (`ChunkUtils`) | Implemented — biomes/streaming MP incomplete |
+| Chunk grid (`ChunkUtils`) | Implemented — **player-facing biomes not shipped**; pseudo-biome labels drive off-screen gather only |
+| Off-screen settlement sim | **In progress** — gather/regen/slaughter shipped; baseline balance blocked on placeholder `rocky` = no food |
 | GDD alignment | ~40% |
 | Generational permadeath | Not wired |
 | Hominid species | Not implemented |
 | War Horn (RTS rally + formations) | Implemented — see §XVIII, `bible/rts.md` |
 | ClanBrain on campfire | Implemented |
 | Multiplayer | Stubs only — see §XX-A |
-| Medic Hut / Wounds | Not implemented |
+| Medic Hut / Wounds | Not implemented — [wounds.md](future%20implementations/wounds.md) |
+| Multi-goal raids + cordage STEAL | Planned — [herdable_raiding.md](future%20implementations/herdable_raiding.md) |
+| Proto farming (Field / crop ring) | Planned — [proto_farming.md](future%20implementations/proto_farming.md) |
+| Female babies → clanswomen | Planned — [female_baby.md](future%20implementations/female_baby.md) |
+| Early-game vision doc (Sep 2026) | [earlygame_vision.md](earlygame_vision.md) |
 | Predators (wolves) / Horses | Not implemented |
 | Early-game spear throw pipeline | Not implemented (design lock in earlygame roadmap) |
 
@@ -954,8 +999,18 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **COMBAT_TESTING_GUIDE.md** / **COMBAT_IMPLEMENTATION_SUMMARY.md** | Combat test procedures and implementation summary. | Testing and documentation; run tests when changing combat. |
 | **characergenerator.md** | Character generation (historical / design notes). | **Not** the active 2D pipeline; use `AssetRegistry` + art when adding NPC visuals. |
 | **clan_insanity_enlightenment.md** | Clan-wide **insanity vs enlightenment**: killing and cannibalism darken the psyche; peaceful activity lifts it — one meter for the entire clan’s tone and downstream effects. | Server-owned scalar on clan (`LandClaim` / `ClanBrain`); hooks from combat/cannibalism and peaceful jobs; thresholds drive clan-wide morale, AI, UI, or gated behaviors (exact effects TBD). |
+| **herdable_raiding.md** | **Multi-goal raids** (KILL / LOOT / STEAL / WIPE); **cordage bind** to steal claimed herdables; ClanBrain picks max payoff; STEAL never attacks flag; WIPE aborts during in-radius extract. | **Not implemented.** Extend `raid_intent["goal"]`; `raid_captured` + server `try_bind_herdable`; STEAL phases in `raid_state.gd`; cordage consumed on delivery; flag damage gated by goal. See [future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md). |
+| **proto_farming.md** | **Proto farming:** Field building inside claim; **crop ring** around it; plant → grow → harvest **grain** → existing **Oven** bread chain. Wild wheat gather remains. **Not** the current Farm (sheep/wool). | **Not implemented.** New building type; `CropPlot` states; server plot deltas; optional woman slot + ClanBrain milestone. See [future implementations/proto_farming.md](future%20implementations/proto_farming.md). |
+| **wounds.md** | Living clansmen retain **wounds** after combat; medic/heal path; not corpses-only. | **Not implemented.** Stub: [future implementations/wounds.md](future%20implementations/wounds.md). |
+| **earlygame_vision.md** | **First 10 min → settlement:** Tier 1 campfire land claim, three-food loop, raid verbs, horn+herd fix, genetics UI, build order. | Hub: [earlygame_vision.md](earlygame_vision.md). Cross-links: [nomad.md](nomad.md), [herdable_raiding.md](future%20implementations/herdable_raiding.md), [female_baby.md](future%20implementations/female_baby.md). |
+| **environment_goal.md** | **Canonical environment:** wedge biomes, map scale, weather, gatherable/wildlife kits, water, trade. | Hub: [environment_goal.md](environment_goal.md). Art: [island_map.md](island_map.md) · [assets/island_map2.jpg](assets/island_map2.jpg). MP: [island_mp.md](future%20implementations/island_mp.md). |
+| **island_map.md** | **Map2 art checklist** — land-use %, four rivers, desert-no-rivers, **organic biome pipeline** (§1c). Points to environment_goal. | [environment_goal.md](environment_goal.md) |
+| **island_mp.md** | Island MP: four quadrant spawns, claim non-overlap, disconnect → ClanBrain, domination panel, server herd/raid authority. | **Not implemented.** See [future implementations/island_mp.md](future%20implementations/island_mp.md). |
+| **lineage.md** | **Person** records (`person_id`, `mother_id`, `father_id`); prerequisite for female babies, genetics UI, inbreeding. | **Not implemented.** See [future implementations/lineage.md](future%20implementations/lineage.md). |
+| **clanbrain_raid_scoring.md** | **food_days_buffer** drives hunt/forage vs raid goal pick; removes hunger-boosts-raid; STEAL/LOOT/KILL/WIPE scoring sketch. | **Not implemented.** See [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md). |
+| **roadmap_2026.md** | **Unified build order** Phases 0–7: nomad → lineage → raiding → farming → island → MP → wounds. | Hub: [roadmap_2026.md](roadmap_2026.md). |
 
-**Also see (not in `future implementations/` folder):** `bible/README.md` (guide index), `bible/hunting.md` (hunt hub), `bible/Phase4/raiding_hunting.md` (RTS hunt stances), `bible/multiplayer.md` (MP roadmap), `bible/game_map.md` (chunks + streaming).
+**Also see (not in `future implementations/` folder):** `bible/README.md` (guide index), **[environment_goal.md](environment_goal.md)** (canonical island environment), [island_map.md](island_map.md), [roadmap_2026.md](roadmap_2026.md), `bible/hunting.md` (hunt hub), `bible/Phase4/raiding_hunting.md` (RTS hunt stances), `bible/multiplayer.md` (MP roadmap), `bible/game_map.md` (chunks + streaming).
 
 ---
 
