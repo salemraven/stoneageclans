@@ -95,6 +95,10 @@ func verify_tuner_overlay_matches(
 ## Spear overlay idle placement (offset from body sprite origin, pre-flip display px).
 @export var overlay_offset_idle_px: Vector2 = Vector2(22.0, -34.0)
 @export var idle_rotation_deg: float = 0.0
+## Ready / windup hold (Shift): degrees back from idle. 0 = use registry combat profile.
+@export var ready_rotation_offset_deg: float = 0.0
+## Strike windup arc extra degrees (club chop). 0 = use registry swing_windup_deg.
+@export var swing_windup_deg: float = 0.0
 
 ## Walk animation arm + overlay snapshot (tuner). Zero = fall back to idle fields on load.
 @export var walk_hand_grip_offset_px: Vector2 = Vector2.ZERO
@@ -1072,6 +1076,8 @@ func to_export_dict() -> Dictionary:
 		"support_hand_offset_px": support_hand_offset_px,
 		"overlay_offset_idle_px": overlay_offset_idle_px,
 		"idle_rotation_deg": idle_rotation_deg,
+		"ready_rotation_offset_deg": ready_rotation_offset_deg,
+		"swing_windup_deg": swing_windup_deg,
 		"walk_hand_grip_offset_px": walk_hand_grip_offset_px,
 		"walk_support_hand_offset_px": walk_support_hand_offset_px,
 		"walk_overlay_offset_px": walk_overlay_offset_px,
@@ -1175,6 +1181,10 @@ static func defaults_for(weapon_type: ResourceData.ResourceType, body_index: int
 		p.ready_forward_px = float(profile["ready_forward_px"])
 	if profile.has("idle_rotation_deg"):
 		p.idle_rotation_deg = float(profile["idle_rotation_deg"])
+	if profile.has("ready_rotation_offset_deg"):
+		p.ready_rotation_offset_deg = float(profile["ready_rotation_offset_deg"])
+	if profile.has("swing_windup_deg"):
+		p.swing_windup_deg = float(profile["swing_windup_deg"])
 	if weapon_type != ResourceData.ResourceType.NONE:
 		var none := load_none_body_preset(body_index)
 		if none != null:
