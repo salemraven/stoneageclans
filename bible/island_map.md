@@ -14,7 +14,7 @@
 | Property | Spec |
 |----------|------|
 | **Shape** | Single large landmass; **organic, irregular** coastline — not geometric |
-| **Look** | **Soft continuous ground** — gradual biome blends; **no** RimWorld/DF square cells or hard 90° biome corners. Chunks = load streaming only (invisible) |
+| **Look** | **Soft continuous ground** — **100% procedural**: 2048×2048 biome mask + shader blending + per-biome noise. **No** hand-drawn textures or square cells. Gradual biome transitions, organic edges |
 | **View** | Top-down orthographic 2D (tactical / classic overworld) |
 | **Scale** | Large enough for **diverse ecosystems** and multiple clans |
 | **Orientation** | North up, south down, west left, east right |
@@ -39,7 +39,7 @@ All clans, AI tribes, and MP sessions play on **this fixed geography** once worl
 | **Pass corridors** | TBD (`pass_layer.png` or `mountain_cost_mask`) | Narrow routes through glacier | ⬜ Not started |
 | **Forest patch overlay** | TBD | ~10% scattered on savanna | ⬜ Not started |
 | **SPRING points** | TBD (point layer) | Desert oases only — no glacial drainage | ⬜ Not started |
-| **Ground art** | `maps/island/chunks/tile_<cx>_<cy>.png` | Seamless 2048×2048 visual slices (textures only) | ⬜ Artist pass |
+| **Ground art** | `biome_ground.gdshader` | **100% procedural** — biome blending + FBM noise per biome + water banks. No hand-painted chunk textures | ✅ **Shader-driven** |
 | **Chunk gameplay data** | `world/island/chunks/chunk_<cx>_<cy>.tres` | biome grid, water, passes, prop zones | ⬜ Export not wired |
 | **Runtime mutations** | `MutationStore` | Chops, depletions, builds on top of base map | ✅ Exists (dev) |
 | **Climate overlays** | `ClimateState` + chunk overlays (Phase 6) | Flood, drought, glacier grow, aridification | ❌ Design only — [environment_goal.md](environment_goal.md) §19 |
@@ -62,9 +62,11 @@ All clans, AI tribes, and MP sessions play on **this fixed geography** once worl
 
 **Why region shaping, not tile nibbling:** flipping tiles along a straight edge only turns a line into a dashed line (still reads as a ruler). Warping the whole region with low-frequency seeded noise gives real curves; the 3/4 speck rule then keeps the 1-tile scale clean.
 
-**Straight-border metric** (`biome_mask_shape_rules.py` ↔ `mask_topology.gd`): collinear edge chains (gaps ≤ 2 tiles merge, so dashed lines count). Fail at **≥ 28 tiles** — a smooth curve of radius R has grid flats ≈ 2√R, so regions this size legitimately produce flats up to ~25; ≥ 28 can only be a genuinely straight edge. 8–27 is reported as minor.
+**Straight-border metric** (`biome_mask_shape_rules.py` ↔ `mask_topology.gd`): collinear edge chains (gaps ≤ gap_merge tiles merge, so dashed lines count). Thresholds **scale with mask resolution** (base: 28 at 1024, so 56 at 2048). A smooth curve of radius R has grid flats ≈ 2√R; anything above threshold is a genuinely straight edge.
 
-**Current result:** savanna 66 %, jungle 14.7 %, swamp 9.9 %, desert 9.1 %, glacier 3.1 %, beach 0.8 %; longest straight chain 25 (gate threshold 28). **Desert is below the ~20 % art target** — tune paint/shape if layout review says so.
+**Current result (2048×2048):** savanna 66 %, jungle 14.6 %, swamp 9.9 %, desert 9.1 %, glacier 3.1 %, beach 0.5 %; longest straight chain 35 (gate threshold 56). **Desert is below the ~20 % art target** — tune paint/shape if layout review says so.
+
+**Resolution note:** The mask was upgraded from 1024×1024 to **2048×2048** (32 world pixels per mask pixel). This makes biome edges 2× smoother at normal camera zoom. 4096×4096 (16 px/tile) is possible but adds ~20 min to generation; 2048 is the current balance.
 
 **Rivers are never mutated by tools.** `water_layer_guides.png` is the painted truth; the pipeline copies it to `water_layer.png` at step 0. The old cleanup path that invented H-shaped water inside the desert is retired.
 

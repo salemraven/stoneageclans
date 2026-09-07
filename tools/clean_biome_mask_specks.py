@@ -31,10 +31,10 @@ from PIL import Image
 from scipy import ndimage
 
 from biome_mask_shape_rules import (
-    MIN_STRAIGHT_BORDER_LEN,
     count_straight_borders,
     find_straight_borders,
     format_straight_report,
+    scale_straight_thresholds,
 )
 
 OCEAN = 0
@@ -71,7 +71,10 @@ def encode_ids(ids: np.ndarray) -> np.ndarray:
 def load_water(path: Path, shape: tuple[int, int]) -> np.ndarray:
     if not path.exists():
         return np.zeros(shape, dtype=bool)
-    water = np.array(Image.open(path))
+    img = Image.open(path)
+    if img.size != (shape[1], shape[0]):
+        img = img.resize((shape[1], shape[0]), Image.Resampling.NEAREST)
+    water = np.array(img)
     if water.ndim == 3:
         water = water[:, :, 0]
     return water > 127
@@ -228,14 +231,16 @@ def main() -> None:
         print("cleaned " + mask_path.name + ": " + ", ".join(f"{k}={v}" for k, v in totals.items()))
 
     ids = ids_from_mask(np.array(Image.open(mask_path)))
+    mask_size = ids.shape[0]
     is_water = load_water(water_path, ids.shape)
     report = validate(ids, is_water)
     specks = count_remaining_biome_specks(ids, is_water)
-    segments = find_straight_borders(ids, is_water)
-    straight = sum(1 for s in segments if s.length >= MIN_STRAIGHT_BORDER_LEN)
+    _, border_len, _ = scale_straight_thresholds(mask_size)
+    segments = find_straight_borders(ids, is_water, mask_size=mask_size)
+    straight = sum(1 for s in segments if s.length >= border_len)
     ok = sum(report.values()) == 0 and specks == 0 and straight == 0
     print("OK" if ok else "FAIL", report, f"biome_specks={specks}", f"straight_borders={straight}")
-    print(format_straight_report(segments))
+    print(format_straight_report(segments, mask_size=mask_size))
     if args.check_only:
         raise SystemExit(0 if ok else 1)
 

@@ -66,16 +66,38 @@ class ShapeParams:
     edge_noise: float  # small high-frequency threshold jitter
 
 
-# Tuned for a 1024x1024 mask where 1 px = 1 gameplay tile (64 world px).
-SHAPE_PARAMS: dict[int, ShapeParams] = {
+# Base parameters tuned for 1024x1024 mask. Scaled automatically for higher resolutions.
+BASE_MASK_SIZE = 1024
+_BASE_PARAMS: dict[int, ShapeParams] = {
     GLACIER: ShapeParams("glacier", "largest", 0, 3, 2, 7.0, 48.0, 2.0, 0.06),
     DESERT: ShapeParams("desert", "largest", 0, 2, 3, 16.0, 96.0, 3.0, 0.08),
     SWAMP: ShapeParams("swamp", "largest", 0, 2, 3, 16.0, 96.0, 3.0, 0.08),
     JUNGLE: ShapeParams("jungle", "min_size", 900, 2, 3, 18.0, 96.0, 3.0, 0.08),
 }
 COMPOSE_ORDER = (GLACIER, DESERT, SWAMP, JUNGLE)
-DESERT_RIVER_MARGIN = 2  # tiles of savanna between desert and any river
-SHORE_FILL_RADIUS = 6  # non-land within this many tiles of a region is treated as region during smoothing
+_BASE_DESERT_RIVER_MARGIN = 2
+_BASE_SHORE_FILL_RADIUS = 6
+
+
+def scale_params(mask_size: int) -> tuple[dict[int, ShapeParams], int, int]:
+    """Scale shape parameters for the actual mask resolution."""
+    scale = mask_size / BASE_MASK_SIZE
+    scaled: dict[int, ShapeParams] = {}
+    for biome_id, p in _BASE_PARAMS.items():
+        scaled[biome_id] = ShapeParams(
+            name=p.name,
+            keep=p.keep,
+            min_size=int(p.min_size * scale * scale),  # area scales quadratically
+            open_radius=max(1, int(p.open_radius * scale)),
+            close_radius=max(1, int(p.close_radius * scale)),
+            warp_amplitude=p.warp_amplitude * scale,
+            warp_wavelength=p.warp_wavelength * scale,
+            blur_sigma=p.blur_sigma * scale,
+            edge_noise=p.edge_noise,  # threshold jitter doesn't scale
+        )
+    desert_margin = max(1, int(_BASE_DESERT_RIVER_MARGIN * scale))
+    shore_fill = max(1, int(_BASE_SHORE_FILL_RADIUS * scale))
+    return scaled, desert_margin, shore_fill
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -141,7 +163,7 @@ def domain_warp(mask: np.ndarray, amplitude: float, wavelength: float, seed: int
 
 
 def shape_region(
-    region: np.ndarray, land: np.ndarray, params: ShapeParams, seed: int
+    region: np.ndarray, land: np.ndarray, params: ShapeParams, seed: int, shore_fill_radius: int
 ) -> np.ndarray:
     if not region.any():
         return region
@@ -152,7 +174,7 @@ def shape_region(
         return m
     # Shore/river tiles right next to the region count as region while smoothing,
     # otherwise the blur sees "not region" there and peels a 2-3 tile rim off every coast.
-    shore_fill = ~land & ndimage.binary_dilation(m, structure=_disk(SHORE_FILL_RADIUS))
+    shore_fill = ~land & ndimage.binary_dilation(m, structure=_disk(shore_fill_radius))
     field = domain_warp(m | shore_fill, params.warp_amplitude, params.warp_wavelength, seed)
     field = ndimage.gaussian_filter(field, sigma=params.blur_sigma)
     jitter = seeded_noise(m.shape, 6.0, seed + 97, octaves=1) * params.edge_noise
@@ -181,13 +203,16 @@ def paint_coast_beach(ids: np.ndarray, is_water: np.ndarray) -> int:
 
 
 def shape_all(ids: np.ndarray, is_water: np.ndarray, seed: int) -> dict[str, dict[str, float]]:
+    mask_size = ids.shape[0]
+    shape_params, desert_margin, shore_fill_radius = scale_params(mask_size)
+
     land = (ids != OCEAN) & ~is_water
     stats: dict[str, dict[str, float]] = {}
     shaped: dict[int, np.ndarray] = {}
     for biome_id in COMPOSE_ORDER:
-        params = SHAPE_PARAMS[biome_id]
+        params = shape_params[biome_id]
         before = ids == biome_id
-        after = shape_region(before, land, params, seed + biome_id * 1000)
+        after = shape_region(before, land, params, seed + biome_id * 1000, shore_fill_radius)
         shaped[biome_id] = after
         stats[params.name] = {"before_px": int(before.sum()), "after_px": int(after.sum())}
 
@@ -199,12 +224,13 @@ def shape_all(ids: np.ndarray, is_water: np.ndarray, seed: int) -> dict[str, dic
         ids[region] = biome_id
         claimed |= region
 
-    stats["desert_retracted_px"] = {"value": retract_desert_from_rivers(ids, is_water, DESERT_RIVER_MARGIN)}
+    stats["desert_retracted_px"] = {"value": retract_desert_from_rivers(ids, is_water, desert_margin)}
     stats["beach_px"] = {"value": paint_coast_beach(ids, is_water)}
 
     total_land = int(land.sum())
     for biome_id, name in ((SAVANNA, "savanna"), (DESERT, "desert"), (JUNGLE, "jungle"), (SWAMP, "swamp"), (GLACIER, "glacier"), (BEACH, "beach")):
         stats.setdefault(name, {})["pct_land"] = round(100.0 * int((ids == biome_id).sum()) / max(total_land, 1), 2)
+    stats["mask_size"] = {"value": mask_size}
     return stats
 
 

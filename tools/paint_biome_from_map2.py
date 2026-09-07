@@ -51,10 +51,19 @@ SOURCE = REPO / "bible/assets/island_map2.jpg"
 MASK_PATH = REPO / "maps/island/biome_mask.png"
 GLACIER_MIN_LAND_FRAC = 0.03
 GLACIER_MAX_LAND_FRAC = 0.05
-GLACIER_GROW_MAX_RADIUS = 85
+
+# Base values tuned for 1024x1024 — scaled automatically for higher resolutions.
+_BASE_MASK_SIZE = 1024
+_BASE_GLACIER_GROW_MAX_RADIUS = 85
+_BASE_WEDGE_WAVE_AMPLITUDE = 52
+_BASE_GLACIER_RADIUS_WAVE_AMPLITUDE = 34
 
 # Regional biomes that use 3+/4-side speck cleanup vs savanna (see clean_biome_mask_specks.py).
 REGIONAL_SPECK_BIOMES = (BIOME_DESERT, BIOME_JUNGLE, BIOME_SWAMP, BIOME_BEACH)
+
+
+def _mask_scale(mask_size: int) -> float:
+    return mask_size / _BASE_MASK_SIZE
 
 
 def hub_coords(h: int, w: int) -> tuple[int, int]:
@@ -62,20 +71,21 @@ def hub_coords(h: int, w: int) -> tuple[int, int]:
 
 
 WEDGE_WAVE_SEED = 882001
-WEDGE_WAVE_AMPLITUDE = 52
-GLACIER_RADIUS_WAVE_AMPLITUDE = 34
 
 
-def _glacier_radius_limit(cy: int, cx: int, y: int, x: int, base: int = GLACIER_GROW_MAX_RADIUS) -> int:
+def _glacier_radius_limit(cy: int, cx: int, y: int, x: int, mask_size: int) -> int:
     """Seeded wavy radius so snow line is not a perfect circle on the grid."""
+    scale = _mask_scale(mask_size)
+    base = int(_BASE_GLACIER_GROW_MAX_RADIUS * scale)
+    wave_amp = int(_BASE_GLACIER_RADIUS_WAVE_AMPLITUDE * scale)
     dy, dx = y - cy, x - cx
     if dy == 0 and dx == 0:
-        return base + GLACIER_RADIUS_WAVE_AMPLITUDE
+        return base + wave_amp
     angle_idx = int((math.atan2(dy, dx) + math.pi) / (2.0 * math.pi) * 24.0) % 24
     wa = _wedge_wave(angle_idx, 0, 40)
     wb = _wedge_wave(angle_idx // 2, 0, 41)
     wave = (wa + wb) / 2.0
-    return base + int((wave - 0.5) * 2 * GLACIER_RADIUS_WAVE_AMPLITUDE)
+    return base + int((wave - 0.5) * 2 * wave_amp)
 
 
 def _wedge_wave(a: int, b: int, salt: int) -> float:
@@ -361,7 +371,7 @@ def clamp_glacier_to_center(ids: np.ndarray) -> dict:
             for x in range(w):
                 if gmask[y, x] or ids[y, x] != BIOME_SAVANNA:
                     continue
-                if (y - cy) ** 2 + (x - cx) ** 2 > _glacier_radius_limit(cy, cx, y, x) ** 2:
+                if (y - cy) ** 2 + (x - cx) ** 2 > _glacier_radius_limit(cy, cx, y, x, h) ** 2:
                     continue
                 if any(
                     gmask[y + dy, x + dx]

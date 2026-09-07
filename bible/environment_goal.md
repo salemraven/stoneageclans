@@ -66,7 +66,7 @@ Stone Age Clans should feel like a **harsh, alive wilderness** on a **single hug
 
 - **Hand-authored map** — full island layout, biomes, rivers, mountain passes, prop placement, and resource zones designed in-editor (or exported from an external map tool). **No procedural terrain generation** for the shipping island.
 - **Chunk streaming** still loads/unloads **pieces** of that fixed map as players move (performance + multiplayer), but content comes from **authored data**, not noise rolls.
-- **Ground** from artist-made paint: **seamless chunk seams**, **interior variation**, **soft organic biome blends** — **not** a visible tile grid.
+- **Ground** from **100% procedural shader** (`biome_ground.gdshader`): biome mask lookup + edge blending + FBM noise per biome — **no** artist-painted textures, seamless everywhere.
 - **Look lock:** **No RimWorld / Dwarf Fortress blockiness** — no square biome cells, no hard 90° biome corners for the player. Chunks (2048px) are **load streaming only**; they must be invisible. Biome IDs for gameplay can snap under the hood; **what you see is continuous painted ground**.
 - **Wedge biomes** — one organic island; **savanna/plains is the majority** (~55% land); **regional biomes** (desert NE, jungle + swamp SW, glacier center); **forest patches** scattered on savanna — **not** concentric rings around the whole island.
 - **Central glacier / alpine** — snow, ice, rock ground at the watershed; cold hazard; **all rivers originate here**; passable foothills (no collision walls).
@@ -107,7 +107,7 @@ Stone Age Clans should feel like a **harsh, alive wilderness** on a **single hug
 2. Generate **regional biomes** (§3): savanna base, desert NE, jungle + swamp SW, glacier center — `bash tools/rebuild_island_biomes.sh` (organic borders via domain warp). ✅ **Baseline shipped** (desert % below art target; see [island_map.md](island_map.md) §4)
 3. Paint **four river systems** from glacier; **wetland bank strip** along rivers (not in desert). ✅ Rivers painted (`water_layer_guides.png`); copied to `water_layer.png` at rebuild; wetland overlay ⬜
 4. Paint **glacier hazard** + optional pass corridors (passable, slow, cold — no collision geometry). ⬜
-5. **Ground textures only** on the art map — trees, grass tufts, bushes, rocks, gatherables placed later as **sprites** in-engine. ⬜ Artist pass
+5. **Ground procedural** — shader handles biome colors, edge blending, per-biome noise. Trees, grass tufts, bushes, rocks, gatherables placed later as **sprites** in-engine. ✅ Shader-driven
 6. Mark **desert oases** (`SPRING`) — no glacial drainage into desert. ⬜
 7. Export **chunk tiles** (§12); validate passability, biome queries, desert-no-rivers rule. ⬜
 
@@ -132,13 +132,13 @@ Stone Age Clans should feel like a **harsh, alive wilderness** on a **single hug
 | **View** | **Top-down orthographic only** — flat 2D; **no perspective or isometric** on ground art |
 | **Collision** | **None** for terrain — water, cold, heat = movement rules + debuffs, not physics walls |
 
-**Artist deliverable:** One source PNG (or layered PSD) at target resolution **or** pre-sliced `tile_<cx>_<cy>.png` grid. Ground **texture patterns only** — no painted trees, bushes, or props.
+**Artist deliverable:** **None for ground** — `biome_ground.gdshader` procedurally renders biomes, edges, and noise patterns. Trees, bushes, rocks, and props are placed as **sprites** in-engine.
 
 ### 3.2 Land-use (map2 / approved layout)
 
 Percentages = **land area only** (excluding ocean).
 
-| Biome ID | ~% land | Region | Ground texture (artist paints) |
+| Biome ID | ~% land | Region | Ground look (shader-generated) |
 |----------|---------|--------|--------------------------------|
 | `SAVANNA` / `PLAINS` | **~55%** | Central + most of island | Light green/yellow grass, tan dirt patches |
 | `DESERT` | **~20%** | **Northeast** + east cape | Tan sand, cracked dry earth |
@@ -216,7 +216,7 @@ TerrainQuery.get_temperature_stress(world_pos) -> float  # cold / heat
 
 | Layer | Who authors | Examples |
 |-------|-------------|----------|
-| **Ground texture map** | Cartographer / tile artist | Grass, sand, snow, mud, water color |
+| **Ground rendering** | **Procedural shader** (`biome_ground.gdshader`) | Biome colors, edge blending, FBM noise per biome |
 | **Props & foliage** | Game engine / level pass | Trees, bushes, grass tufts, gatherable nodes, rocks |
 
 The island art map is the **tabletop** — all interactive objects are **sprites placed on top** with biome-aware spawn tables (§5–6, §13).

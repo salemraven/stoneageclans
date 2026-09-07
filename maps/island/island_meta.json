@@ -4,7 +4,7 @@
   "chunk_size_px": 2048,
   "chunk_count_x": 32,
   "chunk_count_y": 32,
-  "mask_size": 1024,
+  "mask_size": 2048,
   "source_image": "island_map2.jpg",
   "mask_phase": "all_regional_biomes",
   "grass_only_baseline": false,

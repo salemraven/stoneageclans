@@ -31,10 +31,29 @@ import numpy as np
 OCEAN = 0
 SAVANNA = 1
 BEACH = 8
-MIN_STRAIGHT_REPORT_LEN = 8
-MIN_STRAIGHT_BORDER_LEN = 28
-STRAIGHT_GAP_MERGE = 2
+
+# Base thresholds tuned for 1024x1024 — scaled for higher resolutions.
+_BASE_MASK_SIZE = 1024
+_BASE_MIN_STRAIGHT_REPORT_LEN = 8
+_BASE_MIN_STRAIGHT_BORDER_LEN = 28
+_BASE_STRAIGHT_GAP_MERGE = 2
 STRAIGHT_BORDER_SKIP_BIOMES = {BEACH}
+
+
+def scale_straight_thresholds(mask_size: int) -> tuple[int, int, int]:
+    """Return (report_len, border_len, gap_merge) scaled for mask resolution."""
+    scale = mask_size / _BASE_MASK_SIZE
+    return (
+        max(2, int(_BASE_MIN_STRAIGHT_REPORT_LEN * scale)),
+        max(4, int(_BASE_MIN_STRAIGHT_BORDER_LEN * scale)),
+        max(1, int(_BASE_STRAIGHT_GAP_MERGE * scale)),
+    )
+
+
+# Legacy globals for backward compat — code should call scale_straight_thresholds() instead.
+MIN_STRAIGHT_REPORT_LEN = _BASE_MIN_STRAIGHT_REPORT_LEN
+MIN_STRAIGHT_BORDER_LEN = _BASE_MIN_STRAIGHT_BORDER_LEN
+STRAIGHT_GAP_MERGE = _BASE_STRAIGHT_GAP_MERGE
 
 
 @dataclass
@@ -87,14 +106,14 @@ def _edge_runs_1d(line: np.ndarray, side_a: np.ndarray, side_b: np.ndarray) -> l
     return runs
 
 
-def _merge_chains(runs: list[tuple[int, int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+def _merge_chains(runs: list[tuple[int, int, int, int, int]], gap_merge: int = STRAIGHT_GAP_MERGE) -> list[tuple[int, int, int, int]]:
     """Merge collinear runs (same biome + side) separated by small gaps."""
     runs.sort()
     chains: list[tuple[int, int, int, int]] = []
     for start, end, biome, neighbor, side in runs:
         if chains:
             c_start, c_end, c_biome, c_side = chains[-1][0], chains[-1][1], chains[-1][2], chains[-1][3]
-            if c_biome == biome and c_side == side and start - c_end - 1 <= STRAIGHT_GAP_MERGE:
+            if c_biome == biome and c_side == side and start - c_end - 1 <= gap_merge:
                 chains[-1] = (c_start, max(c_end, end), biome, side)
                 continue
         chains.append((start, end, biome, side))
@@ -102,10 +121,20 @@ def _merge_chains(runs: list[tuple[int, int, int, int, int]]) -> list[tuple[int,
 
 
 def find_straight_borders(
-    ids: np.ndarray, is_water: np.ndarray, min_len: int = MIN_STRAIGHT_REPORT_LEN
+    ids: np.ndarray, is_water: np.ndarray, min_len: int | None = None, mask_size: int | None = None
 ) -> list[StraightSegment]:
+    """Find straight border segments on the biome mask.
+
+    If mask_size is given, thresholds are scaled automatically for that resolution.
+    Otherwise, uses legacy 1024-based constants.
+    """
+    h, w = ids.shape
+    actual_size = mask_size or max(h, w)
+    report_len, border_len, gap_merge = scale_straight_thresholds(actual_size)
+    if min_len is None:
+        min_len = report_len
+
     land = _land_ids(ids, is_water)
-    h, w = land.shape
     pad = np.full((h + 2, w + 2), -1, dtype=np.int32)
     pad[1:-1, 1:-1] = land
     segments: list[StraightSegment] = []
@@ -115,7 +144,7 @@ def find_straight_borders(
         north = pad[y, 1:-1]
         south = pad[y + 2, 1:-1]
         runs = _edge_runs_1d(line, north, south)
-        for start, end, biome, side in _merge_chains(runs):
+        for start, end, biome, side in _merge_chains(runs, gap_merge):
             length = end - start + 1
             if length < min_len:
                 continue
@@ -129,7 +158,7 @@ def find_straight_borders(
         west = pad[1:-1, x]
         east = pad[1:-1, x + 2]
         runs = _edge_runs_1d(line, west, east)
-        for start, end, biome, side in _merge_chains(runs):
+        for start, end, biome, side in _merge_chains(runs, gap_merge):
             length = end - start + 1
             if length < min_len:
                 continue
@@ -141,17 +170,24 @@ def find_straight_borders(
     return segments
 
 
-def count_straight_borders(ids: np.ndarray, is_water: np.ndarray, min_len: int = MIN_STRAIGHT_BORDER_LEN) -> int:
-    return sum(1 for seg in find_straight_borders(ids, is_water, min_len=min_len) if seg.length >= min_len)
+def count_straight_borders(ids: np.ndarray, is_water: np.ndarray, mask_size: int | None = None) -> int:
+    """Count serious straight borders (>= threshold for this mask size)."""
+    h = ids.shape[0]
+    actual_size = mask_size or h
+    _, border_len, _ = scale_straight_thresholds(actual_size)
+    segments = find_straight_borders(ids, is_water, min_len=border_len, mask_size=actual_size)
+    return sum(1 for seg in segments if seg.length >= border_len)
 
 
-def format_straight_report(segments: list[StraightSegment], limit: int = 8) -> str:
-    serious = [s for s in segments if s.length >= MIN_STRAIGHT_BORDER_LEN]
-    minor = len(segments) - len(serious)
+def format_straight_report(segments: list[StraightSegment], mask_size: int = _BASE_MASK_SIZE, limit: int = 8) -> str:
+    """Format a human-readable report of straight borders."""
+    report_len, border_len, _ = scale_straight_thresholds(mask_size)
+    serious = [s for s in segments if s.length >= border_len]
+    minor = len([s for s in segments if report_len <= s.length < border_len])
     longest = max((s.length for s in segments), default=0)
     lines = [
         f"straight_borders={len(serious)} "
-        f"(minor_{MIN_STRAIGHT_REPORT_LEN}_{MIN_STRAIGHT_BORDER_LEN - 1}={minor}, longest={longest})"
+        f"(minor_{report_len}_{border_len - 1}={minor}, longest={longest}, threshold={border_len})"
     ]
     serious.sort(key=lambda s: -s.length)
     for seg in serious[:limit]:
