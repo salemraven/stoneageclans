@@ -1,7 +1,7 @@
 # Stone Age Clans – Official Game Design Document  
-**Current Living Version – May 2026** (vision & rules; **verify** numbers in code/`BalanceConfig` / `WorldGenConfig` for shipped tunables)  
-**Design intent** lives here; **implementation truth** is `bible.md` + `bible/main.md` + `bible/game_dictionary.md`.  
-All previous documents (July 2025 PDFs) are officially obsolete. **Guide index:** `bible/README.md`.
+**Current Living Version – September 2026** (vision & rules; **verify** numbers in code/`BalanceConfig` / `WorldGenConfig`)  
+**Design intent** lives here; **implementation truth** is `bible.md` + `bible/main.md` + [earlygame_vision.md](earlygame_vision.md).  
+**Opening loop (Tier 1 campfire → Tier 2 flag):** [earlygame_vision.md](earlygame_vision.md), [nomad.md](nomad.md).
 
 **Implementation note (May 2026):** The world uses **chunk-based streaming** for procedural resources, trees, grass, ground items, wild women, migratory wildlife, and optional seeded AI clans. Infinite plain, seed, load/unload, and file map → **`bible/game_map.md`**. GDD §2 “world” remains the **player-facing** description.
 
@@ -23,17 +23,14 @@ Pure sandbox – no hard victory screen.
 ## 4. Universal Controls & UI
 - **I** = open any flag or building inventory  
 - **Drag-and-drop** absolutely everything (player ↔ flag ↔ buildings ↔ clansmen ↔ ground)  
-- **Right-click** any NPC → **Herd** (they follow you anywhere)  
-- **H** = **War Horn** → rally nearby clansmen (~1500 px), ordered follow + formations (`bible/rts.md`). In **HUNT** RTS mode, **H aborts** the hunt instead of rallying. Cooldown ~1 s.
+- **Right-click NPC** → **context menu** (Follow, Defend, Search, Work, Info). **Wild herdables:** walk within influence range (~250px) to attach — not instant follow from menu alone.  
+- **H** = **War Horn** → rally nearby clansmen (~1500 px). **Today:** can clear active herds on rallied units. **Planned:** searchers mid-herd ignore Horn ([rts.md](rts.md)). In **HUNT** mode, **H aborts** the hunt.  
+- **B** = **Break** — dismiss formation; return toward claim.
 
-## 5. Clan Flag & Land Claim
-- First craftable object: **X wood + X stone + X berries + X leather** (carryable at spawn)  
-- One-time clan symbol + color picker when placed  
-- Creates circular radius (invisible fence – your NPCs cannot leave on their own)  
-- Own drag-and-drop storage inventory  
-- Upgradable in-place: Flag → Tower → Keep → Castle (X radius, X storage, X costs + relics for higher tiers)  
-- **War Horn** built-in (H key)  
-- Destroy enemy flag = **territory wipe** (inventories/buildings gone; herdables scatter wild). **Wild cavemen** / founder pipeline — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md))
+## 5. Territory — Tier 1 Campfire → Tier 2 Flag
+- **Spawn** with no claim; first home = **Tier 1 Campfire** (nomadic land claim, **ABANDON CAMP**, max 3 Living Huts).  
+- **Tier 2 Flag** = settle: craft **wood + stone + berries + leather**; 400px radius; full production + AoH.  
+- Destroy enemy flag = **territory wipe** (loot first). **Wild cavemen** — planned ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
 
 ## 6. Baby Pool & Living Huts
 - Baby pool has a maximum capacity  

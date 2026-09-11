@@ -76,6 +76,14 @@ var enable_start_club: bool = false
 
 ## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
 var enable_session_quickstart: bool = false
+## Spawn N AI caveman+claim clans in a ring around the player (session quickstart). CLI: `--session-nearby-clans` or `--session-nearby-clans 4`
+var session_nearby_clans_count: int = 0
+## Auto-teleport player to each nearby AI claim then away (collect dormant/tick JSONL). CLI: `--session-ai-clan-tour`
+var session_ai_clan_tour: bool = false
+## Seconds to wait far from claims after tour visits (off-screen settlement ticks). CLI: `--session-ai-clan-tour-away-sec N`
+var session_ai_clan_tour_away_sec: float = 45.0
+## When true, player stays far until session quit (no return home). CLI: `--session-ai-clan-tour-stay-away`
+var session_ai_clan_tour_stay_away: bool = false
 var session_quit_after_seconds: float = 0.0
 var enable_session_instrumentation: bool = false
 ## Periodic worker snapshots (clansmen/cavemen job + FSM histogram) → JSONL when playtest capture is on.
@@ -166,11 +174,6 @@ func _parse_command_line_args() -> void:
 		enable_occupation_drag_logging = true
 		print("✓ Headless debug mode enabled")
 
-	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
-	if "--session-quickstart" in args:
-		enable_session_quickstart = true
-		print("✓ Session quickstart enabled (claim + women + Living Huts)")
-
 	# Session instrumentation: SESSION + MOVEMENT logs to user://game_logs.txt
 	if "--session-instrument" in args:
 		enable_session_instrumentation = true
@@ -178,6 +181,45 @@ func _parse_command_line_args() -> void:
 		enable_movement_debug = true
 		movement_debug_filter = "woman,clansman"
 		print("✓ Session instrumentation enabled (SESSION + MOVEMENT)")
+		if "--session-quickstart" in args:
+			print("✓ Phase 7 JSONL auto-enabled (playtest_*.jsonl + [PHASE7] console tags)")
+
+	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
+	if "--session-quickstart" in args:
+		enable_session_quickstart = true
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		print("✓ Session quickstart enabled (claim + women + Living Huts; dev AI food bootstrap)")
+
+	if "--ai-dev-food-bootstrap" in args:
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		print("✓ AI dev food bootstrap enabled (ai_claim_starting_food_berries_dev)")
+
+	for i in range(args.size()):
+		if args[i] == "--session-nearby-clans":
+			var n: int = 3
+			if i + 1 < args.size():
+				var next_arg: String = str(args[i + 1])
+				if next_arg.is_valid_int():
+					n = maxi(int(next_arg), 1)
+			session_nearby_clans_count = n
+			print("✓ Session nearby AI clans: %d (ring around player; use with --session-quickstart)" % n)
+			break
+
+	if "--session-ai-clan-tour" in args:
+		session_ai_clan_tour = true
+		print("✓ Session AI clan tour: auto-visit nearby claims for settlement sim data")
+
+	for i in range(args.size()):
+		if args[i] == "--session-ai-clan-tour-away-sec" and i + 1 < args.size():
+			session_ai_clan_tour_away_sec = maxf(float(args[i + 1]), 5.0)
+			print("✓ Session AI clan tour away: %.0fs off-screen" % session_ai_clan_tour_away_sec)
+			break
+
+	if "--session-ai-clan-tour-stay-away" in args:
+		session_ai_clan_tour_stay_away = true
+		print("✓ Session AI clan tour: stay away until session quit (no return home)")
 
 	# Woman transport test: only player, land claim + ovens + 2 women (no cavemen)
 	if "--woman-test" in args:

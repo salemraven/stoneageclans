@@ -224,7 +224,7 @@ func _maybe_print_phase7_row(obj: Dictionary) -> void:
 	if evt.is_empty():
 		return
 	var watch_prefixes: PackedStringArray = PackedStringArray([
-		"settlement_", "baby_", "phase7_",
+		"settlement_", "baby_", "phase7_", "repro_",
 	])
 	var watch := false
 	for p in watch_prefixes:
@@ -702,6 +702,30 @@ func settlement_tick_completed(
 	})
 
 
+func settlement_tick_food_delta(
+	clan_name: String,
+	pop: int,
+	food_before: int,
+	food_after: int,
+	gathered_count: int,
+	consumed_count: int,
+	food_days_buffer: float,
+	workforce_mode: String
+) -> void:
+	_write({
+		"evt": "settlement_tick_food_delta",
+		"clan": clan_name,
+		"pop": pop,
+		"food_before": food_before,
+		"food_after": food_after,
+		"food_delta": food_after - food_before,
+		"gathered_count": gathered_count,
+		"consumed_count": consumed_count,
+		"food_days_buffer": snappedf(food_days_buffer, 0.01),
+		"workforce_mode": workforce_mode,
+	})
+
+
 func settlement_roster_snapshot(clan_name: String, pop: int, alive: int, dormant: bool) -> void:
 	_write({
 		"evt": "settlement_roster_snapshot",
@@ -776,6 +800,44 @@ func settlement_hunt_skipped(clan_name: String, reason: String) -> void:
 		"evt": "settlement_hunt_skipped",
 		"clan": clan_name,
 		"reason": reason,
+	})
+
+
+func settlement_slaughter_completed(
+	clan_name: String,
+	animal_type: String,
+	animal_name: String,
+	meat: int,
+	hide: int,
+	bone: int
+) -> void:
+	_write({
+		"evt": "settlement_slaughter_completed",
+		"clan": clan_name,
+		"animal_type": animal_type,
+		"animal_name": animal_name,
+		"meat": meat,
+		"hide": hide,
+		"bone": bone,
+	})
+
+
+func settlement_slaughter_skipped(clan_name: String, reason: String) -> void:
+	_write({
+		"evt": "settlement_slaughter_skipped",
+		"clan": clan_name,
+		"reason": reason,
+	})
+
+
+func settlement_regen_completed(clan_name: String, resource_key: String, before: int, after: int, cap: int) -> void:
+	_write({
+		"evt": "settlement_regen_completed",
+		"clan": clan_name,
+		"resource": resource_key,
+		"before": before,
+		"after": after,
+		"cap": cap,
 	})
 
 
@@ -858,6 +920,39 @@ func settlement_claim_wake(clan_name: String, pop: int) -> void:
 	})
 
 
+func session_nearby_clan_spawned(
+	clan_name: String,
+	leader_name: String,
+	claim_x: float,
+	claim_y: float,
+	cave_x: float,
+	cave_y: float,
+	ring_index: int,
+	ring_radius_px: float
+) -> void:
+	_write({
+		"evt": "session_nearby_clan_spawned",
+		"clan": clan_name,
+		"leader": leader_name,
+		"claim_x": claim_x,
+		"claim_y": claim_y,
+		"cave_x": cave_x,
+		"cave_y": cave_y,
+		"ring_index": ring_index,
+		"ring_radius_px": ring_radius_px,
+	})
+
+
+func session_nearby_clans_complete(count: int, ring_radius_px: float, player_x: float, player_y: float) -> void:
+	_write({
+		"evt": "session_nearby_clans_complete",
+		"count": count,
+		"ring_radius_px": ring_radius_px,
+		"player_x": player_x,
+		"player_y": player_y,
+	})
+
+
 func settlement_roster_detail(clan_name: String, members: Array, dormant: bool) -> void:
 	_write({
 		"evt": "settlement_roster_detail",
@@ -936,6 +1031,12 @@ func baby_pregnancy_frozen(clan_name: String, npc_name: String, timer: float) ->
 
 func baby_pregnancy_resumed(clan_name: String, npc_name: String, timer: float) -> void:
 	_write({"evt": "baby_pregnancy_resumed", "clan": clan_name, "npc": npc_name, "timer": timer})
+
+
+func repro_gate(payload: Dictionary) -> void:
+	var obj: Dictionary = payload.duplicate()
+	obj["evt"] = "repro_gate"
+	_write(obj)
 
 func baby_grew_to_clansman(npc_name: String, clan_name: String, source: String = "timer") -> void:
 	_write({"evt": "baby_grew_to_clansman", "npc": npc_name, "clan": clan_name, "source": source})
@@ -1434,6 +1535,7 @@ func _process(_delta: float) -> void:
 	if now - _last_snapshot_time >= _snapshot_interval:
 		_last_snapshot_time = now
 		_capture_snapshot()
+		_capture_repro_health()
 
 # Matches ClanBrain.StrategicState order (PEACEFUL..RECOVERING) for snapshot labels only
 const _BRAIN_STRATEGIC_NAMES: Array = ["PEACEFUL", "DEFENSIVE", "AGGRESSIVE", "RAIDING", "RECOVERING"]
@@ -1643,6 +1745,67 @@ func _capture_snapshot() -> void:
 	_write(snap)
 	if not npc_probes.is_empty():
 		_write({"evt": "npc_world_probe", "count": npc_probes.size(), "npcs": npc_probes})
+
+
+func _capture_repro_health() -> void:
+	var tree = get_tree()
+	if not tree:
+		return
+	var codes: Dictionary = {}
+	var pregnant_n: int = 0
+	var women_n: int = 0
+	var clan_women: int = 0
+	var samples: Array = []
+	const MAX_SAMPLES: int = 16
+	for n in tree.get_nodes_in_group("npcs"):
+		if not is_instance_valid(n):
+			continue
+		if str(n.get("npc_type")) != "woman":
+			continue
+		if n.has_method("is_dead") and n.is_dead():
+			continue
+		women_n += 1
+		var clan: String = str(n.get("clan_name")) if n.get("clan_name") != null else ""
+		if clan != "":
+			clan_women += 1
+		var rc: Node = n.get("reproduction_component") as Node if n.get("reproduction_component") != null else null
+		if rc == null:
+			rc = n.get_node_or_null("ReproductionComponent")
+		var code: String = "no_component"
+		var label: String = "no ReproductionComponent"
+		var gate: Dictionary = {}
+		if rc and rc.has_method("get_repro_gate"):
+			gate = rc.get_repro_gate()
+		elif rc and rc.has_method("_compute_repro_gate"):
+			gate = rc._compute_repro_gate()
+		if not gate.is_empty():
+			code = str(gate.get("code", "?"))
+			label = str(gate.get("label", ""))
+			if bool(gate.get("pregnant", false)):
+				pregnant_n += 1
+		codes[code] = int(codes.get(code, 0)) + 1
+		if samples.size() < MAX_SAMPLES and code != "ok" and code != "pregnant":
+			samples.append({
+				"npc": str(gate.get("npc", n.get("npc_name"))),
+				"clan": str(gate.get("clan", clan)),
+				"code": code,
+				"label": label,
+				"hut": gate.get("has_hut", false),
+				"in_claim": gate.get("in_claim", false),
+				"food_items": gate.get("food_items", 0),
+				"food_days": gate.get("food_days", 0.0),
+				"father": gate.get("father", "none"),
+			})
+	var row: Dictionary = {
+		"evt": "repro_health",
+		"women": women_n,
+		"clan_women": clan_women,
+		"pregnant": pregnant_n,
+		"codes": codes,
+		"blocked_samples": samples,
+	}
+	_write(row)
+	print("REPRO_HEALTH women=%d clan=%d pregnant=%d codes=%s" % [women_n, clan_women, pregnant_n, JSON.stringify(codes)])
 
 func emit_combat_ended_for_all_in_combat() -> void:
 	"""Emit combat_ended for each NPC still in combat (fixes dangling combats invariant at test end)."""

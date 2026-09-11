@@ -5,6 +5,8 @@ extends RefCounted
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
 const AbstractHuntScript = preload("res://scripts/systems/abstract_hunt.gd")
+const AbstractSlaughterScript = preload("res://scripts/systems/abstract_slaughter.gd")
+const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
 
 const FOOD_FEED_PRIORITY: Array = [
 	ResourceData.ResourceType.COOKED_MEAT,
@@ -36,6 +38,8 @@ static func tick(
 		"depleted": [],
 		"biome": "",
 		"hunt": {},
+		"slaughter": {},
+		"regen": [],
 		"births": [],
 		"pregnancies_started": [],
 		"pregnancies_cancelled": [],
@@ -66,11 +70,17 @@ static func tick(
 	events["gathered"] = gather_events.get("gathered", [])
 	events["depleted"] = gather_events.get("depleted", [])
 	events["biome"] = str(gather_events.get("biome", ""))
+	events["regen"] = gather_events.get("regen", [])
 
 	var hunt_events: Dictionary = AbstractHuntScript.hunt_for_claim(
 		claim, roster, coords, clan_starving, hunt_intent_state
 	)
 	events["hunt"] = hunt_events
+
+	var slaughter_events: Dictionary = AbstractSlaughterScript.slaughter_for_claim(
+		claim, clan_starving, hunt_events, inventory
+	)
+	events["slaughter"] = slaughter_events
 
 	# Tick order (Phase 7+): pregnancies → aging → baby growth → conceptions.
 	# Growth before conceptions so new clansmen can father same tick; aging before growth so
@@ -499,21 +509,7 @@ static func _pick_father_id(roster: RefCounted, woman: Dictionary, events: Dicti
 static func _claim_food_days_buffer(claim: Node, roster: RefCounted) -> float:
 	if claim == null:
 		return 99.0
-	if claim.has_meta("food_days_buffer"):
-		return float(claim.get_meta("food_days_buffer"))
-	if claim.has_meta("calories_days_buffer"):
-		return float(claim.get_meta("calories_days_buffer"))
-	if not claim.get("inventory"):
-		return 0.0
-	var inventory: InventoryData = claim.get("inventory") as InventoryData
-	if inventory == null:
-		return 0.0
-	var food_total: int = _total_food_count(inventory)
-	var pop: int = maxi(1, int(roster.call("get_population")))
-	var per_day: float = 1.0
-	if BalanceConfig:
-		per_day = maxf(float(BalanceConfig.clan_food_per_capita_per_sim_day), 0.01)
-	return float(food_total) / maxf(1.0, float(pop) * per_day)
+	return ClanFoodBufferScript.get_pantry_days(claim, roster, [])
 
 
 static func _food_bypass_for_conception(claim: Node, roster: RefCounted, min_buffer: float) -> bool:

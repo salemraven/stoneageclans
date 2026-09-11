@@ -2,7 +2,7 @@
 
 **Status:** Implemented. Defense, searcher, raid, **NPC-clan hunting** (Area of Hunt), and **production economy** (WorkRequests) active; strategic pressures drive quotas.  
 **Last Updated:** 2026-06-13 (production economy + Living Hut home binding)  
-**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md` · **Off-screen villages:** `bible/settlement_sim.md`
+**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md` · **Off-screen villages:** `bible/settlement_sim.md` · **Off-screen balance & modifiers:** `bible/future implementations/off_screen_clan_balance.md`
 
 ## Overview
 
@@ -167,11 +167,11 @@ ClanBrain populates **clan_metrics** each evaluation cycle; these drive quota an
 |--------|-------------|
 | population | Total clan members (cavemen + clansmen + women + animals) |
 | breeding_females | Women in clan |
-| food_total | Berries + grain + bread + meat + milk etc. in land claim inventory (item count) |
-| food_days_buffer | **Legacy alias** — mirrors `calories_days_buffer` (stored kcal ÷ daily need) |
-| calories_in_storage | Total kcal in land claim food inventory (`BalanceConfig.get_food_calories` per item) |
-| calories_daily_need | Sum of `get_daily_calorie_need()` for clan members + player when in clan |
-| calories_days_buffer | `calories_in_storage / max(1, calories_daily_need)` — hunt/raid/breeding gate input |
+| food_total | All edible food items in land claim inventory (`ResourceData.EDIBLE_FOOD_TYPES`) |
+| food_days_buffer | **Pantry days (canonical):** `ClanFoodBuffer` — kcal in claim ÷ daily kcal need; meta matches `calories_days_buffer` |
+| calories_in_storage | Total kcal in land claim food inventory |
+| calories_daily_need | Sum of daily kcal need for roster / live members |
+| calories_days_buffer | **Same as `food_days_buffer`** (alias on claim meta + JSONL) |
 | herd_value | Women + sheep + goats in clan |
 | building_count | Buildings (non-claim) with same clan_name |
 | recent_losses | From land_claim meta "recent_herd_losses" (future: increment on herd steal) |

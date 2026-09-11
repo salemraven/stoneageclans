@@ -117,7 +117,7 @@ func _test_save_all_skips_unedited_cached_presets() -> Array[String]:
 	_seed_walk_clip(none)
 	none.ensure_unified_clips(null)
 	var walk = none.get_unified_clip(CharacterAnimationPresetStoreScript.CLIP_WALK)
-	var restore_hand := walk.pose_at_index(0).hand_weapon_px
+	var restore_hand: Vector2 = walk.pose_at_index(0).hand_weapon_px
 	walk.pose_at_index(0).hand_weapon_px = Vector2(777.0, 888.0)
 	registry.mark_staged_dirty(none)
 	var result: Dictionary = registry.save_all_staged()

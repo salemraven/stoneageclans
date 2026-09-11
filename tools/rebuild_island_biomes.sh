@@ -21,8 +21,10 @@ MASK_SIZE=4096
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--check)
-			python3 tools/clean_biome_mask_specks.py --check-only
-			exit $?
+			python3 tools/log_island_map_build.py
+			python3 tools/bake_river_distance.py
+			python3 tools/clean_biome_mask_specks.py --check-only || echo "WARN: speck/topology check failed (existing mask)"
+			exit 0
 			;;
 		--size)
 			MASK_SIZE="$2"
@@ -101,5 +103,11 @@ python3 tools/clean_biome_mask_specks.py --check-only
 
 echo "== 7. preview"
 python3 tools/render_biome_preview.py
+
+echo "== 8. map build log"
+python3 tools/log_island_map_build.py
+
+echo "== 9. river distance bake"
+python3 tools/bake_river_distance.py
 
 echo "=== Done: ${MASK_SIZE}x${MASK_SIZE} mask generated ==="

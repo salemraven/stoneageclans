@@ -1,7 +1,7 @@
 # Stone Age Clans – Main Mechanics & Implementation Report
 
-**Date**: May 2026  
-**Status**: Living **implementation** report (what ships in code). **Design canon:** `bible.md` + `bible/game_dictionary.md`. **Index:** `bible/README.md`. **World / streaming:** `bible/game_map.md`. **Hunting:** `bible/hunting.md`.
+**Date**: Sep 2026  
+**Status**: Living **implementation** report (what ships in code). **Design canon:** `bible.md` + `bible/game_dictionary.md`. **Early-game vision (Tier 1 campfire, food, raids, horn):** [earlygame_vision.md](earlygame_vision.md). **Index:** `bible/README.md`. **World / streaming:** `bible/game_map.md`. **Hunting:** `bible/hunting.md`.
 
 ---
 
@@ -17,32 +17,28 @@
 
 ### Intended full loop
 
-1. **Spawn** – Player spawns at age 13; choose hominid species (future).
-2. **Establish** – Place land claim; start clan; NPCs deposit and work around it.
-3. **Gather** – Collect wood, stone, berries, wheat; herd women, sheep, goats into claim radius.
-4. **Build** – Construct Living Huts, Supply Hut, Shrine, Dairy Farm, Oven, etc. from land claim build menu.
-5. **Produce** – Oven: Wood + Grain → Bread; (future) Dairy, Farm, Armory, Tailor, Medic Hut.
-6. **Expand** – Grow clan (reproduction, baby pool, surplus → clansmen); more buildings, more capacity.
-7. **Defend** – ClanBrain assigns defenders; agro on intruders; combat when enemies enter/raid.
-8. **Raid** – ClanBrain organizes raid parties; attack enemy land claims; loot buildings; destroy flag = **territory wipe** (wild cavemen / founder — planned).
-9. **Hunt** – AI clans: AoH prey → hunt parties; player: RTS hunt modes (see `bible/hunting.md`).
-10. **Reproduce** – Women in claim radius birth babies; babies grow to clansmen; baby pool cap from Living Huts.
-11. **Age & continue** – Player ages (future: die at 101); next generation; repeat until map dominated.
+1. **Spawn** – No territory; gather and craft.
+2. **Tier 1 Campfire** – First home: stash, herd into radius, **ABANDON CAMP** ([nomad.md](nomad.md)).
+3. **Tier 2 Flag** – Settle: full radius, AoH, production buildings.
+4. **Gather** – Forage, wood, stone, wild wheat.
+5. **Build & produce** – Huts, Oven, Farm/Dairy ([farms.md](farms.md)).
+6. **Expand** – Reproduction, baby pool, clansmen; *planned:* daughters → clanswomen ([female_baby.md](future%20implementations/female_baby.md)).
+7. **Defend / Hunt / Raid** – ClanBrain quotas; player RTS; *planned:* cordage STEAL ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
+8. **Dominate** – Generational sandbox win (bloodline on map).
+
+**Design owner:** [earlygame_vision.md](earlygame_vision.md)
 
 ### Current loop (what works today)
 
-1. Spawn (player + NPCs; battle royale mode can force combat).
-2. Place land claim (player or NPCs after cooldown).
-3. Gather (player and NPCs: berries, wood, stone, wheat).
-4. Build (craft buildings from land claim inventory; drag to place: Living Hut, Supply Hut, Shrine, Dairy Farm, Oven).
-5. Produce (Oven only: 1 Wood + 1 Grain → 1 Bread in 15s; fire button).
-6. Herd (right-click NPCs; bring women/sheep/goats into claim → claimed).
-7. Combat (agro on intrusion; melee with windup/recovery; death → corpse looting).
-8. Defend (ClanBrain defender quota; NPCs self-assign Defend state).
-9. Raid (ClanBrain raid intent; NPCs self-assign Raid state; move → engage → loot → retreat).
-10. Hunt / wild prey (NPC clans only: **deer** / **mammoth** in **Area of Hunt** → **`hunt_intent`** → **`hunt_state`**; sheep/goats stay **herd** path, not AoH hunt targets).
-11. Reproduction (women in claim reproduce; babies spawn, grow to clansmen).
-12. Tasks (NPCs pull jobs: Gather, DropOff, MoveTo, etc. from land claim/buildings).
+1. Spawn (player + NPCs; no claim at start in SP).
+2. **Campfire** and/or **flag** placement; Nomad Mode on campfire ([camp_relocation.md](camp_relocation.md)).
+3. Gather (berries, wood, stone, wheat).
+4. Build (Living Hut, Supply Hut, Shrine, Farm, Dairy, Oven, Drying Rack — tier-dependent).
+5. Produce (Oven bread; Farm wool; Dairy milk; Drying Rack leather — see [farms.md](farms.md)).
+6. Herd (**wild** herdables: proximity influence ~250px; context menu on NPCs — not instant right-click follow).
+7. Combat, defend, raid (AI ClanBrain), hunt (AI + player RTS modes).
+8. Reproduction (babies → **clansmen** only today).
+9. Tasks (Gather, production_work, deposit, etc.).
 
 ---
 
@@ -55,8 +51,9 @@
 - **Tab** – Toggle player inventory.
 - **9 / 0** – Consume item in hotbar slot 9 or 0.
 - **Click NPC** – Attack (if weapon equipped).
-- **Right-click NPC** – Herd (NPC follows player).
-- **Right-click land claim** – Context menu (e.g. INFO → building inventory / build menu).
+- **Right-click NPC** – Context menu (Follow, Defend, Search, Work, Info). **Wild herdables:** influence attach when you walk within ~250px.
+- **Right-click campfire** – **ABANDON CAMP**, INFO, etc. ([camp_relocation.md](camp_relocation.md)).
+- **Right-click land claim / flag** – Context menu (INFO → inventory / build menu).
 - **H** (War Horn) – Rally clansmen within ~1500 px (`RTS_CONFIG`); ordered follow + `command_context`. In **HUNT** mode, **H aborts** the hunt (does not rally). See `bible/rts.md`.
 - **B** – Break ordered follow; clansmen return toward claim.
 - **Box select / drag to player** – Multi-select clansmen; ordered follow (RTS).
@@ -68,7 +65,7 @@
 - **Craft land claim** – Wood + Stone + Berries + Leather (from inventory); carry and place in world.
 - **Place buildings** – From build menu (I near claim): buy building with materials from claim inventory; drag building item onto world inside claim; 50px buffer between buildings.
 - **Deposit / withdraw** – Drag-and-drop between player ↔ land claim ↔ buildings ↔ NPCs ↔ corpses ↔ ground.
-- **Herding** – Right-click woman/sheep/goat/caveman → they follow; enter claim radius to claim for clan.
+- **Herding** – **Wild** women/sheep/goats: proximity **HerdInfluenceArea** (~250px) → follow → join clan in claim radius. Context menu for fighters (Follow/Defend/etc.). **Claimed enemy herdables:** cordage bond — planned ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
 - **Combat** – Equip weapon (axe/pick); click enemy; windup → hit → recovery; loot corpse with I.
 - **Eat** – Consume berries/grain/bread from inventory or hotbar slots 9/0.
 - **Oven** – Open building inventory; add 1 Wood + 1 Grain; toggle Fire; wait 15s → Bread.
@@ -90,26 +87,20 @@
 - **Inventory**: 5 slots + 10-slot hotbar (right hand, left hand, equipment 3–8, consumables 9–0).
 - **Movement**: Steering/velocity; no FSM (unlike NPCs).
 - **Combat**: Same CombatComponent as NPCs; click-to-attack; weapon required; short windup (0.1s) / recovery (0.3s) for responsiveness.
-- **Herding**: Right-click sets target as follower via `_try_herd_chance`; herded_count on player.
+- **Herding**: Proximity influence on wild herdables; context menu for ordered follow on clansmen — see [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md).
 
-### 4.2 Land Claim & Territory
+### 4.2 Territory (Tier 1 Campfire / Tier 2 Flag)
 
-- **Placement**: Drag land claim from inventory; must be valid position (e.g. min distance from other claims for NPCs: 800px in Phase 1; 200px in checklist).
-- **Radius**: 400px (configurable); defines “clan territory.”
-- **Behavior**: NPCs deposit at claim; wild NPCs entering radius become clan-owned; claim holds unlimited inventory; build menu (I) shows claim inventory + building cards.
-- **Clan death**: If claim is destroyed (flag = **territory wipe**), inventories vanish, baby pool cleared, women/animals scatter wild. **Wild cavemen** (surviving males) — **planned** ([clan_founding_and_exile.md](clan_founding_and_exile.md)); **today** clansmen are not handled on flag destroy.
-- **Upgrades**: Flag → Tower → Keep → Castle planned (radius, storage, relics); not implemented.
+- **Tier 1 Campfire:** 250px, nomadic brain, Living Huts (max 3), **ABANDON CAMP**. See [nomad.md](nomad.md).
+- **Tier 2 Flag:** Craft and place; 400px radius; AoH; full building set.
+- **Clan death:** Flag destroy = wipe; herdables `become_wild()`; wild cavemen — planned ([clan_founding_and_exile.md](clan_founding_and_exile.md)).
 
 ### 4.3 Buildings
 
-- **Registry**: `BuildingRegistry` – Living Hut, Supply Hut, Shrine, Dairy Farm, Oven (costs in wood/stone).
-- **Placement**: Build menu consumes materials from land claim; adds building item to player; player drags onto world; must be inside player land claim, 50px from other buildings and claim center.
-- **Shared scene**: All use `Building.tscn`; `building_type` set at placement.
-- **Living Hut**: +5 baby pool capacity (capacity logic present; integration disabled in code).
-- **Supply Hut**: Extra storage (6 slots).
-- **Shrine**: No production yet.
-- **Dairy Farm**: No production yet.
-- **Oven**: Only production building: 1 Wood + 1 Grain → 1 Bread, 15s; Fire button; no woman occupation.
+- **Registry**: `BuildingRegistry` — Living Hut, Supply Hut, Shrine, Farm, Dairy Farm, Oven, Drying Rack.
+- **Production:** Oven, Farm, Dairy, Drying Rack use **OccupationSystem** + women ([farms.md](farms.md)).
+- **Living Hut**: +5 baby pool capacity per hut (`BabyPoolManager`); **`enforce_baby_cap`** default off in dev.
+- **Field (proto farming):** planned, flag-only ([proto_farming.md](future%20implementations/proto_farming.md)).
 
 ### 4.4 Inventory & Items
 
@@ -124,7 +115,7 @@
 - **Women**: Wild; herded into claim → claimed; reproduction only in claim radius.
 - **Sheep / Goats**: Herd into claim for future production (wool/milk); no production logic yet.
 - **Deer**: Wild prey (not herdable); **fright meter** + **`flee_prey`** when humans get close / loud sounds; migratory herds when using wild spawn (**`bible/wildlife_movement.md`**).
-- **Babies**: Spawn from reproduction; grow to clansmen after timer (e.g. 1 min test / 13 years design).
+- **Babies**: Spawn from reproduction; grow to **clansmen** today. **Female babies planned** ([female_baby.md](future%20implementations/female_baby.md)).
 - **Predators / Horses**: Planned (wolves, mammoths; horses for riding/travois); not in.
 
 ### 4.6 NPC AI – FSM & States
@@ -145,7 +136,7 @@
 
 ### 4.8 Herding
 
-- **Start**: Right-click (player) or NPC herding logic; `_try_herd_chance`; `herder.herded_count += 1`.
+- **Start**: Player walks into **HerdInfluenceArea** (~250px) or NPC `herd_wildnpc` search; `_try_herd_chance`; wild **`is_wild()`** only today.
 - **Stop**: Herder dead, out of range, or released; `herder.herded_count -= 1`; `_clear_herd()`.
 - **Claim conversion**: When herded NPC enters claim radius (400px), ownership becomes permanent (clan).
 - **Herd stealing**: Other caveman within range can take over herd (proximity-based).
@@ -195,7 +186,7 @@
 
 | System | Details |
 |--------|--------|
-| **Player** | Movement, 5-slot inventory + 10 hotbar, direct control, attack (with weapon), herding (right-click), eat (9/0). |
+| **Player** | Movement, inventory + hotbar, direct control, attack (with weapon), herd wild NPCs via **proximity influence**, eat (9/0). |
 | **Combat** | CombatComponent (windup/hit/recovery), CombatScheduler, DetectionArea, CombatState, agro meter, attack arcs, stagger, weapon profiles, player combat, death, corpse, leader succession. |
 | **Inventory** | Drag-and-drop everywhere; player/building/NPC/corpse/ground; visual feedback; single-item drag. |
 | **Land claim** | Placement, 400px radius, inventory, build menu (I), building cards, clan ownership. |
@@ -273,4 +264,4 @@
 
 ---
 
-*Last updated: May 2026. Prefer `bible.md` + this file over stale phase checklists.*
+*Last updated: September 2026. **Vision:** [earlygame_vision.md](earlygame_vision.md). Prefer `bible.md` + this file over stale phase checklists and `future implementations/main.md`.*

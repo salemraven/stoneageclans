@@ -1,7 +1,7 @@
 # Reproduction Guide
 
-**Last Updated:** 2026-08-27  
-**Status:** Active System
+**Last Updated:** September 2026  
+**Status:** Active System — babies → **clansmen** today. **Female babies planned:** [future implementations/female_baby.md](future%20implementations/female_baby.md).
 
 **Regression gate:** `bash tools/run_repro_harness.sh` (also step **[4/5]** in `tools/run_earlygame_verify.sh`). Headless baby-cap unit tests: `SKIP_SINGLE_INSTANCE=1 godot --headless --path . --script res://tools/test_baby_cap.gd`
 
@@ -15,7 +15,7 @@ Clan women reproduce with male cavemen (or the player) inside a land claim. Babi
 2. When a herded woman enters the land claim radius, she joins the clan via `set_clan_name(clan_name)`.
 3. `ReproductionComponent` runs each frame: finds a mate (player or caveman in same clan, inside claim), starts pregnancy (if cap allows when enforced), counts down birth timer.
 4. When timer hits 0, `main._spawn_baby()` spawns a baby NPC at the land claim center.
-5. `BabyGrowthComponent` ages the baby; after the growth timer the baby becomes a clansman and gets a club.
+5. `BabyGrowthComponent` ages the baby; after the growth timer the baby becomes a **clansman** (today). **Planned:** sex at birth → clanswoman or clansman.
 
 ---
 

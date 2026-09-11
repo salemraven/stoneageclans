@@ -2,6 +2,8 @@
 
 **Last reviewed:** May 2026 · **Canon:** `bible.md` §XX-A · **Index:** `bible/README.md`
 
+**Audit (Sep 2026):** Browser MP scorecard, OHOL comparison, hosting path, milestones — planning workspace `MULTIPLAYER_BROWSER_AUDIT.md` (sibling to `MULTIPLAYER_AND_ENGINEERING_PLAN.md`).
+
 **Goal:** Get StoneAgeClans running in the browser with multiplayer. Players can spawn, move, and play together.
 
 **Architecture:** Dedicated server (Godot headless or external). WebSocket transport for browser clients.

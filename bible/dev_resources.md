@@ -28,6 +28,15 @@ Cursor stores implementation plans in this folder. Plans use frontmatter (`name`
 
 ---
 
+## Art pipeline notes
+
+| Need | Doc |
+|------|-----|
+| **Campfire (Tier 1)** distinct from flag pole | [nomad.md](nomad.md) § Art needs |
+| Character / herd sprites | [Art_Direction.md](Art_Direction.md), `AssetRegistry` |
+
+---
+
 ## Stone Age Clans Plans
 
 | Plan | Focus |

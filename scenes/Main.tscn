@@ -23,9 +23,10 @@ script = ExtResource("1")
 [node name="WorldLayer" type="Node2D" parent="."]
 
 [node name="DirtBase" type="Sprite2D" parent="WorldLayer"]
+z_index = 0
+texture_filter = 0
 material = SubResource("ShaderMaterial_dirt_alternate")
-position = Vector2(1427.9999, 907)
-scale = Vector2(50, 50)
+scale = Vector2(80, 80)
 texture = ExtResource("5")
 
 [node name="World" type="TileMap" parent="WorldLayer"]

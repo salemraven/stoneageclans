@@ -60,7 +60,7 @@ var ai_hunger_start_percent: float = 100.0
 # --- Simulation economy (ClanBrain food_days_buffer + deposit/eat/breed gates) ---
 ## One instrumented playtest window (e.g. 10 min) ≈ one sim "day" for buffer labels.
 var sim_day_length_minutes: float = 10.0
-## Food items one clan member consumes per sim-day (aligns buffer math with hunger loop).
+## Food items one clan member consumes per sim-day (deposit/bootstrap helpers; pantry gates use kcal via ClanFoodBuffer).
 var food_items_per_capita_per_sim_day: float = 5.0
 ## Target / critical buffers (sim-days of food in claim storage).
 var clan_food_buffer_target_days: float = 1.0
@@ -79,8 +79,12 @@ var deposit_zero_food_keep_buffer_days: float = 0.75
 var hunt_allow_solo_when_food_critical: bool = true
 ## Solo hunts also allowed when buffer drops below this (sim-days), before full critical.
 var hunt_solo_food_buffer_days: float = 0.15
-## AI land claims start with this many berries in storage (bootstrap breeding; player claims unchanged).
-var ai_claim_starting_food_berries: int = 5
+## Release: ~1 meal at founding (one pantry feed). Dev/session tests use dev override (see ai_use_dev_food_bootstrap).
+var ai_claim_starting_food_berries_release: int = 1
+## Dev/instrumented sessions only — enough for quickstart reproduction + AI tour (~1 pantry day leader-only).
+var ai_claim_starting_food_berries_dev: int = 55
+## When true, seed_ai_claim_starting_food uses dev count (CLI: --ai-dev-food-bootstrap; auto with --session-quickstart).
+var ai_use_dev_food_bootstrap: bool = false
 ## Herders deposit all personal food until claim food count reaches this (matches repro bypass min).
 var claim_food_bootstrap_min_items: int = 3
 ## Berries storage target in claim = max(min, population × this).
@@ -317,11 +321,18 @@ func get_deposit_food_keep_count(claim_food_days_buffer: float, claim_food_total
 	return maxi(0, deposit_food_keep_default)
 
 
+func get_ai_claim_starting_food_berries() -> int:
+	if ai_use_dev_food_bootstrap:
+		return maxi(ai_claim_starting_food_berries_dev, 0)
+	return maxi(ai_claim_starting_food_berries_release, 0)
+
+
 ## Put starting food in a non-player land claim inventory (AI bootstrap).
 func seed_ai_claim_starting_food(claim_inventory: InventoryData) -> void:
-	if not claim_inventory or ai_claim_starting_food_berries <= 0:
+	var amount: int = get_ai_claim_starting_food_berries()
+	if not claim_inventory or amount <= 0:
 		return
-	claim_inventory.add_item(ResourceData.ResourceType.BERRIES, ai_claim_starting_food_berries)
+	claim_inventory.add_item(ResourceData.ResourceType.BERRIES, amount)
 
 
 func get_berries_storage_target(population: int) -> int:

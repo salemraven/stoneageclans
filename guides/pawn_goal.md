@@ -123,16 +123,18 @@ Hands are independent sprites.
 Weapons attach to hands rather than arms.
 
 ```text
-Arm
+Arm (tuner IK only — not drawn in Main today)
 
 ↓
 
-Hand
+Hand  ← **near-term plan:** simple **circle** sprite, skin-tinted
 
 ↓
 
 Weapon
 ```
+
+**Near-term implementation (documented):** Two **circle** hand sprites on the layered mannequin — dominant + support — positioned from existing **1h / 2h grip pins** in `WeaponLimbPreset`. Same **skin modulate** as head/body. Easy weapon parenting, cheap animation (follow pins), room for **emotion** (open/closed, scale, raised hand). Full spec: [character_layers.md § Planned: circle hands](character_layers.md#planned-circle-hands-near-future).
 
 Benefits
 
@@ -141,6 +143,7 @@ Benefits
 * Carrying objects is easy.
 * Gloves and wraps become cosmetic layers.
 * Future climbing and crafting animations become much easier.
+* **Skin-colored circles** read clearly at zoom and add personality without new walk sprite sheets.
 
 ---
 
@@ -457,5 +460,6 @@ The system is designed to support:
 * racial hybridization
 * diseases affecting appearance
 * emotional facial expressions
+* **visible circle hands** — skin tint, weapon grip, gesture/emotion ([character_layers.md](character_layers.md#planned-circle-hands-near-future))
 
 The goal is for every character to become visually identifiable and tell a story through their appearance, while remaining efficient enough to support large prehistoric settlements.

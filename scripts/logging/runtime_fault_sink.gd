@@ -72,6 +72,8 @@ func _deferred_boot_audit() -> void:
 		["PartyCommandUtils", "res://scripts/systems/party_command_utils.gd"],
 		["FormationUtils", "res://scripts/systems/formation_utils.gd"],
 		["FSM", "res://scripts/npc/fsm.gd"],
+		["WorldMapEditor", "res://scripts/world_map_editor.gd"],
+		["TerrainQuery", "res://scripts/world/terrain_query.gd"],
 	]
 	for row in script_audits:
 		var cname: String = row[0]
@@ -89,6 +91,12 @@ func _deferred_boot_audit() -> void:
 	lines.append("load Main.tscn: %s" % ("ok" if main_ps != null else "FAILED"))
 	if main_ps == null:
 		push_error("RuntimeFaultSink: res://scenes/Main.tscn failed to load")
+	var map_ps: Resource = load("res://scenes/WorldMapEditor.tscn")
+	lines.append("load WorldMapEditor.tscn: %s" % ("ok" if map_ps != null else "FAILED"))
+	if map_ps == null:
+		push_error("RuntimeFaultSink: res://scenes/WorldMapEditor.tscn failed to load")
+	var shader_res: Resource = load("res://assets/shaders/biome_ground.gdshader")
+	lines.append("load biome_ground.gdshader: %s" % ("ok" if shader_res != null else "FAILED"))
 	if _verbose_audit:
 		lines.append("--- verbose resource probe ---")
 		var paths: Array[String] = [

@@ -215,8 +215,8 @@ Character Tuner (one panel)
 | | **Character Tuner** | **Main gameplay** |
 |--|---------------------|-------------------|
 | Body + head | ✅ layered mannequin | ✅ same stack |
-| Weapon overlay | ✅ spear, club, axe, … | ✅ floating overlay (hand chain planned) |
-| Procedural arm lines | ✅ Line2D IK for **authoring** | ❌ **off** (`PROCEDURAL_MANNEQUIN_ENABLED_IN_GAME = false`) |
+| Weapon overlay | ✅ spear, club, axe, … | ✅ floating overlay today → **circle hands** parent grip ([character_layers.md § Planned: circle hands](character_layers.md#planned-circle-hands-near-future)) |
+| Procedural arm lines | ✅ Line2D IK for **authoring** | ❌ **off** — in-game hands = **two skin-tinted circles** on saved 1h/2h pins (planned) |
 | Combat preview | Shift ready · Shift+click strike/thrust | Overlay tween on weapon sprite |
 | Morphology preview | Spinboxes + **H** pin (more scales planned) | From `genetics_profile` → appearance (planned) |
 

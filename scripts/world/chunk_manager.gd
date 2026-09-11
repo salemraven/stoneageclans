@@ -16,6 +16,7 @@ var _lost_interest_at_msec: Dictionary = {}  # Vector2i -> int
 var _clan_spawned_chunks: Dictionary = {}  # Vector2i -> bool (session; cleared on unload)
 var _pending_loads: Array[Vector2i] = []
 var _density_accum: float = 0.0
+var _authored_ground_active: bool = false
 
 
 func _ready() -> void:
@@ -41,6 +42,7 @@ func get_loaded_chunk_coords() -> Array[Vector2i]:
 
 func ensure_initial_load(main_node: Node2D) -> void:
 	bind_main(main_node)
+	_restore_classic_dirt_visible()
 	if _wgc and int(_wgc.world_seed) == 0:
 		var sim: Node = get_node_or_null("/root/SimRng")
 		if sim and sim.has_method("bootstrap_from_world_config"):
@@ -162,6 +164,7 @@ func _load_chunk(chunk: Vector2i) -> void:
 	var visual_root := Node2D.new()
 	visual_root.name = "VisualRoot"
 	root.add_child(visual_root)
+	_spawn_authored_ground(visual_root, chunk)
 	var sim_root := Node2D.new()
 	sim_root.name = "SimRoot"
 	root.add_child(sim_root)
@@ -226,6 +229,49 @@ func rebuild_grass_in_loaded_chunks_near(world_pos: Vector2, radius: float) -> v
 			if all_pts.is_empty():
 				continue
 			GrassBatchScript.build(visual as Node2D, all_pts, c)
+
+
+func _spawn_authored_ground(visual_root: Node2D, chunk: Vector2i) -> void:
+	var tq: Node = get_node_or_null("/root/TerrainQuery")
+	if tq == null or not tq.is_authored():
+		return
+	if not tq.has_authored_chunk_tile(chunk):
+		return
+	var path: String = "res://maps/island/chunks/tile_%d_%d.png" % [chunk.x, chunk.y]
+	var tex: Texture2D = load(path) as Texture2D
+	if tex == null:
+		return
+	var spr := Sprite2D.new()
+	spr.name = "AuthoredGround"
+	spr.texture = tex
+	spr.centered = false
+	spr.z_index = -1000
+	spr.position = Vector2(float(chunk.x), float(chunk.y)) * ChunkUtils.CHUNK_SIZE
+	visual_root.add_child(spr)
+	_notify_authored_ground_active()
+
+
+func _restore_classic_dirt_visible() -> void:
+	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+	if wgc and bool(wgc.get("use_authored_island_map")):
+		return
+	_authored_ground_active = false
+	if not _main or not is_instance_valid(_main):
+		return
+	var dirt: CanvasItem = _main.get_node_or_null("WorldLayer/DirtBase") as CanvasItem
+	if dirt:
+		dirt.visible = true
+
+
+func _notify_authored_ground_active() -> void:
+	if _authored_ground_active:
+		return
+	_authored_ground_active = true
+	if not _main or not is_instance_valid(_main):
+		return
+	var dirt: CanvasItem = _main.get_node_or_null("WorldLayer/DirtBase") as CanvasItem
+	if dirt:
+		dirt.visible = false
 
 
 func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:

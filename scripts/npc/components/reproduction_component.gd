@@ -1,6 +1,8 @@
 extends Node
 class_name ReproductionComponent
 
+const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
+
 # Reproduction Component for Women NPCs
 # Handles birth timers, mate detection, pregnancy state
 
@@ -14,6 +16,9 @@ var current_mate: Node = null  # Can be player (Node) or NPCBase
 # Herder who delivered this woman + built hut: father for all babies until he dies; then _try_find_mate picks a new one.
 var designated_father: Node = null
 var _designated_father_absent_since: float = -1.0
+var _last_repro_gate_code: String = ""
+var _repro_gate_accum: float = 0.0
+const REPRO_GATE_INTERVAL_SEC := 8.0
 
 func initialize(npc_ref: NPCBase) -> void:
 	var npc_name = npc_ref.get("npc_name") if npc_ref and npc_ref.has_method("get") else "unknown"
@@ -88,6 +93,7 @@ func update(delta: float) -> void:
 	
 	_refresh_designated_father_if_invalid()
 	_update_designated_father_absence_timer()
+	_instrument_repro_gate(delta)
 	
 	# Must be inside land claim (reproduction only happens inside land claim)
 	if not _is_in_land_claim():
@@ -131,6 +137,7 @@ func session_quickstart_start_pregnancy_now(father: Node) -> void:
 		"timer": birth_timer,
 		"session_quickstart": true
 	})
+	_log_baby_pregnancy_started("session_quickstart")
 
 func has_living_hut_assigned() -> bool:
 	"""Public: Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
@@ -264,15 +271,8 @@ func _can_reproduce() -> bool:
 		min_buffer = maxf(float(ClanBrainTuningConfig.reproduction_min_food_buffer_days), 0.0)
 	elif BalanceConfig:
 		min_buffer = maxf(float(BalanceConfig.reproduction_min_food_buffer_days), 0.0)
-	var buf: float = _clan_calorie_days_buffer()
-	if buf < min_buffer:
-		var bypass_min: int = 3
-		if ClanBrainTuningConfig:
-			bypass_min = maxi(1, int(ClanBrainTuningConfig.reproduction_food_items_bypass_min))
-		elif BalanceConfig:
-			bypass_min = maxi(1, int(BalanceConfig.reproduction_food_items_bypass_min))
-		if _clan_food_total() < bypass_min:
-			return false
+	if not _clan_has_food_for_reproduction(min_buffer):
+		return false
 	
 	var time_since_last_birth = (Time.get_ticks_msec() / 1000.0) - last_birth_time
 	if time_since_last_birth < config.birth_cooldown:
@@ -341,24 +341,36 @@ func _clan_food_allows_pregnancy_while_pregnant() -> bool:
 		min_buffer = maxf(min_buffer, float(ClanBrainTuningConfig.reproduction_min_food_buffer_days))
 	elif BalanceConfig:
 		min_buffer = maxf(min_buffer, float(BalanceConfig.reproduction_min_food_buffer_days))
-	return _clan_calorie_days_buffer() >= min_buffer
+	return _clan_has_food_for_reproduction(min_buffer)
+
+
+func _clan_has_food_for_reproduction(min_buffer: float) -> bool:
+	if _clan_calorie_days_buffer() >= min_buffer:
+		return true
+	var bypass_min: int = 3
+	if ClanBrainTuningConfig:
+		bypass_min = maxi(1, int(ClanBrainTuningConfig.reproduction_food_items_bypass_min))
+	elif BalanceConfig:
+		bypass_min = maxi(1, int(BalanceConfig.reproduction_food_items_bypass_min))
+	return _clan_food_total() >= bypass_min
 
 
 func _clan_calorie_days_buffer() -> float:
+	return _clan_pantry_days_buffer()
+
+
+func _clan_food_days_buffer() -> float:
+	return _clan_pantry_days_buffer()
+
+
+func _clan_pantry_days_buffer() -> float:
 	var clan: String = npc.clan_name if npc else ""
 	if clan.is_empty():
 		return 99.0
 	var claim = _get_land_claim(clan)
 	if claim and is_instance_valid(claim):
-		if claim.has_meta("calories_days_buffer"):
-			return float(claim.get_meta("calories_days_buffer"))
-		if claim.has_meta("food_days_buffer"):
-			return float(claim.get_meta("food_days_buffer"))
+		return ClanFoodBufferScript.get_pantry_days(claim)
 	return 99.0
-
-
-func _clan_food_days_buffer() -> float:
-	return _clan_calorie_days_buffer()
 
 
 func _clan_food_total() -> int:
@@ -396,6 +408,7 @@ func _try_find_mate() -> void:
 			_start_pregnancy()
 			return
 		if not _designated_father_absent_fallback_ready():
+			_log_repro_blocked_once("waiting_father", "designated father not in claim yet")
 			return
 	
 	# Find nearby male cavemen (player or NPC) in same clan
@@ -487,6 +500,7 @@ func _try_find_mate() -> void:
 			"npc": npc_name,
 			"clan": npc_clan
 		})
+		_log_repro_blocked_once("no_eligible_mate", "no player/caveman/clansman in this claim")
 
 func _is_player_in_land_claim() -> bool:
 	# Check if player is inside their land claim
@@ -639,7 +653,6 @@ func _start_pregnancy() -> void:
 			return
 		is_pregnant = true
 		birth_timer = config.birth_timer_base
-		last_birth_time = Time.get_ticks_msec() / 1000.0
 		var mate_name: String = "unknown"
 		if current_mate and is_instance_valid(current_mate):
 			if current_mate.is_in_group("player"):
@@ -663,6 +676,23 @@ func _start_pregnancy() -> void:
 			"timer": birth_timer
 		})
 		print("✓ REPRODUCTION: %s started pregnancy (mate: %s, clan: %s, timer: %.1fs)" % [npc_name, mate_name, clan_name, birth_timer])
+		_log_baby_pregnancy_started("live")
+
+func _log_baby_pregnancy_started(source: String) -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if not pi or not pi.is_enabled() or not pi.has_method("baby_pregnancy_started"):
+		return
+	var npc_name: String = str(npc.get("npc_name") if npc.get("npc_name") != null else "?")
+	var clan_name: String = _get_npc_clan_name()
+	var father_name: String = "unknown"
+	if current_mate and is_instance_valid(current_mate):
+		if current_mate.is_in_group("player"):
+			father_name = "Player"
+		elif current_mate.get("npc_name") != null:
+			father_name = str(current_mate.get("npc_name"))
+	pi.baby_pregnancy_started(clan_name, npc_name, father_name, source)
 
 func _update_birth_timer(delta: float) -> void:
 	# Nomad transit: timer frozen on pack-up — do NOT cancel (see campfire.gd _freeze_clan_pregnancies).
@@ -910,33 +940,149 @@ func _get_cooldown_remaining() -> float:
 	return maxf(0.0, config.birth_cooldown - elapsed)
 
 
+func get_repro_gate() -> Dictionary:
+	return _compute_repro_gate()
+
+
 func _get_reproduction_block_reason() -> String:
+	var gate: Dictionary = _compute_repro_gate()
+	return str(gate.get("label", "Ready to conceive"))
+
+
+func _compute_repro_gate() -> Dictionary:
+	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
+	var clan: String = _get_npc_clan_name()
+	var in_claim: bool = _is_in_land_claim()
+	var has_hut: bool = _has_living_hut_assigned()
+	var father_name := _father_debug_name()
+	var father_ok: bool = designated_father != null and is_instance_valid(designated_father) and _father_eligible_for_current_pregnancy(designated_father)
+	var out := {
+		"npc": npc_name,
+		"clan": clan,
+		"pregnant": is_pregnant,
+		"timer": snappedf(birth_timer, 0.1),
+		"in_claim": in_claim,
+		"has_hut": has_hut,
+		"father": father_name,
+		"father_in_claim": father_ok,
+		"food_items": _clan_food_total(),
+		"food_days": snappedf(_clan_calorie_days_buffer(), 0.02),
+		"cooldown_left": snappedf(_get_cooldown_remaining(), 0.1),
+		"code": "ok",
+		"label": "Ready to conceive",
+	}
 	if is_pregnant:
-		return "Pregnant"
-	if not npc or str(npc.clan_name) == "":
-		return "Blocked — not in a clan"
-	var elapsed_ok: bool = _get_cooldown_remaining() <= 0.0
-	if not elapsed_ok:
-		return "Blocked — birth cooldown (%.0fs left)" % _get_cooldown_remaining()
-	var buf: float = _clan_calorie_days_buffer()
+		out["code"] = "pregnant"
+		out["label"] = "Pregnant (%.0fs left)" % maxf(0.0, birth_timer)
+		return out
+	if clan == "":
+		out["code"] = "wild"
+		out["label"] = "Blocked — not in a clan (wild)"
+		return out
+	if not in_claim:
+		out["code"] = "outside_claim"
+		out["label"] = "Blocked — woman not inside land claim"
+		return out
+	if not has_hut:
+		out["code"] = "no_hut"
+		out["label"] = "Blocked — no Living Hut assigned"
+		return out
+	if _get_cooldown_remaining() > 0.0:
+		out["code"] = "cooldown"
+		out["label"] = "Blocked — birth cooldown (%.0fs left)" % _get_cooldown_remaining()
+		return out
 	var min_buffer: float = 0.28
 	if ClanBrainTuningConfig:
 		min_buffer = float(ClanBrainTuningConfig.reproduction_min_food_buffer_days)
 	elif BalanceConfig:
 		min_buffer = float(BalanceConfig.reproduction_min_food_buffer_days)
-	if buf < min_buffer:
-		var bypass_min: int = 3
-		if ClanBrainTuningConfig:
-			bypass_min = int(ClanBrainTuningConfig.reproduction_food_items_bypass_min)
-		elif BalanceConfig:
-			bypass_min = int(BalanceConfig.reproduction_food_items_bypass_min)
-		if _clan_food_total() < bypass_min:
-			return "Blocked — low food (%.2f days buffer, need %.2f)" % [buf, min_buffer]
-	if not current_mate and not designated_father:
-		return "Blocked — no mate"
+	var buf: float = _clan_calorie_days_buffer()
+	if not _clan_has_food_for_reproduction(min_buffer):
+		out["code"] = "food"
+		out["label"] = "Blocked — low food (%.2f days buffer, need %.2f)" % [buf, min_buffer]
+		return out
 	var pool := _get_baby_pool_manager()
-	if pool and not pool.has_baby_room(_get_npc_clan_name()):
-		var bd: Dictionary = pool.get_capacity_breakdown(_get_npc_clan_name())
-		return "Blocked — baby cap (%d/%d)" % [int(bd.get("current", 0)), int(bd.get("total", 0))]
-	return "Ready to conceive"
+	if pool and not pool.has_baby_room(clan):
+		var bd: Dictionary = pool.get_capacity_breakdown(clan)
+		out["code"] = "baby_cap"
+		out["label"] = "Blocked — baby cap (%d/%d)" % [int(bd.get("current", 0)), int(bd.get("total", 0))]
+		return out
+	if designated_father and is_instance_valid(designated_father) and not father_ok and not _designated_father_absent_fallback_ready():
+		out["code"] = "waiting_father"
+		out["label"] = "Blocked — waiting for designated father in claim (%s)" % father_name
+		return out
+	out["code"] = "ok"
+	out["label"] = "Ready to conceive"
+	return out
+
+
+func _father_debug_name() -> String:
+	if designated_father and is_instance_valid(designated_father):
+		if designated_father.is_in_group("player"):
+			return "Player"
+		if designated_father.get("npc_name") != null:
+			return str(designated_father.get("npc_name"))
+	return "none"
+
+
+func _instrument_repro_gate(delta: float) -> void:
+	if clan_name_is_empty():
+		return
+	var gate: Dictionary = _compute_repro_gate()
+	var code: String = str(gate.get("code", ""))
+	_repro_gate_accum += delta
+	var changed: bool = code != _last_repro_gate_code
+	if code == "pregnant":
+		if changed:
+			_last_repro_gate_code = code
+			_emit_repro_gate(gate, true)
+		return
+	if not changed and _repro_gate_accum < REPRO_GATE_INTERVAL_SEC:
+		return
+	_repro_gate_accum = 0.0
+	_last_repro_gate_code = code
+	_emit_repro_gate(gate, changed)
+
+
+func clan_name_is_empty() -> bool:
+	return _get_npc_clan_name() == ""
+
+
+func _emit_repro_gate(gate: Dictionary, changed: bool) -> void:
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("repro_gate"):
+		pi.repro_gate(gate)
+	if str(gate.get("code", "")) == "ok" and not bool(gate.get("pregnant", false)):
+		if changed:
+			print("REPRO_GATE %s clan=%s ready (hut=%s claim=%s father=%s)" % [
+				str(gate.get("npc", "?")),
+				str(gate.get("clan", "")),
+				str(gate.get("has_hut", false)),
+				str(gate.get("in_claim", false)),
+				str(gate.get("father", "none")),
+			])
+		return
+	print("REPRO_GATE %s clan=%s %s | hut=%s in_claim=%s pregnant=%s father=%s father_ok=%s food_items=%s food_days=%s" % [
+		str(gate.get("npc", "?")),
+		str(gate.get("clan", "")),
+		str(gate.get("label", "")),
+		str(gate.get("has_hut", false)),
+		str(gate.get("in_claim", false)),
+		str(gate.get("pregnant", false)),
+		str(gate.get("father", "none")),
+		str(gate.get("father_in_claim", false)),
+		str(gate.get("food_items", 0)),
+		str(gate.get("food_days", 0.0)),
+	])
+
+
+func _log_repro_blocked_once(code: String, detail: String) -> void:
+	if code == _last_repro_gate_code:
+		return
+	_last_repro_gate_code = code
+	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
+	print("REPRO_GATE %s %s — %s" % [npc_name, code, detail])
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("baby_pregnancy_blocked"):
+		pi.baby_pregnancy_blocked(_get_npc_clan_name(), npc_name, code, {"detail": detail})
 

@@ -180,6 +180,7 @@ See `rtsguide.md` §6 Hostile Mode (Raid).
 
 ## Future / Expansion Ideas
 
+- **Multi-goal raids + cordage steal:** KILL / LOOT / STEAL / WIPE goals; bind claimed herdables with cordage; ClanBrain picks max payoff. **Design:** `bible/future implementations/herdable_raiding.md` (not shipped).
 - **Looting:** Raiders pick up resources from enemy claim/buildings (Phase3 mentioned LOOTING phase).
 - **Casualty-based retreat:** Use `raid_risk_tolerance` — retreat if losses exceed threshold.
 - **Raid types:** Quick skirmish vs full sack (different quotas, durations).

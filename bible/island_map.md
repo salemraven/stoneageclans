@@ -42,7 +42,7 @@ All clans, AI tribes, and MP sessions play on **this fixed geography** once worl
 | **Ground art** | `biome_ground.gdshader` | **100% procedural** — biome blending + FBM noise per biome + water banks. No hand-painted chunk textures | ✅ **Shader-driven** |
 | **Chunk gameplay data** | `world/island/chunks/chunk_<cx>_<cy>.tres` | biome grid, water, passes, prop zones | ⬜ Export not wired |
 | **Runtime mutations** | `MutationStore` | Chops, depletions, builds on top of base map | ✅ Exists (dev) |
-| **Climate overlays** | `ClimateState` + chunk overlays (Phase 6) | Flood, drought, glacier grow, aridification | ❌ Design only — [environment_goal.md](environment_goal.md) §19 |
+| **Climate (living map)** | `ClimateState` + `ClimateEval` + `biome_ground.gdshader` | Regional temp/rain, hard IDs, `--climate` off by default | ✅ Code in; v1 knobs 0 — plan `living_world_map_system_815d153a.plan.md` |
 
 **Editor:** `scenes/WorldMapEditor.tscn` — view/pan/zoom, water paint, save, connectivity check, **Validate Map Shape**, **Fix Map (Specks + Topology)**. Biome/pass/spring brushes **planned next**.
 
@@ -144,9 +144,9 @@ Update this section when a layer ships or validation passes.
 - [ ] Biome gatherable + wildlife spawn tables
 - [ ] River floodplains as settlement targets
 
-### Later — Climate Change (Phase 6, not v1)
+### Later — Climate Change (Phase 6 flag; code exists)
 
-**Full spec:** [environment_goal.md](environment_goal.md) §19 — **Climate Change mechanic**.
+**Full spec:** [environment_goal.md](environment_goal.md) §19. **Implementation plan:** `living_world_map_system_815d153a.plan.md`.
 
 | Feature | Summary |
 |---------|---------|

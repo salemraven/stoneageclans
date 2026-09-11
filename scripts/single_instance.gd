@@ -31,7 +31,7 @@ func _should_skip_single_instance_lock() -> bool:
 	for arg: String in OS.get_cmdline_args():
 		if arg == "--skip-single-instance":
 			return true
-		if arg.contains("LimbTuner"):
+		if arg.contains("LimbTuner") or arg.contains("WorldMapEditor"):
 			return true
 	for arg: String in OS.get_cmdline_user_args():
 		if arg == "--skip-single-instance":

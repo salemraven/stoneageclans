@@ -1001,12 +1001,12 @@ func _update_land_claim_calorie_display() -> void:
 		var metrics: Dictionary = cb.clan_metrics
 		stored = int(metrics.get("calories_in_storage", 0))
 		daily = int(metrics.get("calories_daily_need", 0))
-		buffer = float(metrics.get("calories_days_buffer", 0.0))
+		buffer = float(metrics.get("food_days_buffer", metrics.get("calories_days_buffer", 0.0)))
 	elif land_claim.has_meta("calories_in_storage"):
 		stored = int(land_claim.get_meta("calories_in_storage"))
 		daily = int(land_claim.get_meta("calories_daily_need"))
-		buffer = float(land_claim.get_meta("calories_days_buffer"))
-	character_info_label.text = "-- Clan Food --\nStored: %s kcal\nDaily need: %s kcal\nBuffer: %.1f days" % [
+		buffer = float(land_claim.get_meta("food_days_buffer", land_claim.get_meta("calories_days_buffer", 0.0)))
+	character_info_label.text = "-- Clan Food --\nStored: %s kcal\nDaily need: %s kcal\nPantry: %.1f days" % [
 		_format_calories(stored),
 		_format_calories(daily),
 		buffer
@@ -1021,8 +1021,8 @@ func _update_living_hut_info() -> void:
 	var woman = building.get_primary_occupant() if building.has_method("get_primary_occupant") else null
 	if (not woman or not is_instance_valid(woman)) and building.has_meta("assigned_woman"):
 		var assigned: Variant = building.get_meta("assigned_woman")
-		if assigned is Node and is_instance_valid(assigned):
-			woman = assigned
+		if assigned is Object and is_instance_valid(assigned):
+			woman = assigned as Node
 	if not woman or not is_instance_valid(woman):
 		info_lines.append("No woman assigned")
 		character_info_label.text = "\n".join(info_lines)

@@ -446,7 +446,13 @@ func _spawn_replacement_caveman() -> void:
 
 
 ## Seeded chunk streamer: fixed claim + caveman positions (deterministic layout from ChunkGenerator).
-func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector2, clan_name: String, parent: Node2D) -> void:
+func spawn_seeded_ai_clan_at(
+	claim_center_world: Vector2,
+	cave_world_pos: Vector2,
+	clan_name: String,
+	parent: Node2D,
+	spawn_source: String = "chunk_seeded_clan"
+) -> Node:
 	if not parent:
 		parent = world_objects
 	var claim_pos := Vector2(
@@ -455,7 +461,7 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	)
 	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
 	if not land_claim:
-		return
+		return null
 	land_claim.global_position = claim_pos
 	land_claim.set_clan_name(clan_name)
 	land_claim.player_owned = false
@@ -470,7 +476,7 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 	land_claim.visible = true
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
-		return
+		return null
 	var ws: int = _playtest_world_seed_value()
 	var spawn_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, hash(Vector3i(int(cave_world_pos.x), int(cave_world_pos.y), 2)))
 	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(cave_world_pos.x), int(cave_world_pos.y), 2)))
@@ -506,11 +512,12 @@ func spawn_seeded_ai_clan_at(claim_center_world: Vector2, cave_world_pos: Vector
 			cc.x,
 			cc.y,
 			"caveman",
-			"chunk_seeded_clan",
+			spawn_source,
 			claim_center_world.x,
 			claim_center_world.y,
 			clan_name
 		)
+	return npc
 
 
 func _apply_placeholder_card_to_npc(npc: Node) -> void:
@@ -577,9 +584,11 @@ func _on_mp_send_world_snapshot(peer_id: int) -> void:
 		return
 	var wgc2: Node = get_node_or_null("/root/WorldGenConfig")
 	var ms: Node = get_node_or_null("/root/MutationStore")
+	var cs: Node = get_node_or_null("/root/ClimateState")
 	var snap := {
 		"seed": int(wgc2.world_seed) if wgc2 else 0,
 		"mutations": ms.call("to_dict") if ms and ms.has_method("to_dict") else {},
+		"climate": cs.to_payload() if cs and cs.has_method("to_payload") else {},
 	}
 	var gs_node: Node = get_node_or_null("/root/GameSync")
 	if gs_node:
@@ -2510,11 +2519,13 @@ func spawn_npcs_from_roster(roster: RefCounted, claim: Node2D) -> void:
 		var nid: int = EntityRegistry.get_network_id(npc) if EntityRegistry else -1
 		if nid > 0:
 			live_by_id[nid] = npc
-	for nid in live_by_id.keys():
-		if not alive_by_id.has(int(nid)):
-			var extra: Node = live_by_id[nid]
-			if is_instance_valid(extra):
-				extra.queue_free()
+	# Never cull live clan NPCs when roster has no alive entries (stale/empty dormant snapshot).
+	if not alive_by_id.is_empty():
+		for nid in live_by_id.keys():
+			if not alive_by_id.has(int(nid)):
+				var extra: Node = live_by_id[nid]
+				if is_instance_valid(extra):
+					extra.queue_free()
 	for nid in alive_by_id.keys():
 		var member: Dictionary = alive_by_id[nid] as Dictionary
 		var spawn_data: Dictionary = roster.call("to_spawn_data", member, fallback_pos) as Dictionary
@@ -6428,7 +6439,11 @@ func _setup_session_quickstart_environment() -> void:
 	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
 	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
-	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 20)
+	# Reproduction needs food buffer or ≥3 food items; 20 grain alone ≈0.6 days for a small clan.
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
+	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
+	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
+	building_inventory.add_item(ResourceData.ResourceType.BREAD, 10)
 	world_objects.add_child(land_claim)
 	_despawn_tallgrass_near(land_claim_pos, land_claim.radius)
 	_despawn_decorative_trees_near(land_claim_pos, land_claim.radius)
@@ -6477,7 +6492,88 @@ func _setup_session_quickstart_environment() -> void:
 			var rc: Node = w.get("reproduction_component") if w.has_method("get") else null
 			if rc and rc.has_method("session_quickstart_start_pregnancy_now"):
 				rc.session_quickstart_start_pregnancy_now(player)
+	var pi_qs = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_qs and pi_qs.is_enabled() and pi_qs.has_method("phase7_playtest_briefing"):
+		var preg_sec: float = BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0
+		var tick_sec: float = WorldGenConfig.settlement_tick_interval_sec if WorldGenConfig else 30.0
+		pi_qs.phase7_playtest_briefing(clan_canon, preg_sec, tick_sec)
 	print("=== SESSION QUICKSTART: complete (clan '%s', claim center %s — you are inside; ~%.0fs pregnancy) ===" % [clan_canon, land_claim_pos, BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0])
+	if DebugConfig and int(DebugConfig.session_nearby_clans_count) > 0:
+		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count))
+
+
+func _spawn_session_nearby_ai_clans(player_center: Vector2, count: int) -> void:
+	if count < 1 or not world_objects:
+		return
+	const RING_RADIUS_PX: float = 1500.0
+	const CAVEMAN_OFFSET_PX: float = 90.0
+	print("=== SESSION QUICKSTART: Spawning %d AI clans ~%.0fpx from player ===" % [count, RING_RADIUS_PX])
+	var ws: int = _playtest_world_seed_value()
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	for i in range(count):
+		var angle: float = TAU * float(i) / float(count)
+		var dir := Vector2(cos(angle), sin(angle))
+		var claim_pos := player_center + dir * RING_RADIUS_PX
+		claim_pos = Vector2(round(claim_pos.x / 64.0) * 64.0, round(claim_pos.y / 64.0) * 64.0)
+		var cave_pos := claim_pos + dir * CAVEMAN_OFFSET_PX
+		var seed_h: int = hash(Vector3i(int(claim_pos.x), int(claim_pos.y), ws + i + 9001))
+		var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
+		var leader: Node = spawn_seeded_ai_clan_at(claim_pos, cave_pos, clan_name, world_objects, "session_nearby_clan")
+		var leader_name: String = str(leader.get("npc_name")) if leader else "?"
+		print("✓ Session quickstart: AI clan '%s' claim at %s (caveman near %s)" % [clan_name, claim_pos, cave_pos])
+		if pi and pi.is_enabled() and pi.has_method("session_nearby_clan_spawned"):
+			pi.session_nearby_clan_spawned(
+				clan_name, leader_name, claim_pos.x, claim_pos.y, cave_pos.x, cave_pos.y, i, RING_RADIUS_PX
+			)
+	await get_tree().process_frame
+	if pi and pi.is_enabled() and pi.has_method("session_nearby_clans_complete"):
+		pi.session_nearby_clans_complete(count, RING_RADIUS_PX, player_center.x, player_center.y)
+	if DebugConfig and DebugConfig.session_ai_clan_tour:
+		await _run_session_ai_clan_tour(player_center, count, RING_RADIUS_PX)
+
+
+func _run_session_ai_clan_tour(player_center: Vector2, count: int, ring_radius_px: float) -> void:
+	if not player or count < 1:
+		return
+	const VISIT_SEC: float = 6.0
+	var away_sec: float = 45.0
+	var stay_away: bool = false
+	if DebugConfig:
+		away_sec = maxf(float(DebugConfig.session_ai_clan_tour_away_sec), 5.0)
+		stay_away = DebugConfig.session_ai_clan_tour_stay_away
+	# Claims stay sim-active while player is within WorldInterestManager.CLAIM_ACTIVE_WORLD_RADIUS (2400px).
+	# Home (0,0) is ~1500px from ring clans — too close for dormant. Teleport far after visits.
+	const FAR_AWAY_OFFSET := Vector2(6500.0, 0.0)
+	var away_label: String = "then far away %.0fs for off-screen ticks" % away_sec
+	if stay_away:
+		away_label = "then stay far until session ends (%.0fs+ off-screen ticks)" % away_sec
+	print("=== SESSION AI CLAN TOUR: visiting %d nearby claims (%.0fs each), %s ===" % [count, VISIT_SEC, away_label])
+	for i in range(count):
+		var angle: float = TAU * float(i) / float(count)
+		var dir := Vector2(cos(angle), sin(angle))
+		var visit_pos := player_center + dir * (ring_radius_px - 120.0)
+		player.global_position = visit_pos
+		_force_world_interest_recompute()
+		print("  Tour visit %d/%d → %s" % [i + 1, count, visit_pos])
+		await get_tree().create_timer(VISIT_SEC).timeout
+	var away_pos := player_center + FAR_AWAY_OFFSET
+	player.global_position = away_pos
+	_force_world_interest_recompute()
+	print("  Tour: far from all claims at %s — waiting for dormant + off-screen ticks..." % away_pos)
+	await get_tree().create_timer(away_sec).timeout
+	if stay_away:
+		print("=== SESSION AI CLAN TOUR: staying away (player at %s) until session quit ===" % away_pos)
+		return
+	player.global_position = player_center
+	_force_world_interest_recompute()
+	print("=== SESSION AI CLAN TOUR: complete (returned home) ===")
+
+
+func _force_world_interest_recompute() -> void:
+	var interest: Node = get_node_or_null("/root/WorldInterestManager")
+	if interest and interest.has_method("recompute"):
+		interest.recompute(self)
+	await get_tree().process_frame
 
 # TASK SYSTEM TEST: Set up ideal test environment
 func _setup_task_system_test_environment() -> void:
@@ -7362,6 +7458,18 @@ func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
 	for pack_i in packs:
 		var roll: float = rng.randf()
 		var corr: Dictionary = _wildlife_chunk_migratory_corridor(origin, rng)
+		var probe: Vector2 = origin + Vector2(ChunkUtils.CHUNK_SIZE * 0.5, ChunkUtils.CHUNK_SIZE * 0.5)
+		var tq_spawn: Node = get_node_or_null("/root/TerrainQuery")
+		var eff_b := 1
+		var rd := 1.0
+		if tq_spawn and tq_spawn.has_method("get_effective_biome"):
+			eff_b = int(tq_spawn.get_effective_biome(probe))
+			rd = float(tq_spawn.river_distance_01(probe))
+		var LifeCat: Node = get_node_or_null("/root/BiomeLifeCatalog")
+		var want_type := "deer" if roll < 0.38 else ("sheep" if roll < 0.72 else "goat")
+		if LifeCat and LifeCat.has_method("can_spawn_fauna"):
+			if not bool(LifeCat.can_spawn_fauna(want_type, eff_b, rd, rng)):
+				continue
 		var entry_side: int = int(corr["entry_side"])
 		var exit_x_chunk: float = float(corr["exit_x"])
 		var entry_edge_x: float = float(corr["entry_edge_x"])

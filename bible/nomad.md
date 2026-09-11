@@ -1,6 +1,6 @@
 # Nomadic Playstyle & Clan Migration
 
-**Last updated:** June 2026 · **Implemented Nomad Mode:** [camp_relocation.md](camp_relocation.md) · **Tier 1 loop:** [earlygame.md](earlygame.md) · **Index:** [README.md](README.md)
+**Last updated:** Sep 2026 · **Vision owner:** [earlygame_vision.md](earlygame_vision.md) · **Implemented Nomad Mode:** [camp_relocation.md](camp_relocation.md) · **Tier 1 loop:** [earlygame.md](earlygame.md) · **Index:** [README.md](README.md)
 
 Design for **Tier 1 campfire** play: survival, mobility, and **Nomad Mode** relocation without disbanding the clan.
 
@@ -8,10 +8,18 @@ Design for **Tier 1 campfire** play: survival, mobility, and **Nomad Mode** relo
 
 ---
 
+## Tier naming (locked)
+
+**Tier 1 = Campfire** — a **land claim** in the same family as the flag (clan, radius, inventory, buildings by allow-list). Not a separate pipeline from “real” territory.
+
+**Tier 2 = Flag** — settled mid-game claim (`LandClaim` in code): full radius, AoH, production buildings, AI raid economy.
+
+---
+
 ## Design principle
 
-**Campfire = survival and mobility.**  
-**Land claim = production and territory.**
+**Campfire = survival and mobility (Tier 1 land claim).**  
+**Flag = production and territory (Tier 2 land claim).**
 
 - **Nomadic:** Gather, herd, reproduce, **move the camp** (Nomad Mode). Lower footprint, fewer buildings.
 - **Stationary:** Build, produce, defend, raid. Higher footprint, full production chains.
@@ -22,20 +30,34 @@ Design for **Tier 1 campfire** play: survival, mobility, and **Nomad Mode** relo
 
 ## Campfire (Tier 1 — implemented today)
 
-| Dimension | Campfire | Land Claim |
+| Dimension | Campfire (Tier 1) | Flag (Tier 2) |
 |----------|----------|------------|
-| Identity | Mobile Tier 1 claim | Settled home |
+| Identity | Mobile **Tier 1 land claim** | Settled home |
 | Inventory | 20 slots | 12+ slots (claim) |
 | Radius | 250px | 400px |
-| Buildings | Living Huts only (**max 3**) | Oven, dairy, farm, huts, etc. |
-| ClanBrain | **Yes** — `brain_mode = "nomadic"` (higher herd/gather, lower defense) | **Yes** — settled tuning |
+| Buildings | Living Huts only (**max 3**); **no Field / proto farming** | Oven, dairy, farm, Field (planned), huts, etc. |
+| ClanBrain | **Yes** — `brain_mode = "nomadic"` | **Yes** — settled tuning + full raid scoring (target) |
 | Area of Hunt | No AoH ring | Yes (`AreaOfHunt`) |
-| Fire | Auto-lit when wood present; **1 wood / 60s**; no manual off | N/A |
-| Relocation | **Nomad Mode** — [camp_relocation.md](camp_relocation.md) | Fixed; upgrade chain |
+| Fire | Auto-lit when wood present; **1 wood / 60s** | N/A |
+| Relocation | **Nomad Mode** — [camp_relocation.md](camp_relocation.md) | Fixed; upgrade from campfire |
 
 **Campfire does:** Deposit, reproduction, clan join (herd into radius), warmth, basic home, defender/searcher quotas (nomadic brain), **ABANDON CAMP** relocation.
 
-**Campfire does not (yet):** Production chains (oven/farm), NPC-initiated raids from player camp, travois pack-up flow (see backlog below).
+**Campfire does not (target):** **Proto farming Field**, full **AI raid economy** (player can still lead hostile parties manually). *Code note:* Tier 1 may allow Oven/Drying Rack on campfire for bread/leather — see [ai_clan_brain.md](ai_clan_brain.md); **crop ring stays flag-only.**
+
+---
+
+## Art needs
+
+**Campfire (Tier 1)** needs a **dedicated art read** — visible fire pit / stone ring, distinct from the **flag pole** (Tier 2). Same systems (radius, inventory UI); different sprite and placement fantasy.
+
+| Asset | Notes |
+|-------|--------|
+| `campfire.png` (or scene) | Nomadic anchor; readable at 64×64 / 128×128 footprint |
+| Flag / land claim | Settled anchor — do not reuse campfire sprite |
+| Build menu cards | Tier-appropriate building list |
+
+Track in art pipeline when implementing tutorial “first home = campfire.”
 
 ---
 

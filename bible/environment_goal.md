@@ -2,7 +2,7 @@
 
 **Purpose:** **Canonical single reference** for the shipping island — **map layout**, **wedge biomes**, **weather & seasons**, **resources**, **wildlife**, water, generational clan adaptation, trade routes, and phased work.
 
-**Status:** **Design lock / in active authoring** — cross-check runtime in [game_map.md](game_map.md). Static island pipeline partial (water layer shipped); **Climate Change** designed for Phase 6 ([§19](#climate-change-mechanic-long-term-design-lock)).
+**Status:** **Design lock / in active authoring** — cross-check runtime in [game_map.md](game_map.md). Static island pipeline partial (water layer shipped). Living climate (hard biome IDs, regional knobs) is implemented but **off in shipping v1** unless `--climate` / tests — see [§19](#climate-change-mechanic-long-term-design-lock) and plan `living_world_map_system_815d153a.plan.md`.
 
 **Art reference (layout truth):** [`assets/island_map2.jpg`](assets/island_map2.jpg) · quick index [island_map.md](island_map.md) (points here).
 
@@ -1072,11 +1072,15 @@ Weather runs **server-side**, deterministic from **world_seed + day + region** �
 | **Desertification** | Desert region expands into savanna edge |
 | **Flood year** | River wetlands widen; grain bonus then rot risk |
 
-Implemented as **runtime overlay mutations** on top of the static base map — **not** by editing authored PNGs at runtime. Heavy scope; **design lock only until Phase 6**. Full spec: [Climate Change mechanic](#climate-change-mechanic-long-term-design-lock).
+Implemented as **runtime evaluation** on top of the static base map — **not** by editing authored PNGs at runtime. Full spec: [Climate Change mechanic](#climate-change-mechanic-long-term-design-lock). Plan file: `living_world_map_system_815d153a.plan.md`.
 
 ### Climate Change mechanic (long-term design lock)
 
-**Intent:** A **living, breathing island** — rivers swell and shrink, glaciers grow, desert creeps, clans abandon dying villages, and rituals may slow or redirect climate pressure. **Shipping v1 = static base map only.** Climate overlays ship **after** the authored island is complete and validated.
+**Plan (source of truth for code):** `living_world_map_system_815d153a.plan.md`
+
+**Intent:** A **living, breathing island** — rivers swell and shrink, glaciers grow, desert creeps, clans abandon dying villages, and rituals may slow or redirect climate pressure. **Shipping v1 = knobs at 0** (effective biome == base). Turn on with `--climate` or headless tests.
+
+**Locked model:** 9 regions each have temperature and rainfall. Shader and gameplay resolve the **same hard biome ID** (no cross-biome color blending). Patchiness is a shared 32-bit integer hash. Rivers use baked `river_distance.png`. Rituals only change daily nudge rate/target.
 
 #### Base vs climate (never mix)
 

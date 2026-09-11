@@ -2,7 +2,7 @@
 
 **Stone Age Clans** — lightweight RTS layer on top of the sim: you **order clansmen** (not cavemen/women as combat squads in the same way), set **stance**, **rally** with the horn, **defend** territory, and **break** formation so they go back to work.
 
-This doc matches **implementation** as of May 2026 (`main.gd`, `party_state.gd`, `formation_utils.gd`, `rts_formation_config.gd`, `wander_state.gd`, UI). **Wild herdables** use **`herd` state**, not party. **Hunt modes** (PEACE/AGRO/HUNT): **`bible/Phase4/raiding_hunting.md`** + **`bible/hunting.md`**. Canon: **bible.md §XVIII**.
+This doc matches **implementation** as of May 2026 (`main.gd`, `party_state.gd`, `formation_utils.gd`, `rts_formation_config.gd`, `wander_state.gd`, UI). **Vision / planned horn+herd fix:** [earlygame_vision.md](earlygame_vision.md) §5. **Wild herdables** use **`herd` state**, not party.
 
 ---
 
@@ -119,7 +119,18 @@ Higher threshold = easier to enter combat / chase. **FOLLOW** is passive; **ATTA
 - **Cooldown:** ~1 s (`RTS_CONFIG.war_horn_cooldown`)
 - **Radius:** ~1500 px (`rally_radius`)
 - Rallied units get **ordered follow** and **command_context**; stance HUD can be used after rally
-- **Edge case:** If a clansman was **herding** wild NPCs, rally **clears herd** so they can join formation
+- **Skips today:** clansmen with **`combat_target`** or **`defend_target`** (already fighting or on border defend)
+- **Edge case (shipped):** If a clansman was **herding** wild NPCs, `_set_ordered_follow` **clears herd** so they can join formation — **breaks STEAL / cordage bond raids** if you Horn mid-herd
+
+### Planned (earlygame_vision)
+
+| Role | Horn behavior |
+|------|----------------|
+| **Worker / defender** (no active herd) | Rally → ordered follow |
+| **Searcher** with **`herded_count > 0`** or cordage bond | **Ignore Horn** — keep leading herd |
+| **Break (B)** | Drop herd; walk toward claim / resume search |
+
+**Guard (HUD)** = party **stance**, not ClanBrain **defender quota** on the claim border.
 
 ---
 

@@ -6,9 +6,15 @@ const CLAIM_ACTIVE_WORLD_RADIUS: float = 2400.0
 var _active_chunks: Dictionary = {}  # Vector2i -> true
 var _sim_active_chunks: Dictionary = {}  # Vector2i -> true (smaller radius — full sim)
 var _active_claims: Dictionary = {}  # instance_id -> true
+var _has_recomputed: bool = false
+
+
+func has_recomputed() -> bool:
+	return _has_recomputed
 
 
 func recompute(main: Node) -> void:
+	_has_recomputed = true
 	_active_chunks.clear()
 	_sim_active_chunks.clear()
 	_active_claims.clear()
@@ -61,6 +67,10 @@ func is_chunk_sim_active(chunk: Vector2i) -> bool:
 func is_claim_active(claim: Node) -> bool:
 	if claim == null:
 		return false
+	# Before first streaming recompute, is_claim_active would always be false and claims
+	# go dormant with an empty roster — then wake culls freshly spawned quickstart NPCs.
+	if not _has_recomputed:
+		return true
 	return _active_claims.has(claim.get_instance_id())
 
 

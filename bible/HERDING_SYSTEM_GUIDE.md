@@ -1,7 +1,8 @@
 # Herding System Guide
 
-**Last Updated:** 2026-05-28  
-**Status:** Active System - Animal-Authoritative (Production Ready)  
+**Last Updated:** September 2026  
+**Status:** Active — **wild** herdables only via influence. **Claimed enemy herdables:** cordage bond — planned ([future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md)).  
+**Player UX:** walk within **~250px** for influence attach; **right-click** opens **context menu** (not instant herd on all NPC types).  
 **Not herding:** **deer/mammoth** (PREY) — AoH **hunt** path (`bible/hunting.md`). **Fighters** use **`party`** state for ordered follow, not `herd`.
 
 ## Overview

@@ -3,6 +3,9 @@ extends Node
 
 # --- World ---
 var world_seed: int = 0
+## When false (default): classic Main — repeating DirtBase tiles + procedural chunk resources.
+## When true: load maps/island (biome_mask, water, optional chunk ground art). CLI: --island-map
+var use_authored_island_map: bool = false
 
 # --- Chunk load / unload ---
 var chunk_load_radius_base: int = 1
@@ -30,6 +33,46 @@ var wild_woman_per_chunk_max: int = 2
 # --- Settlement sim (warm tier / dormant claims) ---
 ## Seconds between off-screen settlement ticks per claim (food, passive buildings, starvation).
 var settlement_tick_interval_sec: float = 30.0
+## Items gathered per alive roster member per settlement tick (tunable per resource key).
+## Grain/nuts: higher per harvest; berries/bugs: lower per harvest but faster regen (see gather_regen_per_sim_day).
+var gather_yield_per_population: Dictionary = {
+	"berries": 2.0,
+	"grain": 3.5,
+	"wood": 1.5,
+	"stone": 1.0,
+	"fiber": 1.5,
+	"nuts": 1.5,
+	"bugs": 1.5,
+	"hide": 0.0,
+}
+## Wall-clock seconds of settlement sim ≈ one abstract regen sim-day (5 ticks × settlement_tick_interval_sec).
+var abstract_regen_sim_day_sec: float = 150.0
+## Pool units restored per sim-day when below chunk cap (per resource type).
+var gather_regen_per_sim_day: Dictionary = {
+	"berries": 14.0,
+	"grain": 5.0,
+	"nuts": 4.0,
+	"bugs": 6.0,
+	"fiber": 3.0,
+	"wood": 2.0,
+	"stone": 1.0,
+}
+## Multiplier on population when computing abstract gather workers (diminishing returns hook).
+var gather_population_efficiency: float = 0.8
+## Optional gather rate multiplier when clan is in starving workforce mode (1.0 = no penalty).
+var gather_starvation_penalty: float = 1.0
+
+## Abstract hunting (dormant clans) — hunt live prey in chunk when meat is low.
+var abstract_hunt_enabled: bool = true
+## Only hunt when raw+cooked meat in claim inventory is below this count.
+var abstract_hunt_meat_threshold: int = 2
+
+## Abstract pregnancy/birth (dormant clans) — advance pregnancy timers, spawn babies off-screen.
+var abstract_pregnancy_enabled: bool = true
+## Abstract baby growth (dormant clans) — babies grow into clansmen off-screen.
+var abstract_baby_growth_enabled: bool = true
+## Abstract aging (dormant clans) — NPCs age proportionally to elapsed sim time.
+var abstract_aging_enabled: bool = true
 
 # --- Adaptive radius (MP) ---
 var adaptive_load_radius_enabled: bool = true
@@ -95,6 +138,9 @@ var stable_id_format: String = "%d_%d_%s_%d"
 
 
 func _ready() -> void:
+	for a in OS.get_cmdline_args():
+		if a in ["--island-map", "--authored-island"]:
+			use_authored_island_map = true
 	set_process(true)
 
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d31emmgwhw78t"
-path="res://.godot/imported/caveman_walk.png-89115fea56b3138ce11d8803a159b05e.ctex"
+uid="uid://dmiyg0hk1uo64"
+path="res://.godot/imported/test_transition.png-3e9450027b2b54c304b31def8cbdd442.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/caveman_walk.png"
-dest_files=["res://.godot/imported/caveman_walk.png-89115fea56b3138ce11d8803a159b05e.ctex"]
+source_file="res://maps/test_transition.png"
+dest_files=["res://.godot/imported/test_transition.png-3e9450027b2b54c304b31def8cbdd442.ctex"]
 
 [params]
 

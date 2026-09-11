@@ -17,7 +17,13 @@ func get_chunk_record(chunk: Vector2i) -> Dictionary:
 
 
 func _default_record() -> Dictionary:
-	return {"clan_deaths": 0, "depleted": [], "grass_clear_zones": []}
+	return {
+		"clan_deaths": 0,
+		"depleted": [],
+		"grass_clear_zones": [],
+		"abstract_resources": {},
+		"abstract_resource_caps": {},
+	}
 
 
 var _chunks: Dictionary = {}
@@ -145,3 +151,112 @@ func to_dict() -> Dictionary:
 
 func load_from_dict(data: Dictionary) -> void:
 	_chunks = data.duplicate(true)
+
+
+const ChunkGeneratorScript = preload("res://scripts/world/chunk_generator.gd")
+var _chunk_gen: RefCounted = null
+
+
+func _get_chunk_generator() -> RefCounted:
+	if _chunk_gen == null:
+		_chunk_gen = ChunkGeneratorScript.new()
+	return _chunk_gen
+
+
+func get_abstract_resource_pool(chunk: Vector2i) -> Dictionary:
+	var rec: Dictionary = get_chunk_record(chunk)
+	var pool = rec.get("abstract_resources", {})
+	if pool is Dictionary and not (pool as Dictionary).is_empty():
+		return (pool as Dictionary).duplicate()
+	return {}
+
+
+func ensure_abstract_resource_pool(chunk: Vector2i, world_seed: int, cfg: Node) -> Dictionary:
+	var rec: Dictionary = get_chunk_record(chunk)
+	var existing = rec.get("abstract_resources", {})
+	if existing is Dictionary and not (existing as Dictionary).is_empty():
+		_ensure_caps_for_chunk(rec, existing as Dictionary)
+		_chunks[chunk_key(chunk)] = rec
+		return (existing as Dictionary).duplicate()
+	var gen := _get_chunk_generator()
+	if gen == null or cfg == null:
+		return {}
+	var pool: Dictionary = gen.call("compute_abstract_resource_pool", world_seed, chunk, cfg) as Dictionary
+	rec["abstract_resources"] = pool.duplicate()
+	rec["abstract_resource_caps"] = pool.duplicate()
+	_chunks[chunk_key(chunk)] = rec
+	return pool.duplicate()
+
+
+func _ensure_caps_for_chunk(rec: Dictionary, pool: Dictionary) -> void:
+	var caps = rec.get("abstract_resource_caps", {})
+	if not (caps is Dictionary) or (caps as Dictionary).is_empty():
+		rec["abstract_resource_caps"] = pool.duplicate()
+
+
+func regen_abstract_resources(chunk: Vector2i, elapsed_sec: float, cfg: Node) -> Dictionary:
+	var events: Dictionary = {"regen": []}
+	if cfg == null or elapsed_sec <= 0.0:
+		return events
+	var regen_table = cfg.get("gather_regen_per_sim_day")
+	if not (regen_table is Dictionary):
+		return events
+	var sim_day_sec: float = maxf(float(cfg.get("abstract_regen_sim_day_sec")), 1.0)
+	var fraction: float = elapsed_sec / sim_day_sec
+	if fraction <= 0.0:
+		return events
+	var rec: Dictionary = get_chunk_record(chunk)
+	var pool = rec.get("abstract_resources", {})
+	if not (pool is Dictionary):
+		return events
+	var pool_dict: Dictionary = pool as Dictionary
+	var caps = rec.get("abstract_resource_caps", {})
+	if not (caps is Dictionary) or (caps as Dictionary).is_empty():
+		_ensure_caps_for_chunk(rec, pool_dict)
+		caps = rec.get("abstract_resource_caps", {})
+	var caps_dict: Dictionary = caps as Dictionary if caps is Dictionary else {}
+	for key_val in caps_dict.keys():
+		var key: String = str(key_val)
+		var cap: int = int(caps_dict.get(key, 0))
+		if cap <= 0:
+			continue
+		var rate: float = float((regen_table as Dictionary).get(key, 0.0))
+		if rate <= 0.0:
+			continue
+		var before: int = int(pool_dict.get(key, 0))
+		if before >= cap:
+			continue
+		var add: int = int(floor(rate * fraction))
+		if add <= 0:
+			continue
+		var after: int = mini(cap, before + add)
+		if after <= before:
+			continue
+		pool_dict[key] = after
+		events["regen"].append({"resource_key": key, "before": before, "after": after, "cap": cap})
+	rec["abstract_resources"] = pool_dict
+	_chunks[chunk_key(chunk)] = rec
+	return events
+
+
+func get_abstract_resource_remaining(chunk: Vector2i, resource_key: String) -> int:
+	var pool: Dictionary = get_abstract_resource_pool(chunk)
+	return int(pool.get(resource_key, 0))
+
+
+func deplete_abstract_resource(chunk: Vector2i, resource_key: String, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	var rec: Dictionary = get_chunk_record(chunk)
+	var pool = rec.get("abstract_resources", {})
+	if not (pool is Dictionary):
+		return 0
+	var pool_dict: Dictionary = pool as Dictionary
+	var before: int = int(pool_dict.get(resource_key, 0))
+	if before <= 0:
+		return 0
+	var taken: int = mini(amount, before)
+	pool_dict[resource_key] = before - taken
+	rec["abstract_resources"] = pool_dict
+	_chunks[chunk_key(chunk)] = rec
+	return taken

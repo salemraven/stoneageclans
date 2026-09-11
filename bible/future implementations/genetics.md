@@ -182,7 +182,7 @@ Output as JSONL (same pattern as `clanbrain_report.py`) so playtests can be anal
 
 | View | What it shows |
 |------|---------------|
-| Family tree (lineage) | Who fathered whom — see lineage doc |
+| Family tree (lineage) | Who fathered whom — [lineage.md](lineage.md) |
 | Allele heatmap on tree | Branch color = "% Neanderthal" or "cold tolerance" |
 | World map overlay | Per-region species mix; watch migration / replacement |
 | Trait timeline graph | Line chart of trait % over generations |
@@ -253,7 +253,7 @@ Even a simple Godot `Line2D` chart is fine for v1.
 
 ## Open question
 
-**Lineage doc** isn't written yet. This genetics design assumes a `Person` record per NPC (alive or dead) with `father_id`, `mother_id`, `birth_tick`, `death_tick`, plus the `Genome` block above. That doc should land **first** as `bible/future implementations/lineage.md` (or be folded into one combined `bible/future implementations/lineage_genetics.md`).
+**Lineage spec:** [lineage.md](lineage.md). This genetics design assumes a `Person` record per NPC (alive or dead) with `father_id`, `mother_id`, `birth_tick`, `death_tick`, plus the `Genome` block above. Implement **lineage first**, then genetics rolls.
 
 ---
 

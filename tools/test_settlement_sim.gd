@@ -99,6 +99,22 @@ func _test_feeding_with_food() -> void:
 	claim.queue_free()
 
 
+func _deplete_chunk_pool(claim: Node) -> void:
+	var ms: Node = root.get_node_or_null("/root/MutationStore")
+	var wgc: Node = root.get_node_or_null("/root/WorldGenConfig")
+	var cu: Node = root.get_node_or_null("/root/ChunkUtils")
+	if ms == null or wgc == null or cu == null or not (claim is Node2D):
+		return
+	var chunk: Vector2i = cu.call("get_chunk_coords", (claim as Node2D).global_position) as Vector2i
+	ms.call("reset_chunk", chunk)
+	ms.call("ensure_abstract_resource_pool", chunk, int(wgc.get("world_seed")), wgc)
+	var pool: Dictionary = ms.call("get_abstract_resource_pool", chunk) as Dictionary
+	for key in pool.keys():
+		var remaining: int = int(pool.get(key, 0))
+		if remaining > 0:
+			ms.call("deplete_abstract_resource", chunk, str(key), remaining)
+
+
 func _test_starvation_order() -> void:
 	var roster = SettlementRosterScript.new()
 	roster.clan_name = "STARVE"
@@ -112,6 +128,7 @@ func _test_starvation_order() -> void:
 	claim.clan_name = "STARVE"
 	claim.inventory = inv
 	root.add_child(claim)
+	_deplete_chunk_pool(claim)
 	var events: Dictionary = SettlementSimTickScript.tick(claim, roster, 30.0)
 	var died: Array = events.get("died", [])
 	if died.size() >= 1 and str((died[0] as Dictionary).get("type", "")) == "baby":
@@ -139,6 +156,7 @@ func _test_brain_dormant_instrumentation() -> void:
 	claim.clan_name = "INST"
 	claim.inventory = inv
 	root.add_child(claim)
+	_deplete_chunk_pool(claim)
 	var brain = ClanBrainClass.new(claim)
 	claim.clan_brain = brain
 	brain.roster = roster

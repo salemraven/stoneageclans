@@ -16,6 +16,7 @@ enum PaintLayer { WATER, GRASS }
 
 ## Matches scenes/Player.tscn sprite scale (in-game character size).
 const PLAYER_SPRITE_SCALE := Vector2(0.5, 0.5)
+const VIEWER_SEC_PER_DAY := 0.05
 
 const ZOOM_MIN := 0.02
 const ZOOM_MAX := 4.0
@@ -24,10 +25,12 @@ const CHUNK_SIZE_PX := 2048.0
 
 @onready var _camera: Camera2D = $Camera2D
 @onready var _ground_sprite: Sprite2D = $GroundSprite
-@onready var _zoom_label: Label = $UI/Panel/VBoxContainer/ZoomLabel
-@onready var _title_label: Label = $UI/Panel/VBoxContainer/Label
-@onready var _toggles_container: VBoxContainer = $UI/Panel/VBoxContainer/Toggles
-@onready var _instructions_label: Label = $UI/Panel/VBoxContainer/Instructions
+@onready var _hud_bar: Control = $UI/Screen/BottomBar
+@onready var _zoom_label: Label = $UI/Screen/BottomBar/Margin/ControlsRow/ZoomLabel
+@onready var _title_label: Label = $UI/Screen/BottomBar/Margin/ControlsRow/Title
+@onready var _controls_row: HBoxContainer = $UI/Screen/BottomBar/Margin/ControlsRow
+@onready var _toggles_container: HBoxContainer = $UI/Screen/BottomBar/Margin/ControlsRow/ExtraSlot
+@onready var _instructions_label: Label = null
 
 var _zoom: float = 0.4
 var _panning := false
@@ -37,7 +40,7 @@ var _shader_material: ShaderMaterial
 var _mask_size: int = 1024
 var _sample_stride: float = 64.0
 var _chunk_count: Vector2i = Vector2i(32, 32)
-var _show_chunk_grid := true
+var _show_chunk_grid := false
 var _show_tile_grid := false
 
 # Paint mode state
@@ -63,6 +66,13 @@ var _mask_image: Image
 var _mask_texture: ImageTexture
 var _status_label: Label
 var _grid_overlay: GridOverlay
+var _climate_status: Label
+var _climate_debug_ids := false
+var _climate_autoplay := false
+var _climate_auto_accum := 0.0
+var _ice_button: Button
+var _drought_button: Button
+var _viewer_log_path := ""
 
 
 class GridOverlay extends Node2D:
@@ -80,13 +90,11 @@ func _ready() -> void:
 	_setup_water_layer()
 	_setup_ground_shader()
 	_setup_scale_marker()
-	_setup_toggle_buttons()
 	_setup_grid_overlays()
-	_setup_paint_ui()
-	# Topology fix is manual (Fix Topology button) — auto-fix on load was slow and surprising.
-	_focus_map_center()
+	_setup_climate_panel()
+	_enable_climate_viewer()
+	_fit_camera()
 	_update_zoom_label()
-	_update_mode_ui()
 	_queue_grid_redraw()
 
 
@@ -114,26 +122,6 @@ func _setup_grid_overlays() -> void:
 	_grid_overlay.editor = self
 	_grid_overlay.z_index = -50
 	add_child(_grid_overlay)
-
-	var grid_sep := HSeparator.new()
-	_toggles_container.add_child(grid_sep)
-
-	var grid_header := Label.new()
-	grid_header.text = "Grid Overlays"
-	grid_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toggles_container.add_child(grid_header)
-
-	var chunk_check := CheckBox.new()
-	chunk_check.text = "Chunk grid (%d px)" % int(CHUNK_SIZE_PX)
-	chunk_check.button_pressed = _show_chunk_grid
-	chunk_check.toggled.connect(_on_chunk_grid_toggled)
-	_toggles_container.add_child(chunk_check)
-
-	var tile_check := CheckBox.new()
-	tile_check.text = "Tile grid (%d px)" % int(_sample_stride)
-	tile_check.button_pressed = _show_tile_grid
-	tile_check.toggled.connect(_on_tile_grid_toggled)
-	_toggles_container.add_child(tile_check)
 
 
 func _on_chunk_grid_toggled(pressed: bool) -> void:
@@ -273,6 +261,14 @@ func _setup_ground_shader() -> void:
 	_shader_material.set_shader_parameter("enable_grass_detail", true)
 	_shader_material.set_shader_parameter("enable_river_detail", false)
 	_shader_material.set_shader_parameter("enable_organic_edges", true)
+	_shader_material.set_shader_parameter("enable_biome_blending", false)
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	var tq: Node = get_node_or_null("/root/TerrainQuery")
+	if cs and cs.has_method("apply_to_material"):
+		var rtex: Texture2D = tq.get_river_distance_texture() if tq and tq.has_method("get_river_distance_texture") else null
+		cs.apply_to_material(_shader_material, rtex)
+	if _shader_material:
+		_shader_material.set_shader_parameter("climate_debug_ids", _climate_debug_ids)
 	
 	# Setup ground sprite to cover full world
 	_ground_sprite.material = _shader_material
@@ -303,6 +299,7 @@ func _setup_scale_marker() -> void:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.position = marker.position + Vector2(-48, -72)
 	label.z_index = 11
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(label)
 
 
@@ -418,6 +415,182 @@ func _setup_paint_ui() -> void:
 	_update_paint_layer_ui()
 
 
+func _enable_climate_viewer() -> void:
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	if cs == null:
+		return
+	if cs.has_method("enable_for_tests"):
+		cs.enable_for_tests()
+	var bf: Node = get_node_or_null("/root/BiomeFronts")
+	if bf and bf.has_method("reset_grid"):
+		bf.reset_grid()
+	if cs.has_signal("climate_changed") and not cs.climate_changed.is_connected(_refresh_climate_shader):
+		cs.climate_changed.connect(_refresh_climate_shader)
+	_viewer_log_path = ProjectSettings.globalize_path("res://Tests/logs/climate_viewer.jsonl")
+	_refresh_climate_shader()
+	_update_climate_status()
+	_log_viewer_event("viewer_boot", {})
+
+
+func _setup_climate_panel() -> void:
+	_title_label.text = "Island"
+	_ice_button = _controls_row.get_node_or_null("IceAge") as Button
+	_drought_button = _controls_row.get_node_or_null("Drought") as Button
+	if _ice_button == null:
+		_ice_button = Button.new()
+		_ice_button.name = "IceAge"
+		_ice_button.toggle_mode = true
+		_ice_button.text = "Ice age"
+		_ice_button.custom_minimum_size = Vector2(140, 48)
+		_controls_row.add_child(_ice_button)
+		_controls_row.move_child(_ice_button, 1)
+	if _drought_button == null:
+		_drought_button = Button.new()
+		_drought_button.name = "Drought"
+		_drought_button.toggle_mode = true
+		_drought_button.text = "Drought"
+		_drought_button.custom_minimum_size = Vector2(140, 48)
+		_controls_row.add_child(_drought_button)
+		_controls_row.move_child(_drought_button, 2)
+	_ice_button.toggle_mode = true
+	_drought_button.toggle_mode = true
+	_ice_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drought_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not _ice_button.toggled.is_connected(_on_ice_toggled):
+		_ice_button.toggled.connect(_on_ice_toggled)
+	if not _drought_button.toggled.is_connected(_on_drought_toggled):
+		_drought_button.toggled.connect(_on_drought_toggled)
+	_climate_status = _controls_row.get_node_or_null("ClimateStatus") as Label
+	if _climate_status == null:
+		_climate_status = Label.new()
+		_climate_status.name = "ClimateStatus"
+		_climate_status.autowrap_mode = TextServer.AUTOWRAP_WORD
+		_controls_row.add_child(_climate_status)
+
+
+func _refresh_climate_shader() -> void:
+	if _shader_material == null:
+		return
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	var tq: Node = get_node_or_null("/root/TerrainQuery")
+	if cs and cs.has_method("apply_to_material"):
+		var rtex: Texture2D = tq.get_river_distance_texture() if tq and tq.has_method("get_river_distance_texture") else null
+		cs.apply_to_material(_shader_material, rtex)
+	_shader_material.set_shader_parameter("climate_debug_ids", _climate_debug_ids)
+	_update_climate_status()
+
+
+func _on_fit_island() -> void:
+	_fit_camera()
+	_update_zoom_label()
+	_queue_grid_redraw()
+	_log_viewer_event("fit_island", {"zoom": _zoom})
+
+
+func _on_ice_toggled(on: bool) -> void:
+	if on and _drought_button and _drought_button.button_pressed:
+		_drought_button.set_pressed_no_signal(false)
+		_set_event("drought", false)
+	_set_event("ice_age", on)
+	_log_viewer_event("ice_toggle", {"on": on})
+	_refresh_climate_shader()
+
+
+func _on_drought_toggled(on: bool) -> void:
+	if on and _ice_button and _ice_button.button_pressed:
+		_ice_button.set_pressed_no_signal(false)
+		_set_event("ice_age", false)
+	_set_event("drought", on)
+	_log_viewer_event("drought_toggle", {"on": on})
+	_refresh_climate_shader()
+
+
+func _set_event(name: String, on: bool) -> void:
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	if cs == null:
+		return
+	if cs.has_method("set_event_flag"):
+		cs.set_event_flag(name, on)
+	elif name == "ice_age":
+		cs.event_ice = on
+	elif name == "drought":
+		cs.event_drought = on
+	if cs.has_method("_sync_active_event_string"):
+		cs._sync_active_event_string()
+
+
+func _update_climate_status() -> void:
+	if _climate_status == null:
+		return
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	if cs == null:
+		_climate_status.text = "Climate: missing"
+		return
+	var extra := ""
+	var bf: Node = get_node_or_null("/root/BiomeFronts")
+	if bf and bf.has_method("get_last_metrics"):
+		var m: Dictionary = bf.get_last_metrics()
+		var land: float = maxf(float(m.get("land", 1)), 1.0)
+		extra = "  Ice %.0f%%  Desert %.0f%%" % [
+			float(m.get("ice_sheet", 0)) / land * 100.0,
+			float(m.get("dry4", 0)) / land * 100.0,
+		]
+	var ice_s := "on" if cs.event_ice else "off"
+	var dry_s := "on" if cs.event_drought else "off"
+	_climate_status.text = "Day %d  Ice %s  Drought %s%s" % [int(cs.sim_day), ice_s, dry_s, extra]
+
+
+func _log_viewer_snapshot(reason: String, days: int) -> void:
+	var tq: Node = get_node_or_null("/root/TerrainQuery")
+	var cs: Node = get_node_or_null("/root/ClimateState")
+	var hist := {}
+	var center := {}
+	var ne := {}
+	if tq and tq.has_method("sample_climate_histogram"):
+		hist = tq.sample_climate_histogram(64)
+	if tq and tq.has_method("sample_histogram_uv"):
+		center = tq.sample_histogram_uv(Vector2(0.38, 0.38), Vector2(0.62, 0.62), 32)
+		ne = tq.sample_histogram_uv(Vector2(0.66, 0.0), Vector2(1.0, 0.34), 32)
+	var eco := {}
+	if tq and tq.has_method("eco_hud_snapshot"):
+		eco = tq.eco_hud_snapshot(64)
+	_log_viewer_event("snapshot", {
+		"reason": reason,
+		"skip": days,
+		"hist": hist,
+		"hist_center": center,
+		"hist_ne": ne,
+		"day": int(cs.sim_day) if cs else 0,
+		"event": str(cs.active_event) if cs else "",
+		"temp_center": float(cs.temperature.get("CENTER", 0.0)) if cs else 0.0,
+		"eco": eco,
+		"ice_radius": float(cs.ice_radius) if cs else 0.0,
+		"glacier_center": float(eco.get("glacier_center", 0.0)),
+		"glacier_mid": float(eco.get("glacier_mid", 0.0)),
+		"glacier_coast": float(eco.get("glacier_coast", 0.0)),
+	})
+
+
+func _log_viewer_event(kind: String, extra: Dictionary) -> void:
+	var rec := extra.duplicate()
+	rec["t"] = "climate_viewer"
+	rec["kind"] = kind
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://Tests/logs"))
+	if _viewer_log_path == "":
+		_viewer_log_path = ProjectSettings.globalize_path("res://Tests/logs/climate_viewer.jsonl")
+	var f := FileAccess.open(_viewer_log_path, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(_viewer_log_path, FileAccess.WRITE)
+	else:
+		f.seek_end()
+	if f:
+		f.store_line(JSON.stringify(rec))
+		f.close()
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("log_event"):
+		pi.log_event("climate_viewer", rec)
+
+
 func _toggle_mode() -> void:
 	if _mode == Mode.VIEW:
 		_mode = Mode.PAINT
@@ -427,9 +600,11 @@ func _toggle_mode() -> void:
 
 
 func _update_mode_ui() -> void:
+	if _mode_button == null:
+		return
 	if _mode == Mode.VIEW:
 		_mode_button.text = "Mode: View"
-		_title_label.text = "Island Map Editor (View)"
+		_title_label.text = "Island"
 	else:
 		_mode_button.text = "Mode: Paint"
 		var dirty_mark := " *" if _dirty else ""
@@ -521,13 +696,29 @@ func _fit_camera() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Continuous painting while mouse held
 	if _painting and _mode == Mode.PAINT:
 		var mouse_pos := get_global_mouse_position()
 		_paint_at(mouse_pos)
+	var sim: Node = get_node_or_null("/root/ClimateSimulator")
+	if sim == null or not sim.has_method("advance_day"):
+		return
+	_climate_auto_accum += _delta
+	if _climate_auto_accum < VIEWER_SEC_PER_DAY:
+		return
+	_climate_auto_accum = 0.0
+	sim.advance_day()
+	_refresh_climate_shader()
+
+
+func _pointer_over_hud(event: InputEvent) -> bool:
+	if _hud_bar == null or not (event is InputEventMouse):
+		return false
+	return _hud_bar.get_global_rect().has_point((event as InputEventMouse).position)
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _pointer_over_hud(event):
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
@@ -849,7 +1040,10 @@ func _zoom_by(factor: float) -> void:
 
 
 func _update_zoom_label() -> void:
-	_zoom_label.text = "Zoom: %.2fx" % _zoom
+	if _zoom_label:
+		_zoom_label.text = "Zoom: %.2fx" % _zoom
+	if _instructions_label == null:
+		return
 	var mode_hint := "V=view, P=paint" if _mode == Mode.PAINT else "P=paint mode"
 	_instructions_label.text = (
 		"Controls:\n"

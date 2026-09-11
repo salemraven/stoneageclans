@@ -39,7 +39,7 @@ Coordinates are **world pixels** (`ChunkUtils`, land claims). No instanced hunti
 | **Route length** | Player-centered **chunk band** or **single chunk width** (west↔east) | **World-scale corridor** — one side of active map to opposite |
 | **Direction** | Random entry west or east per spawn | **Season-driven** global `migration_flow_sign` (+X / −X or N/S per species) |
 | **Return trip** | Despawn at exit; respawn timers spawn new band near player | **Same population wave** tracked in data OR seeded **return leg** after season tick |
-| **Spawn trigger** | Chunk load rolls (`WorldGenConfig.wild_migratory_*`) | Season start + biome gates + **spawn edge** from world bounds / biome ring |
+| **Spawn trigger** | Chunk load rolls (`WorldGenConfig.wild_migratory_*`) | Season start + biome gates + **spawn at island edge** (ocean boundary) |
 | **Parent node** | `world_objects` (survives chunk unload) ✅ | Same — **required** for cross-plane travel |
 | **Sleep** | Migratory NPCs **exempt** from `NPCSleepManager` ✅ | Keep exempt while `migration_active` |
 | **Despawn** | `_check_migration_despawn()` past `migration_exit_x` + margin | Despawn at **far world edge** or abstract handoff to off-plane wave record |
@@ -127,7 +127,7 @@ Prefer **(2) for perf** with **deterministic spawn positions** so MP clients agr
 | Phase | Deliverable |
 |-------|-------------|
 | **0** | This doc + links (design lock) |
-| **1** | Replace player-centered `_get_migration_bounds()` with **world edge** bounds (configurable half-extent or biome ring) |
+| **1** | Replace player-centered `_get_migration_bounds()` with **island edge** bounds (authored ocean rim from [environment_goal.md](environment_goal.md) §3) |
 | **2** | `MigrationWaveManager` autoload — season → flow sign, spawn quota, species routes |
 | **3** | Return leg — flip or respawn on season change; verify determinism with fixed seed |
 | **4** | MP — single server wave table; no per-client duplicate spawns |

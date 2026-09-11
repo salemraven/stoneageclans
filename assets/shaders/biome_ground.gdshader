@@ -11,8 +11,35 @@ uniform bool enable_noise = true;
 uniform bool enable_grass_detail = true;
 uniform bool enable_river_detail = true;
 uniform bool enable_organic_edges = true;
-uniform bool enable_biome_blending = true;
+uniform bool enable_biome_blending = false;
 uniform float biome_blend_strength = 0.7;
+uniform bool climate_debug_ids = false;
+uniform bool climate_enabled = false;
+uniform int climate_world_seed = 882001;
+uniform float climate_temp[9];
+uniform float climate_rain[9];
+uniform sampler2D river_distance_tex : filter_nearest;
+uniform bool use_river_distance = false;
+uniform float u_snow_temp = -0.45;
+uniform float u_tundra_temp = -0.22;
+uniform float u_desert_rain = -0.40;
+uniform float u_wetland_rain = 0.32;
+uniform float u_water_widen = 0.12;
+uniform float u_water_narrow = 0.85;
+uniform float u_forest_thin = -0.2;
+uniform float u_center_snow_bias = 0.22;
+uniform float u_ice_radius = 0.0;
+uniform float u_season_cold = 0.0;
+uniform float u_season_wet = 0.0;
+uniform float u_oasis_boost = 0.42;
+uniform float u_plains_convert = -0.18;
+uniform float u_desert_river_keep = 0.14;
+uniform float u_tundra_ring = 0.06;
+uniform float u_river_base_width = 0.018;
+uniform sampler2D succession_tex : filter_nearest;
+uniform bool use_succession = false;
+uniform bool climate_force_uv = false;
+uniform vec2 climate_query_uv = vec2(0.5);
 
 uniform float tile_scale = 0.015;
 uniform float detail_intensity = 0.25;
@@ -32,6 +59,114 @@ const vec3 COLOR_RIVER = vec3(0.48, 0.62, 0.78);
 const vec3 COLOR_GLACIER_RIVER = vec3(0.42, 0.68, 0.95);
 const vec3 COLOR_RIVER_DEEP = vec3(0.38, 0.55, 0.72);
 const vec3 COLOR_BANK = vec3(0.52, 0.55, 0.38);  // Muddy grass near water
+const vec3 COLOR_TUNDRA = vec3(0.78, 0.82, 0.75);
+
+uint climate_hash_u32(int seed, int x, int y) {
+	uint h = uint(seed);
+	h += uint(x) * 374761393u;
+	h += uint(y) * 668265263u;
+	h = (h ^ (h >> 13u)) * 1274126177u;
+	h = h ^ (h >> 16u);
+	return h;
+}
+
+float climate_hash_01(int seed, int x, int y) {
+	return float(climate_hash_u32(seed, x, y)) / 4294967295.0;
+}
+
+int climate_ridx(int ix, int iy) {
+	ix = clamp(ix, 0, 2);
+	iy = clamp(iy, 0, 2);
+	return iy * 3 + ix;
+}
+
+vec2 climate_sample_temp_rain(vec2 uv) {
+	float gx = clamp(uv.x, 0.0, 1.0) * 2.0;
+	float gy = clamp(uv.y, 0.0, 1.0) * 2.0;
+	int ix = clamp(int(floor(gx)), 0, 1);
+	int iy = clamp(int(floor(gy)), 0, 1);
+	float fx = gx - float(ix);
+	float fy = gy - float(iy);
+	float t00 = climate_temp[climate_ridx(ix, iy)];
+	float t10 = climate_temp[climate_ridx(ix + 1, iy)];
+	float t01 = climate_temp[climate_ridx(ix, iy + 1)];
+	float t11 = climate_temp[climate_ridx(ix + 1, iy + 1)];
+	float r00 = climate_rain[climate_ridx(ix, iy)];
+	float r10 = climate_rain[climate_ridx(ix + 1, iy)];
+	float r01 = climate_rain[climate_ridx(ix, iy + 1)];
+	float r11 = climate_rain[climate_ridx(ix + 1, iy + 1)];
+	float t = mix(mix(t00, t10, fx), mix(t01, t11, fx), fy);
+	float r = mix(mix(r00, r10, fx), mix(r01, r11, fx), fy);
+	return vec2(t, r);
+}
+
+int climate_classify(int base_biome, bool is_base_water, float river_dist01, float temperature, float rainfall, float noise01, bool region_is_center, float dist_from_center) {
+	if (base_biome == 0 && !is_base_water) {
+		return 0;
+	}
+	float rain_eff = rainfall + u_season_wet;
+	float oasis = 0.0;
+	if (rain_eff < 0.0) {
+		oasis = (1.0 - clamp(river_dist01, 0.0, 1.0)) * u_oasis_boost;
+	}
+	float local_rain = rain_eff + oasis;
+	bool water = false;
+	if (rain_eff > 0.0 && river_dist01 < u_water_widen * rain_eff) {
+		water = true;
+	}
+	float width = u_river_base_width;
+	if (rain_eff >= 0.0) {
+		width = u_river_base_width + rain_eff * u_water_widen;
+	} else {
+		width = max(0.003, u_river_base_width * (1.0 + rain_eff * u_water_narrow));
+	}
+	if (is_base_water && river_dist01 <= width) {
+		water = true;
+	}
+	if (water) {
+		return 7;
+	}
+	float rad = u_ice_radius;
+	if (rad <= 0.0 && temperature < -0.22 && region_is_center) {
+		rad = clamp((-temperature - 0.22) / 0.78 * 0.52, 0.0, 0.52);
+	}
+	float edge = 0.035 * (noise01 - 0.5);
+	if (rad > 0.001 && dist_from_center <= rad + edge) {
+		return 5;
+	}
+	if (rad > 0.001 && dist_from_center <= rad + u_tundra_ring + edge) {
+		return 9;
+	}
+	if (base_biome == 5 && rad <= 0.001 && temperature > u_snow_temp + 0.2) {
+	} else if (base_biome == 5 && rad <= 0.001) {
+		return 5;
+	}
+	float cold_eff = temperature - u_season_cold;
+	if (cold_eff < u_tundra_temp && dist_from_center < 0.22 && noise01 < 0.55) {
+		return 9;
+	}
+	int biome = base_biome;
+	if (biome == 6 || biome == 3 || biome == 4) {
+		if (local_rain < u_plains_convert && noise01 < 0.62) {
+			biome = 1;
+		}
+	}
+	if (biome == 6 && local_rain < u_forest_thin && noise01 < -local_rain) {
+		biome = 1;
+	}
+	if (biome == 1 && local_rain < u_desert_rain && river_dist01 > u_desert_river_keep && cold_eff >= u_tundra_temp && noise01 < (-local_rain)) {
+		return 2;
+	}
+	if (rain_eff > u_wetland_rain && river_dist01 < 0.18) {
+		if (noise01 < rain_eff && base_biome != 0) {
+			return 4;
+		}
+	}
+	if (biome == 1 && rain_eff > 0.2 && noise01 > 0.72) {
+		biome = 6;
+	}
+	return biome;
+}
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -197,6 +332,73 @@ float neighbor_water_strength(vec2 uv, vec2 texel) {
 	return s / 4.0;
 }
 
+vec3 add_grass_detail(vec3 base, vec2 world_pos) {
+	if (!enable_grass_detail) {
+		return base;
+	}
+	float grass_n = fbm(world_pos * tile_scale * 2.0, 3);
+	base = mix(base, COLOR_GRASS_DIRT, smoothstep(0.50, 0.65, grass_n) * 0.25);
+	return base;
+}
+
+vec3 land_base_color(int biome_id) {
+	if (biome_id == 9) {
+		return COLOR_TUNDRA;
+	}
+	if (biome_id == 5) {
+		return COLOR_GLACIER;
+	}
+	if (biome_id == 2) {
+		return COLOR_DESERT;
+	}
+	if (biome_id == 3) {
+		return COLOR_JUNGLE;
+	}
+	if (biome_id == 4) {
+		return COLOR_SWAMP;
+	}
+	if (biome_id == 8) {
+		return COLOR_BEACH;
+	}
+	return COLOR_GRASS;
+}
+
+vec3 add_land_detail(vec3 base, vec2 world_pos, int biome_id) {
+	if (biome_id == 9 && enable_noise) {
+		float n = fbm(world_pos * tile_scale * 2.4, 2);
+		base = mix(base, vec3(0.70, 0.74, 0.68), smoothstep(0.45, 0.75, n) * 0.18);
+		return base;
+	}
+	if (biome_id == 1) {
+		return add_grass_detail(base, world_pos);
+	}
+	if (biome_id == 2 && enable_noise) {
+		float n = fbm(world_pos * tile_scale * 2.5, 3);
+		base = mix(base, COLOR_DESERT_DARK, smoothstep(0.45, 0.70, n) * 0.22);
+		return base;
+	}
+	if (biome_id == 3 && enable_noise) {
+		float n = fbm(world_pos * tile_scale * 2.2, 3);
+		base = mix(base, COLOR_JUNGLE_DARK, smoothstep(0.40, 0.68, n) * 0.28);
+		return base;
+	}
+	if (biome_id == 4 && enable_noise) {
+		float n = fbm(world_pos * tile_scale * 2.0, 3);
+		base = mix(base, COLOR_SWAMP_DARK, smoothstep(0.42, 0.72, n) * 0.24);
+		return base;
+	}
+	if (biome_id == 8 && enable_noise) {
+		float n = fbm(world_pos * tile_scale * 3.0, 2);
+		base = mix(base, COLOR_DESERT, smoothstep(0.50, 0.75, n) * 0.12);
+		return base;
+	}
+	if (enable_noise && biome_id == 5) {
+		float n = fbm(world_pos * tile_scale * 3.0, 3);
+		base = mix(base, vec3(0.85, 0.90, 0.95), smoothstep(0.55, 0.75, n) * 0.12);
+	}
+	return base;
+}
+
 // Sample biome colors in a 3x3 kernel and blend for smooth transitions
 vec3 sample_blended_biome_color(vec2 uv, vec2 texel, vec2 world_pos) {
 	// Sample 9 points in a 3x3 grid
@@ -257,65 +459,6 @@ bool is_near_biome_edge(vec2 uv, vec2 texel, int center_id) {
 	return false;
 }
 
-vec3 add_grass_detail(vec3 base, vec2 world_pos) {
-	if (!enable_grass_detail) {
-		return base;
-	}
-	float grass_n = fbm(world_pos * tile_scale * 2.0, 3);
-	base = mix(base, COLOR_GRASS_DIRT, smoothstep(0.50, 0.65, grass_n) * 0.25);
-	return base;
-}
-
-vec3 land_base_color(int biome_id) {
-	if (biome_id == 5) {
-		return COLOR_GLACIER;
-	}
-	if (biome_id == 2) {
-		return COLOR_DESERT;
-	}
-	if (biome_id == 3) {
-		return COLOR_JUNGLE;
-	}
-	if (biome_id == 4) {
-		return COLOR_SWAMP;
-	}
-	if (biome_id == 8) {
-		return COLOR_BEACH;
-	}
-	return COLOR_GRASS;
-}
-
-vec3 add_land_detail(vec3 base, vec2 world_pos, int biome_id) {
-	if (biome_id == 1) {
-		return add_grass_detail(base, world_pos);
-	}
-	if (biome_id == 2 && enable_noise) {
-		float n = fbm(world_pos * tile_scale * 2.5, 3);
-		base = mix(base, COLOR_DESERT_DARK, smoothstep(0.45, 0.70, n) * 0.22);
-		return base;
-	}
-	if (biome_id == 3 && enable_noise) {
-		float n = fbm(world_pos * tile_scale * 2.2, 3);
-		base = mix(base, COLOR_JUNGLE_DARK, smoothstep(0.40, 0.68, n) * 0.28);
-		return base;
-	}
-	if (biome_id == 4 && enable_noise) {
-		float n = fbm(world_pos * tile_scale * 2.0, 3);
-		base = mix(base, COLOR_SWAMP_DARK, smoothstep(0.42, 0.72, n) * 0.24);
-		return base;
-	}
-	if (biome_id == 8 && enable_noise) {
-		float n = fbm(world_pos * tile_scale * 3.0, 2);
-		base = mix(base, COLOR_DESERT, smoothstep(0.50, 0.75, n) * 0.12);
-		return base;
-	}
-	if (enable_noise && biome_id == 5) {
-		float n = fbm(world_pos * tile_scale * 3.0, 3);
-		base = mix(base, vec3(0.85, 0.90, 0.95), smoothstep(0.55, 0.75, n) * 0.12);
-	}
-	return base;
-}
-
 vec3 add_river_detail(vec3 base, vec2 world_pos) {
 	if (!enable_river_detail) {
 		return base;
@@ -326,15 +469,38 @@ vec3 add_river_detail(vec3 base, vec2 world_pos) {
 }
 
 void fragment() {
-	vec2 world_uv = UV;
+	vec2 world_uv = climate_force_uv ? climate_query_uv : UV;
 	vec2 world_pos = world_uv * world_size;
 
-	// Get biome from biome_mask (grass, desert, etc.)
 	float biome_val = texture(biome_mask, world_uv).r;
-	int biome_id = mask_to_biome_id(biome_val);
-
-	// Painted water always renders as river — topology fixes happen in data, not by hiding water.
-	bool is_water = sample_is_water(world_uv);
+	int base_biome = mask_to_biome_id(biome_val);
+	bool is_base_water = sample_is_water(world_uv);
+	ivec2 mask_sz = textureSize(biome_mask, 0);
+	ivec2 cell = ivec2(clamp(ivec2(floor(world_uv * vec2(mask_sz))), ivec2(0), mask_sz - ivec2(1)));
+	float dist01 = 1.0;
+	if (use_river_distance) {
+		dist01 = texture(river_distance_tex, world_uv).r;
+	} else if (is_base_water) {
+		dist01 = 0.0;
+	}
+	vec2 tr = vec2(0.0);
+	if (climate_enabled) {
+		tr = climate_sample_temp_rain(world_uv);
+	}
+	float n01 = climate_hash_01(climate_world_seed, cell.x, cell.y);
+	bool center = distance(world_uv, vec2(0.5, 0.5)) < 0.18;
+	float dist_from_center = clamp(distance(world_uv, vec2(0.5, 0.5)) / 0.7071, 0.0, 1.0);
+	int biome_id = climate_classify(base_biome, is_base_water, dist01, tr.x, tr.y, n01, center, dist_from_center);
+	if (use_succession && climate_enabled && biome_id != 0) {
+		int sid = int(round(texture(succession_tex, world_uv).r * 255.0));
+		if (sid > 0) {
+			biome_id = sid;
+		}
+	}
+	if (climate_debug_ids) {
+		COLOR = vec4(float(biome_id) / 255.0, 0.0, 0.0, 1.0);
+	} else {
+	bool is_water = biome_id == 7;
 	vec2 biome_texel = vec2(1.0) / vec2(textureSize(biome_mask, 0));
 
 	vec3 grass = add_land_detail(land_base_color(biome_id), world_pos, biome_id);
@@ -429,4 +595,5 @@ void fragment() {
 	}
 
 	COLOR = vec4(color, 1.0);
+	}
 }

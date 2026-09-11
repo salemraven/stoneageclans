@@ -1,6 +1,7 @@
 # Stone Age Clans – Main Game Mechanics & Vision
 
-> **⚠️ Aspirational / historical snapshot (April 2026).** Many “not implemented” lines below are **stale**. For what actually ships, use **`bible.md` §XXI**, **`bible/main.md`**, and **`bible/README.md`**. Do not treat this file as implementation truth.
+> **⚠️ Historical snapshot (April 2026) — do not use for implementation truth.**  
+> **Use instead:** `bible/bible.md`, `bible/main.md`, **`bible/earlygame_vision.md`**, `bible/README.md`.
 
 **Date**: April 2026 (banner added May 2026)  
 **Status**: Reference / ideas — not maintained line-by-line  

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "flora": [
+    {
+      "id": "forest_wood",
+      "kind": "wood",
+      "home_biomes": ["forest_patch"],
+      "sprite": ""
+    },
+    {
+      "id": "swamp_wood",
+      "kind": "wood",
+      "home_biomes": ["swamp"],
+      "sprite": ""
+    },
+    {
+      "id": "palm_wood",
+      "kind": "wood",
+      "home_biomes": ["desert", "beach"],
+      "near_water": true,
+      "sprite": ""
+    }
+  ],
+  "fauna": [
+    {
+      "id": "mammoth",
+      "home_biomes": ["glacier", "tundra"],
+      "herdable": false,
+      "sprite": ""
+    },
+    {
+      "id": "deer",
+      "home_biomes": ["savanna", "forest_patch", "jungle", "swamp", "beach", "tundra", "glacier", "desert", "river"],
+      "herdable": true,
+      "sparse_in": ["desert", "glacier", "tundra"],
+      "prefer_rivers": true,
+      "sprite": ""
+    },
+    {
+      "id": "sheep",
+      "home_biomes": ["savanna", "forest_patch", "jungle", "swamp", "beach", "tundra", "glacier", "desert", "river"],
+      "herdable": true,
+      "sparse_in": ["desert", "glacier", "tundra"],
+      "prefer_rivers": true,
+      "sprite": ""
+    },
+    {
+      "id": "goat",
+      "home_biomes": ["savanna", "forest_patch", "jungle", "swamp", "beach", "tundra", "glacier", "desert", "river"],
+      "herdable": true,
+      "sparse_in": ["desert", "glacier", "tundra"],
+      "prefer_rivers": true,
+      "sprite": ""
+    }
+  ]
+}

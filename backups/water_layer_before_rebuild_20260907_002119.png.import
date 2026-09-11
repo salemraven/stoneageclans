@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dcr5borh2dpmc"
-path="res://.godot/imported/stwalk_walk.png-0cd5b95286bb9025cba6d8cd267f740a.ctex"
+uid="uid://cfookh5i7tqq4"
+path="res://.godot/imported/water_layer_before_rebuild_20260907_002119.png-85d6565b571512b3647cc131323baedd.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/stwalk_walk.png"
-dest_files=["res://.godot/imported/stwalk_walk.png-0cd5b95286bb9025cba6d8cd267f740a.ctex"]
+source_file="res://backups/water_layer_before_rebuild_20260907_002119.png"
+dest_files=["res://.godot/imported/water_layer_before_rebuild_20260907_002119.png-85d6565b571512b3647cc131323baedd.ctex"]
 
 [params]
 

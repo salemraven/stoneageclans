@@ -104,7 +104,21 @@ Writes **`user://wild_npc_trace_*.jsonl`**. Toggle in editor: **`DebugConfig.ena
 
 ## Boot / load audit (autoload `RuntimeFaultSink`)
 
-Each run writes **`user://runtime_boot_audit.log`** (Editor → open user data folder) with script-load checks for **`PartyCommandUtils`**, **`FormationUtils`**, **`FSM`**, **`Main.tscn`**, **`EntityRegistry`**. Append **`--runtime-boot-audit`** for extra path probes. Disable: **`SKIP_RUNTIME_FAULT_SINK=1`**.
+Each run writes **`user://runtime_boot_audit.log`** (Editor → open user data folder) with script-load checks for **`PartyCommandUtils`**, **`FormationUtils`**, **`FSM`**, **`WorldMapEditor`**, **`TerrainQuery`**, **`Main.tscn`**, **`WorldMapEditor.tscn`**, **`biome_ground.gdshader`**, **`EntityRegistry`**. Append **`--runtime-boot-audit`** for extra path probes. Disable: **`SKIP_RUNTIME_FAULT_SINK=1`**.
+
+## Project health report (errors + causes)
+
+One command: static scan (missing files, oversized PNGs, orphan `.import`) + Godot script compile + scene smoke.
+
+```bash
+bash tools/run_project_health_report.sh
+bash tools/run_project_health_report.sh --no-godot   # fast Python-only
+python3 tools/project_health_scan.py                 # static scan only
+```
+
+**Output:** `Tests/logs/project_health_<timestamp>.txt` and `.json` — each finding includes **category**, **path**, **message**, and **fix hint**.
+
+**Categories:** `oversized_texture`, `missing_resource`, `orphan_import`, `script_parse`, `critical_scene`, `scene_smoke`, `island_map`.
 
 ## Player move trace
 

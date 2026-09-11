@@ -1,5 +1,7 @@
 # World Systems Implementation Plan
 
+> **Sep 2026 — read first:** Shipping island layout, wedge biomes, weather, resources, and wildlife are defined in **[environment_goal.md](../environment_goal.md)** (canonical) with art checklist **[island_map.md](../island_map.md)**. This plan is a **legacy technical spike** from `newworld.md` — cross-check chunk size and biome rules against environment_goal before implementing.
+
 ## Overview
 This plan integrates the world systems described in `newworld.md` into the existing StoneAgeClans game. The implementation will use Godot 4 resources (shaders, particles, curves) where possible to minimize hand-drawn art while maintaining the pixel art style and color scheme.
 

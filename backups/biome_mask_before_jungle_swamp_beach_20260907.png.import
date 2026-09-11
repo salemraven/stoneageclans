@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://qr13a12satak"
-path="res://.godot/imported/caveman_idle.png-517e144d694e985a43881287ae4729e4.ctex"
+uid="uid://cigjj4x8k4qqk"
+path="res://.godot/imported/biome_mask_before_jungle_swamp_beach_20260907.png-86796c3e18ee17d8106edc7dfc815abf.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/caveman_idle.png"
-dest_files=["res://.godot/imported/caveman_idle.png-517e144d694e985a43881287ae4729e4.ctex"]
+source_file="res://backups/biome_mask_before_jungle_swamp_beach_20260907.png"
+dest_files=["res://.godot/imported/biome_mask_before_jungle_swamp_beach_20260907.png-86796c3e18ee17d8106edc7dfc815abf.ctex"]
 
 [params]
 

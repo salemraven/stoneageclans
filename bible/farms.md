@@ -1,6 +1,8 @@
 # Farm, Dairy & Oven: Occupation, Production & UI Guide
 
-This guide explains how women, animals, and production buildings work together: the occupation system, production flow, job/task system, and UI.
+> **Planned — not shipped:** **Proto farming** (crop ring around a Field building inside the claim) is a **separate future system**. Today grain comes from **wild wheat gather outside claims** + **Oven**. The **Farm** building here is **sheep → wool**, not crops. See [future implementations/proto_farming.md](future%20implementations/proto_farming.md).
+
+**Last Updated:** 2026-05-28
 
 ---
 

@@ -16,7 +16,7 @@ fi
 
 JSONL="${1:-}"
 if [[ -z "$JSONL" ]]; then
-	JSONL="$(ls -t "$USER_DATA"/playtest_*.jsonl 2>/dev/null | head -1 || true)"
+	JSONL="$(ls "$USER_DATA"/playtest_*.jsonl 2>/dev/null | sort -r | head -1 || true)"
 fi
 if [[ -z "$JSONL" || ! -f "$JSONL" ]]; then
 	echo "No playtest JSONL found."

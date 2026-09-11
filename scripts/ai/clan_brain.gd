@@ -26,6 +26,7 @@ const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
 const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
+const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
 
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
@@ -375,6 +376,7 @@ func dormant_update(delta: float) -> void:
 	var settlement_roster: RefCounted = roster
 	if settlement_roster.call("get_population") <= 0:
 		return
+	_refresh_dormant_food_metrics(settlement_roster)
 	var pop_before: int = settlement_roster.call("get_population")
 	var food_before: int = _count_claim_food(territory.inventory)
 	var wood_before: int = territory.inventory.get_count(ResourceData.ResourceType.WOOD)
@@ -392,19 +394,64 @@ func dormant_update(delta: float) -> void:
 	_log_settlement_events(events, pop_before, food_before)
 	var pop_after: int = settlement_roster.call("get_population")
 	var food_after: int = _count_claim_food(territory.inventory)
+	_refresh_dormant_food_metrics(settlement_roster)
 	if pi and pi.is_enabled() and pi.has_method("settlement_tick_completed"):
 		pi.settlement_tick_completed(clan_name, pop_before, pop_after, food_before, food_after)
+	if pi and pi.is_enabled() and pi.has_method("settlement_tick_food_delta"):
+		pi.settlement_tick_food_delta(
+			clan_name,
+			pop_after,
+			food_before,
+			food_after,
+			_count_settlement_food_gathered(events),
+			int(events.get("fed", []).size()),
+			float(clan_metrics.get("food_days_buffer", 0.0)),
+			WorkforceMode.keys()[workforce_mode]
+		)
 	if territory:
 		territory.set_meta("settlement_roster_pop", pop_after)
 
 
-func _count_claim_food(inventory: InventoryData) -> int:
-	if not inventory:
-		return 0
+func _refresh_dormant_food_metrics(settlement_roster: RefCounted) -> void:
+	if not territory or not territory.inventory or settlement_roster == null:
+		return
+	clan_metrics["population"] = int(settlement_roster.call("get_population"))
+	var pantry: Dictionary = ClanFoodBufferScript.compute(territory, settlement_roster, [])
+	clan_metrics["food_total"] = int(pantry.get("food_total", 0))
+	clan_metrics["calories_in_storage"] = int(pantry.get("calories_in_storage", 0))
+	clan_metrics["calories_daily_need"] = int(pantry.get("calories_daily_need", 0))
+	clan_metrics["food_days_buffer"] = float(pantry.get("pantry_days", 0.0))
+	clan_metrics["calories_days_buffer"] = clan_metrics["food_days_buffer"]
+	ClanFoodBufferScript.publish_to_claim(territory, pantry)
+	_publish_workforce_mode()
+
+
+func _count_settlement_food_gathered(events: Dictionary) -> int:
+	const FOOD_KEYS: Array[String] = ["berries", "grain", "nuts", "bugs", "fiber"]
 	var total := 0
-	for ft in ResourceData.EDIBLE_FOOD_TYPES:
-		total += inventory.get_count(ft)
+	for gathered in events.get("gathered", []):
+		if not (gathered is Dictionary):
+			continue
+		var g: Dictionary = gathered as Dictionary
+		var key: String = str(g.get("resource_key", ""))
+		if key in FOOD_KEYS:
+			total += int(g.get("count", 0))
+	for produced in events.get("produced", []):
+		if not (produced is Dictionary):
+			continue
+		var p: Dictionary = produced as Dictionary
+		var item_type: int = int(p.get("item_type", -1))
+		if item_type in ResourceData.EDIBLE_FOOD_TYPES:
+			total += int(p.get("count", 1))
+	var hunt: Dictionary = events.get("hunt", {}) as Dictionary
+	if bool(hunt.get("hunted", false)):
+		var loot: Dictionary = hunt.get("loot", {}) as Dictionary
+		total += int(loot.get("meat", 0))
 	return total
+
+
+func _count_claim_food(inventory: InventoryData) -> int:
+	return ClanFoodBufferScript.count_edible_items(inventory)
 
 
 func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: int) -> void:
@@ -472,6 +519,31 @@ func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: 
 				)
 		elif pi.has_method("settlement_hunt_skipped") and not str(hunt.get("skip_reason", "")).is_empty():
 			pi.settlement_hunt_skipped(clan_name, str(hunt.get("skip_reason", "")))
+	var slaughter: Dictionary = events.get("slaughter", {}) as Dictionary
+	if not slaughter.is_empty():
+		if bool(slaughter.get("slaughtered", false)):
+			var s_loot: Dictionary = slaughter.get("loot", {}) as Dictionary
+			if pi.has_method("settlement_slaughter_completed"):
+				pi.settlement_slaughter_completed(
+					clan_name,
+					str(slaughter.get("animal_type", "?")),
+					str(slaughter.get("animal_name", "?")),
+					int(s_loot.get("meat", 0)),
+					int(s_loot.get("hide", 0)),
+					int(s_loot.get("bone", 0))
+				)
+		elif pi.has_method("settlement_slaughter_skipped") and not str(slaughter.get("skip_reason", "")).is_empty():
+			pi.settlement_slaughter_skipped(clan_name, str(slaughter.get("skip_reason", "")))
+	for regen in events.get("regen", []):
+		if regen is Dictionary and pi.has_method("settlement_regen_completed"):
+			var r: Dictionary = regen as Dictionary
+			pi.settlement_regen_completed(
+				clan_name,
+				str(r.get("resource_key", "?")),
+				int(r.get("before", 0)),
+				int(r.get("after", 0)),
+				int(r.get("cap", 0))
+			)
 	for birth in events.get("births", []):
 		if birth is Dictionary and pi.has_method("settlement_birth"):
 			var b: Dictionary = birth as Dictionary
@@ -949,37 +1021,20 @@ func _evaluate_metrics() -> void:
 	
 	if territory and territory.inventory and territory.inventory.has_method("get_count"):
 		var inv = territory.inventory
-		clan_metrics["food_total"] = (
-			inv.get_count(ResourceData.ResourceType.BERRIES)
-			+ inv.get_count(ResourceData.ResourceType.GRAIN)
-			+ inv.get_count(ResourceData.ResourceType.BREAD)
-			+ inv.get_count(ResourceData.ResourceType.MUSHROOM)
-			+ inv.get_count(ResourceData.ResourceType.BUGS)
-			+ inv.get_count(ResourceData.ResourceType.NUTS)
-			+ inv.get_count(ResourceData.ResourceType.MEAT)
-			+ inv.get_count(ResourceData.ResourceType.MILK)
-		)
 		clan_metrics["meat_count"] = inv.get_count(ResourceData.ResourceType.MEAT)
 		clan_metrics["hide_count"] = inv.get_count(ResourceData.ResourceType.HIDE)
 	else:
-		clan_metrics["food_total"] = 0
 		clan_metrics["meat_count"] = 0
 		clan_metrics["hide_count"] = 0
-	
-	var pop: int = maxi(1, clan_metrics["population"])
-	var per_day: float = _food_per_capita_per_sim_day()
-	clan_metrics["calories_daily_need"] = _calculate_clan_daily_calories()
-	clan_metrics["calories_in_storage"] = _calculate_clan_food_calories()
-	clan_metrics["calories_days_buffer"] = _calculate_calorie_buffer()
-	clan_metrics["food_days_buffer"] = clan_metrics["calories_days_buffer"]
-	if clan_metrics["calories_daily_need"] <= 0:
-		clan_metrics["food_days_buffer"] = float(clan_metrics["food_total"]) / maxf(1.0, float(pop) * per_day)
-		clan_metrics["calories_days_buffer"] = clan_metrics["food_days_buffer"]
+
+	var pantry: Dictionary = ClanFoodBufferScript.compute(territory, null, clan_members)
+	clan_metrics["food_total"] = int(pantry.get("food_total", 0))
+	clan_metrics["calories_in_storage"] = int(pantry.get("calories_in_storage", 0))
+	clan_metrics["calories_daily_need"] = int(pantry.get("calories_daily_need", 0))
+	clan_metrics["food_days_buffer"] = float(pantry.get("pantry_days", 0.0))
+	clan_metrics["calories_days_buffer"] = clan_metrics["food_days_buffer"]
 	if territory:
-		territory.set_meta("food_days_buffer", clan_metrics["food_days_buffer"])
-		territory.set_meta("calories_days_buffer", clan_metrics["calories_days_buffer"])
-		territory.set_meta("calories_in_storage", clan_metrics["calories_in_storage"])
-		territory.set_meta("calories_daily_need", clan_metrics["calories_daily_need"])
+		ClanFoodBufferScript.publish_to_claim(territory, pantry)
 	_publish_workforce_mode()
 	
 	clan_metrics["building_count"] = 0
@@ -992,49 +1047,6 @@ func _evaluate_metrics() -> void:
 				clan_metrics["building_count"] += 1
 	
 	clan_metrics["recent_losses"] = territory.get_meta("recent_herd_losses", 0) if territory else 0
-
-
-func _calculate_clan_daily_calories() -> int:
-	var total: int = 0
-	for member in clan_members:
-		if not is_instance_valid(member):
-			continue
-		if member.get("stats_component") != null:
-			var stats: Stats = member.stats_component
-			if stats and stats.has_method("get_daily_calorie_need"):
-				total += int(stats.get_daily_calorie_need())
-				continue
-		var nt: String = str(member.get("npc_type")) if member.get("npc_type") != null else ""
-		if BalanceConfig:
-			total += BalanceConfig.get_base_daily_calories(nt)
-	# Include player when this is the player's clan territory
-	if territory and territory.get("player_owned") == true:
-		var player := _get_player_node()
-		if player and player.has_method("get_daily_calorie_need"):
-			total += int(player.get_daily_calorie_need())
-		elif BalanceConfig:
-			total += BalanceConfig.get_base_daily_calories("player")
-	return total
-
-
-func _calculate_clan_food_calories() -> int:
-	var total: int = 0
-	if not territory or not territory.inventory:
-		return 0
-	var inv = territory.inventory
-	if not inv.has_method("get_count"):
-		return 0
-	for food_type in ResourceData.EDIBLE_FOOD_TYPES:
-		var count: int = inv.get_count(food_type)
-		if count > 0:
-			total += ResourceData.get_food_calories(food_type) * count
-	return total
-
-
-func _calculate_calorie_buffer() -> float:
-	var daily: int = maxi(1, clan_metrics.get("calories_daily_need", 0))
-	var stored: int = clan_metrics.get("calories_in_storage", 0)
-	return float(stored) / float(daily)
 
 
 func _get_player_node() -> Node:

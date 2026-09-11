@@ -41,6 +41,10 @@ echo "Project: $ROOT"
 echo "UnifiedLogger file: $USER_DATA_LOG"
 echo "This terminal copy: $OUT"
 echo "Quickstart: 1 claim + 2 Living Huts + 2 women (clan TEST); pregnancy starts immediately; preg/baby/cooldown sped up in BalanceConfig for this run"
+echo "  NEARBY_CLANS: ${NEARBY_CLANS:-3} AI caveman+claim clans in a ring (set NEARBY_CLANS=0 to disable; or pass --session-nearby-clans N)"
+echo "  SESSION_AI_CLAN_TOUR=1 auto-visits each claim then teleports far for dormant/tick data (--session-ai-clan-tour)"
+echo "  SESSION_AI_CLAN_TOUR_AWAY_SEC=N  off-screen wait after visits (default 45; long food tests use 540+)"
+echo "  SESSION_AI_CLAN_TOUR_STAY_AWAY=1 keep player far until quit (--session-ai-clan-tour-stay-away)"
 SQ_SHOW="${SESSION_QUIT_AFTER_SEC:-45}"
 if [[ "${SQ_SHOW}" == "0" ]]; then
   echo "Auto-quit: OFF (close window manually)"
@@ -56,16 +60,35 @@ echo "ASSERT_ECONOMY: set ASSERT_ECONOMY=1 to run tools/assert_session_economy.s
 echo ""
 echo "Instrumentation (always with this script):"
 echo "  --session-instrument  → SESSION + MOVEMENT, file log, movement filter (quickstart: woman,clansman)"
-echo "  --log-console         → mirror to terminal + session_capture log"
+echo "  --playtest-capture    → playtest_*.jsonl Phase 7 events + [PHASE7] console tags"
 echo "  DebugConfig: file batch flush + NPC_PRODUCTIVITY_SNAPSHOT + agro SESSION lines (FSM_AGRO_TRANSITION, AGRO_STATE_ENTER/EXIT) when session instrumentation is on"
+echo ""
+echo "After your run, summarize Phase 7 JSONL:"
+echo "  bash tools/summarize_phase7_playtest.sh"
+echo "  CLAN=TEST bash tools/summarize_phase7_playtest.sh"
 echo ""
 
 # --session-instrument: SESSION + MOVEMENT, enables file logging to user://game_logs.txt
 # --session-quickstart: skip default cavemen; start with claim + women + huts
+# --playtest-capture: JSONL for settlement/baby events (auto-enabled with session-instrument+quickstart too)
 # --log-console: mirror structured lines to stdout so tee captures them
 # Build argv in one array so SESSION_QUIT_AFTER_SEC=0 never leaves an empty "${QUIT_ARGS[@]}" (set -u safe).
 SQ="${SESSION_QUIT_AFTER_SEC:-45}"
-RUN_GODOT=( "$GODOT" --path "$ROOT" --session-instrument --session-quickstart --log-console )
+RUN_GODOT=( "$GODOT" --path "$ROOT" --session-instrument --session-quickstart --playtest-capture --log-console )
+NEARBY_CLANS="${NEARBY_CLANS:-3}"
+if [[ "$NEARBY_CLANS" != "0" ]]; then
+	RUN_GODOT+=( --session-nearby-clans "$NEARBY_CLANS" )
+	if [[ "${SESSION_AI_CLAN_TOUR:-0}" != "0" ]]; then
+		RUN_GODOT+=( --session-ai-clan-tour )
+		TOUR_AWAY="${SESSION_AI_CLAN_TOUR_AWAY_SEC:-}"
+		if [[ -n "$TOUR_AWAY" ]]; then
+			RUN_GODOT+=( --session-ai-clan-tour-away-sec "$TOUR_AWAY" )
+		fi
+		if [[ "${SESSION_AI_CLAN_TOUR_STAY_AWAY:-0}" != "0" ]]; then
+			RUN_GODOT+=( --session-ai-clan-tour-stay-away )
+		fi
+	fi
+fi
 if [[ "$SQ" != "0" ]]; then
 	RUN_GODOT+=( --session-quit-after "$SQ" )
 fi
@@ -94,6 +117,16 @@ ANALYZE="${ANALYZE:-1}"
 if [[ "$ANALYZE" != "0" ]] && [[ -f "$GAME_LOG_COPY" ]] && [[ -x "$ROOT/tools/analyze_session_log.sh" ]]; then
 	echo ""
 	bash "$ROOT/tools/analyze_session_log.sh" "$GAME_LOG_COPY"
+fi
+
+if [[ -x "$ROOT/tools/summarize_phase7_playtest.sh" ]]; then
+	echo ""
+	bash "$ROOT/tools/summarize_phase7_playtest.sh" || true
+fi
+
+if [[ -x "$ROOT/tools/summarize_ai_clans_playtest.sh" ]]; then
+	echo ""
+	bash "$ROOT/tools/summarize_ai_clans_playtest.sh" || true
 fi
 
 ASSERT_ECONOMY="${ASSERT_ECONOMY:-0}"

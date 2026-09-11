@@ -152,11 +152,12 @@ Full hunting write-up: **`bible/Phase4/raiding_hunting.md`**.
 - Cannot be stolen by other herders
 - Mirrors leader’s hostile state (weapon for player; NPC leader `is_hostile` for AI parties)
 
-**Herding (right-click wild NPCs)**
-- Right-click woman/sheep/goat → they attach as **wild herdables**; FSM **`herd`** (tethered follow, influence/steal, `NPCConfig` follow refresh + speed mult)
-- Cavemen/clansmen are **not** in **`herd`** for formations — only the wild types above
-- Uses normal herd rules: breaks if you go >300px; can be stolen
-- Bringing them into land claim radius claims them for your clan
+**Herding (wild NPCs — proximity, not menu-only)**
+- **Wild** woman/sheep/goat: walk within **~250px** (`HerdInfluenceArea`) → attach; FSM **`herd`**
+- **Right-click** opens **context menu** on fighters; wild herdables use **influence**, not “click to follow anywhere”
+- **Enemy claimed** herdables: **cordage bond** — planned ([future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md))
+- Cavemen/clansmen use **`party`** for formations — not `herd` for wild types
+- Deliver into claim/campfire radius to join clan
 
 ---
 

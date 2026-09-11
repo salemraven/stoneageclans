@@ -7,6 +7,22 @@ const _SALT_GRASS := &"grass"
 const _SALT_GROUND := &"ground"
 const _SALT_CLANS := &"clans"
 const _SALT_WOMEN := &"women"
+const _SALT_BIOME := &"biome"
+
+const BIOME_RESOURCE_KEYS: Dictionary = {
+	"forest": ["wood", "berries", "fiber", "nuts"],
+	"plains": ["grain", "fiber", "berries"],
+	"swamp": ["fiber", "bugs"],
+	"rocky": ["stone", "fiber"],
+}
+
+const _RESOURCE_TYPE_TO_KEY: Dictionary = {
+	ResourceData.ResourceType.STONE: "stone",
+	ResourceData.ResourceType.BERRIES: "berries",
+	ResourceData.ResourceType.WHEAT: "grain",
+	ResourceData.ResourceType.FIBER: "fiber",
+	ResourceData.ResourceType.WOOD: "wood",
+}
 
 
 func _rng(world_seed: int, cx: int, cy: int, salt: StringName) -> RandomNumberGenerator:
@@ -169,3 +185,70 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 			})
 
 	return out
+
+
+func get_chunk_biome(world_seed: int, chunk: Vector2i, cfg: Node = null) -> String:
+	var tq: Node = _get_terrain_query()
+	if tq and tq.is_authored():
+		return tq.get_chunk_biome(world_seed, chunk, cfg)
+	var rng := _rng(world_seed, chunk.x, chunk.y, _SALT_BIOME)
+	var roll: float = rng.randf()
+	if roll < 0.34:
+		return "forest"
+	if roll < 0.58:
+		return "plains"
+	if roll < 0.78:
+		return "rocky"
+	return "swamp"
+
+
+func get_biome_available_resources(world_seed: int, chunk: Vector2i, cfg: Node = null) -> Array:
+	var tq: Node = _get_terrain_query()
+	if tq and tq.is_authored():
+		return tq.get_biome_available_resources(world_seed, chunk, cfg)
+	var biome: String = get_chunk_biome(world_seed, chunk, cfg)
+	var keys: Array = BIOME_RESOURCE_KEYS.get(biome, ["fiber", "berries"]) as Array
+	return keys.duplicate()
+
+
+func compute_abstract_resource_pool(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
+	var data: Dictionary = generate_chunk(world_seed, chunk, cfg)
+	var pool: Dictionary = {
+		"wood": 0,
+		"stone": 0,
+		"berries": 0,
+		"grain": 0,
+		"fiber": 0,
+		"nuts": 0,
+		"bugs": 0,
+	}
+	for group in data.get("tree_groups", []):
+		if not (group is Array):
+			continue
+		for tree in group:
+			if tree is Dictionary and bool(tree.get("choppable", false)):
+				pool["wood"] = int(pool.get("wood", 0)) + 3
+			else:
+				pool["nuts"] = int(pool.get("nuts", 0)) + 1
+	for res in data.get("resources", []):
+		if not (res is Dictionary):
+			continue
+		var rt: int = int(res.get("type", -1))
+		var key: String = str(_RESOURCE_TYPE_TO_KEY.get(rt as ResourceData.ResourceType, ""))
+		if key.is_empty():
+			continue
+		pool[key] = int(pool.get(key, 0)) + 3
+	pool["bugs"] = int(pool.get("bugs", 0)) + int(data.get("grass_bug_patches", []).size()) * 2
+	pool["fiber"] = int(pool.get("fiber", 0)) + int(data.get("tallgrass_clusters", []).size()) * 2
+	var biome: String = get_chunk_biome(world_seed, chunk, cfg)
+	for key in BIOME_RESOURCE_KEYS.get(biome, []):
+		if int(pool.get(key, 0)) <= 0:
+			pool[key] = 5
+	return pool
+
+
+func _get_terrain_query() -> Node:
+	var tree := Engine.get_main_loop()
+	if tree == null or not (tree is SceneTree):
+		return null
+	return (tree as SceneTree).root.get_node_or_null("/root/TerrainQuery")

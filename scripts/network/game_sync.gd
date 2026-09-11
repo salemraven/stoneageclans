@@ -82,6 +82,10 @@ func receive_world_snapshot(snapshot: Dictionary) -> void:
 		sim.set_sim_seed(int(wgc.world_seed) if wgc else 0)
 	if ms and snapshot.has("mutations") and ms.has_method("load_from_dict"):
 		ms.call("load_from_dict", snapshot["mutations"])
+	if snapshot.has("climate"):
+		var cs: Node = get_node_or_null("/root/ClimateState")
+		if cs and cs.has_method("apply_payload"):
+			cs.apply_payload(snapshot["climate"] as Dictionary)
 
 
 ## Client → server: authoritative gather by stable_id (spatial radius validated on server).

@@ -36,7 +36,8 @@
 | Body + head | `TunerBodyVisual` + `head1.png` / `body1.png` | Same + morphology scale on pivots |
 | Skin tint | `skin_tone` / `genetics_profile.skin_modulate` | Same tint on head, body, ear layers |
 | Weapon | `WeaponOverlay` on `Sprite` | Same (combat poses separate from face stack) |
-| Hair / ears / clothing / hats | **Not wired** | Layer sprites on `HeadPivot` / `BodyVisual` |
+| Hair / ears / clothing / hats | Hair on layered mannequin (`hair1` + tuner attach) | More slots on `HeadPivot` / `BodyVisual` |
+| **Circle hands** (see below) | **Not built** — weapon floats on overlay only | Two skin-tinted hand discs on hand pivots; weapons parent to grip |
 | Appearance resource | `CharacterAppearance` stub (`hair_id`, …) | Full blob + registry |
 | Sleep serialize | `skin_tone`, `card_index`, traits, HP, … | **+ appearance IDs** (hair, hat, cloth, …) |
 | Visual LOD | **Not built** | Distance tiers (see below) |
@@ -67,7 +68,9 @@ CharacterRoot (NPC / Player)
     │   ├── Eyes / Brow / Beard     ← optional
     │   ├── HairFront               ← optional (bangs)
     │   └── Hat / Helmet            ← optional (usually top z on head stack)
-    └── WeaponOverlay               ← club/spear/tools (combat system)
+    ├── HandLeft                      ← **planned:** skin-tinted circle sprite
+    ├── HandRight                     ← **planned:** skin-tinted circle sprite (weapon grip parent)
+    └── WeaponOverlay               ← club/spear/tools (combat system; later parents to HandRight)
 ```
 
 **Max layers:** budget **~12 cosmetic sprites** per pawn at **full LOD**; typical pawn **4–8** (not every slot filled).
@@ -82,9 +85,68 @@ Fixed stack (see [animation_tuner.md § Draw order](animation_tuner.md)):
 4. Ears, eyes, brows, nose, mouth, beard  
 5. Hair front  
 6. Hat / helmet  
-7. Weapon overlay (when in front; huge shields may bump z later)
+7. **Hand circles** (dominant + support) — in front of torso, behind or beside weapon shaft as needed  
+8. Weapon overlay (when in front; huge shields may bump z later)
 
 **Rule:** `Sprite.flip_h` is the only facing flag; layers mirror via position + `flip_h` on sprites — not `scale.x = -1` on children independently.
+
+---
+
+## Planned: circle hands (near future)
+
+**Intent:** Add **two simple circle sprites** as visible hands on layered mannequin pawns (player + cavemen/clansmen). Circles are cheap to draw, easy to **tint to skin color**, and give characters **emotion and readability** (open vs closed grip, raised hand, weapon carry) without new sprite sheets per pose.
+
+**Why circles first**
+
+| Benefit | Detail |
+|---------|--------|
+| **Weapon parenting** | Dominant hand pivot already exists in limb presets (`hand_grip_*`, walk/gather/attack rows). Weapon overlay (or shaft art) parents to **HandRight** — grip pins stay the single source of truth. |
+| **Shared animation** | Hand **positions** come from existing motion code (`walk_arm_motion.gd`, idle/gather/combat rows in `WeaponLimbPreset`) — circles **follow pin transforms**, not a second timeline. |
+| **Skin tint** | Same `skin_modulate` / `genetics_profile.skin_modulate` path as head and body (`PlaceholderCardService._apply_skin_modulate`). Grayscale circle PNG × tint = any skin tone. |
+| **Emotion** | Scale pulse, slight offset, open/closed circle variants, or grip squeeze — layered on top of locomotion without rebaking walk strips. |
+| **Performance** | Two tiny sprites per pawn at full LOD; hide at visual LOD ≥ 2 with other cosmetics ([Visual LOD tiers](#b-visual-lod-tiers-to-implement)). |
+
+**Runtime shape (target)**
+
+```text
+Sprite
+├── BodyVisual … HeadPivot … (existing)
+├── HandPivotLeft   ← position from support-hand pins (2h)
+│   └── HandLeft    ← Circle sprite; modulate = skin_modulate
+├── HandPivotRight  ← position from weapon-hand pins (1h)
+│   └── HandRight   ← Circle sprite; modulate = skin_modulate
+│       └── WeaponOverlay   ← optional reparent: grip follows hand, not floating beside body
+```
+
+**Authoring / tuner**
+
+- Reuse **yellow 1h** and **green 2h** pins in Limb Tuner — circles preview at pin positions during Play.
+- **Save all** / row commit unchanged — hands read saved preset fields, not separate circle offsets.
+- Tuner draw order today: arm lines → body → head; add hand circles **on top of body, under weapon** when visible in-game.
+
+**Integration checklist (when implementing)**
+
+1. `TunerBodyVisual` or small `HandVisual` helper — spawn two `Sprite2D` (or `Polygon2D` circles), nearest filter, grayscale source art.
+2. `PlaceholderCardService` — apply `skin_modulate` to hand sprites whenever head/body tint updates.
+3. `MannequinPoseRuntime` / weapon overlay — each tick, set hand pivot globals from `resolve_*_hand_*` for active clip (idle, walk1, gather, combat).
+4. **East-authoritative** X mirror on flip — same rule as hair attach and weapon overlay.
+5. **Multiplayer:** hand positions derived locally from replicated combat/locomotion state + preset id — **do not** stream hand transforms per frame.
+6. **Sleep / appearance blob:** optional `hand_scale` in `CharacterAppearance` later; default 1.0 from morphology.
+
+**Emotion hooks (later, same circles)**
+
+- Idle fidget: subtle scale breathe on hands.
+- Combat: squeeze scale on strike windup.
+- Social: raised open hand (offset + larger radius) vs fist (smaller, darker modulate).
+- Eating / gather: support hand variant texture id in appearance blob (optional).
+
+**Do not**
+
+- Bake hand circles into walk PNG strips — motion stays pivot-driven ([invariants](#invariants-do-not-break)).
+- Duplicate hand coords in `CharacterCardLayerLayout` — grip stays in `WeaponLimbPreset` / holdable `.tres`.
+- Re-enable full Line2D arm chains in Main for gameplay — circles are the lightweight in-game read; IK lines stay tuner-only unless procedural runtime graduates ([animation_tuner.md](animation_tuner.md)).
+
+**See also:** [pawn_goal.md § Hands](pawn_goal.md#hands), [animation_tuner.md § Weapon overlay](animation_tuner.md) (grip pins 1h / 2h).
 
 ---
 
@@ -283,6 +345,15 @@ Each frame (only for **visible, awake** pawns):
 - [ ] Ears (skin modulate), hat, torso cloth, body paint  
 - [ ] `hair_back` / `hair_front` split  
 
+### Phase 3b — Circle hands (near future)
+
+- [ ] Grayscale hand circle PNG (open + optional closed variant)  
+- [ ] `HandLeft` / `HandRight` on layered mannequin; `skin_modulate` wired  
+- [ ] Hand pivots follow active clip hand pins (idle / walk / gather / combat)  
+- [ ] Weapon overlay grip parents to dominant hand (or stays aligned via shared resolver)  
+- [ ] Tuner preview shows circles at 1h / 2h during Play  
+- [ ] Basic emotion hooks (scale breathe idle; document extension points)  
+
 ### Phase 4 — Visual LOD
 
 - [ ] `CharacterVisualLOD` — distance bands, hero list  
@@ -327,6 +398,8 @@ Each frame (only for **visible, awake** pawns):
 | Women / babies on baked cards? | Migrate to layered path when identity needed; until then legacy card + tint |
 | Hat removes hair slot? | Registry `hat_id` can set `hide_layers: ["hair_front"]` |
 | Asymmetric hair under mirror? | East-only art first; per-layer `no_mirror` flag later if needed |
+| Visible hands in Main? | **Circle sprites** on hand pivots — not Line2D arms; see [Planned: circle hands](#planned-circle-hands-near-future) |
+| Hand skin vs body skin? | **Same** `skin_modulate` unless appearance blob adds glove/wrap layer later |
 
 ---
 

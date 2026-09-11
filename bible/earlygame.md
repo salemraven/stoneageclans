@@ -2,7 +2,7 @@
 
 Early game survival loop: mechanics, progression, and feel.
 
-**Last updated:** May 2026 · **Canon:** `bible.md`, `bible/README.md`
+**Last updated:** Sep 2026 · **Vision owner (food, raids, horn, genetics UI):** [earlygame_vision.md](earlygame_vision.md) · **Canon:** `bible.md`, `bible/README.md`
 
 **Roadmap note (May 2026):** World **streaming** and **guide hygiene** were brought in line with the codebase: chunk-based procedural fill (`ChunkManager` / `WorldGenConfig` / `MutationStore`), **`bible/game_map.md`** (full technical map reference), **`bible/gdd.md`** / **`bible/main.md`** / **`bible/multiplayer.md`** refreshed, and stale checklists (**`CRITICAL_FIXES`**, **`BATTLE_ROYALE_READINESS`**, root **`playtest_readiness.md`**) removed. **Multiplayer:** `NetworkManager` + partial **`GameSync`** (spawn zones / snapshot scaffolding) — see **`bible/multiplayer.md`**; chunk **interest union** for clients is still a gap. **Combat:** occasional **`[COMBAT] Hit frame - target invalid`** in logs (lifecycle / despawn race) — unrelated to chunk loading but affects early brawls. Early-game **design targets** below (nomadic loops, territory tiers) remain **aspirational** where marked.
 
@@ -105,8 +105,8 @@ The loop emphasizes raw scarcity, manual consumption, and the slow grind of a si
 | **Identity** | Nomadic home | Settled home | Upgraded settlement |
 | **Inventory slots** | Fewer (e.g. 6) | More (e.g. 12) | TBD |
 | **Radius** | Smaller (e.g. 250px) | Larger (e.g. 400px) | TBD |
-| **Buildings** | Living Hut, **Oven**, **Drying Rack** (+ campfire cooking) | Oven, dairy, farm, huts, etc. | Full building set + upgrades |
-| **Production** | Bread, leather (WorkRequests), fire-based meat cooking | Bread, cheese, crops, … | TBD |
+| **Buildings** | Living Hut (**max 3**); **no Field** ([proto_farming.md](future%20implementations/proto_farming.md)) | Oven, dairy, farm, huts, Field (planned), etc. | Full building set + upgrades |
+| **Production** | Forage + meat; *code may allow Oven/Drying Rack on campfire* — **grain from wild gather or flag Field only** | Bread, cheese, crops, settled grain | TBD |
 | **ClanBrain** | **Nomadic** mode on campfire (defenders/searchers/threat; no NPC raid start on player) | Full settled (defenders, searchers, raids) | Full + scaling |
 | **Move / abandon** | **Yes** — pack up, relocate, or abandon and place a new campfire; **clan persists** | Typically fixed; upgrade chain, not nomadic pack-up | Fixed |
 | **Upgrade path** | Campfire → **Flag** (place/replace with flag claim) | Flag → Tier 3 → Tier 4 | N/A |

@@ -465,6 +465,10 @@ func clear_occupant(slot_index: int, is_woman: bool) -> void:
 		if npc_sprite:
 			npc_sprite.visible = true
 	if is_woman:
+		if building_type == ResourceData.ResourceType.LIVING_HUT and has_meta("assigned_woman"):
+			var aw: Variant = get_meta("assigned_woman")
+			if aw == npc_leaving or (aw is Object and not is_instance_valid(aw)):
+				remove_meta("assigned_woman")
 		job_reserved_by = null
 		transport_reserved_by = null
 		if not is_occupied() and is_active:

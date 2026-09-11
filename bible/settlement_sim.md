@@ -8,7 +8,7 @@
 
 **World model (settled):** **One continuous 2D plane** — the player walks from their settlement to any other on the same map. We do **not** use instanced colony maps (RimWorld tiles, Dwarf Fortress site layers). See [Continuous plane (design lock)](#continuous-plane-design-lock).
 
-**See also:** [visual_vs_sim_layers.md](visual_vs_sim_layers.md) (chunk + NPC tiers), [game_map.md](game_map.md) (chunks, coordinates), [wildlife_migration.md](wildlife_migration.md) (seasonal cross-plane herds), [guides/lag.md](../guides/lag.md) (perf budgets), [production_economy.md](production_economy.md) (on-screen WorkRequests), [reproduction_guide.md](reproduction_guide.md), [camp_relocation.md](camp_relocation.md), [future implementations/genetics.md](future%20implementations/genetics.md), [ai_clan_brain.md](ai_clan_brain.md)
+**See also:** [visual_vs_sim_layers.md](visual_vs_sim_layers.md) (chunk + NPC tiers), [game_map.md](game_map.md) (chunks, coordinates), [wildlife_migration.md](wildlife_migration.md) (seasonal cross-plane herds), [guides/lag.md](../guides/lag.md) (perf budgets), [production_economy.md](production_economy.md) (on-screen WorkRequests), [reproduction_guide.md](reproduction_guide.md), [camp_relocation.md](camp_relocation.md), [future implementations/genetics.md](future%20implementations/genetics.md), [future implementations/off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md) (baseline tuning + production modifiers), [ai_clan_brain.md](ai_clan_brain.md)
 
 ---
 
@@ -242,7 +242,9 @@ When player enters interest or chunk loads:
 | Land claims on `world_objects` (survive chunk unload) | ✅ |
 | `NPCSleepManager` serialize / wake | ✅ Partial — missing `genetics_profile`, pregnancies, inventory in sleep record |
 | `ClanBrain.update()` when claim active | ✅ Full job board, raids, hunts |
-| `ClanBrain.dormant_update()` when claim inactive | ⚠️ **Food drain only** — not full settlement |
+| `ClanBrain.dormant_update()` when claim inactive | ✅ **Settlement tick** — gather, hunt, slaughter, feed, passive craft, pregnancy (see [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md)) |
+| Abstract gather + regen | ✅ Shipped — ⚠️ **pseudo-biome gating** can block all edible food on some chunks until fixed |
+| Emergency livestock slaughter | ✅ `AbstractSlaughter` when STARVING + empty pantry + hunt failed |
 | Reproduction on live women | ✅ On-screen only |
 | WorkRequests / TaskRunner | ✅ On-screen only |
 | Build requests (milestone construction) | ✅ On-screen only |
@@ -250,7 +252,7 @@ When player enters interest or chunk loads:
 | Full genetics evolution | ❌ [genetics.md](future%20implementations/genetics.md) |
 | Chunk-spawned clans under `Chunk_*` | ⚠️ Lost on unload unless persisted ([game_map.md](game_map.md) §11) |
 
-**Gap:** actor sleep works for perf; **settlement tick does not yet replace** off-screen gathering, crafting, building, or births.
+**Gap:** actor sleep works for perf; **settlement tick runs** off-screen gather/hunt/feed/births, but **baseline food balance is not stable** until placeholder pseudo-biomes allow edible gather on every chunk (or food-first when starving). Full off-screen **construction milestones** and genetics evolution remain deferred.
 
 ---
 
