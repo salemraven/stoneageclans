@@ -1,3 +1,6 @@
+# Installer / Teams blobs (GitHub 100MB cap)
+ART/*.pkg
+
 # Godot — ignore cache; keep shared Game view prefs so Play uses a real OS window
 .godot/*
 !.godot/editor/
