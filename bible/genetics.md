@@ -3,6 +3,8 @@
 **Last updated:** 2026-08-27  
 **Status:** **Planned — not shipped.** This is the canonical overview. Deep technical spec: [future implementations/genetics.md](future%20implementations/genetics.md).
 
+**Shipped appearance:** hair + skin + **body height/width** are additive genes on the card (men and women; kids inherit via the same mix as hair/skin). **Head size** (tall vs wide skull) is next; **sex dimorphism** is coded but off (no catalog loci yet). Future **clothes and hair styles** must parent to the body or head they sit on so they stretch with those genes.
+
 **See also:** [reproduction_guide.md](reproduction_guide.md) (babies, caps, pregnancy), [traits.md](traits.md) (species & traits today), [food.md](future%20implementations/food.md) (starvation & baby throttle vision), [settlement_sim.md](settlement_sim.md) (off-screen roster births), [clan_founding_and_exile.md](clan_founding_and_exile.md) (**wild cavemen** / founder lineage — planned).
 
 ---

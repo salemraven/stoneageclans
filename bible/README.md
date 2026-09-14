@@ -10,6 +10,7 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 |-----|---------|
 | **[bible.md](bible.md)** | Lore, mechanics, code map, implementation snapshot — **start here** |
 | **[earlygame_vision.md](earlygame_vision.md)** | **Opening 10 min**, tiers, food, raids, horn — design owner (Sep 2026) |
+| **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations, food, containers (Sep 2026 lock) |
 | **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | **[roadmap_2026.md](roadmap_2026.md)** | **Unified build order** Phases 0–7 |
@@ -47,8 +48,9 @@ Unimplemented mechanics belong in **§XXII** or `future implementations/` — no
 | [AgroGuide.md](AgroGuide.md) | Agro meter, combat entry |
 | [reproduction_guide.md](reproduction_guide.md) | Huts, pregnancy, babies, **baby feeding gap (planned)** |
 | [genetics.md](genetics.md) | **Genetics vision** — inheritance, metabolism, evolution (planned) |
-| [Buildings.md](Buildings.md) | Building list, placement |
-| [items_guide.md](items_guide.md) | Items, hotbar, resources |
+| [Buildings.md](Buildings.md) | Building list, placement (**menu today**; design → [economy_catalog.md](economy_catalog.md)) |
+| **[economy_catalog.md](economy_catalog.md)** | **Canonical** item classes, recipes, stations, food/containers |
+| [items_guide.md](items_guide.md) | Hotbar/slots — **item list stale**; use economy_catalog |
 | [traits.md](traits.md) | Species, traits, stats |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
 | [clan_founding_and_exile.md](clan_founding_and_exile.md) | **Planned (major):** wild cavemen, exile, clan slots, founder spawn |

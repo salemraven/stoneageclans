@@ -4,6 +4,7 @@ Player- and community-facing posts about systems, art, and design.
 
 | Post | Topic |
 |------|--------|
+| [2026-09-13_no_tech_tree.md](2026-09-13_no_tech_tree.md) | Production tier system — why Stone Age Clans has no tech tree; building upgrades (Tier 1/2/3), quality rolls, community cost |
 | [animation-system.md](animation-system.md) | Modular card + procedural arm animation, Character Animation Tuner, scaling body styles |
 
 Technical design docs live in [`bible/`](../bible/README.md).
