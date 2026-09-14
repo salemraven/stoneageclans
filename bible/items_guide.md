@@ -1,8 +1,9 @@
 # Stone Age Clans – Items Guide
 
 **Date**: May 2026 · **Index:** `bible/README.md` · **Canon:** `bible.md` §XIII  
-**Status**: Living Document  
-**Purpose**: Comprehensive guide to all items in the game, their categories, and properties. **World:** gatherables also spawn from **chunk streaming** (`bible/game_map.md`); item *definitions* here still apply.
+**Status**: **Partially stale** — categories and hotbar slots still useful. **Item list, dairy, meat-as-future, and building bills do not match code or design.**  
+**Current design lock:** [economy_catalog.md](economy_catalog.md)  
+**Purpose**: Older guide to items, categories, and properties. **World:** gatherables also spawn from **chunk streaming** (`bible/game_map.md`).
 
 ---
 

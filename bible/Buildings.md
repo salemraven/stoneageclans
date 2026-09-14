@@ -1,5 +1,7 @@
 # Stone Age Clans – Buildings
 
+**Design lock for stations, labor, and new buildings:** [economy_catalog.md](economy_catalog.md). This page is **what the menu does in code today**.
+
 All buildings have a building inventory where materials can be placed to be turned into refined items.
 
 ---
