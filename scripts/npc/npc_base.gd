@@ -7,6 +7,7 @@ const HerdableComponentScript = preload("res://scripts/npc/components/herdable_c
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const MovementDebugInstrument = preload("res://scripts/debug/movement_debug_instrument.gd")
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+const FightOverScript = preload("res://scripts/systems/fight_over.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 # Uses global WalkAnimation (class_name in walk_animation.gd)
@@ -37,6 +38,8 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 @export var quality_tier: String = "Flawed"  # Flawed, Good, Legendary (age-based, affects stats)
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light (visual only)
 var card_index: int = 0  # clansmen_card1-18 for caveman/clansman/player lineage
+var hair_id: int = 0  # 1–15 grayscale hair styles; shared by men and women
+var hair_tone: String = ""  # Black, DarkBrown, Brown, LightBrown, DirtyBlonde, Auburn, Gray
 var genetics_profile: Dictionary = {}  # conception profile; skin_modulate applied in PR3
 var _card_foot_y: float = -28.0
 var _card_bounce_time: float = 0.0
@@ -542,6 +545,7 @@ var territorial_radius: float = 0.0
 
 # Caveman aggression tracking — single meter drives combat + agro_state; is_agro is derived
 var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) — combat, hostile indicator, agro_state
+var rout_meter: float = 0.0  # Battle rout; campfire women still use FSM panic
 var is_agro: bool:
 	get:
 		return agro_meter > 0.0001
@@ -564,11 +568,55 @@ func resolve_combat_target() -> Node2D:
 		combat_target = null
 		return null
 	var n: Node = EntityRegistry.get_entity_node(combat_target_id) if EntityRegistry else null
-	if not n or not is_instance_valid(n):
+	if not n or not is_instance_valid(n) or not FightOverScript.is_living_attack_target(n):
 		_invalidate_combat_target()
 		return null
 	combat_target = n as Node2D
 	return combat_target
+
+func end_fight_target_dead(corpse: Node = null) -> void:
+	combat_locked = false
+	set("combat_locked", false)
+	var comp: Node = get_node_or_null("CombatComponent")
+	if comp:
+		if comp.has_method("cancel_ready"):
+			comp.cancel_ready()
+		if "state" in comp:
+			comp.state = 0
+		if comp.has_method("clear_target"):
+			comp.clear_target()
+	combat_target_id = -1
+	set("combat_target_id", -1)
+	combat_target = null
+	set("combat_target", null)
+	agro_target = null
+	set("agro_target", null)
+	reset_agro_after_combat()
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("is_enabled") and pi.is_enabled():
+		var nstr: String = str(npc_name) if npc_name != null else "unknown"
+		var cstr: String = "unknown"
+		if corpse and is_instance_valid(corpse) and corpse.get("npc_name") != null:
+			cstr = str(corpse.get("npc_name"))
+		var fsm_name: String = ""
+		if fsm and fsm.has_method("get_current_state_name"):
+			fsm_name = str(fsm.get_current_state_name())
+		if pi.has_method("fight_over"):
+			pi.fight_over(nstr, cstr, "target_dead", agro_meter, fsm_name)
+		if pi.has_method("combat_ended"):
+			pi.combat_ended(nstr, cstr)
+		if pi.has_method("clansman_agro_reset"):
+			var ctx: Dictionary = command_context if command_context != null else {}
+			pi.clansman_agro_reset(nstr, str(ctx.get("mode", "FOLLOW")), agro_meter)
+	if fsm and fsm.has_method("force_evaluation"):
+		if "evaluation_timer" in fsm:
+			fsm.evaluation_timer = 0.0
+		fsm.force_evaluation()
+	elif fsm and fsm.has_method("_evaluate_states"):
+		if "evaluation_timer" in fsm:
+			fsm.evaluation_timer = 0.0
+		fsm._evaluate_states()
+
 
 func reset_agro_after_combat() -> void:
 	"""Mode-aware agro reset when leaving combat (FOLLOW/GUARD/ATTACK ordered followers)."""
@@ -589,6 +637,65 @@ func reset_agro_after_combat() -> void:
 		v = 0.0
 	set("agro_meter", v)
 	agro_meter = v
+	if v <= 0.0001:
+		agro_target = null
+		set("agro_target", null)
+
+
+func _apply_sensor_budget() -> void:
+	if npc_type == "baby":
+		collision_layer = 0
+		collision_mask = 0
+	var pa: Node = get_node_or_null("DetectionArea")
+	if pa is PerceptionArea:
+		_apply_fighter_perception_off(pa)
+		if npc_type == "baby":
+			(pa as PerceptionArea).monitoring = false
+			pa.monitorable = false
+			pa.set_process(false)
+	var hi: Node = get_node_or_null("HerdInfluenceArea")
+	if hi:
+		hi.set_physics_process(false)
+		if hi is Area2D:
+			var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
+			(hi as Area2D).monitoring = herd_on
+			(hi as Area2D).monitorable = false
+
+
+func _apply_fighter_perception_off(pa: Node) -> void:
+	if pa == null or not (pa is PerceptionArea):
+		return
+	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "baby":
+		(pa as PerceptionArea).monitoring = false
+		pa.monitorable = false
+		pa.set_process(false)
+
+
+func _tick_rout_meter(delta: float) -> void:
+	if rout_meter <= 0.0:
+		return
+	var decay: float = 8.0
+	if BalanceConfig:
+		decay = float(BalanceConfig.rout_decay_per_sec)
+	rout_meter = maxf(0.0, rout_meter - decay * delta)
+	set("rout_meter", rout_meter)
+
+
+func try_rout_flee() -> void:
+	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	if not fsm or not fsm.has_method("change_state"):
+		return
+	if fsm.get("current_state_name") == "flee_combat":
+		return
+	if has_meta("last_flee_combat_time"):
+		var lf: float = float(get_meta("last_flee_combat_time", 0.0))
+		var cd: float = 3.0
+		if NPCConfig and NPCConfig.get("flee_combat_cooldown") != null:
+			cd = float(NPCConfig.flee_combat_cooldown)
+		if Time.get_ticks_msec() / 1000.0 - lf < cd:
+			return
+	fsm.change_state("flee_combat")
 
 
 func equip_work_weapon_spear() -> void:
@@ -629,18 +736,7 @@ func _skip_agro_meter_pumps() -> bool:
 	return st == "combat" or st == "flee_combat"
 
 func _invalidate_combat_target() -> void:
-	reset_agro_after_combat()
-	combat_target_id = -1
-	set("combat_target_id", -1)
-	combat_target = null
-	set("combat_target", null)
-	var comp = get_node_or_null("CombatComponent")
-	if comp and comp.has_method("clear_target"):
-		comp.clear_target()
-	if fsm and fsm.has_method("_evaluate_states"):
-		if "evaluation_timer" in fsm:
-			fsm.evaluation_timer = 0.0
-		fsm._evaluate_states()
+	end_fight_target_dead(null)
 
 # Single source of truth for "work (tasks/jobs) should be aborted" - defending, combat, or ordered follow
 func should_abort_work() -> bool:
@@ -651,7 +747,7 @@ func should_abort_work() -> bool:
 		return false
 	if defend_target != null and is_instance_valid(defend_target):
 		return true
-	if combat_target != null and is_instance_valid(combat_target):
+	if FightOverScript.is_living_attack_target(combat_target):
 		return true
 	if follow_is_ordered == true:
 		return true
@@ -667,14 +763,50 @@ var is_hostile: bool = false  # True when agro level is high enough for hostile 
 var _sprite_base_position := Vector2.ZERO
 var _walk_timer := 0.0
 var _last_facing := Vector2(0, 1)  # For directional sprites when idle (S = down)
+var _overlay_sync_inited: bool = false
+var _overlay_sync_flip: bool = false
+var _overlay_sync_facing: Vector2 = Vector2.ZERO
+var _overlay_sync_overlay_state: int = -1
+var _overlay_sync_throw: bool = false
+
+func _weapon_overlay_needs_sync(moving: bool) -> bool:
+	if moving:
+		return true
+	if not _overlay_sync_inited:
+		return true
+	var spr: Sprite2D = get_node_or_null("Sprite") as Sprite2D
+	var flip_now: bool = spr.flip_h if spr else false
+	var ost: int = int(get_meta("weapon_overlay_state", 0))
+	var throw_now: bool = bool(get_meta("throw_stance", false))
+	if flip_now != _overlay_sync_flip:
+		return true
+	if ost != _overlay_sync_overlay_state:
+		return true
+	if throw_now != _overlay_sync_throw:
+		return true
+	if _overlay_sync_facing.distance_squared_to(_last_facing) > 0.0004:
+		return true
+	return false
+
+func _remember_weapon_overlay_sync() -> void:
+	_overlay_sync_inited = true
+	var spr: Sprite2D = get_node_or_null("Sprite") as Sprite2D
+	_overlay_sync_flip = spr.flip_h if spr else false
+	_overlay_sync_facing = _last_facing
+	_overlay_sync_overlay_state = int(get_meta("weapon_overlay_state", 0))
+	_overlay_sync_throw = bool(get_meta("throw_stance", false))
 var is_walking_animation: bool = false  # True while showing walk spritesheet (so weapon/combat don't overwrite)
 var progress_display: Node2D = null  # Progress circle for eating/harvesting
 var follow_line: Line2D = null  # Line showing connection to herder
+var _leader_lines_container: Node2D = null
+var _leader_line_pool: Array[Line2D] = []
 var hostile_indicator: Label = null  # "!!!" indicator for hostile mode
 
 func _ready() -> void:
 	if EntityRegistry:
 		EntityRegistry.register(self)
+	if HostileEntityIndex:
+		HostileEntityIndex.register(self)
 	# CRITICAL: Recover clan_name from meta if direct property is empty
 	# This ensures meta properties persist across node recreation or state transitions
 	if clan_name == "" and has_meta("clan_name"):
@@ -797,6 +929,7 @@ func _ready() -> void:
 		reproduction_component.initialize(self)
 	if baby_growth_component:
 		baby_growth_component.initialize(self)
+	_apply_sensor_budget()
 	
 	# Initialize combat components for cavemen, clansmen, mammoths, women, sheep, goats, deer
 	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "mammoth" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat" or npc_type == "deer":
@@ -875,8 +1008,10 @@ func _ready() -> void:
 
 	# Setup quality tier based on age (stats)
 	_update_quality_tier()
-	# Randomize skin tone (Dark, Medium, Light) for variety - skip for sheep/goat (they use tint from spawn)
-	if npc_type != "sheep" and npc_type != "goat" and npc_type != "deer":
+	# Layered mannequins: skin from polygenic genome (PlaceholderCardService / BirthEngine).
+	if uses_placeholder_cards():
+		pass
+	elif npc_type != "sheep" and npc_type != "goat" and npc_type != "deer":
 		skin_tone = ["Dark", "Medium", "Light"][npc_randi_range(0, 2)]
 		_update_visual_tier()
 	elif sprite and has_meta("sheep_goat_tint"):
@@ -911,6 +1046,8 @@ func _ready() -> void:
 		call_deferred("_apply_caveman_idle_once")
 
 func _exit_tree() -> void:
+	if HostileEntityIndex:
+		HostileEntityIndex.unregister(self)
 	if EntityRegistry:
 		EntityRegistry.unregister(self)
 	if task_runner and task_runner.has_method("has_job") and task_runner.has_job():
@@ -975,38 +1112,50 @@ func _deer_update_fright_meter_try_flee(delta: float) -> void:
 		fsm.change_state("flee_prey")
 
 
+func is_sim_dormant() -> bool:
+	return _sim_dormant
+
+
 func set_sim_dormant(dormant: bool) -> void:
 	if _sim_dormant == dormant:
 		return
 	_sim_dormant = dormant
 	if dormant:
 		set_physics_process(false)
+		collision_layer = 0
+		collision_mask = 0
 		var pa_off: Node = get_node_or_null("DetectionArea")
 		if pa_off is PerceptionArea:
 			(pa_off as PerceptionArea).monitoring = false
+			pa_off.monitorable = false
 			pa_off.set_process(false)
 		var hi_off: Node = get_node_or_null("HerdInfluenceArea")
 		if hi_off:
 			hi_off.set_physics_process(false)
 			if hi_off is Area2D:
 				(hi_off as Area2D).monitoring = false
+				(hi_off as Area2D).monitorable = false
+		if HostileEntityIndex:
+			HostileEntityIndex.unregister(self)
 		return
 	var health_comp_wake: HealthComponent = get_node_or_null("HealthComponent")
 	if health_comp_wake and health_comp_wake.is_dead:
 		return
 	set_physics_process(true)
+	collision_layer = 2
+	collision_mask = 0
 	var pa_on: Node = get_node_or_null("DetectionArea")
 	if pa_on is PerceptionArea:
-		var mp: MultiplayerAPI = get_multiplayer()
-		var authority_ok := mp == null or not mp.has_multiplayer_peer() or is_multiplayer_authority()
-		if authority_ok:
-			(pa_on as PerceptionArea).monitoring = true
-			pa_on.set_process(true)
+		_apply_fighter_perception_off(pa_on)
 	var hi_on: Node = get_node_or_null("HerdInfluenceArea")
 	if hi_on:
-		hi_on.set_physics_process(true)
+		hi_on.set_physics_process(false)
 		if hi_on is Area2D:
-			(hi_on as Area2D).monitoring = true
+			var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
+			(hi_on as Area2D).monitoring = herd_on
+			(hi_on as Area2D).monitorable = false
+	if HostileEntityIndex:
+		HostileEntityIndex.register(self)
 
 
 func _physics_process(delta: float) -> void:
@@ -1019,6 +1168,9 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return
+	if HostileEntityIndex:
+		HostileEntityIndex.sync_cell(self)
+	_tick_rout_meter(delta)
 	
 	# Update stats (hunger depletion, etc.)
 	if stats_component:
@@ -1707,7 +1859,9 @@ func _physics_process(delta: float) -> void:
 		_walk_timer = 0.0
 	if uses_placeholder_cards() and PlaceholderCardService:
 		if PlaceholderCardService.uses_layered_body_mannequin(self) or not PlaceholderCardService.uses_procedural_mannequin(self):
-			PlaceholderCardService.sync_weapon_overlay_flip(self)
+			if _weapon_overlay_needs_sync(moving):
+				PlaceholderCardService.sync_weapon_overlay_flip(self)
+				_remember_weapon_overlay_sync()
 
 func _apply_woman_idle_once() -> void:
 	"""Apply woman idle (womanwalk frame 0) once after _ready. Used for women."""
@@ -2122,6 +2276,9 @@ func _clear_overlay_visuals() -> void:
 		follow_line.visible = false
 	if hostile_indicator and hostile_indicator.visible:
 		hostile_indicator.visible = false
+	for line in _leader_line_pool:
+		if is_instance_valid(line) and line.visible:
+			line.visible = false
 
 func _update_wants(delta: float) -> void:
 	# Wild NPCs don't have wants/hunger - they just wander
@@ -2186,7 +2343,12 @@ func restore_sprite_modulate() -> void:
 			sprite.modulate = get_meta("sheep_goat_tint")
 		else:
 			sprite.modulate = Color.WHITE
-	elif npc_type == "caveman" or npc_type == "clansman" or npc_type == "woman":
+		return
+	var pcs: Node = get_node_or_null("/root/PlaceholderCardService")
+	if pcs and pcs.has_method("uses_layered_body_mannequin") and pcs.uses_layered_body_mannequin(self):
+		pcs.call("_apply_skin_modulate", self)
+		return
+	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "woman":
 		_update_visual_tier()
 	else:
 		sprite.modulate = Color.WHITE
@@ -2980,12 +3142,12 @@ func _apply_defensive_herding_behavior(_delta: float) -> void:
 		# Use cached list
 		var cached = get_meta("cached_herded_women", [])
 		herded_women = cached as Array[Node2D] if cached else []
-		# Still need all_npcs for threat checking
-		all_npcs = get_tree().get_nodes_in_group("npcs") as Array
 	
-	# Early exit if no herded women
+	# Early exit if no herded women (before paying for the threat scan)
 	if herded_women.is_empty():
 		return
+	if all_npcs.is_empty():
+		all_npcs = get_tree().get_nodes_in_group("npcs") as Array
 	
 	# Check each herded woman for nearby threats
 	var threat_detection_range: float = 300.0
@@ -3179,55 +3341,57 @@ func _draw_leader_lines() -> void:
 	if has_method("is_dead") and is_dead():
 		return
 	
-	var leader_lines_container = get_node_or_null("LeaderLines")
-	if not leader_lines_container:
-		# Create container if it doesn't exist
-		leader_lines_container = Node2D.new()
-		leader_lines_container.name = "LeaderLines"
-		add_child(leader_lines_container)
-	
-	# Clear existing lines
-	for child in leader_lines_container.get_children():
-		child.queue_free()
-	
-	# Find all NPCs following this leader
-	var all_npcs := get_tree().get_nodes_in_group("npcs")
+	var followers: Array[Node2D] = _get_leader_line_followers()
+	var n: int = followers.size()
+	if n == 0:
+		for line in _leader_line_pool:
+			line.visible = false
+		return
+	for i in range(n):
+		var follower: Node2D = followers[i]
+		var line: Line2D = _ensure_leader_line(i)
+		if not is_instance_valid(follower):
+			line.visible = false
+			continue
+		line.visible = true
+		line.default_color = _leader_line_color_for_follower(follower)
+		line.points = PackedVector2Array([Vector2.ZERO, to_local(follower.global_position)])
+	for i in range(n, _leader_line_pool.size()):
+		_leader_line_pool[i].visible = false
+
+
+func _get_leader_line_followers() -> Array[Node2D]:
 	var followers: Array[Node2D] = []
-	
+	if HerdManager:
+		followers.assign(HerdManager.get_herd(self))
+		return followers
+	var all_npcs := get_tree().get_nodes_in_group("npcs")
 	for npc_check in all_npcs:
-		if not is_instance_valid(npc_check):
+		if not is_instance_valid(npc_check) or npc_check == self:
 			continue
-		if npc_check == self:
-			continue
-		# Skip dead NPCs
-		if npc_check.has_method("is_dead") and npc_check.is_dead():
-			continue
-		
 		var is_herded_prop = npc_check.get("is_herded")
 		var npc_is_herded: bool = is_herded_prop as bool if is_herded_prop != null else false
-		var herder_prop = npc_check.get("herder")
-		var npc_herder = herder_prop if herder_prop != null else null
-		
-		if npc_is_herded and npc_herder == self:
+		if npc_is_herded and npc_check.get("herder") == self:
 			followers.append(npc_check)
-	
-	# Draw a line to each follower
-	for follower in followers:
-		if not is_instance_valid(follower):
-			continue
-		
-		var line = Line2D.new()
+	return followers
+
+
+func _ensure_leader_line(i: int) -> Line2D:
+	if _leader_lines_container == null or not is_instance_valid(_leader_lines_container):
+		_leader_lines_container = get_node_or_null("LeaderLines")
+		if _leader_lines_container == null:
+			_leader_lines_container = Node2D.new()
+			_leader_lines_container.name = "LeaderLines"
+			add_child(_leader_lines_container)
+	while _leader_line_pool.size() <= i:
+		var line := Line2D.new()
 		line.width = YSortUtils.WORLD_OVERLAY_LINE_WIDTH_PX
-		line.default_color = _leader_line_color_for_follower(follower)
+		line.default_color = YSortUtils.WORLD_OVERLAY_LINE_HERD_COLOR
 		line.z_as_relative = false
 		line.z_index = YSortUtils.Z_BEHIND_ENTITIES
-		
-		# Line goes from leader (origin in local space) to follower position (in local coordinates)
-		var leader_pos: Vector2 = Vector2.ZERO
-		var follower_pos: Vector2 = to_local(follower.global_position)
-		line.points = PackedVector2Array([leader_pos, follower_pos])
-		
-		leader_lines_container.add_child(line)
+		_leader_lines_container.add_child(line)
+		_leader_line_pool.append(line)
+	return _leader_line_pool[i]
 
 # SIMPLIFIED AUTO-DEPOSIT: Clean flow - Check → Find claim → Group items → Deposit → Done
 func _check_and_deposit_items() -> void:
@@ -3356,9 +3520,10 @@ func _check_and_deposit_items() -> void:
 		var total_slots = claim_inventory.slot_count
 		var last_full_warning: float = get_meta("last_full_claim_warning", 0.0)
 		if current_time - last_full_warning >= 5.0:
-			print("⚠️ AUTO-DEPOSIT: %s cannot deposit - land claim '%s' has no room for %s (%d/%d slots used)" % [
-				npc_name, my_clan, ResourceData.get_resource_name(blocked_type), used_slots, total_slots
-			])
+			if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+				print("⚠️ AUTO-DEPOSIT: %s cannot deposit - land claim '%s' has no room for %s (%d/%d slots used)" % [
+					npc_name, my_clan, ResourceData.get_resource_name(blocked_type), used_slots, total_slots
+				])
 			set_meta("last_full_claim_warning", current_time)
 		var pi_full = get_node_or_null("/root/PlaytestInstrumentor")
 		if pi_full and pi_full.is_enabled() and pi_full.has_method("deposit_failed"):
@@ -3377,7 +3542,8 @@ func _check_and_deposit_items() -> void:
 		
 		# Add to land claim first
 		if not claim_inventory.add_item(item_type, amount):
-			print("⚠️ AUTO-DEPOSIT: %s failed to add %d %s to land claim '%s' - inventory became full during deposit (used: %d/%d slots)" % [
+			if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+				print("⚠️ AUTO-DEPOSIT: %s failed to add %d %s to land claim '%s' - inventory became full during deposit (used: %d/%d slots)" % [
 				npc_name, amount, ResourceData.get_resource_name(item_type) if item_type != null else "items",
 				my_clan, claim_inventory.get_used_slots(), claim_inventory.slot_count
 			])
@@ -3435,7 +3601,8 @@ func _check_and_deposit_items() -> void:
 		var log_msg = "✅ AUTO-DEPOSIT: %s deposited %d items (%d total before, %d remaining) to land claim '%s' (distance: %.1fpx)" % [
 			npc_name, total_deposited, total_items_before, remaining_items, my_clan, distance
 		]
-		print(log_msg)
+		if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+			print(log_msg)
 		if is_clansman:
 			UnifiedLogger.log_npc("🧑 CLANSMAN DEPOSIT: %s deposited %d items (%d before, %d remaining) to '%s' (%.1fpx)" % [
 				npc_name, total_deposited, total_items_before, remaining_items, my_clan, distance
@@ -3864,11 +4031,13 @@ func _check_proximity_agro(delta: float) -> void:
 		var pr = NPCConfig.get("agro_perception_range")
 		if pr != null:
 			radius = minf(radius, pr as float)
-	var pa: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
-	if not pa:
-		UnifiedLogger.log_npc("PerceptionArea null - skipping proximity agro check", {"npc": npc_name}, UnifiedLogger.Level.WARNING)
-		return
-	var enemies: Array = pa.get_enemies_in_range(global_position, radius, self)
+	var enemies: Array = []
+	if HostileEntityIndex:
+		enemies = HostileEntityIndex.get_enemies_in_range(global_position, radius, self)
+	else:
+		var pa: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
+		if pa:
+			enemies = pa.get_enemies_in_range(global_position, radius, self)
 	var nearest_enemy: Node2D = null
 	var nearest_d: float = radius + 1.0
 	for other in enemies:
@@ -3903,10 +4072,10 @@ func _check_area_of_agro(delta: float) -> void:
 			perception_cap = pr as float
 	aoa_radius = minf(aoa_radius, perception_cap)
 
-	var pa: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
-	if not pa:
-		UnifiedLogger.log_npc("PerceptionArea null - skipping AOA agro check", {"npc": npc_name}, UnifiedLogger.Level.WARNING)
-		return
+	if HostileEntityIndex == null:
+		var pa: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
+		if not pa:
+			return
 
 	# AOP = our land claim radius when we have a claim
 	var aop_radius: float = 400.0
@@ -3931,7 +4100,13 @@ func _check_area_of_agro(delta: float) -> void:
 		return
 
 	var claim_aoa: float = minf(aoa_radius, aop_radius)
-	var nearby_enemies: Array = pa.get_enemies_in_range(global_position, claim_aoa, self)
+	var nearby_enemies: Array = []
+	if HostileEntityIndex:
+		nearby_enemies = HostileEntityIndex.get_enemies_in_range(global_position, claim_aoa, self)
+	else:
+		var pa2: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
+		if pa2:
+			nearby_enemies = pa2.get_enemies_in_range(global_position, claim_aoa, self)
 	if nearby_enemies.size() > 0:
 		var agro_increase_rate: float = 50.0
 		var nearest_enemy: Node2D = null
@@ -3952,10 +4127,13 @@ func _check_area_of_agro(delta: float) -> void:
 func _push_aoa_agro_for_enemies(delta: float, range_px: float, reason: String) -> void:
 	if _skip_agro_meter_pumps():
 		return
-	var pa_inner: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
-	if not pa_inner:
-		return
-	var nearby_enemies: Array = pa_inner.get_enemies_in_range(global_position, range_px, self)
+	var nearby_enemies: Array = []
+	if HostileEntityIndex:
+		nearby_enemies = HostileEntityIndex.get_enemies_in_range(global_position, range_px, self)
+	else:
+		var pa_inner: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
+		if pa_inner:
+			nearby_enemies = pa_inner.get_enemies_in_range(global_position, range_px, self)
 	if nearby_enemies.is_empty():
 		return
 	var agro_increase_rate: float = 50.0
@@ -4062,6 +4240,9 @@ func serialize_to_sleep_data() -> Dictionary:
 		"quality_tier": quality_tier,
 		"skin_tone": skin_tone,
 		"card_index": card_index,
+		"hair_id": hair_id,
+		"hair_tone": hair_tone,
+		"genetics_profile": genetics_profile.duplicate(true) if genetics_profile is Dictionary else {},
 		"traits": traits.duplicate(),
 		"clan_name": clan_name,
 		"position": global_position,
