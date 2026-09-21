@@ -1161,6 +1161,14 @@ func set_sim_dormant(dormant: bool) -> void:
 func _physics_process(delta: float) -> void:
 	if LagProfiler and LagProfiler.is_enabled():
 		LagProfiler.record_npc_physics_process()
+		var t0: int = Time.get_ticks_usec()
+		_physics_tick(delta)
+		LagProfiler.record_npc_physics_usec(Time.get_ticks_usec() - t0)
+		return
+	_physics_tick(delta)
+
+
+func _physics_tick(delta: float) -> void:
 	# Check if dead - if so, stop all processing
 	var health_comp: HealthComponent = get_node_or_null("HealthComponent")
 	if health_comp and health_comp.is_dead:

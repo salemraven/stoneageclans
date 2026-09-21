@@ -22,6 +22,8 @@ var _npc_physics_ticks: int = 0
 var _npc_fsm_ticks: int = 0
 var _perception_process_ticks: int = 0
 var _herd_influence_physics_ticks: int = 0
+var _npc_physics_usec: int = 0
+var _physics_frames_at_interval_start: int = 0
 var _chunk_loads: int = 0
 var _chunk_unloads: int = 0
 var _chunk_load_usec_total: int = 0
@@ -43,6 +45,7 @@ func _boot() -> void:
 		if dc.get("lag_profile_spike_ms") != null:
 			_spike_ms = maxf(5.0, float(dc.lag_profile_spike_ms))
 	if _enabled:
+		_physics_frames_at_interval_start = Engine.get_physics_frames()
 		_open_log()
 
 
@@ -97,6 +100,14 @@ func record_arm_process() -> void:
 func record_npc_physics_process() -> void:
 	if _enabled:
 		_npc_physics_ticks += 1
+
+
+## Accumulated wall time inside NPC _physics_process. Divided by tick count this gives
+## usec per NPC per tick, which is comparable across runs with different populations —
+## unlike frame rate, which also moves with vsync and crowd size.
+func record_npc_physics_usec(usec: int) -> void:
+	if _enabled:
+		_npc_physics_usec += usec
 
 
 func record_npc_fsm_update() -> void:
@@ -238,6 +249,17 @@ func _emit_interval() -> void:
 	snap["gatherable_process_calls"] = _gatherable_process_calls
 	snap["arm_process_calls"] = _arm_process_calls
 	snap["npc_physics_ticks"] = _npc_physics_ticks
+	snap["npc_physics_usec"] = _npc_physics_usec
+	snap["npc_usec_per_tick"] = snappedf(
+		float(_npc_physics_usec) / float(maxi(_npc_physics_ticks, 1)), 0.01
+	)
+	# Real physics steps this interval. Steps per rendered frame reveals the
+	# max_physics_steps_per_frame clamp (default 8), which pins frame time when hit.
+	var steps: int = Engine.get_physics_frames() - _physics_frames_at_interval_start
+	snap["physics_steps"] = steps
+	snap["physics_steps_per_frame"] = snappedf(
+		float(steps) / float(maxi(_frame_count, 1)), 0.01
+	)
 	snap["npc_fsm_ticks"] = _npc_fsm_ticks
 	snap["perception_process_ticks"] = _perception_process_ticks
 	snap["herd_influence_physics_ticks"] = _herd_influence_physics_ticks
@@ -251,13 +273,15 @@ func _emit_interval() -> void:
 	if avg_ms > _spike_ms * 0.75:
 		print(
 			("⚠ Lag interval: avg %.1fms max %.1fms | physics=%.1fms process=%.1fms | "
-			+ "npcs=%d (phys_ticks=%d) areas_mon=%d pairs=%d | gatherable_ticks=%d")
+			+ "npcs=%d f/b=%d/%d (phys_ticks=%d) areas_mon=%d pairs=%d | gatherable_ticks=%d")
 			% [
 				avg_ms,
 				_frame_ms_max,
 				float(snap.get("engine_physics_ms", 0.0)),
 				float(snap.get("engine_process_ms", 0.0)),
 				snap.get("npcs", 0),
+				snap.get("npcs_awake_fighters", 0),
+				snap.get("npcs_awake_babies", 0),
 				_npc_physics_ticks,
 				snap.get("areas_monitoring", 0),
 				snap.get("physics_2d_collision_pairs", 0),
@@ -309,6 +333,11 @@ func _scan_world_composition(tree: SceneTree) -> Dictionary:
 	var npcs_mid := 0
 	var npcs_far := 0
 	var npcs_very_far := 0
+	var awake_fighters := 0
+	var awake_women := 0
+	var awake_babies := 0
+	var awake_animals := 0
+	var awake_other := 0
 	var perception_monitoring := 0
 	var perception_processing := 0
 	var herd_influence_physics := 0
@@ -324,9 +353,23 @@ func _scan_world_composition(tree: SceneTree) -> Dictionary:
 		if not (npc is Node):
 			continue
 		var n := npc as Node
+		var is_corpse := bool(n.get_meta("is_corpse", false))
+		var hc: Node = n.get_node_or_null("HealthComponent")
+		var is_dead := hc != null and bool(hc.get("is_dead"))
 		if n is CharacterBody2D:
-			if (n as CharacterBody2D).is_physics_processing():
+			if (n as CharacterBody2D).is_physics_processing() and not is_corpse and not is_dead:
 				npcs_physics += 1
+				var nt: String = str(n.get("npc_type")) if n.get("npc_type") != null else ""
+				if nt == "caveman" or nt == "clansman":
+					awake_fighters += 1
+				elif nt == "woman":
+					awake_women += 1
+				elif nt == "baby":
+					awake_babies += 1
+				elif nt == "sheep" or nt == "goat" or nt == "deer" or nt == "mammoth":
+					awake_animals += 1
+				else:
+					awake_other += 1
 			else:
 				npcs_dormant += 1
 		if player:
@@ -361,6 +404,11 @@ func _scan_world_composition(tree: SceneTree) -> Dictionary:
 		"ground_items": ground_items,
 		"npcs": npcs.size(),
 		"npcs_physics_process": npcs_physics,
+		"npcs_awake_fighters": awake_fighters,
+		"npcs_awake_women": awake_women,
+		"npcs_awake_babies": awake_babies,
+		"npcs_awake_animals": awake_animals,
+		"npcs_awake_other": awake_other,
 		"npcs_sim_dormant": npcs_dormant,
 		"npcs_near_800": npcs_near,
 		"npcs_mid_800_to_half": npcs_mid,
@@ -387,6 +435,8 @@ func _reset_interval() -> void:
 	_gatherable_process_calls = 0
 	_arm_process_calls = 0
 	_npc_physics_ticks = 0
+	_npc_physics_usec = 0
+	_physics_frames_at_interval_start = Engine.get_physics_frames()
 	_npc_fsm_ticks = 0
 	_perception_process_ticks = 0
 	_herd_influence_physics_ticks = 0
