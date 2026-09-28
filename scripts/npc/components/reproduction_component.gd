@@ -322,7 +322,8 @@ func cancel_pregnancy(reason: String) -> void:
 	var pi := get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("baby_pregnancy_cancelled"):
 		pi.baby_pregnancy_cancelled(clan_name, npc_name, reason, buffer_days)
-	print("⚠ REPRODUCTION: %s pregnancy cancelled (%s)" % [npc_name, reason])
+	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+		print("⚠ REPRODUCTION: %s pregnancy cancelled (%s)" % [npc_name, reason])
 
 
 func _get_baby_pool_manager() -> BabyPoolManager:
@@ -675,7 +676,8 @@ func _start_pregnancy() -> void:
 			"clan": clan_name,
 			"timer": birth_timer
 		})
-		print("✓ REPRODUCTION: %s started pregnancy (mate: %s, clan: %s, timer: %.1fs)" % [npc_name, mate_name, clan_name, birth_timer])
+		if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+			print("✓ REPRODUCTION: %s started pregnancy (mate: %s, clan: %s, timer: %.1fs)" % [npc_name, mate_name, clan_name, birth_timer])
 		_log_baby_pregnancy_started("live")
 
 func _log_baby_pregnancy_started(source: String) -> void:
@@ -841,7 +843,8 @@ func _spawn_baby() -> void:
 		elif npc.has_method("get") and npc.get("clan_name"):
 			clan_name_final = npc.get("clan_name")
 	
-	print("✓ REPRODUCTION: %s gave birth to baby (clan: %s)" % [npc_name_final, clan_name_final])
+	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+		print("✓ REPRODUCTION: %s gave birth to baby (clan: %s)" % [npc_name_final, clan_name_final])
 	if npc and npc.get_meta("repro_harness_diag", false):
 		var main_n: Node = tree.get_first_node_in_group("main")
 		if main_n and main_n.has_method("_repro_harness_on_birth"):
@@ -1052,6 +1055,8 @@ func _emit_repro_gate(gate: Dictionary, changed: bool) -> void:
 	var pi := get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("repro_gate"):
 		pi.repro_gate(gate)
+	if not DebugConfig or not DebugConfig.has_method("allow_gameplay_prints") or not DebugConfig.allow_gameplay_prints():
+		return
 	if str(gate.get("code", "")) == "ok" and not bool(gate.get("pregnant", false)):
 		if changed:
 			print("REPRO_GATE %s clan=%s ready (hut=%s claim=%s father=%s)" % [
@@ -1081,7 +1086,8 @@ func _log_repro_blocked_once(code: String, detail: String) -> void:
 		return
 	_last_repro_gate_code = code
 	var npc_name: String = str(npc.get("npc_name")) if npc and npc.has_method("get") else "unknown"
-	print("REPRO_GATE %s %s — %s" % [npc_name, code, detail])
+	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+		print("REPRO_GATE %s %s — %s" % [npc_name, code, detail])
 	var pi := get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("baby_pregnancy_blocked"):
 		pi.baby_pregnancy_blocked(_get_npc_clan_name(), npc_name, code, {"detail": detail})

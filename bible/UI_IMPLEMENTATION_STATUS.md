@@ -1,5 +1,7 @@
 # UI Implementation Status
 
+**Status: STALE (September 2026).** Ignore “single item transfer,” 10-slot bag, and old line numbers. **Canon:** [UI.md](UI.md) — whole-stack drag, 5-slot bag, compact stockpile, title-bar window memory.
+
 **Date**: April 2026  
 **Purpose**: Track implementation status of UI features from UI.md specification. **Note:** Line numbers in `main.gd` drift — re-verify paths when tackling an item.
 

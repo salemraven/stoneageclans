@@ -91,6 +91,22 @@ var claim_food_bootstrap_min_items: int = 3
 var berries_storage_target_min: int = 8
 var berries_storage_target_per_capita: float = 0.45
 
+# --- Thrown stone (BalanceConfig is the only throw-geometry source of truth) ---
+## Max throw distance from thrower origin.
+var throw_range_px: float = 420.0
+var throw_damage: int = 6
+## Inclusive land-to-hit-point radius. Frozen-target harness owns this number.
+var throw_land_hit_radius_px: float = 48.0
+## Cursor-to-hit-point snap (player aim assist). Same family as CONTEXT_MENU_CLICK_RADIUS.
+var throw_snap_radius_px: float = 32.0
+var throw_flight_sec: float = 0.55
+var throw_arc_height_px: float = 78.0
+## Hit point = origin + (0, -display_height * this). 0.35 ≈ torso on 56px mannequin.
+var throw_torso_height_frac: float = 0.35
+## When false, geometry hit always damages (no RNG). Enable with Range skill later.
+var throw_use_skill_hit_chance: bool = false
+var throw_base_hit_chance: float = 1.0
+
 # Food hunger restore (percent of max hunger, 0-100)
 var berries_hunger_percent: float = 8.0
 var grain_hunger_percent: float = 10.0
@@ -167,6 +183,12 @@ var oldowan_gather_multiplier: float = 1.5
 var pregnancy_seconds: float = 15.0
 var baby_growth_seconds: float = 17.5
 var birth_cooldown_seconds: float = 10.0  # Min time after birth before next pregnancy
+## Battle rout (not campfire panic). Traits later multiply these three.
+var rout_add_on_ally_death: float = 40.0
+var rout_flee_threshold: float = 55.0
+var rout_decay_per_sec: float = 4.0
+var rout_add_on_ally_rout: float = 28.0
+var rout_contagion_radius: float = 560.0
 
 # Resource cooldown
 var resource_cooldown_seconds: float = 120.0

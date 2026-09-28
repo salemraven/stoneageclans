@@ -522,9 +522,13 @@ func update(delta: float) -> void:
 	if health_comp and health_comp.is_dead:
 		return
 	
-	# If state was just set but enter() hasn't been called yet, call it now
+	# If state was just set but enter() hasn't been called yet, call it now.
+	# enter() may switch state (break straight into a run). Enter that state too.
 	if not _state_entered:
+		var state_at_enter: Node = current_state
 		current_state.enter()
+		if current_state != state_at_enter and current_state:
+			current_state.enter()
 		_state_entered = true
 	
 	# Stuck-state watchdog: force wander if a risky state runs too long
@@ -568,9 +572,18 @@ func _evaluate_states() -> void:
 	var nt_prop = npc.get("npc_type") if npc else null
 	var npc_type_str: String = (nt_prop as String) if nt_prop != null else ""  # Declare once at function start
 	
-	# COMBAT LOCK: Don't switch states if NPC is locked in combat (windup/recovery)
-	if npc and npc.get("combat_locked") == true:
-		return  # Prevent state switching during combat
+	# A swing stays locked only while its target is still alive. A dead or missing target cannot pin the man there.
+	if npc and bool(npc.get("combat_locked")):
+		if _combat_target_is_living_body():
+			return
+		npc.combat_locked = false
+		npc.set("combat_locked", false)
+		var locked_comp: Node = npc.get_node_or_null("CombatComponent")
+		if locked_comp and locked_comp.has_method("_cancel_attack"):
+			locked_comp._cancel_attack()
+	# Rout lock: stay in flee until the flee timer ends (stops combat/defend flicker)
+	if current_state_name == "flee_combat":
+		return
 	
 	# If currently in idle, check if idle duration has passed
 	if current_state_name == "idle":
@@ -877,7 +890,9 @@ func _evaluate_states() -> void:
 	# If no higher-priority state could enter, only fallback to wander when CURRENT state can_enter is false
 	# (When in herd_wildnpc we don't re-evaluate it (priority <= current), so we must not force wander if current is still valid)
 	if not found_better_state and best_state == current_state_name:
-		if npc_type_str == "caveman":
+		var man_leaving_combat: bool = current_state_name == "combat" and (npc_type_str == "caveman" or npc_type_str == "clansman")
+		var still_on_a_person: bool = man_leaving_combat and _combat_target_is_living_person()
+		if (npc_type_str == "caveman" or man_leaving_combat) and not still_on_a_person:
 			var current_st: Node = _get_state(current_state_name)
 			var current_still_valid: bool = current_st and current_st.has_method("can_enter") and current_st.can_enter()
 			if not current_still_valid:
@@ -885,6 +900,8 @@ func _evaluate_states() -> void:
 				if wander_state and wander_state.has_method("can_enter") and wander_state.can_enter():
 					best_state = "wander"
 					best_priority = 1.0
+					if man_leaving_combat:
+						print("NPC_COMBAT_DONE name=%s" % npc_name)
 					UnifiedLogger.log_npc("State changed: %s → wander (fallback_to_wander: no_other_state_can_enter)" % current_state_name, {
 						"npc": npc_name,
 						"from": current_state_name,
@@ -934,6 +951,102 @@ func _evaluate_states() -> void:
 			}, UnifiedLogger.Level.INFO)
 		change_state(best_state)
 
+func _combat_refuses_entry() -> bool:
+	var combat_st: Node = _get_state("combat")
+	if combat_st == null or not combat_st.has_method("refuses_entry_for_break"):
+		return false
+	return bool(combat_st.refuses_entry_for_break())
+
+
+func _person_fight_lock_blocks(new_state_name: String) -> bool:
+	## One door. A living person fight, and the run that follows it, are not loot or party work.
+	if npc == null or not is_instance_valid(npc):
+		return false
+	if npc.has_method("is_dead") and npc.is_dead():
+		return false
+	if current_state_name == "flee_combat":
+		if new_state_name == "wander" and (_flee_run_finished() or _flee_reached_home()):
+			return false
+		if new_state_name == "combat" and _flee_stands_for_village():
+			return false
+		return true
+	var pending: String = str(npc.get_meta("fsm_next_state", "")) if npc.has_meta("fsm_next_state") else ""
+	if pending == "flee_combat" and new_state_name != "flee_combat":
+		return true
+	if current_state_name != "combat":
+		return false
+	if new_state_name != "hunt" and new_state_name != "gather" and new_state_name != "party" and new_state_name != "wander":
+		return false
+	return _combat_target_is_living_person()
+
+
+func _flee_run_finished() -> bool:
+	if npc == null or not npc.has_meta("flee_until_sec"):
+		return false
+	return Time.get_ticks_msec() / 1000.0 >= float(npc.get_meta("flee_until_sec"))
+
+
+func _flee_state() -> Node:
+	return current_state if current_state_name == "flee_combat" else _get_state("flee_combat")
+
+
+func _flee_reached_home() -> bool:
+	var st: Node = _flee_state()
+	return st != null and st.has_method("panic_can_end") and bool(st.panic_can_end())
+
+
+func _flee_stands_for_village() -> bool:
+	var st: Node = _flee_state()
+	return st != null and st.has_method("village_holds") and bool(st.village_holds())
+
+
+func _combat_target_is_living_body() -> bool:
+	var ct: Node = npc.get("combat_target") as Node
+	if ct == null or not is_instance_valid(ct):
+		var combat_st: Node = _get_state("combat")
+		if combat_st:
+			ct = combat_st.get("combat_target") as Node
+	if ct == null or not is_instance_valid(ct):
+		return false
+	if ct.has_method("is_dead") and bool(ct.is_dead()):
+		return false
+	var hp: Node = ct.get_node_or_null("HealthComponent")
+	if hp and bool(hp.get("is_dead")):
+		return false
+	return true
+
+
+func _combat_target_is_living_person() -> bool:
+	var ct: Node = npc.get("combat_target") as Node
+	if ct == null or not is_instance_valid(ct):
+		var combat_st: Node = _get_state("combat")
+		if combat_st:
+			ct = combat_st.get("combat_target") as Node
+	if ct == null or not is_instance_valid(ct):
+		return false
+	if ct.has_method("is_dead") and bool(ct.is_dead()):
+		return false
+	var hp: Node = ct.get_node_or_null("HealthComponent")
+	if hp and bool(hp.get("is_dead")):
+		return false
+	if ct.is_in_group("player"):
+		return true
+	var kind: String = str(ct.get("npc_type")) if ct.get("npc_type") != null else ""
+	return kind == "caveman" or kind == "clansman" or kind == "woman"
+
+
+func _note_fight_lock(blocked: String) -> void:
+	if npc == null:
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var key: String = "%s>%s" % [current_state_name, blocked]
+	if str(npc.get_meta("fight_lock_log_key", "")) == key and now < float(npc.get_meta("fight_lock_log_until", 0.0)):
+		return
+	npc.set_meta("fight_lock_log_key", key)
+	npc.set_meta("fight_lock_log_until", now + 1.0)
+	print("FIGHT_LOCK name=%s from=%s blocked=%s" % [str(npc.get("npc_name")), current_state_name, blocked])
+
+
 func change_state(new_state_name: String, bypass_reenter_check: bool = false) -> void:
 	var now_clock: float = Time.get_ticks_msec() / 1000.0
 	
@@ -976,6 +1089,12 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 		push_error("FSM: State '%s' not registered" % new_state_name)
 		return
 
+	if new_state_name == "combat" and _combat_refuses_entry():
+		new_state_name = "flee_combat"
+	if _person_fight_lock_blocks(new_state_name):
+		_note_fight_lock(new_state_name)
+		return
+
 	# Re-entry hysteresis: block re-entering the same state too soon after exit (reduces flicker).
 	if not bypass_reenter_check and new_state_name != "flee_combat":
 		var nb_until: float = float(_state_reenter_not_before.get(new_state_name, 0.0))
@@ -1016,11 +1135,19 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 			if npc:
 				npc.set("is_herded", false)
 				npc.set("herder", null)
+				npc.set("follow_is_ordered", false)
+				if "follow_is_ordered" in npc:
+					npc.follow_is_ordered = false
 			return
 	
 	# Don't change if already in this state
 	if current_state_name == new_state_name:
 		return
+	if LagProfiler and LagProfiler.is_enabled():
+		if new_state_name == "combat":
+			LagProfiler.record_gameplay("combat_entries")
+		elif new_state_name == "flee_combat":
+			LagProfiler.record_gameplay("flee_combat_entries")
 	
 	last_state_change_time = now_clock
 	
@@ -1080,6 +1207,11 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 	# Exit current state (set next_state meta so defend can preserve defend_target when going to combat)
 	if npc:
 		npc.set_meta("fsm_next_state", new_state_name)
+		if new_state_name == "flee_combat":
+			var flee_dur: float = 5.0
+			if NPCConfig and NPCConfig.get("flee_duration_seconds") != null:
+				flee_dur = float(NPCConfig.flee_duration_seconds)
+			npc.set_meta("flee_until_sec", now_clock + flee_dur)
 	if current_state:
 		current_state.exit()
 	if npc and npc.has_meta("fsm_next_state"):
@@ -1092,6 +1224,16 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 
 	# Playtest: structured FSM transition for all AI NPCs (not player)
 	var pi_tr = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi_tr and pi_tr.is_enabled() and npc and not npc.is_in_group("player") and pi_tr.has_method("fsm_bounce"):
+		var fight_states: Array[String] = ["combat", "agro", "flee_combat"]
+		if fight_states.has(old_state):
+			npc.set_meta("_left_fight_%s" % old_state, now_clock)
+		if fight_states.has(new_state_name):
+			var left_t: float = float(npc.get_meta("_left_fight_%s" % new_state_name, -999.0))
+			var gap: float = now_clock - left_t
+			if left_t > 0.0 and gap < 0.6:
+				var clan_b: String = npc.clan_name if npc else ""
+				pi_tr.fsm_bounce(npc_name, clan_b, new_state_name, gap, old_state)
 	if pi_tr and pi_tr.is_enabled() and npc and not npc.is_in_group("player") and pi_tr.has_method("npc_fsm_transition"):
 		var nt_tr: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
 		var clan_tr: String = npc.clan_name if npc else ""
@@ -1306,7 +1448,8 @@ func force_evaluation() -> void:
 	_last_force_eval_time = now
 	_evaluate_states()
 	var fn: String = str(npc.get("npc_name")) if npc and npc.get("npc_name") != null else "unknown"
-	print("🔵 FSM: Forced evaluation for %s" % fn)
+	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+		print("🔵 FSM: Forced evaluation for %s" % fn)
 	if DebugConfig and DebugConfig.enable_session_instrumentation:
 		var nt_f: String = str(npc.get("npc_type")) if npc and npc.get("npc_type") != null else ""
 		UnifiedLogger.log_session("FSM_FORCED_EVAL", {

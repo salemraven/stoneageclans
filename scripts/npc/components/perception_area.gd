@@ -2,6 +2,7 @@ extends Area2D
 class_name PerceptionArea
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+const CombatTargetPick = preload("res://scripts/combat/combat_target_pick.gd")
 
 # PerceptionArea - Implements AOP (Area of Perception). Event-driven spatial tracking.
 # Base layer for AOA, combat target selection, and agro.
@@ -120,6 +121,8 @@ func _on_body_entered(body: Node2D) -> void:
 		return
 
 	if body.is_in_group("npcs") or body.is_in_group("player"):
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(body):
+			return
 		nearby_enemies[body.get_instance_id()] = body
 	# Herdables: only for cavemen/clansmen (herders)
 	var parent = get_parent()
@@ -163,6 +166,8 @@ func get_deer_threat_centroid(origin: Vector2, radius: float, _for_npc: NPCBase 
 		if th and th.is_dead:
 			continue
 		var is_player: bool = body.is_in_group("player")
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(body):
+			continue
 		var bt: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
 		if not is_player and bt != "caveman" and bt != "clansman" and bt != "woman":
 			continue
@@ -190,6 +195,8 @@ func _deer_player_threat_pos(origin: Vector2, radius_sq: float) -> Vector2:
 		return Vector2.ZERO
 	if not is_instance_valid(pn):
 		return Vector2.ZERO
+	if DebugConfig and DebugConfig.is_ignored_by_npcs(pn):
+		return Vector2.ZERO
 	var n2 := pn as Node2D
 	var h: Node = n2.get_node_or_null("HealthComponent")
 	if h:
@@ -208,45 +215,19 @@ func has_deer_threat_in_radius(origin: Vector2, radius: float, _for_npc: NPCBase
 
 func get_nearest_enemy(origin: Vector2, npc: NPCBase = null) -> Node:
 	_prune_invalid()
-	var closest: Node = null
-	var best_dist := INF
-	var npc_name: String = npc.npc_name if npc else "unknown"
-
-	for enemy in nearby_enemies.values():
-		if not is_instance_valid(enemy):
-			continue
-		var target_health: HealthComponent = enemy.get_node_or_null("HealthComponent")
-		if target_health and target_health.is_dead:
-			continue
-		var target_type_prop = enemy.get("npc_type") if enemy else null
-		var target_type: String = target_type_prop as String if target_type_prop != null else ""
-		var is_player: bool = enemy.is_in_group("player") if enemy else false
-		if target_type != "caveman" and target_type != "clansman" and not is_player:
-			continue
-		if npc and CombatAllyCheck.is_ally(npc, enemy):
-			continue
-		var distance = origin.distance_squared_to(enemy.global_position)
-		if distance < best_dist and distance <= detection_range * detection_range:
-			best_dist = distance
-			closest = enemy
-
-	if closest:
+	var picked: Node = CombatTargetPick.pick_from_perception(self, origin, npc)
+	if picked and npc:
 		var target_name: String = "unknown"
-		var target_clan: String = ""
-		if closest is NPCBase:
-			target_name = closest.npc_name
-			target_clan = closest.get_clan_name() if closest.has_method("get_clan_name") else ""
-		elif closest.is_in_group("player"):
+		if picked is NPCBase:
+			target_name = picked.npc_name
+		elif picked.is_in_group("player"):
 			target_name = "Player"
-			target_clan = closest.get_clan_name() if closest.has_method("get_clan_name") else ""
-		var npc_clan: String = npc.get_clan_name() if npc and npc.has_method("get_clan_name") else ""
-		if npc:
-			var last_target = npc.get_meta("last_detection_target_logged", null) if npc.has_meta("last_detection_target_logged") else null
-			if closest != last_target:
-				UnifiedLogger.log("TARGET_SELECTED: %s (clan: %s) → %s (clan: %s, distance: %.1f)" % [npc_name, npc_clan, target_name, target_clan, sqrt(best_dist)], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.DEBUG, {"npc": npc_name, "target": target_name})
-				npc.set_meta("last_detection_target_logged", closest)
-
-	return closest
+		var last_target = npc.get_meta("last_detection_target_logged", null) if npc.has_meta("last_detection_target_logged") else null
+		if picked != last_target:
+			var npc_name: String = npc.npc_name if npc else "unknown"
+			UnifiedLogger.log("TARGET_SELECTED: %s → %s (spread pick)" % [npc_name, target_name], UnifiedLogger.Category.COMBAT, UnifiedLogger.Level.DEBUG, {"npc": npc_name, "target": target_name})
+			npc.set_meta("last_detection_target_logged", picked)
+	return picked
 
 func get_enemies_in_range(origin: Vector2, radius: float, npc: NPCBase = null) -> Array:
 	_prune_invalid()
@@ -261,6 +242,8 @@ func get_enemies_in_range(origin: Vector2, radius: float, npc: NPCBase = null) -
 		var target_type_prop = enemy.get("npc_type") if enemy else null
 		var target_type: String = target_type_prop as String if target_type_prop != null else ""
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(enemy):
+			continue
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
 		if npc and CombatAllyCheck.is_ally(npc, enemy):
@@ -284,6 +267,8 @@ func get_threats_in_range(origin: Vector2, radius: float, npc: NPCBase = null) -
 		var target_type_prop = enemy.get("npc_type") if enemy else null
 		var target_type: String = target_type_prop as String if target_type_prop != null else ""
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(enemy):
+			continue
 		if target_type != "caveman" and target_type != "clansman" and target_type != "predator" and not is_player:
 			continue
 		if npc and CombatAllyCheck.is_ally(npc, enemy):
@@ -301,9 +286,13 @@ func has_enemies(npc: NPCBase = null) -> bool:
 		var target_health: HealthComponent = enemy.get_node_or_null("HealthComponent")
 		if target_health and target_health.is_dead:
 			continue
+		if enemy.has_meta("is_corpse") and bool(enemy.get_meta("is_corpse")):
+			continue
 		var target_type_prop = enemy.get("npc_type") if enemy else null
 		var target_type: String = target_type_prop as String if target_type_prop != null else ""
 		var is_player: bool = enemy.is_in_group("player") if enemy else false
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(enemy):
+			continue
 		if npc and CombatAllyCheck.is_ally(npc, enemy):
 			continue
 		if target_type == "caveman" or target_type == "clansman" or is_player:
@@ -316,7 +305,7 @@ func get_all_enemies() -> Array:
 	for enemy in nearby_enemies.values():
 		if is_instance_valid(enemy):
 			var target_health: HealthComponent = enemy.get_node_or_null("HealthComponent")
-			if target_health and not target_health.is_dead:
+			if target_health and not target_health.is_dead and not bool(enemy.get_meta("is_corpse", false)):
 				valid_enemies.append(enemy)
 	return valid_enemies
 

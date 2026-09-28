@@ -4,6 +4,7 @@ class_name ButcherCorpseTask
 ## Butcher slices until inventory threshold, bag full, or corpse empty — one trip to the corpse job site.
 
 const MoveToTaskScript := preload("res://scripts/ai/tasks/move_to_task.gd")
+const CorpseHarvestScript := preload("res://scripts/systems/corpse_harvest.gd")
 
 var corpse: Node = null
 var butcher_distance: float = 52.0
@@ -38,9 +39,9 @@ func _used_slots(npc: NPCBase) -> int:
 
 
 func _corpse_yield_total() -> int:
-	if not corpse or not is_instance_valid(corpse):
+	if corpse == null or not is_instance_valid(corpse):
 		return 0
-	return int(corpse.get_meta("meat_remaining", 0)) + int(corpse.get_meta("hide_remaining", 0)) + int(corpse.get_meta("bone_remaining", 0))
+	return CorpseHarvestScript.yield_total(corpse)
 
 
 func _corpse_empty() -> bool:
@@ -89,7 +90,7 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	if not actor is NPCBase:
 		return TaskStatus.FAILED
 	var npc: NPCBase = actor as NPCBase
-	if _corpse_empty() or not corpse or not is_instance_valid(corpse):
+	if not corpse or not is_instance_valid(corpse) or _corpse_empty():
 		npc.set("is_gathering", false)
 		if npc.progress_display:
 			npc.progress_display.stop_collection(true)
@@ -149,32 +150,10 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	_slice_timer = 0.0
 	_move_task = null
 
-	var meat_left: int = int(corpse.get_meta("meat_remaining", 0))
-	var hide_left: int = int(corpse.get_meta("hide_remaining", 0))
-	var bone_left: int = int(corpse.get_meta("bone_remaining", 0))
-	var took: ResourceData.ResourceType = ResourceData.ResourceType.NONE
-	if meat_left > 0:
-		corpse.set_meta("meat_remaining", meat_left - 1)
-		took = ResourceData.ResourceType.MEAT
-	elif hide_left > 0:
-		corpse.set_meta("hide_remaining", hide_left - 1)
-		took = ResourceData.ResourceType.HIDE
-	elif bone_left > 0:
-		corpse.set_meta("bone_remaining", bone_left - 1)
-		took = ResourceData.ResourceType.BONE
-	else:
+	var slice: Dictionary = CorpseHarvestScript.take_slice(corpse, func(t): return npc.inventory.add_item(t, 1), npc.npc_name)
+	if not bool(slice.get("ok", false)):
 		return TaskStatus.SUCCESS
-
-	corpse.set_meta("last_butcher_time", Time.get_ticks_msec() / 1000.0)
-	if not npc.inventory.add_item(took, 1):
-		if took == ResourceData.ResourceType.MEAT:
-			corpse.set_meta("meat_remaining", meat_left)
-		elif took == ResourceData.ResourceType.HIDE:
-			corpse.set_meta("hide_remaining", hide_left)
-		elif took == ResourceData.ResourceType.BONE:
-			corpse.set_meta("bone_remaining", bone_left)
-		return TaskStatus.SUCCESS
-
+	var took: ResourceData.ResourceType = slice.get("type") as ResourceData.ResourceType
 	var prev_units: int = int(npc.get_meta("hunt_butcher_units", 0))
 	npc.set_meta("hunt_butcher_units", prev_units + 1)
 	match took:
@@ -187,11 +166,8 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 
 	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.is_enabled() and pi.has_method("hunt_butcher_extract"):
-		var ctype: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "unknown"
+		var ctype: String = str(corpse.get("npc_type")) if is_instance_valid(corpse) and corpse.get("npc_type") != null else "unknown"
 		pi.hunt_butcher_extract(npc.npc_name, ctype, ResourceData.get_resource_name(took), int(took), 1)
-
-	if _corpse_empty() and corpse.is_inside_tree():
-		corpse.queue_free()
 
 	if _corpse_empty() or not npc.inventory.has_space() or _used_slots(npc) >= _deposit_threshold(npc):
 		_emit_butcher_complete_if_looted(npc, "trip_complete")

@@ -26,7 +26,8 @@ Definitions of project-specific terms used throughout design and code.
 | **Herdable** | NPC that can be herded: animals, women. Has HerdInfluenceArea. |
 | **Herder** | NPC leading herdables: player or caveman. |
 | **Agro** | Aggro meter 0–100. Enter combat at 70, exit at 60. Triggers: intrusion, AOA, damage, herd steal. |
-| **ClanBrain** | AI strategy RefCounted on **territory** (land claim or campfire). Defender/searcher quotas, **raid_intent**, **hunt_intent** (AI clans), pressures, strategic state. |
+| **ClanBrain** | AI strategy RefCounted on **territory** (land claim or campfire). Defender/searcher quotas, **raid_intent**, **hunt_intent** (AI clans), pressures, strategic state. **Planned:** averaged **stats**, quorum **traits**, **skills**, clan **morale bar**, buffs/debuffs from the clansmen roster — `ai_clan_brain.md` § Clan identity. |
+| **Morale bar (ClanBrain)** | *Planned.* Clan mood on the brain. Distinct from per-fighter morale in `morale_bar_flight.md`. |
 | **Area of Hunt (AoH)** | Ring on land claim **wider than** the claim footprint. Counts **PREY** wildlife (deer, mammoth) for **`hunt_intent`**. Herdables in the zone still use **search**, not hunt. |
 | **Hunt intent** | **AI clans:** ClanBrain exposes intent when AoH has prey and economics allow; fighters self-assign **`hunt_state`**. **Player clans:** brain does not run hunt parties — player uses RTS **PEACE / AGRO / HUNT** (§XVIII). |
 | **Defender quota** | ClanBrain-assigned number of NPCs to patrol claim border. |
@@ -77,11 +78,11 @@ All major systems in one place. Each row links to the section where that system 
 | **Hunting** | **AI:** AoH prey → **hunt_intent** → **hunt_state** (party phases). **Player:** RTS **PEACE / AGRO / HUNT** + stalk/arc/ambush; deer **flee_prey**. | §XV-A Hunting, §XVI, §XVIII, `bible/Phase4/raiding_hunting.md` |
 | **ClanBrain (AI)** | One brain per territory; defender/searcher/raid/**hunt** intent; pressures + food buffer; survival mode; strategic state; alert decay. | §XVI ClanBrain |
 | **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; **`party`**, **`herd`**, **`hunt_state`**, **`flee_prey`**, Agro, Combat, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
-| **RTS controls** | War Horn **H**; **PEACE / AGRO / HUNT** modes; stances (Follow/Guard/Attack + hunt stances); formations; **Break** **B**; drag + box select. | §XVIII RTS controls, **`bible/rts.md`** |
+| **RTS controls** | **Today:** H ~1500 px; PEACE/AGRO/HUNT HUD. **Agreed next:** short horn, party dock, pile — [party_ui.md](party_ui.md). Formations / **B** home: [rts.md](rts.md). | §XVIII, **[party_ui.md](party_ui.md)**, [rts.md](rts.md) |
 | **Playtest / tuning** | JSONL capture → **ClanBrain report** (growth, hunts, stuck parties, gates). | §XX-B Verification, `bible/clanbrain_report.md` |
 | **Multiplayer (target)** | Server-authoritative sim; commands in, events out; partial stubs today. | §XX-A Multiplayer, `bible/multiplayer.md` |
 | **Gather & deposit** | 40% slots → deposit; land claim generates GatherJob (ResourceIndex); MoveTo → GatherTask → MoveTo(claim); auto-deposit 100px. | §XIX Gather & deposit |
-| **Inventory & drag-drop** | Player, claim, building, NPC, corpse inventories; drag manager; slot rules; hotbar equipment and consumables. | §IV, §XIII, §XX (inventory/, drag_manager) |
+| **Inventory & drag-drop** | Compact **stockpile** (one row per type); **whole-stack** drag; bag drop fills **one slot**; title-bar window memory. | **[UI.md](UI.md)**, §IV, §XX (inventory/) |
 | **Occupation system** | Building slot assignment (woman to Living Hut/Dairy/etc.; animals to Farm); request_slot / confirm_arrival. | §VII, §XX (occupation_system.gd) |
 | **Spatial indices** | ResourceIndex (200px grid, query_near); HostileEntityIndex; ClaimBuildingIndex; cached land claims for performance. | §XX Code architecture (systems/) |
 
@@ -150,16 +151,16 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 
 | Key / Action | Effect |
 |--------------|--------|
-| **I** | Open any flag or building inventory |
-| **Tab** | Stats panel (species mix, clansmen, women, raids, etc.) |
+| **I** | **Today:** bag + nearby building together. **Agreed:** every panel that applies; **X** hides one; party **X** collapses dock. [UI.md](UI.md), [party_ui.md](party_ui.md). |
+| **Tab** | Stats panel (**planned**, not bound). Inventory is **I** only. |
 | **9 / 0** | Consume item in hotbar slot 9 or 0 |
 | **Right-click NPC** | **Context menu** (Follow, Defend, Search, Work, Info — depends on target). **Wild herdables:** walk within **~250px** so **HerdInfluenceArea** attaches (not instant follow from menu alone). |
-| **H** (War Horn) | Rally clansmen within **~1500 px**; ordered follow + **command_context**. **Today:** clears herd on rallied herders. **Planned:** searchers with active herd **ignore Horn** ([rts.md](rts.md), [earlygame_vision.md](earlygame_vision.md)). |
-| **B** | **Break** — dismiss ordered follow; clansmen return toward land claim / work |
+| **H** (War Horn) | **Today:** ~1500 px; in HUNT **aborts** hunt. **Agreed:** always short shout (~400 px), fighters only; hunt abort is **Spook**. [party_ui.md](party_ui.md). |
+| **B** | **Break** — dismiss follow; **agreed:** also split party pile into pockets, walk **home**, unload. |
 | **Space** | **Gather** active resource / ground item (must overlap hitbox; berries use sprite-aligned collision) |
-| **Drag-and-drop** | Player ↔ flag ↔ buildings ↔ clansmen ↔ ground; **drop clansman on player** = ordered follow |
+| **Drag-and-drop** | **Whole stack** from stockpiles. Player bag: **only the slot you drop on** (1 wood/stone; food up to 5). See **[UI.md](UI.md)**. Drop clansman on player = ordered follow |
 | **Drag box** | Multi-select clansmen (player clan must resolve) |
-| **Follow / Guard / Attack / Break** | Bottom HUD when clansmen selected — **mode row** (PEACE/AGRO/HUNT) + stances + break (see §XVIII) |
+| **Follow / Guard / Attack / Break** | **Today:** bottom HUD PEACE/AGRO/HUNT. **Agreed:** party **bar** Walk/Hunt/Fight + mode shout. [party_ui.md](party_ui.md). |
 
 ---
 
@@ -580,6 +581,8 @@ Authoritative detail: **`bible/phase2/STATE_PRIORITIES.md`**.
 
 ### Combat HUD modes (**PEACE · AGRO · HUNT**)
 
+**In game today.** **Agreed replacement:** Walk / Hunt / Fight on the party dock — [party_ui.md](party_ui.md). Do not add more stance buttons to the old HUD.
+
 One **mode** active at a time when clansmen are selected. The **stance row** (three buttons + **Break**) changes labels per mode. Full table: **`bible/Phase4/raiding_hunting.md`**.
 
 | Mode | Typical stances | Use |
@@ -602,8 +605,8 @@ Applied to **selected** ordered clansmen; stored in **`command_context.mode`** w
 
 ### War Horn vs hunt
 
-- **PEACE / AGRO:** **H** rallies fighters (`RTS_CONFIG` radius ~1500 px).
-- **HUNT:** **H** **aborts** hunt (PEACE + FOLLOW, loud spook) — not a rally.
+- **Today:** PEACE/AGRO **H** rallies (~1500 px); **HUNT** **H** aborts hunt.
+- **Agreed:** **H** always rallies at **short** range; **Spook** is the hunt mode shout. [party_ui.md](party_ui.md).
 
 ### Hunt, raid, and long movement (recommended play)
 - **Cross terrain at full pace:** For **hunting**, **raiding**, or any **long** move with clansmen, use **Follow** — leader and followers run at **1.0×** formation speed and the group escorts **behind** you.

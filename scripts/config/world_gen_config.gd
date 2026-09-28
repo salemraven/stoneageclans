@@ -15,8 +15,11 @@ var single_player_initial_load_radius: int = 2
 ## Loaded chunks within this radius of a player run full NPC physics + resource monitoring.
 var sim_active_chunk_radius: int = 1
 ## Always keep sim hot within this distance (px) of any player.
-var sim_wake_player_radius_px: float = 450.0
+## Idle NPC bodies wake this close to a player (claim is 400px; 450 froze anyone you could already see).
+var sim_wake_player_radius_px: float = 1200.0
 var chunks_load_per_frame: int = 6
+## Max wall-clock ms spent in `_load_chunk` per frame (count cap still applies).
+var chunk_load_time_budget_ms: float = 8.0
 var chunks_unload_per_frame: int = 3
 var chunk_unload_no_interest_grace_ms: float = 500.0
 var chunk_defer_unload_if_npcs_active: bool = true

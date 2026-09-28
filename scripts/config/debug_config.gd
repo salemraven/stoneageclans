@@ -52,9 +52,20 @@ var enable_performance_monitoring: bool = false
 var enable_debug_ui: bool = false
 ## ClanBrain test tools (clan camera jumper). CLI: `--godmode` or `--npc-only-world` observer runs.
 var enable_godmode: bool = false
+## NPCs do not agro, flee, hunt, or claim-defend against the player. Spectator / eval default.
+var npcs_ignore_player: bool = false
+
+
+func is_ignored_by_npcs(node: Node) -> bool:
+	if not npcs_ignore_player or node == null or not is_instance_valid(node):
+		return false
+	return node.is_in_group("player")
 ## Live ClanBrain balance panel (F10). CLI: `--dev-balance`; also on with `--debug` / `--godmode`.
 var enable_dev_balance_menu: bool = false
 var enable_verbose_npc_logging: bool = false
+
+func allow_gameplay_prints() -> bool:
+	return enable_verbose_npc_logging or enable_debug_mode
 var enable_state_transition_logging: bool = false
 var enable_herd_logging: bool = false
 var enable_occupation_drag_logging: bool = false  # Building occupation slot drag-and-drop debug logs
@@ -73,9 +84,45 @@ var wild_npc_trace_interval_sec: float = 2.5
 
 ## Player starts with club (WOOD) in hotbar slot 1 instead of spear. CLI: `--start-club`
 var enable_start_club: bool = false
+## Player starts with a stone stack in hotbar slot 1. CLI: `--start-stone`
+var enable_start_stone: bool = false
+var start_stone_count: int = 10
+## Player starts with a land-claim flag instead of a campfire. CLI: `--start-landclaim`
+var enable_start_landclaim: bool = false
+## Draw throw land circle + THROW_HIT/WHIFF logs. CLI: `--throw-debug`
+var enable_throw_debug: bool = false
 
 ## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
 var enable_session_quickstart: bool = false
+## Spawn N AI caveman+claim clans in a ring around the player on a normal start (not harnesses). CLI: `--eval-ai-claims` / `--eval-ai-claims 0` to off.
+var eval_ai_claims_near_start: int = 0
+## Wild women in a ring around player spawn so you can see female mannequins. CLI: `--eval-wild-women N`
+var eval_wild_women_near_start: int = 0
+## Ring of pawns at 240px: one of each hair style, cycling colors. CLI: `--eval-hair N`
+var eval_hair_gallery_count: int = 0
+## Two clansmen in front of the player: max vs min body height. CLI: `--eval-height`
+var enable_eval_height_pair: bool = false
+## Two clansmen: max vs min body width, mid height. CLI: `--eval-width`
+var enable_eval_width_pair: bool = false
+## Four women: tall/short/wide/narrow. CLI: `--eval-women`
+var enable_eval_women_build: bool = false
+## Adult mid clansman + four babies. CLI: `--eval-babies`
+var enable_eval_babies: bool = false
+## Temporary eval camp: player claim + 2 huts + food, 3 AI cavemen, 8 women. CLI: `--eval-camp`
+var enable_eval_camp: bool = false
+## Spectator: 4 AI clans (claim + 2 huts + 2 women + spear/stones). CLI: `--eval-ai-arena`
+var enable_eval_ai_arena: bool = false
+## Two AI clans, no player fight. CLI: `--ai-combat-observe`
+var enable_ai_combat_observe: bool = false
+## Place one enemy man inside the other claim. CLI: `--ai-village-probe`
+var enable_ai_village_probe: bool = false
+## One clan raids the other. No deer. CLI: `--ai-raid-probe`
+var enable_ai_raid_probe: bool = false
+var eval_ai_arena_clan_count: int = 4
+## Extra cavemen per AI claim in the arena (leader already spawned). 5 extras = 6-man parties.
+var eval_ai_arena_extra_fighters: int = 5
+## Print SKIN_GENE lines for founders/births. CLI: `--skin-genes`
+var enable_skin_gene_log: bool = false
 ## Spawn N AI caveman+claim clans in a ring around the player (session quickstart). CLI: `--session-nearby-clans` or `--session-nearby-clans 4`
 var session_nearby_clans_count: int = 0
 ## Auto-teleport player to each nearby AI claim then away (collect dormant/tick JSONL). CLI: `--session-ai-clan-tour`
@@ -184,6 +231,98 @@ func _parse_command_line_args() -> void:
 		if "--session-quickstart" in args:
 			print("✓ Phase 7 JSONL auto-enabled (playtest_*.jsonl + [PHASE7] console tags)")
 
+	if "--eval-height" in args:
+		enable_eval_height_pair = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		print("✓ Eval height pair: tallest + shortest clansmen in front of player")
+
+	if "--eval-width" in args:
+		enable_eval_width_pair = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		print("✓ Eval width pair: widest + narrowest clansmen in front of player")
+
+	if "--eval-women" in args:
+		enable_eval_women_build = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		print("✓ Eval women build: tall/short/wide/narrow in front of player")
+
+	if "--eval-babies" in args:
+		enable_eval_babies = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		print("✓ Eval babies: adult mid + tall/short/wide/narrow babies")
+
+	if "--eval-camp" in args:
+		enable_eval_camp = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		var wgc: Node = get_node_or_null("/root/WorldGenConfig")
+		if wgc:
+			wgc.wild_woman_chunk_chance = 0.45
+			wgc.wild_woman_per_chunk_max = 3
+		print("✓ Eval camp: player claim + 2 huts + food; 3 AI cavemen; 8 women; wilderness wild women + denser chunk women")
+
+	if "--ai-raid-probe" in args:
+		enable_ai_raid_probe = true
+		enable_ai_combat_observe = true
+		print("✓ AI raid probe: one clan will march on the other, no deer")
+
+	if "--ai-village-probe" in args:
+		enable_ai_village_probe = true
+		print("✓ AI village probe: one enemy man will be placed inside the other claim")
+
+	if "--ai-combat-observe" in args or enable_ai_raid_probe:
+		enable_ai_combat_observe = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		npcs_ignore_player = true
+		playtest_capture_always = true
+		enable_herd_logging = true
+		enable_file_logging = true
+		enable_session_instrumentation = true
+		enable_npc_productivity_snapshots = true
+		npc_productivity_snapshot_interval_sec = 10.0
+		print("✓ AI combat observe: 2 clans, 5 fighters + 2 women each, deer outside camp, player hidden")
+		print("✓ NPCs ignore the player. CLAN_COMBAT lines print while a clan is hunting, raiding, or fighting.")
+
+	if "--eval-ai-arena" in args:
+		enable_eval_ai_arena = true
+		enable_godmode = true
+		eval_hair_gallery_count = 0
+		eval_wild_women_near_start = 0
+		eval_ai_claims_near_start = 0
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		npcs_ignore_player = true
+		playtest_capture_always = true
+		enable_herd_logging = true
+		enable_file_logging = true
+		enable_session_instrumentation = true
+		enable_npc_productivity_snapshots = true
+		npc_productivity_snapshot_interval_sec = 10.0
+		print("✓ Eval AI arena: player + 4 AI clans (claim, 2 huts, 2 women, 6 fighters, spear + stones)")
+		print("✓ NPCs ignore the player (spectator)")
+		print("✓ Eval behavior JSONL capture on")
+
+	for i in range(args.size()):
+		if args[i] == "--eval-behavior-sec" and i + 1 < args.size():
+			session_quit_after_seconds = maxf(float(args[i + 1]), 5.0)
+			print("✓ Eval behavior auto-quit after %.0fs" % session_quit_after_seconds)
+			break
+
 	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
 	if "--session-quickstart" in args:
 		enable_session_quickstart = true
@@ -195,6 +334,39 @@ func _parse_command_line_args() -> void:
 		if BalanceConfig:
 			BalanceConfig.ai_use_dev_food_bootstrap = true
 		print("✓ AI dev food bootstrap enabled (ai_claim_starting_food_berries_dev)")
+
+	for i in range(args.size()):
+		if args[i] == "--eval-ai-claims":
+			var n_eval: int = 3
+			if i + 1 < args.size():
+				var next_eval: String = str(args[i + 1])
+				if next_eval.is_valid_int():
+					n_eval = maxi(int(next_eval), 0)
+			eval_ai_claims_near_start = n_eval
+			print("✓ Eval AI land claims near start: %d" % n_eval)
+			break
+
+	for i in range(args.size()):
+		if args[i] == "--eval-wild-women":
+			var n_w: int = 6
+			if i + 1 < args.size():
+				var next_w: String = str(args[i + 1])
+				if next_w.is_valid_int():
+					n_w = maxi(int(next_w), 0)
+			eval_wild_women_near_start = n_w
+			print("✓ Eval wild women near start: %d" % n_w)
+			break
+
+	for i in range(args.size()):
+		if args[i] == "--eval-hair":
+			var n_h: int = 15
+			if i + 1 < args.size():
+				var next_h: String = str(args[i + 1])
+				if next_h.is_valid_int():
+					n_h = maxi(int(next_h), 0)
+			eval_hair_gallery_count = n_h
+			print("✓ Eval hair gallery near start: %d" % n_h)
+			break
 
 	for i in range(args.size()):
 		if args[i] == "--session-nearby-clans":
@@ -289,14 +461,29 @@ func _parse_command_line_args() -> void:
 		enable_procedural_arms_debug = true
 		print("✓ Procedural arms debug markers enabled (F9 toggles in-game)")
 
+	if "--npcs-ignore-player" in args:
+		npcs_ignore_player = true
+		print("✓ NPCs ignore the player")
+	if "--npcs-see-player" in args:
+		npcs_ignore_player = false
+		print("✓ NPCs can see the player")
+
 	if "--godmode" in args:
 		enable_godmode = true
 		enable_dev_balance_menu = true
+		if "--npcs-see-player" not in args:
+			npcs_ignore_player = true
 		print("✓ ClanBrain godmode: clan camera jumper (top-right)")
+		if npcs_ignore_player:
+			print("✓ NPCs ignore the player (spectator)")
 
 	if "--dev-balance" in args:
 		enable_dev_balance_menu = true
 		print("✓ Dev balance menu enabled (F10 toggles ClanBrain tuning panel)")
+
+	if "--skin-genes" in args:
+		enable_skin_gene_log = true
+		print("✓ Skin gene console log (SKIN_GENE founder/birth)")
 
 	if "--player-move-debug" in args:
 		print("✓ Player movement debug overlay will auto-enable (F8 to toggle)")
@@ -308,12 +495,24 @@ func _parse_command_line_args() -> void:
 		enable_start_club = true
 		print("✓ Start club: hotbar slot 1 = WOOD (club overlay + pivot swing)")
 
+	if "--start-stone" in args:
+		enable_start_stone = true
+		print("✓ Start stone: hotbar slot 2 stack size = STONE x%d" % start_stone_count)
+
+	if "--start-landclaim" in args:
+		enable_start_landclaim = true
+		print("✓ Start land-claim flag in inventory (no campfire)")
+
+	if "--throw-debug" in args:
+		enable_throw_debug = true
+		print("✓ Throw debug: land circle + THROW_HIT/WHIFF logs")
+
 	if "--hair2" in args:
 		CharacterCardPartsRegistry.set_runtime_hair_texture_path(CharacterCardPartsRegistry.HAIR2_PATH)
-		print("✓ Hair preview: hair2.png (same attach pivot as hair1)")
+		print("✓ Hair preview: 02hair.png (same attach pivot for all styles)")
 	elif "--hair1" in args:
 		CharacterCardPartsRegistry.set_runtime_hair_texture_path(CharacterCardPartsRegistry.HAIR1_PATH)
-		print("✓ Hair preview: hair1.png")
+		print("✓ Hair preview: 01hair.png")
 
 func _apply_debug_settings() -> void:
 	# Apply settings to UnifiedLogger if it exists

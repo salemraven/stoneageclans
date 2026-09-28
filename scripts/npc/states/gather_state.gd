@@ -1,6 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
 
 # SIMPLIFIED GATHER STATE - Clean flow: Gather → Check → Exit if needed → Repeat
 # Flow: Find target → Move to target → Gather → Check inventory → Exit if 80%+ full → Repeat
@@ -304,7 +305,8 @@ func _try_pull_gather_job() -> bool:
 	if not land_claim:
 		return false  # No land claim found
 
-	# Hunt corpse job site — any idle clansman can butcher → deposit → return until yield is gone.
+	# Hunt / agro corpse jobs — only when the claim is safe; closest allowed body.
+	CorpseHarvestScript.try_refresh_safe_site(land_claim, "agro")
 	if CorpseJobs.is_site_active(land_claim):
 		if CorpseJobs.try_assign_job(land_claim, npc):
 			UnifiedLogger.log_npc("CORPSE_JOB: %s pulled butcher job from hunt corpse site" % npc.npc_name, {

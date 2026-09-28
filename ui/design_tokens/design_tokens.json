@@ -21,10 +21,10 @@
     "panel_height_standard": 400,
     "panel_padding_standard": 8,
     "panel_padding_large": 16,
-    "slot_size": 32,
-    "slot_spacing_vertical": 0,
+    "slot_size": 40,
+    "slot_spacing_vertical": 4,
     "slot_spacing_horizontal": 6,
-    "hotbar_height": 64
+    "hotbar_height": 72
   },
   "typography": {
     "font_size_title": 18,

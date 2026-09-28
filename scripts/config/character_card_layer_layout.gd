@@ -17,7 +17,7 @@ class_name CharacterCardLayerLayout
 @export var body_offset_px: Vector2 = Vector2.ZERO
 
 ## Optional hair sheet (500×700) — see guides/character_layers.md.
-@export var hair_texture_path: String = "res://assets/character_cards/hair1.png"
+@export var hair_texture_path: String = "res://assets/character_cards/hair/01hair.png"
 
 ## Pixel on the hair texture that sits on `hair_attach_local_px` (from image top-left).
 @export var hair_pivot_px: Vector2 = Vector2(249.5, 655.0)

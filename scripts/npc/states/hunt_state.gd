@@ -1,6 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+const ThrowHitResolver = preload("res://scripts/combat/throw_hit_resolver.gd")
 
 # Hunt State — AI clan hunting party (Area of Hunt → chase wild prey: deer, mammoth). Sheep/goat are herd-only.
 # Pull-based: ClanBrain sets hunt intent; mirrors raid_state flow (assemble → move → engage → return).
@@ -173,7 +174,7 @@ func _update_forming(delta: float) -> void:
 	if rally != Vector2.ZERO and npc.global_position.distance_to(rally) < 55.0:
 		hunt_phase = HuntPhase.CHASING
 
-func _update_chasing(delta: float) -> void:
+func _update_chasing(_delta: float) -> void:
 	var hint0: Dictionary = clan_brain.get_hunt_intent() if clan_brain.has_method("get_hunt_intent") else {}
 	var prey: Node = _resolve_prey_from_hint(hint0)
 	if not prey:
@@ -199,15 +200,14 @@ func _update_chasing(delta: float) -> void:
 		if npc.has_meta("is_stalking"):
 			npc.remove_meta("is_stalking")
 	if npc.steering_agent:
-		npc.steering_agent.set_target_position(prey_pos)
-	if dist < HUNT_ENCIRCLE_LEADER_DIST:
-		_hunt_close_timer += delta
+		var hold_at: float = ThrowHitResolver.SPEAR_RANGE_PX * 0.85
+		if dist > hold_at:
+			npc.steering_agent.set_target_position(prey_pos)
+		else:
+			npc.steering_agent.set_target_position(npc.global_position)
+	if dist <= ThrowHitResolver.SPEAR_RANGE_PX:
 		_ensure_hunt_arc_stance()
-		var encircled: bool = clan_brain.has_method("is_hunt_party_encircled") and clan_brain.is_hunt_party_encircled(prey)
-		if encircled or _hunt_close_timer >= HUNT_ENCIRCLE_FORCE_ATTACK_SEC:
-			hunt_phase = HuntPhase.KILLING
-	else:
-		_hunt_close_timer = maxf(0.0, _hunt_close_timer - delta * HUNT_CLOSE_TIMER_DECAY_MULT)
+		hunt_phase = HuntPhase.KILLING
 
 func _update_killing() -> void:
 	var hint1: Dictionary = clan_brain.get_hunt_intent() if clan_brain and clan_brain.has_method("get_hunt_intent") else {}

@@ -16,9 +16,12 @@ func _ready() -> void:
 	_lock = TCPServer.new()
 	var err: Error = _lock.listen(LOCK_PORT, "127.0.0.1")
 	if err != OK:
-		push_error(
-			"Stone Age Clans: another instance is already running (lock port %d in use)." % LOCK_PORT
-		)
+		var msg := (
+			"Stone Age Clans: another copy is already running (lock port %d).\n"
+			+ "Close the other game window, quit Editor Play (F8), or run with --skip-single-instance."
+		) % LOCK_PORT
+		push_error(msg)
+		print(msg)
 		var sink = get_node_or_null("/root/RuntimeFaultSink")
 		if sink and sink.has_method("mark_quit"):
 			sink.mark_quit("single_instance_blocked", "port %d in use" % LOCK_PORT)

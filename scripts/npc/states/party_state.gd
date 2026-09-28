@@ -184,8 +184,10 @@ func update(delta: float) -> void:
 			should_update_target = (current_time - last_target_update_time >= update_interval)
 	if needs_catchup or distance_to_herder < distance_min:
 		should_update_target = should_update_target or formation_active
-	if should_update_target and not formation_active:
-		should_update_target = false
+	# High agro used to cancel the walk while FOLLOW still refused combat without a target.
+	# They stood still. Keep walking to the leader until a real fight takes over.
+	if not formation_active and distance_to_herder > distance_max:
+		should_update_target = true
 
 	var slots_meta: Dictionary = {}
 	var use_slot_formation: bool = follow_ordered and (

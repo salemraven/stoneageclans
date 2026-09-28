@@ -11,6 +11,15 @@ var inventory_data: InventoryData = null
 var slots: Array[InventorySlot] = []
 var slot_container: Container = null
 var drag_manager: Node = null
+var _window_dragging: bool = false
+var _window_grab: Vector2 = Vector2.ZERO
+var _window_panel: Control = null
+## Saved screen position after the player drags a title bar. Empty = use default layout.
+var window_layout_id: String = ""
+const WINDOW_LAYOUT_PATH := "user://ui_window_layout.cfg"
+static var _window_layout: Dictionary = {}
+static var _window_layout_loaded: bool = false
+static var persist_window_layout_to_disk: bool = true
 
 func _ready() -> void:
 	# Get drag manager from autoload or create
@@ -98,6 +107,19 @@ func _on_slot_drag_ended(_slot: InventorySlot) -> void:
 	drag_manager.end_drag()
 
 func _input(event: InputEvent) -> void:
+	if _window_dragging and _window_panel and is_instance_valid(_window_panel):
+		if event is InputEventMouseMotion:
+			_window_panel.global_position = get_viewport().get_mouse_position() - _window_grab
+			_clamp_panel_on_screen(_window_panel)
+			get_viewport().set_input_as_handled()
+			return
+		if event is InputEventMouseButton:
+			var mbw := event as InputEventMouseButton
+			if mbw.button_index == MOUSE_BUTTON_LEFT and not mbw.pressed:
+				remember_window_position(_window_panel)
+				_window_dragging = false
+				_window_panel = null
+				return
 	# Global mouse button release handler for drag-and-drop
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
@@ -117,6 +139,134 @@ func _input(event: InputEvent) -> void:
 				
 				# Not over any slot in this inventory - let other inventories check
 				# Don't end drag here, let the specific inventory UI handle it
+
+
+func _make_title_bar(text: String) -> PanelContainer:
+	var bar := PanelContainer.new()
+	bar.name = "TitleBar"
+	bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	bar.custom_minimum_size = Vector2(0, 28)
+	var st := StyleBoxFlat.new()
+	st.bg_color = Color(0x24 / 255.0, 0x1b / 255.0, 0x16 / 255.0, 0.95)
+	st.border_color = UITheme.COLOR_BORDER_SADDLE_BROWN
+	st.border_width_bottom = 1
+	st.set_corner_radius_all(0)
+	st.content_margin_left = 10
+	st.content_margin_right = 10
+	st.content_margin_top = 4
+	st.content_margin_bottom = 4
+	bar.add_theme_stylebox_override("panel", st)
+	var lab := Label.new()
+	lab.name = "TitleLabel"
+	lab.text = text
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lab.add_theme_font_size_override("font_size", UITheme.FONT_SIZE_TITLE - 2)
+	lab.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	bar.add_child(lab)
+	return bar
+
+
+func enable_window_drag(title: Control, panel: Control) -> void:
+	if title == null or panel == null:
+		return
+	title.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not title.gui_input.is_connected(_on_window_title_gui_input):
+		title.gui_input.connect(_on_window_title_gui_input.bind(panel))
+
+
+func _ensure_window_layout_loaded() -> void:
+	if _window_layout_loaded:
+		return
+	_window_layout_loaded = true
+	var cf := ConfigFile.new()
+	if cf.load(WINDOW_LAYOUT_PATH) != OK:
+		return
+	if not cf.has_section("windows"):
+		return
+	for key in cf.get_section_keys("windows"):
+		var raw: Variant = cf.get_value("windows", key)
+		if raw is Vector2:
+			_window_layout[String(key)] = raw
+
+
+func _save_window_layout() -> void:
+	var cf := ConfigFile.new()
+	for key in _window_layout.keys():
+		cf.set_value("windows", String(key), _window_layout[key])
+	cf.save(WINDOW_LAYOUT_PATH)
+
+
+func remember_window_position(panel: Control) -> void:
+	if window_layout_id.is_empty() or panel == null or not is_instance_valid(panel):
+		return
+	_ensure_window_layout_loaded()
+	_window_layout[window_layout_id] = panel.global_position
+	if persist_window_layout_to_disk:
+		_save_window_layout()
+
+
+func try_restore_window_position(panel: Control) -> bool:
+	if window_layout_id.is_empty() or panel == null or not is_instance_valid(panel):
+		return false
+	_ensure_window_layout_loaded()
+	if not _window_layout.has(window_layout_id):
+		return false
+	_bake_panel_top_left(panel)
+	panel.global_position = _window_layout[window_layout_id]
+	_clamp_panel_on_screen(panel)
+	return true
+
+
+func _clamp_panel_on_screen(panel: Control) -> void:
+	if panel == null or not is_instance_valid(panel):
+		return
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var vr: Rect2 = vp.get_visible_rect()
+	var sz: Vector2 = panel.size
+	if sz.x < 8.0 or sz.y < 8.0:
+		sz = panel.custom_minimum_size
+	var p: Vector2 = panel.global_position
+	var max_x: float = vr.position.x + maxf(0.0, vr.size.x - sz.x)
+	var max_y: float = vr.position.y + maxf(0.0, vr.size.y - sz.y)
+	p.x = clampf(p.x, vr.position.x, max_x)
+	p.y = clampf(p.y, vr.position.y, max_y)
+	panel.global_position = p
+
+
+func _bake_panel_top_left(panel: Control) -> void:
+	var gp: Vector2 = panel.global_position
+	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	panel.anchor_left = 0.0
+	panel.anchor_top = 0.0
+	panel.anchor_right = 0.0
+	panel.anchor_bottom = 0.0
+	panel.global_position = gp
+
+
+func _on_window_title_gui_input(event: InputEvent, panel: Control) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mb.pressed:
+			_window_dragging = true
+			_window_panel = panel
+			_bake_panel_top_left(panel)
+			_window_grab = mb.global_position - panel.global_position
+			panel.z_index = 30
+			get_viewport().set_input_as_handled()
+		else:
+			remember_window_position(panel)
+			_window_dragging = false
+			_window_panel = null
+	elif event is InputEventMouseMotion and _window_dragging and _window_panel == panel:
+		panel.global_position = (event as InputEventMouseMotion).global_position - _window_grab
+		_clamp_panel_on_screen(panel)
+		get_viewport().set_input_as_handled()
 
 func _on_drag_ended() -> void:
 	# Check if drop was successful

@@ -78,3 +78,7 @@ desktop.ini
 
 # Python bytecode from tools/
 __pycache__/
+
+# Local definition wiki (generated site + venv)
+site/
+wiki/.venv/

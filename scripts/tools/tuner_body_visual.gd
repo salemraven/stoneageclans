@@ -27,6 +27,8 @@ var _head_bob_y := 0.0
 var _look_right := true
 var _body_tex: Texture2D
 var _death_active := false
+var _body_build_scale := Vector2.ONE
+var _head_build_scale := Vector2.ONE
 
 
 func _ready() -> void:
@@ -37,9 +39,9 @@ func get_layer_layout() -> CharacterCardLayerLayout:
 	return _layer_layout
 
 
-func apply_layout(layout) -> void:
+func apply_layout(layout, layer_layout: CharacterCardLayerLayout = null) -> void:
 	_layout = layout
-	_layer_layout = PartsRegistry.get_layout()
+	_layer_layout = layer_layout if layer_layout != null else PartsRegistry.get_layout()
 	_build_layers()
 
 
@@ -139,14 +141,12 @@ func sync_head_draw_transform() -> void:
 		return
 	if _head_pivot == null or _layer_layout == null or _body_tex == null:
 		return
-	var neck_local := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
-	if _facing_left():
-		neck_local.x = -neck_local.x
+	var neck_local := _neck_local_scaled()
 	neck_local.y += _head_bob_y
 	_head_pivot.global_position = to_global(neck_local)
 	_head_pivot.global_rotation = global_rotation
 	if _head_pivot:
-		_head_pivot.scale = Vector2.ONE
+		_head_pivot.scale = _head_build_scale
 	_apply_layer_facing_flips()
 	if _uses_runtime_draw_layers():
 		apply_runtime_draw_layers()
@@ -156,14 +156,12 @@ func sync_head_draw_transform() -> void:
 func sync_attached_head_transform() -> void:
 	if _head_pivot == null or _layer_layout == null or _body_tex == null:
 		return
-	var neck_local := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
-	if _facing_left():
-		neck_local.x = -neck_local.x
+	var neck_local := _neck_local_scaled()
 	var neck_global := to_global(neck_local)
 	_head_pivot.global_position = neck_global.round()
 	_head_pivot.global_rotation = global_rotation
 	if _head_pivot:
-		_head_pivot.scale = Vector2.ONE
+		_head_pivot.scale = _head_build_scale
 
 
 func prepare_for_death_fall() -> void:
@@ -345,19 +343,56 @@ func is_death_active() -> bool:
 
 
 ## Bottom-center of body art — pivot for tipping over onto the ground.
+func apply_body_build_scale(body_scale: Vector2, head_scale: Vector2 = Vector2.ONE) -> void:
+	_body_build_scale = body_scale
+	_head_build_scale = head_scale
+	_apply_body_build_to_sprites()
+	if _death_active:
+		sync_attached_head_transform()
+	else:
+		sync_head_draw_transform()
+
+
+func _apply_body_build_to_sprites() -> void:
+	if _body_sprite == null or _layer_layout == null or _body_tex == null:
+		return
+	var half_h := float(_body_tex.get_height()) * 0.5
+	var sy: float = _body_build_scale.y
+	_body_sprite.scale = _body_build_scale
+	_body_sprite.position = _layer_layout.body_offset_px + Vector2(0.0, -(sy - 1.0) * half_h)
+	## Hair / future hats live on HeadPivot — they follow head_scale, not body_scale.
+	## Future body clothes should be children of BodySprite so they stretch with the torso.
+	if _head_pivot:
+		_head_pivot.scale = _head_build_scale
+	if _head_sprite:
+		_head_sprite.scale = Vector2.ONE
+
+
+func _neck_local_scaled() -> Vector2:
+	var unscaled := PartsRegistry.head_pivot_on_body_local(_body_tex, _layer_layout)
+	if _facing_left():
+		unscaled.x = -unscaled.x
+	if _body_sprite == null or _layer_layout == null:
+		return unscaled
+	var body_off: Vector2 = _layer_layout.body_offset_px
+	return _body_sprite.position + (unscaled - body_off) * _body_sprite.scale
+
+
 func get_death_fall_pivot_local() -> Vector2:
 	if _body_sprite == null or _body_tex == null:
 		return Vector2.ZERO
 	var half_h := float(_body_tex.get_height()) * 0.5
-	return _body_sprite.position + Vector2(0.0, half_h)
+	return _body_sprite.position + Vector2(0.0, half_h * _body_sprite.scale.y)
 
 
 func _build_layers() -> void:
 	var sprite_root := get_parent() as Node2D
 	_clear_sprite_head_pivots(sprite_root)
 
-	for child in get_children():
-		child.queue_free()
+	while get_child_count() > 0:
+		var old: Node = get_child(0)
+		remove_child(old)
+		old.free()
 	_body_sprite = null
 
 	if _layer_layout == null:
@@ -399,6 +434,7 @@ func _build_layers() -> void:
 	_head_sprite.centered = true
 	_head_pivot.add_child(_head_sprite)
 	_build_hair_layer()
+	_apply_body_build_to_sprites()
 	_apply_head_attachment()
 	_apply_draw_layers()
 
@@ -462,6 +498,14 @@ func _apply_hair_attachment() -> void:
 
 
 func _load_texture(path: String) -> Texture2D:
-	if path.is_empty() or not ResourceLoader.exists(path):
+	if path.is_empty():
 		return null
-	return ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as Texture2D
+	if ResourceLoader.exists(path):
+		var loaded: Texture2D = ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as Texture2D
+		if loaded:
+			return loaded
+	if FileAccess.file_exists(path):
+		var img := Image.new()
+		if img.load(path) == OK:
+			return ImageTexture.create_from_image(img)
+	return null

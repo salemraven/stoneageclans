@@ -1,5 +1,7 @@
 extends RefCounted
 
+const FightOverScript = preload("res://scripts/systems/fight_over.gd")
+
 ## Shared "corpse job site" for hunt LOOTING — any clansman can pull butcher trips until yield is gone.
 
 const META_CORPSE_ID := "corpse_job_corpse_id"
@@ -74,7 +76,7 @@ static func worker_can_pull(worker: Node, claim: Node) -> bool:
 		return false
 	if worker.get("defend_target") != null and is_instance_valid(worker.get("defend_target")):
 		return false
-	if worker.get("combat_target") != null and is_instance_valid(worker.get("combat_target")):
+	if FightOverScript.is_living_attack_target(worker.get("combat_target")):
 		return false
 	if worker.get("is_herded") == true and worker.get("follow_is_ordered") == true:
 		return false
@@ -103,8 +105,6 @@ static func try_assign_job(claim: Node, worker: Node) -> bool:
 	if not job:
 		return false
 	worker.set_meta(WORKER_META, true)
-	if worker.has_method("equip_work_weapon_club"):
-		worker.equip_work_weapon_club()
 	var runner = worker.get("task_runner")
 	if runner and runner.has_method("assign_job"):
 		runner.assign_job(job)

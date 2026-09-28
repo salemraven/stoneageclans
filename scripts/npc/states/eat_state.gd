@@ -32,22 +32,22 @@ func enter() -> void:
 			"target": food_type
 		})
 	
-	# Show progress display
-	if npc and npc.progress_display:
-		var icon: Texture2D = null
-		var resource_type = ResourceData.ResourceType.BERRIES
-		if food_target and food_target.has("resource_type"):
-			resource_type = food_target.get("resource_type")
-		# Get icon for this resource type
-		var icon_path: String = ResourceData.get_resource_icon_path(resource_type)
-		if icon_path != "":
-			icon = load(icon_path) as Texture2D
-		npc.progress_display.start_collection(icon, eat_duration)
-	
+	# Ring starts in update() only when in eat range (walking with a food target must not show a berry).
 	# Only move to food target if we need to collect from map
 	if npc and npc.steering_agent and food_target:
 		npc.steering_agent.set_arrive_target(food_target.global_position)
 	# If food_target is null, we're eating from inventory (no movement needed)
+
+
+func exit() -> void:
+	_hide_eat_progress()
+	food_target = null
+	eat_timer = 0.0
+
+
+func _hide_eat_progress() -> void:
+	if npc and npc.progress_display:
+		npc.progress_display.stop_collection(false)
 
 func update(delta: float) -> void:
 	if not npc:

@@ -1,602 +1,547 @@
-extends TextureRect
+extends Panel
 class_name InventorySlot
 
-# Individual inventory slot - displays item icon, name, description, and quality border
-# 64x64 pixels total: 32x32 icon centered + 2 lines of text below
+## Boxed inventory cell. Hotbar = square; bag = list row (icon + name + desc + count).
 
 signal slot_clicked(slot: InventorySlot)
 signal slot_drag_ended(slot: InventorySlot)
 
 const ICON_SIZE := 32
-const SLOT_SIZE := 64  # Base size, hotbar uses 32x32, inventory uses 64x64
+const HOTBAR_CELL := 40
+const LIST_ROW_H := 56
+const COUNT_COL := Vector2(72, 22)
+const DRAG_THRESHOLD_PX := 6.0
 
 var slot_index: int = -1
-var item_data: Dictionary = {}  # {"type": ResourceType, "count": int, "quality": int}
+var item_data: Dictionary = {}
 var is_hotbar: bool = false
-var can_stack: bool = false  # Player inventory: false, Building/Cart: true
+var can_stack: bool = false
+var short_class_desc: bool = false
 
 var icon_texture: TextureRect = null
 var name_label: Label = null
 var desc_label: Label = null
-var quality_border: Sprite2D = null
+var quality_border: Control = null
 var count_label: Label = null
 var slot_number_label: Label = null
-var hotbar_number_label: Label = null  # Large transparent number for hotbar slots
+var hotbar_number_label: Label = null
 
-# Drag-and-drop visual feedback
 var drag_manager: DragManager = null
-var is_drag_source: bool = false  # Is this slot the source of current drag?
-var is_hovered_during_drag: bool = false  # Is mouse hovering over this slot during drag?
-var highlight_overlay: ColorRect = null  # Visual overlay for valid/invalid drop targets
-var base_modulate: Color = Color.WHITE  # Store original modulate for restoration
+var is_drag_source: bool = false
+var is_hovered_during_drag: bool = false
+var highlight_overlay: ColorRect = null
+var base_modulate: Color = Color.WHITE
+
+var _pressing: bool = false
+var _drag_armed: bool = false
+var _press_global: Vector2 = Vector2.ZERO
+
 
 func _ready() -> void:
-	# Hotbar slots are 32x32, inventory slots are horizontal list items
-	if is_hotbar:
-		custom_minimum_size = Vector2(32, 32)  # 32x32 for hotbar
-	else:
-		# Horizontal list: icon (32px) + text area (remaining width)
-		custom_minimum_size = Vector2(300, 38)  # 38px tall to fit all 10 items in 400px panel, 300px minimum width
-	
-	texture_filter = TEXTURE_FILTER_NEAREST
+	# List rows must not clip the count column on the right.
+	clip_contents = is_hotbar
 	mouse_filter = MOUSE_FILTER_STOP
-	
-	# Setup slot appearance - make bounding box clearly visible
-	var style: StyleBoxFlat = StyleBoxFlat.new()
 	if is_hotbar:
-		# Hotbar slots: distinct grid squares with rustic style and faint outline
-		style.bg_color = Color(0x2a / 255.0, 0x1f / 255.0, 0x1a / 255.0, 0.98)  # Dark earthy brown - matches game's rustic palette
-		style.border_color = Color(0x8b / 255.0, 0x65 / 255.0, 0x3e / 255.0, 0.4)  # Faint warm saddle brown border
-		style.set_border_width_all(1)  # Faint outline
-		style.corner_radius_top_left = 3
-		style.corner_radius_top_right = 3
-		style.corner_radius_bottom_left = 3
-		style.corner_radius_bottom_right = 3
-		# Add subtle shadow for depth
-		style.shadow_color = Color(0, 0, 0, 0.3)
-		style.shadow_size = 2
-		style.shadow_offset = Vector2(1, 1)
+		custom_minimum_size = Vector2(HOTBAR_CELL, HOTBAR_CELL)
+		size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	else:
-		# Inventory slots: standard styling with faint outline
-		style.bg_color = Color(0x3c / 255.0, 0x27 / 255.0, 0x23 / 255.0, 0.95)  # Earthy brown
-		style.border_color = Color(0x8b / 255.0, 0x45 / 255.0, 0x13 / 255.0, 0.4)  # Faint saddle brown border
-		style.set_border_width_all(1)  # Faint outline
-		style.corner_radius_top_left = 4
-		style.corner_radius_top_right = 4
-		style.corner_radius_bottom_left = 4
-		style.corner_radius_bottom_right = 4
-	add_theme_stylebox_override("panel", style)
-	
-	# Ensure hotbar slots are always visible as grid squares
-	if is_hotbar:
-		visible = true
-		modulate = Color.WHITE
-		show_behind_parent = false
-	
-	# Create child nodes if they don't exist
+		custom_minimum_size = Vector2(ICON_SIZE + 16 + COUNT_COL.x, LIST_ROW_H)
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UITheme.apply_slot_style(self, is_hotbar)
 	_setup_children()
-	
-	# Connect input
 	if not gui_input.is_connected(_on_gui_input):
 		gui_input.connect(_on_gui_input)
-	
-	# Connect resize signal to update text label widths
-	if not resized.is_connected(_on_resized):
-		resized.connect(_on_resized)
-	
-	# Connect mouse enter/exit for drag feedback
 	if not mouse_entered.is_connected(_on_mouse_entered):
 		mouse_entered.connect(_on_mouse_entered)
 	if not mouse_exited.is_connected(_on_mouse_exited):
 		mouse_exited.connect(_on_mouse_exited)
-	
-	# Get drag manager reference
 	_setup_drag_manager()
-	
-	# Store base modulate
 	base_modulate = modulate
-	
-	# Create highlight overlay for drop target feedback
 	_create_highlight_overlay()
-	
-	# Enable process for drag feedback updates
-	set_process(true)
+	set_process_input(true)
+
+
+func _input(event: InputEvent) -> void:
+	if not _pressing:
+		return
+	if event is InputEventMouseMotion:
+		if not _drag_armed and not item_data.is_empty():
+			if get_global_mouse_position().distance_to(_press_global) >= DRAG_THRESHOLD_PX:
+				_drag_armed = true
+				slot_clicked.emit(self)
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
+			if _pressing and not _drag_armed:
+				slot_drag_ended.emit(self)
+			_pressing = false
+			_drag_armed = false
+
 
 func _setup_children() -> void:
-	# Icon (32x32, fits within bounding box)
-	if has_node("Icon"):
-		icon_texture = get_node("Icon") as TextureRect
-	else:
-		icon_texture = TextureRect.new()
-		icon_texture.name = "Icon"
-		icon_texture.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-		icon_texture.texture_filter = TEXTURE_FILTER_NEAREST
-		icon_texture.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-		icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon_texture.visible = true
-		icon_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(icon_texture)
-		
-		if is_hotbar:
-			# Hotbar: center icon in 32x32 slot
-			icon_texture.position = Vector2((32 - ICON_SIZE) / 2.0, (32 - ICON_SIZE) / 2.0)
-		else:
-			# Inventory: icon on left side, vertically centered, constrained to 32x32 bounding box
-			icon_texture.position = Vector2(8, (38 - ICON_SIZE) / 2.0)  # 8px padding, centered vertically in 38px slot
-			icon_texture.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-			icon_texture.size = Vector2(ICON_SIZE, ICON_SIZE)
-			icon_texture.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-			icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	
-	# Name label - only for inventory slots, not hotbar (positioned to right of icon)
-	if not is_hotbar:
-		if has_node("NameLabel"):
-			name_label = get_node("NameLabel") as Label
-		else:
-			name_label = Label.new()
-			name_label.name = "NameLabel"
-			name_label.add_theme_font_size_override("font_size", 16)  # Larger font for readability
-			name_label.add_theme_color_override("font_color", Color.WHITE)
-			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			name_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-			add_child(name_label)
-			name_label.position = Vector2(ICON_SIZE + 11, 4)  # 11px gap from icon, 4px from top
-			name_label.size = Vector2(250, 14)  # Reduced height to fit in smaller slot
-			name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	
-	# Description label - only for inventory slots, not hotbar (positioned below name, to right of icon)
-	if not is_hotbar:
-		if has_node("DescLabel"):
-			desc_label = get_node("DescLabel") as Label
-		else:
-			desc_label = Label.new()
-			desc_label.name = "DescLabel"
-			desc_label.add_theme_font_size_override("font_size", 12)  # Larger font for readability
-			desc_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-			desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			desc_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-			desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			add_child(desc_label)
-			desc_label.position = Vector2(ICON_SIZE + 11, 18)  # Below name label, 11px gap from icon
-			desc_label.size = Vector2(250, 18)  # Reduced height to fit in smaller slot, allows 1-2 lines
-			desc_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	
-	# Quality border overlay
-	if has_node("QualityBorder"):
-		quality_border = get_node("QualityBorder") as Sprite2D
-	else:
-		quality_border = Sprite2D.new()
-		quality_border.name = "QualityBorder"
-		if is_hotbar:
-			quality_border.position = Vector2(16, 16)  # Center of 32x32 slot
-		else:
-			quality_border.position = Vector2(8 + ICON_SIZE / 2.0, 19)  # Center of icon area (8px padding, centered in 38px slot)
-		quality_border.scale = Vector2(ICON_SIZE / 32.0, ICON_SIZE / 32.0)
-		quality_border.visible = false
-		add_child(quality_border)
-	
-	# Count label (for stacked items)
-	if has_node("CountLabel"):
-		count_label = get_node("CountLabel") as Label
-	else:
-		count_label = Label.new()
-		count_label.name = "CountLabel"
-		count_label.add_theme_font_size_override("font_size", 12)
-		count_label.add_theme_color_override("font_color", Color.WHITE)
-		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		count_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		add_child(count_label)
-		if is_hotbar:
-			count_label.position = Vector2(32 - 18, 2)  # Top-right of 32x32 slot
-		else:
-			count_label.position = Vector2(8 + ICON_SIZE - 18, 2)  # Top-right of icon area (8px padding)
-		count_label.size = Vector2(16, 14)
-		count_label.visible = false
-	
-	# Slot number label (small, top-left for inventory slots)
-	if not is_hotbar:
-		if has_node("SlotNumberLabel"):
-			slot_number_label = get_node("SlotNumberLabel") as Label
-		else:
-			slot_number_label = Label.new()
-			slot_number_label.name = "SlotNumberLabel"
-			slot_number_label.add_theme_font_size_override("font_size", 10)
-			slot_number_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.5))  # Faint white
-			slot_number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			slot_number_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-			add_child(slot_number_label)
-			slot_number_label.position = Vector2(2, 2)  # Top-left of inventory slot
-			slot_number_label.size = Vector2(20, 12)
-			slot_number_label.text = str(slot_index + 1)  # Display 1-based index
-			slot_number_label.visible = true
-	
-	# Hotbar number label (large, bold, transparent, centered for hotbar slots)
+	if has_node("SlotInner") or has_node("SlotInnerPad"):
+		_bind_existing()
+		_pin_list_count_label()
+		return
 	if is_hotbar:
-		if has_node("HotbarNumberLabel"):
-			hotbar_number_label = get_node("HotbarNumberLabel") as Label
-		else:
-			hotbar_number_label = Label.new()
-			hotbar_number_label.name = "HotbarNumberLabel"
-			hotbar_number_label.add_theme_font_size_override("font_size", 24)  # Large font
-			hotbar_number_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.15))  # Very transparent (15% opacity)
-			hotbar_number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			hotbar_number_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			# Make it bold by using a bold font if available, or increase size
-			hotbar_number_label.add_theme_font_size_override("font_size", 28)  # Even larger for bold effect
-			add_child(hotbar_number_label)
-			# Center in 32x32 slot
-			hotbar_number_label.anchors_preset = Control.PRESET_CENTER
-			hotbar_number_label.anchor_left = 0.5
-			hotbar_number_label.anchor_top = 0.5
-			hotbar_number_label.anchor_right = 0.5
-			hotbar_number_label.anchor_bottom = 0.5
-			hotbar_number_label.offset_left = -16
-			hotbar_number_label.offset_top = -16
-			hotbar_number_label.offset_right = 16
-			hotbar_number_label.offset_bottom = 16
-			hotbar_number_label.custom_minimum_size = Vector2(32, 32)
-			# Get slot number from meta or calculate: 0-8 = "1"-"9", 9 = "0"
-			var slot_num: String
-			if has_meta("slot_number"):
-				slot_num = str(get_meta("slot_number"))  # str() avoids Invalid cast if stored as int
-			else:
-				slot_num = str((slot_index + 1) % 10)  # 1-9 for indices 0-8, 0 for index 9
-			hotbar_number_label.text = slot_num
-			hotbar_number_label.visible = true
+		_setup_hotbar_children()
+	else:
+		_setup_list_children()
+
+
+func _bind_existing() -> void:
+	icon_texture = get_node_or_null("SlotInner/IconCell/Icon") as TextureRect
+	if icon_texture == null:
+		icon_texture = get_node_or_null("SlotInnerPad/SlotInner/IconCell/Icon") as TextureRect
+	if icon_texture == null:
+		icon_texture = get_node_or_null("SlotInner/Icon") as TextureRect
+	name_label = get_node_or_null("SlotInner/TextCol/NameLabel") as Label
+	if name_label == null:
+		name_label = get_node_or_null("SlotInnerPad/SlotInner/TextCol/NameLabel") as Label
+	desc_label = get_node_or_null("SlotInner/TextCol/DescLabel") as Label
+	if desc_label == null:
+		desc_label = get_node_or_null("SlotInnerPad/SlotInner/TextCol/DescLabel") as Label
+	count_label = get_node_or_null("CountLabel") as Label
+	if count_label == null:
+		count_label = get_node_or_null("SlotInnerPad/SlotInner/CountLabel") as Label
+	hotbar_number_label = get_node_or_null("HotbarNumberLabel") as Label
+	slot_number_label = get_node_or_null("SlotNumberLabel") as Label
+	quality_border = get_node_or_null("SlotInner/IconCell/QualityBorder") as Control
+	if quality_border == null:
+		quality_border = get_node_or_null("SlotInnerPad/SlotInner/IconCell/QualityBorder") as Control
+
+
+func _setup_hotbar_children() -> void:
+	var inner := MarginContainer.new()
+	inner.name = "SlotInner"
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_theme_constant_override("margin_left", 4)
+	inner.add_theme_constant_override("margin_top", 4)
+	inner.add_theme_constant_override("margin_right", 4)
+	inner.add_theme_constant_override("margin_bottom", 4)
+	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(inner)
+
+	icon_texture = TextureRect.new()
+	icon_texture.name = "Icon"
+	icon_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_texture.texture_filter = TEXTURE_FILTER_NEAREST
+	icon_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_texture.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inner.add_child(icon_texture)
+
+	quality_border = _make_quality_border()
+	inner.add_child(quality_border)
+
+	hotbar_number_label = Label.new()
+	hotbar_number_label.name = "HotbarNumberLabel"
+	hotbar_number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hotbar_number_label.add_theme_font_size_override("font_size", 10)
+	hotbar_number_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
+	hotbar_number_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	hotbar_number_label.add_theme_constant_override("outline_size", 2)
+	hotbar_number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hotbar_number_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	hotbar_number_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hotbar_number_label.offset_left = 3
+	hotbar_number_label.offset_top = 1
+	var slot_num: String
+	if has_meta("slot_number"):
+		slot_num = str(get_meta("slot_number"))
+	else:
+		slot_num = str((slot_index + 1) % 10)
+	hotbar_number_label.text = slot_num
+	add_child(hotbar_number_label)
+
+	count_label = _make_count_label()
+	count_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	count_label.offset_left = -22
+	count_label.offset_top = -16
+	count_label.offset_right = -2
+	count_label.offset_bottom = -1
+	add_child(count_label)
+
+
+func _setup_list_children() -> void:
+	var pad := MarginContainer.new()
+	pad.name = "SlotInnerPad"
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_theme_constant_override("margin_left", 6)
+	pad.add_theme_constant_override("margin_top", 4)
+	pad.add_theme_constant_override("margin_right", 8 + int(COUNT_COL.x))
+	pad.add_theme_constant_override("margin_bottom", 4)
+	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(pad)
+
+	var inner := HBoxContainer.new()
+	inner.name = "SlotInner"
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_theme_constant_override("separation", 8)
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(inner)
+
+	var icon_cell := Panel.new()
+	icon_cell.name = "IconCell"
+	icon_cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_cell.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
+	icon_cell.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	icon_cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon_cell.add_theme_stylebox_override("panel", UITheme.get_slot_icon_cell_style())
+	inner.add_child(icon_cell)
+
+	icon_texture = TextureRect.new()
+	icon_texture.name = "Icon"
+	icon_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_texture.texture_filter = TEXTURE_FILTER_NEAREST
+	icon_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_texture.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon_texture.offset_left = 2
+	icon_texture.offset_top = 2
+	icon_texture.offset_right = -2
+	icon_texture.offset_bottom = -2
+	icon_cell.add_child(icon_texture)
+
+	quality_border = _make_quality_border()
+	icon_cell.add_child(quality_border)
+
+	var text_col := VBoxContainer.new()
+	text_col.name = "TextCol"
+	text_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	text_col.add_theme_constant_override("separation", 0)
+	inner.add_child(text_col)
+
+	name_label = Label.new()
+	name_label.name = "NameLabel"
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_label.add_theme_font_size_override("font_size", UITheme.FONT_SIZE_BODY)
+	name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.clip_text = true
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_child(name_label)
+
+	desc_label = Label.new()
+	desc_label.name = "DescLabel"
+	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	desc_label.add_theme_font_size_override("font_size", UITheme.FONT_SIZE_SECONDARY)
+	desc_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
+	desc_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	desc_label.clip_text = true
+	desc_label.max_lines_visible = 1
+	desc_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_child(desc_label)
+
+	count_label = _make_count_label()
+	_pin_list_count_label()
+	add_child(count_label)
+
+	slot_number_label = Label.new()
+	slot_number_label.name = "SlotNumberLabel"
+	slot_number_label.visible = false
+	slot_number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(slot_number_label)
+
+
+func _make_count_label() -> Label:
+	var lab := Label.new()
+	lab.name = "CountLabel"
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lab.add_theme_font_size_override("font_size", 18)
+	lab.add_theme_color_override("font_color", Color.WHITE)
+	lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lab.add_theme_constant_override("outline_size", 4)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.visible = false
+	return lab
+
+
+func _pin_list_count_label() -> void:
+	if count_label == null or is_hotbar:
+		return
+	if count_label.get_parent() and count_label.get_parent() != self:
+		count_label.get_parent().remove_child(count_label)
+		add_child(count_label)
+	count_label.custom_minimum_size = COUNT_COL
+	count_label.clip_text = false
+	count_label.mouse_filter = MOUSE_FILTER_IGNORE
+	count_label.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	count_label.anchor_left = 1.0
+	count_label.anchor_right = 1.0
+	count_label.anchor_top = 0.5
+	count_label.anchor_bottom = 0.5
+	count_label.offset_left = -10.0 - COUNT_COL.x
+	count_label.offset_right = -10.0
+	count_label.offset_top = -COUNT_COL.y * 0.5
+	count_label.offset_bottom = COUNT_COL.y * 0.5
+	count_label.z_index = 2
+
+
+func _make_quality_border() -> Panel:
+	var border := Panel.new()
+	border.name = "QualityBorder"
+	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	border.visible = false
+	border.set_anchors_preset(Control.PRESET_FULL_RECT)
+	return border
+
 
 func set_item(data: Dictionary) -> void:
 	item_data = data.duplicate() if data.size() > 0 else {}
 	_update_display()
 
+
 func get_item() -> Dictionary:
 	return item_data.duplicate()
+
 
 func is_empty() -> bool:
 	return item_data.is_empty()
 
+
+func _display_item() -> Dictionary:
+	if is_drag_source and drag_manager and drag_manager.is_dragging and not drag_manager.dragged_item.is_empty():
+		return drag_manager.dragged_item
+	return item_data
+
+
 func _update_display() -> void:
-	if item_data.is_empty():
-		# Empty slot - but keep background visible, especially for hotbar grid squares
+	var shown: Dictionary = _display_item()
+	if shown.is_empty():
 		if icon_texture:
 			icon_texture.texture = null
 			icon_texture.visible = false
 		if name_label:
 			name_label.text = ""
-			name_label.visible = false
 		if desc_label:
 			desc_label.text = ""
-			desc_label.visible = false
 		if quality_border:
 			quality_border.visible = false
 		if count_label:
 			count_label.visible = false
-		
-		# Update slot number visibility
-		if slot_number_label:
-			slot_number_label.visible = true  # Always show slot number (inventory slots)
 		if hotbar_number_label:
-			hotbar_number_label.visible = true  # Always show hotbar number (hotbar slots)
-		
-		# Hotbar slots must always show as visible grid squares
-		if is_hotbar:
-			visible = true
-			modulate = Color.WHITE
+			hotbar_number_label.visible = true
 		return
-	
-	# Item exists - make sure icon is visible
+
 	if icon_texture:
 		icon_texture.visible = true
-	
-	# Hide text labels for hotbar slots
-	if is_hotbar:
-		if name_label:
-			name_label.visible = false
-		if desc_label:
-			desc_label.visible = false
-	else:
-		# Show text labels for inventory slots
-		if name_label:
-			name_label.visible = true
-		if desc_label:
-			desc_label.visible = true
-		
-		# Update text label sizes to match slot width
-		_on_resized()
-	
-	# Get item info
-	var item_type: ResourceData.ResourceType = item_data.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
-	var count: int = item_data.get("count", 1) as int
-	var quality: int = item_data.get("quality", 0) as int
-	
-	# Set icon - ensure it fits within bounding box
-	if not icon_texture:
-		return  # Icon texture not created yet
-	
-	var icon_path: String = ResourceData.get_resource_icon_path(item_type)
-	if icon_path != "":
-		var loaded_texture: Texture2D = load(icon_path) as Texture2D
-		if loaded_texture:
-			icon_texture.texture = loaded_texture
-			icon_texture.visible = true
-			# Ensure icon doesn't exceed ICON_SIZE
-			icon_texture.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-			icon_texture.size = Vector2(ICON_SIZE, ICON_SIZE)
-		else:
-			# Fallback colored square
-			icon_texture.texture = _create_fallback_icon(item_type)
-			icon_texture.visible = true
-			icon_texture.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-			icon_texture.size = Vector2(ICON_SIZE, ICON_SIZE)
-	else:
-		icon_texture.texture = _create_fallback_icon(item_type)
-		icon_texture.visible = true
-		icon_texture.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-		icon_texture.size = Vector2(ICON_SIZE, ICON_SIZE)
-	
-	# Set text (only for inventory slots, not hotbar)
+	var item_type: ResourceData.ResourceType = shown.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	var count: int = shown.get("count", 1) as int
+	var quality: int = shown.get("quality", 0) as int
+	if icon_texture:
+		var icon_path: String = ResourceData.get_resource_icon_path(item_type)
+		var loaded: Texture2D = load(icon_path) as Texture2D if icon_path != "" else null
+		icon_texture.texture = loaded if loaded else _create_fallback_icon(item_type)
 	if not is_hotbar:
 		if name_label:
 			name_label.text = ResourceData.get_resource_name(item_type)
+			name_label.visible = true
 		if desc_label:
-			desc_label.text = ResourceData.get_resource_description(item_type)
-	
-	# Set quality border
+			desc_label.text = ResourceData.get_item_class(item_type) if short_class_desc else ResourceData.get_resource_description(item_type)
+			desc_label.visible = true
 	_update_quality_border(quality)
-	
-	# Set count (only show if > 1 and can stack)
 	if count_label:
-		if can_stack and count > 1:
+		if can_stack and count >= 1:
+			count_label.text = str(count)
+			count_label.visible = true
+		elif count > 1:
 			count_label.text = str(count)
 			count_label.visible = true
 		else:
 			count_label.visible = false
 
+
 func _create_fallback_icon(item_type: ResourceData.ResourceType) -> Texture2D:
 	var image := Image.create(ICON_SIZE, ICON_SIZE, false, Image.FORMAT_RGBA8)
-	var color: Color = ResourceData.get_resource_color(item_type)
-	image.fill(color)
-	var fallback_texture: ImageTexture = ImageTexture.create_from_image(image)
-	return fallback_texture
+	image.fill(ResourceData.get_resource_color(item_type))
+	return ImageTexture.create_from_image(image)
+
 
 func _update_quality_border(quality: int) -> void:
-	if not quality_border:
+	if quality_border == null:
 		return
-	
-	# Quality colors: Grey=Flawed, White=Common, Blue=Good, Light Blue=Fine, Light Purple=Master, Purple=Legendary
 	var border_colors := [
-		Color(0.5, 0.5, 0.5),      # Flawed - Grey
-		Color(1.0, 1.0, 1.0),      # Common - White
-		Color(0.2, 0.4, 1.0),      # Good - Blue
-		Color(0.4, 0.6, 1.0),      # Fine - Light Blue
-		Color(0.7, 0.5, 1.0),      # Master - Light Purple
-		Color(0.8, 0.2, 1.0),      # Legendary - Purple
+		Color(0.5, 0.5, 0.5),
+		Color(1.0, 1.0, 1.0),
+		Color(0.2, 0.4, 1.0),
+		Color(0.4, 0.6, 1.0),
+		Color(0.7, 0.5, 1.0),
+		Color(0.8, 0.2, 1.0),
 	]
-	
-	if quality >= 0 and quality < border_colors.size():
-		# Create border texture
-		var border_image := Image.create(32, 32, false, Image.FORMAT_RGBA8)
-		border_image.fill(Color.TRANSPARENT)
-		
-		# Draw 2px border
-		var border_color: Color = border_colors[quality]
-		for x in 32:
-			for y in 32:
-				if x < 2 or x >= 30 or y < 2 or y >= 30:
-					border_image.set_pixel(x, y, border_color)
-		
-		var border_texture := ImageTexture.create_from_image(border_image)
-		quality_border.texture = border_texture
-		quality_border.visible = true
-		
-		# Add pulse animation for Legendary
-		if quality == 5:
-			var tween := create_tween()
-			tween.set_loops()
-			tween.tween_property(quality_border, "modulate", Color(1.2, 1.2, 1.2), 0.5)
-			tween.tween_property(quality_border, "modulate", Color.WHITE, 0.5)
-	else:
+	if quality < 0 or quality >= border_colors.size():
 		quality_border.visible = false
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0, 0, 0, 0)
+	style.border_color = border_colors[quality]
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(3)
+	quality_border.add_theme_stylebox_override("panel", style)
+	quality_border.visible = true
 
-func _on_resized() -> void:
-	# Update text label widths when slot is resized
-	if not is_hotbar and item_data.size() > 0:
-		if name_label:
-			var text_area_width: float = size.x - ICON_SIZE - 11 - 8  # Total width - icon - gap (11px) - right padding
-			if text_area_width > 0:
-				name_label.size.x = text_area_width
-		if desc_label:
-			var text_area_width: float = size.x - ICON_SIZE - 11 - 8  # Total width - icon - gap (11px) - right padding
-			if text_area_width > 0:
-				desc_label.size.x = text_area_width
 
 func _on_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
-		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			if mouse_event.pressed:
-				# Start drag on click
-				if not item_data.is_empty():
-					slot_clicked.emit(self)
-					get_viewport().set_input_as_handled()
-			else:
-				# Release - handle drop (but also handled globally in inventory_ui)
+		if mouse_event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mouse_event.pressed:
+			_pressing = true
+			_drag_armed = false
+			_press_global = get_global_mouse_position()
+			get_viewport().set_input_as_handled()
+		else:
+			if _pressing and not _drag_armed:
 				slot_drag_ended.emit(self)
-				get_viewport().set_input_as_handled()
+			_pressing = false
+			_drag_armed = false
+			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
-		# Mouse movement while dragging - update highlight if hovering
+		if _pressing and not _drag_armed and not item_data.is_empty():
+			if get_global_mouse_position().distance_to(_press_global) >= DRAG_THRESHOLD_PX:
+				_drag_armed = true
+				slot_clicked.emit(self)
 		if drag_manager and drag_manager.is_dragging:
 			_update_drop_target_highlight()
 
-func _get_inventory_name() -> String:
-	# Helper to get inventory name for logging
-	var parent = get_parent()
-	while parent:
-		if parent.has_method("get") and parent.get("name"):
-			var name = str(parent.get("name"))
-			if "Inventory" in name:
-				return name
-		parent = parent.get_parent()
-	return "unknown"
 
 func _setup_drag_manager() -> void:
-	# Get drag manager from scene tree
 	var main: Node = get_tree().get_first_node_in_group("main")
-	if main and main.has_method("get") and main.get("drag_manager"):
+	if main and main.get("drag_manager"):
 		drag_manager = main.get("drag_manager") as DragManager
 		if drag_manager:
-			# Connect to drag manager signals
 			if not drag_manager.drag_started.is_connected(_on_drag_started):
 				drag_manager.drag_started.connect(_on_drag_started)
 			if not drag_manager.drag_ended.is_connected(_on_drag_ended):
 				drag_manager.drag_ended.connect(_on_drag_ended)
 
+
 func _create_highlight_overlay() -> void:
-	# Create a color rect overlay for drop target feedback
 	if highlight_overlay:
 		return
-	
 	highlight_overlay = ColorRect.new()
 	highlight_overlay.name = "HighlightOverlay"
 	highlight_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	highlight_overlay.visible = false
 	highlight_overlay.color = Color.TRANSPARENT
+	highlight_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(highlight_overlay)
-	
-	# Make overlay fill the entire slot
-	highlight_overlay.anchors_preset = Control.PRESET_FULL_RECT
-	highlight_overlay.anchor_left = 0.0
-	highlight_overlay.anchor_top = 0.0
-	highlight_overlay.anchor_right = 1.0
-	highlight_overlay.anchor_bottom = 1.0
 
-func _on_drag_started(item_data: Dictionary, from_slot: InventorySlot) -> void:
-	# Called when drag starts - check if this is the source slot
-	if from_slot == self:
-		is_drag_source = true
-		# Make source slot semi-transparent (50% opacity)
-		modulate = Color(1, 1, 1, 0.5)
+
+func _on_drag_started(_item: Dictionary, from_slot: InventorySlot) -> void:
+	is_drag_source = from_slot == self
+	if is_drag_source:
+		modulate = Color(1, 1, 1, 0.45)
+		_update_display()
 	else:
-		is_drag_source = false
-		# Restore modulate if we were previously the source
-		if modulate.a < 1.0:
-			modulate = base_modulate
+		modulate = base_modulate
+
 
 func _on_drag_ended() -> void:
-	# Called when drag ends - restore visual state
 	is_drag_source = false
 	is_hovered_during_drag = false
 	modulate = base_modulate
 	_clear_highlight()
+	_update_display()
+
 
 func _on_mouse_entered() -> void:
-	# Called when mouse enters this slot
 	if drag_manager and drag_manager.is_dragging:
 		is_hovered_during_drag = true
 		_update_drop_target_highlight()
 
+
 func _on_mouse_exited() -> void:
-	# Called when mouse exits this slot
 	is_hovered_during_drag = false
 	_clear_highlight()
 
+
 func _update_drop_target_highlight() -> void:
-	# Update highlight based on whether drop is valid
-	if not drag_manager or not drag_manager.is_dragging:
+	if not drag_manager or not drag_manager.is_dragging or not is_hovered_during_drag or is_drag_source:
 		_clear_highlight()
 		return
-	
-	if not is_hovered_during_drag:
-		_clear_highlight()
-		return
-	
-	# Don't highlight the source slot
-	if is_drag_source:
-		_clear_highlight()
-		return
-	
-	# Check if drop is valid
-	var is_valid = _is_valid_drop_target()
-	
-	if is_valid:
+	if _is_valid_drop_target():
 		_show_highlight(UITheme.get_drag_drop_highlight_valid())
 	else:
 		_show_highlight(UITheme.get_drag_drop_highlight_invalid())
 
+
 func _is_valid_drop_target() -> bool:
-	# Check if the dragged item can be dropped in this slot
 	if not drag_manager or not drag_manager.is_dragging:
 		return false
-	
 	var dragged_item = drag_manager.dragged_item
 	if dragged_item.is_empty():
 		return false
-	
-	# Hotbar slots: reject placeable buildings (they must be placed in world, not equipped)
-	if is_hotbar:
-		var item_type: ResourceData.ResourceType = dragged_item.get("type", -1) as ResourceData.ResourceType
-		var is_placeable_building: bool = (
-			item_type == ResourceData.ResourceType.LANDCLAIM or
-			item_type == ResourceData.ResourceType.LIVING_HUT or
-			item_type == ResourceData.ResourceType.SUPPLY_HUT or
-			item_type == ResourceData.ResourceType.SHRINE or
-			item_type == ResourceData.ResourceType.DAIRY_FARM or
-			item_type == ResourceData.ResourceType.FARM or
-			item_type == ResourceData.ResourceType.OVEN
-		)
-		if is_placeable_building:
+	var pui: PlayerInventoryUI = drag_manager._get_player_inventory_ui()
+	var npc_ui = null
+	var building_ui = null
+	var main: Node = get_tree().get_first_node_in_group("main") if is_inside_tree() else null
+	if main:
+		npc_ui = main.get("npc_inventory_ui")
+		building_ui = main.get("building_inventory_ui")
+	if npc_ui and self in npc_ui.slots:
+		return false
+	var item_type: ResourceData.ResourceType = dragged_item.get("type", -1) as ResourceData.ResourceType
+	if pui and (self in pui.slots or self in pui.hotbar_slots):
+		if not pui._player_slot_accepts_item(self, item_type):
 			return false
-	
-	# Get inventory data for this slot
+		if is_hotbar:
+			var is_placeable_building: bool = (
+				item_type == ResourceData.ResourceType.LANDCLAIM or
+				item_type == ResourceData.ResourceType.LIVING_HUT or
+				item_type == ResourceData.ResourceType.SUPPLY_HUT or
+				item_type == ResourceData.ResourceType.SHRINE or
+				item_type == ResourceData.ResourceType.DAIRY_FARM or
+				item_type == ResourceData.ResourceType.FARM or
+				item_type == ResourceData.ResourceType.OVEN
+			)
+			if is_placeable_building:
+				return false
+		if item_data.is_empty():
+			return true
+		if pui.slot_allows_stack_merge(self, item_type):
+			var slot_count: int = int(item_data.get("count", 1))
+			var dragged_count: int = int(dragged_item.get("count", 1))
+			return (slot_count + dragged_count) <= pui.get_slot_stack_limit(self, item_type)
+		return false
 	var inventory_data = _get_inventory_data_for_slot()
 	if not inventory_data:
 		return false
-	
-	# If slot is empty, drop is valid (and not a rejected building)
+	if building_ui and self in building_ui.slots:
+		if item_data.is_empty():
+			return inventory_data.can_add_item(item_type, int(dragged_item.get("count", 1)))
+		var slot_item_type = item_data.get("type", -1)
+		if slot_item_type == item_type and inventory_data.can_stack:
+			var total: int = int(item_data.get("count", 1)) + int(dragged_item.get("count", 1))
+			return total <= inventory_data.max_stack
+		return true
 	if item_data.is_empty():
 		return true
-	
-	# If slot has item, check if we can stack
 	var slot_item_type = item_data.get("type", -1)
-	var dragged_item_type = dragged_item.get("type", -1)
-	
-	var can_stack_here: bool = inventory_data.can_stack
-	var max_stack: int = inventory_data.max_stack
-	if drag_manager:
-		var pui: PlayerInventoryUI = drag_manager._get_player_inventory_ui()
-		if pui and (self in pui.slots or self in pui.hotbar_slots):
-			var dragged_type: ResourceData.ResourceType = dragged_item_type as ResourceData.ResourceType
-			if pui.slot_allows_stack_merge(self, dragged_type):
-				can_stack_here = true
-				max_stack = pui.get_slot_stack_limit(self, dragged_type)
-	
-	# Same type and can stack - valid
-	if slot_item_type == dragged_item_type and can_stack_here:
-		var slot_count = item_data.get("count", 1)
-		var dragged_count = dragged_item.get("count", 1)
-		return (slot_count + dragged_count) <= max_stack
-	
-	# Different type or can't stack - invalid (would overwrite)
-	return false
+	if slot_item_type == item_type and inventory_data.can_stack:
+		var total2: int = int(item_data.get("count", 1)) + int(dragged_item.get("count", 1))
+		return total2 <= inventory_data.max_stack
+	return inventory_data.can_stack
+
 
 func _get_inventory_data_for_slot() -> InventoryData:
-	# Helper to get inventory data for this slot
 	if drag_manager:
 		return drag_manager._get_inventory_data_for_slot(self)
 	return null
 
+
 func _show_highlight(color: Color) -> void:
-	# Show highlight overlay with specified color
 	if highlight_overlay:
 		highlight_overlay.color = color
 		highlight_overlay.visible = true
 
+
 func _clear_highlight() -> void:
-	# Clear highlight overlay
 	if highlight_overlay:
 		highlight_overlay.visible = false
 		highlight_overlay.color = Color.TRANSPARENT
-
-func _process(_delta: float) -> void:
-	# Update highlight if dragging and hovering
-	if drag_manager and drag_manager.is_dragging and is_hovered_during_drag:
-		_update_drop_target_highlight()

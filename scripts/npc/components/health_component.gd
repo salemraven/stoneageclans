@@ -3,6 +3,10 @@ class_name HealthComponent
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const PawnDeathAnimation = preload("res://scripts/systems/pawn_death_animation.gd")
+const FightOverScript = preload("res://scripts/systems/fight_over.gd")
+const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
+const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+const WoundRecordScript = preload("res://scripts/combat/wound_record.gd")
 
 # Health Component - tracks HP, handles death, sets corpse sprite
 
@@ -25,6 +29,8 @@ func initialize(npc_ref: Node) -> void:
 func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE) -> void:
 	if is_dead:
 		return
+	if npc and npc.is_in_group("player") and DebugConfig and DebugConfig.npcs_ignore_player:
+		return
 	
 	var npc_type_str: String = str(npc.get("npc_type")) if npc and npc.get("npc_type") != null else ""
 	var passive_prey: bool = NPCConfig != null and NPCConfig.is_passive_hunt_prey(npc_type_str)
@@ -43,6 +49,11 @@ func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.R
 						CombatTick.push_agro_event(npc, 50.0, "hit", attacker)
 				# Set combat target to attacker only if not an ally (CombatAllyCheck)
 				var should_target_attacker: bool = not CombatAllyCheck.is_ally(npc, attacker)
+				var keep_prey: bool = npc.has_meta("volley_prey") and not WoundRecordScript.is_person(attacker)
+				if keep_prey:
+					should_target_attacker = false
+				if should_target_attacker and WoundRecordScript.is_person(attacker):
+					npc.set_meta("volley_attacker", attacker)
 				if should_target_attacker:
 					var tid: int = EntityRegistry.get_id(attacker) if EntityRegistry else -1
 					npc.set("combat_target_id", tid)
@@ -58,9 +69,22 @@ func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.R
 	# Show red X hitmarker
 	_show_hitmarker()
 	
+	if WoundRecordScript.should_keep(npc, attacker, amount):
+		var wound_part: Dictionary = WoundRecordScript.roll_part()
+		if current_hp <= 0:
+			WoundRecordScript.note_kill(attacker, npc, weapon_type, wound_part)
+		elif WoundRecordScript.is_person(npc):
+			WoundRecordScript.note_survived_hit(npc, attacker, weapon_type, wound_part)
 	if current_hp <= 0:
 		die()
 		return
+	if npc and str(npc.get("npc_type")) == "woman" and npc.get("fsm") != null:
+		var woman_fsm = npc.get("fsm")
+		if woman_fsm.has_method("change_state"):
+			var phi_woman: Node = npc.get_node_or_null("/root/PartyHuntInstrument")
+			if phi_woman and phi_woman.has_method("note_fight_break"):
+				phi_woman.note_fight_break(npc, "shelter", attacker)
+			woman_fsm.change_state("flee_combat", true)
 	
 	# Passive prey (deer): flee harder — never counter-attack
 	if passive_prey and npc_type_str == "deer" and npc and npc.fsm:
@@ -93,6 +117,12 @@ func die() -> void:
 		if npc.has_method("on_vitals_death"):
 			var cause := death_cause if death_cause != "" else "health"
 			npc.call("on_vitals_death", cause)
+		var pi_pd: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_pd and pi_pd.has_method("is_enabled") and pi_pd.is_enabled() and pi_pd.has_method("player_died"):
+			var pex: Dictionary = {"hp": current_hp, "max_hp": max_hp}
+			if last_attacker and is_instance_valid(last_attacker):
+				pex["killer"] = str(last_attacker.get("npc_name")) if last_attacker.get("npc_name") != null else str(last_attacker.name)
+			pi_pd.player_died(death_cause if death_cause != "" else "health", pex)
 		print("💀 Player died!")
 		return
 	
@@ -138,6 +168,31 @@ func die() -> void:
 			elif last_attacker:
 				cause_str = "combat"
 			pi.npc_died(npc_name_str, clan_str, cause_str)
+			if last_attacker and is_instance_valid(last_attacker) and pi.has_method("npc_kill"):
+				var kn: String = str(last_attacker.get("npc_name")) if last_attacker.get("npc_name") != null else "?"
+				var kc: String = ""
+				if last_attacker.has_method("get_clan_name"):
+					kc = str(last_attacker.get_clan_name())
+				elif last_attacker.get("clan_name") != null:
+					kc = str(last_attacker.get("clan_name"))
+				var kfsm: String = ""
+				var kf: Node = last_attacker.get_node_or_null("FSM")
+				if kf:
+					kfsm = str(kf.get("current_state_name"))
+				var kpay: Dictionary = {"killer": kn, "killer_clan": kc, "victim": npc_name_str, "victim_clan": clan_str, "victim_type": str(npc.get("npc_type")) if npc.get("npc_type") != null else "", "killer_fsm": kfsm, "cause": cause_str}
+				if pi.has_method("morale_of"):
+					var km: Dictionary = pi.morale_of(last_attacker)
+					kpay["bravery"] = km.get("bravery", 0.5)
+					kpay["morale_bar"] = km.get("morale_bar", 50.0)
+					kpay["flight_line"] = km.get("flight_line", 50.0)
+					kpay["hp_ratio"] = km.get("hp_ratio", 1.0)
+				pi.npc_kill(kpay)
+	
+	if npc:
+		var leader_death: bool = str(npc.get("npc_type")) == "caveman"
+		if last_attacker and is_instance_valid(last_attacker):
+			MoraleBarScript.apply_person_kill(last_attacker, npc)
+		MoraleBarScript.apply_clan_man_death(npc, leader_death)
 	
 	# Change sprite to corpse
 	_set_corpse_sprite()
@@ -184,6 +239,25 @@ func die() -> void:
 	if npc:
 		npc.velocity = Vector2.ZERO
 		npc.set_meta("is_dead", true)
+		npc.set("agro_meter", 0.0)
+		if "agro_meter" in npc:
+			npc.agro_meter = 0.0
+		npc.set("combat_target_id", -1)
+		npc.set("combat_target", null)
+		if "combat_target_id" in npc:
+			npc.combat_target_id = -1
+		if "combat_target" in npc:
+			npc.combat_target = null
+		npc.set("agro_target", null)
+		if "agro_target" in npc:
+			npc.agro_target = null
+		if npc.has_meta("volley_attacker"):
+			npc.remove_meta("volley_attacker")
+		if npc.has_meta("volley_prey"):
+			npc.remove_meta("volley_prey")
+		var dead_cc: Node = npc.get_node_or_null("CombatComponent")
+		if dead_cc and dead_cc.has_method("clear_target"):
+			dead_cc.clear_target()
 		if npc.has_method("_clear_overlay_visuals"):
 			npc._clear_overlay_visuals()
 	
@@ -191,13 +265,19 @@ func die() -> void:
 	if npc:
 		npc.set_meta("is_corpse", true)
 		npc.add_to_group("corpses")
-		# Corpse yields from CorpseConfig (meat, hide, bone)
-		var npc_type_str: String = npc.get("npc_type") if npc else ""
-		var yields: Dictionary = CorpseConfig.get_yields(npc_type_str)
-		npc.set_meta("meat_remaining", yields.get("meat", 0))
-		npc.set_meta("hide_remaining", yields.get("hide", 0))
-		npc.set_meta("bone_remaining", yields.get("bone", 0))
-		npc.set_meta("corpse_created_at", Time.get_ticks_msec() / 1000.0)
+		if HostileEntityIndex:
+			HostileEntityIndex.unregister(npc)
+		CorpseHarvestScript.apply_death_yields(npc)
+		FightOverScript.end_fight_for_all_targeting(npc)
+		var src: String = "agro"
+		if last_attacker and is_instance_valid(last_attacker):
+			if last_attacker.is_in_group("player"):
+				src = "player_kill"
+			elif last_attacker.get_meta("raid_joined", false) == true:
+				src = "raid"
+			elif last_attacker.get_meta("hunt_joined", false) == true:
+				src = "hunt"
+			CorpseHarvestScript.register_kill_candidate(last_attacker, npc, src)
 		
 		# Store death info (killer and weapon) on the NPC for corpse UI display
 		if last_attacker:
@@ -227,6 +307,8 @@ func die() -> void:
 	if npc:
 		var npc_type: String = npc.get("npc_type") if npc else ""
 		if npc_type == "caveman":
+			if npc.has_meta("raid_joined"):
+				npc.remove_meta("raid_joined")
 			_select_new_leader()
 	
 	# Emit death signal
@@ -417,6 +499,7 @@ func _select_new_leader() -> void:
 	
 	# Update land claim ownership if the dead caveman owned it
 	var land_claims = _get_land_claims()
+	var new_leader_node: Node2D = oldest_clansman
 	for claim in land_claims:
 		if not is_instance_valid(claim):
 			continue
@@ -430,6 +513,11 @@ func _select_new_leader() -> void:
 				claim.set("owner_npc_name", new_leader_name)
 				print("👑 Leader succession: Land claim ownership transferred to %s" % new_leader_name)
 			# If old_owner doesn't match, land claim ownership remains unchanged
+			var brain: Variant = claim.get_clan_brain() if claim.has_method("get_clan_brain") else claim.get("clan_brain")
+			if brain and brain.has_method("hand_raid_party_to_new_leader"):
+				brain.hand_raid_party_to_new_leader(new_leader_node, str(npc.get("npc_name")))
+			if brain and brain.has_method("apply_leader_death_shock"):
+				brain.apply_leader_death_shock(str(npc.get("npc_name")))
 
 func _show_hitmarker() -> void:
 	# Red X above hurt NPC. Use UI layer + screen position so it's always visible.

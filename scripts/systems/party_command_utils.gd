@@ -61,9 +61,6 @@ static func apply_context_to_follower(leader: Node, follower: Node) -> void:
 		follower.command_context = ctx
 	var hostile: bool = built.get("is_hostile", false) as bool
 	follower.set("is_hostile", hostile)
-	if hostile and "agro_meter" in follower:
-		follower.set("agro_meter", 70.0)
-		follower.agro_meter = 70.0
 
 
 static func set_follower_mode_string(follower: Node, mode: String) -> void:

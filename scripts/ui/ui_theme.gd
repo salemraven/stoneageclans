@@ -30,11 +30,13 @@ static var PANEL_HEIGHT_STANDARD: int = 400
 static var PANEL_PADDING_STANDARD: int = 8
 static var PANEL_PADDING_LARGE: int = 16
 
-static var SLOT_SIZE: int = 32
-static var SLOT_SPACING_VERTICAL: int = 0
+static var SLOT_SIZE: int = 40
+static var SLOT_ICON_SIZE: int = 32
+static var SLOT_LIST_ROW_HEIGHT: int = 56
+static var SLOT_SPACING_VERTICAL: int = 4
 static var SLOT_SPACING_HORIZONTAL: int = 6
 
-static var HOTBAR_HEIGHT: int = 64
+static var HOTBAR_HEIGHT: int = 72
 
 static var FONT_SIZE_TITLE: int = 18
 static var FONT_SIZE_BODY: int = 12
@@ -161,6 +163,45 @@ static func get_drag_drop_highlight_valid() -> Color:
 
 static func get_drag_drop_highlight_invalid() -> Color:
 	return Color(0.702, 0.106, 0.106, 0.3)  # #B31B1B @ 30%
+
+
+static func get_slot_style(hotbar: bool = false) -> StyleBoxFlat:
+	_ensure_tokens_loaded()
+	var style := StyleBoxFlat.new()
+	if hotbar:
+		style.bg_color = Color(0x2a / 255.0, 0x1f / 255.0, 0x1a / 255.0, 0.98)
+		style.border_color = Color(0x8b / 255.0, 0x65 / 255.0, 0x3e / 255.0, 0.75)
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(4)
+		style.shadow_color = Color(0, 0, 0, 0.35)
+		style.shadow_size = 2
+		style.shadow_offset = Vector2(1, 1)
+	else:
+		style.bg_color = Color(0x3c / 255.0, 0x27 / 255.0, 0x23 / 255.0, 0.95)
+		style.border_color = Color(0x8b / 255.0, 0x45 / 255.0, 0x13 / 255.0, 0.9)
+		style.set_border_width_all(2)
+		style.set_corner_radius_all(8)
+	style.content_margin_left = 6
+	style.content_margin_right = 6
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	return style
+
+
+static func get_slot_icon_cell_style() -> StyleBoxFlat:
+	_ensure_tokens_loaded()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0x1a / 255.0, 0x14 / 255.0, 0x11 / 255.0, 0.9)
+	style.border_color = Color(0x8b / 255.0, 0x65 / 255.0, 0x3e / 255.0, 0.5)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	return style
+
+
+static func apply_slot_style(control: Control, hotbar: bool = false) -> void:
+	if control == null:
+		return
+	control.add_theme_stylebox_override("panel", get_slot_style(hotbar))
 
 
 static func apply_panel_style(panel: Panel) -> void:

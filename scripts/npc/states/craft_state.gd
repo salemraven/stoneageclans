@@ -106,6 +106,8 @@ func _try_pull_craft_job() -> bool:
 	return false
 
 func can_enter() -> bool:
+	if NPCConfig and not bool(NPCConfig.npc_blade_craft_enabled):
+		return false
 	if not npc or npc.is_dead():
 		return false
 	if _is_defending() or _is_in_combat() or _is_following():
@@ -147,6 +149,8 @@ func get_priority() -> float:
 	var phigh: float = 12.0
 	var pfallback: float = 2.5
 	if NPCConfig:
+		if not bool(NPCConfig.npc_blade_craft_enabled):
+			return NPCConfig.priority_craft_blocked
 		pb = NPCConfig.priority_craft_blocked
 		pfood = NPCConfig.priority_craft_blocked
 		pbelow = NPCConfig.priority_craft_below_gather

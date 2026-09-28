@@ -51,8 +51,9 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **command_context** | Dictionary on ordered clansmen: `mode` (FOLLOW / GUARD / ATTACK), tuning, `commander_id`, `issued_at_time`. Player path: `main.gd`; NPC leader path: **`PartyCommandUtils`**. |
 | **formation_slots** | Leader **meta** (player or male NPC): slot positions / steer targets for each follower. Player: `main._update_formation_slots`; NPC leader: **`FormationUtils.publish_slots_for_npc_leader`**. |
 | **follow_is_ordered** | True while clansmen are in ordered party follow (player drag, menu, **War Horn** rally, or **ClanBrain** raid party). Blocks cross-clan **herd steal** on wild herdables. |
-| **Break** | RTS control (**B** or HUD): dismiss ordered follow; **caveman** + **clansman** steer to clan **land claim** (metas **`returning_from_break`** + **`returning_from_break_expire`**). Claim cache invalidated on break. |
-| **War Horn** | **H**: rally clansmen in radius (~1500 px per **`RTS_CONFIG`**); applies ordered follow + stance context; herders **detach herd** so they can form up. |
+| **Break** | **B**: dismiss ordered follow; walk **home**. **Agreed:** split **party pile** into pockets first, then auto-deposit at **your** claim. [party_ui.md](party_ui.md). |
+| **War Horn** | **H**: rally. **Today** ~1500 px; Hunt **H** = abort. **Agreed:** ~400 px always rally; fighters only. |
+| **Party dock / pile** | **Agreed, not shipped:** one dock (bar + I sheet), loot+spare kit, cap 5× fighters, melee/ranged slider. [party_ui.md](party_ui.md). |
 | **Stance** | **Follow**, **Guard**, **Attack** — affects agro threshold, chase distance, and **formation_speed_mult** (player + clansmen). **Guard** while moving = ring around leader; **not** the same as static **defend** on the claim border. |
 | **RTS_CONFIG** | `scripts/config/rts_formation_config.gd` — rally radius, horn cooldown, leash, catch-up multiplier, snapshot interval, stance numbers. |
 
@@ -111,7 +112,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **Leader succession** | When a leader dies, design uses **oldest clansman** (or similar rule) for AI continuity. |
 | **Raid** | Hostile expedition: loot building + flag inventories; **ClanBrain** **`raid_intent`**; NPCs take **Raid** FSM. Horn + ordered followers = large war party. |
 | **Predator** | Hostile **wild NPC** (wolf, mammoth, …) — **not** herdable; hunts / fights. *(Many species planned / partial in code.)* |
-| **Fighter activity** | *(Code / telemetry only.)* NPC **right now** in **combat**, **defend**, **agro**, or **raid** FSM — **not** roster headcount. **`GameTerms.is_fighter_activity(npc)`**. Player text: **defender** / **in combat** / **raiding**. |
+| **Thrown stone** | Ranged rock: land at cursor (player) or target torso (NPC), **snap** if a valid enemy is within ~32 px of the cursor, then damage if the land point is within **`throw_land_hit_radius_px`** of that **hit point** (torso, not feet). Allies and corpses are skipped. Hit chance stays **100%** until a Range skill exists (`throw_use_skill_hit_chance`). Numbers live on **BalanceConfig**. **Spear throw poses** (locked 2026-09-24 from the tuner): ranged idle is display (16, -182.67) at 37°. Windup is display (-16.5, -142.67) at 47°. **Stone ranged** (2026-09-24T23:42:45): idle display (-38.67, -156), windup display (-82, -111.33). **Stone melee** (2026-09-24T23:50:14): idle display (86, -44), windup display (-12, -170). **Stone hit** (2026-09-25T00:37:42): display (54.67, -12.67). The swing goes windup, then hit, then back to idle. A throw goes ranged idle, then windup, then the item leaves the hand and flies. Poses use the tuner body scale (0.27234), not the in-game body scale. All stones are size 4.5 and not turned. A spear in hand does not block the throw. The NPC keeps the spear equipped. `combat_state._try_ranged_throw` throws when all three are true: at least one stone in inventory or hotbar, clan `ranged_ratio` above about 1% (default 0.5, so on), and the target is farther than melee reach. Inside melee reach they stab with the equipped spear instead. The ratio is a switch for the whole clan, not “half the fighters throw.” |
 
 ---
 
@@ -119,7 +120,12 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 
 | Term | Definition |
 |------|------------|
-| **ClanBrain** | **RefCounted** AI strategy object owned by a **territory** node (**LandClaim** flag or **Campfire**). Sets **defender quota**, **searcher quota**, **raid_intent** and **hunt_intent** (NPC clans; see **Area of Hunt**), strategic mood, economic weights. NPCs **pull** quotas and self-assign states. Player clans get neighbor/threat parity; NPC raids still skip the player unless design adds them. |
+| **ClanBrain** | **RefCounted** AI strategy object owned by a **territory** node (**LandClaim** flag or **Campfire**). Sets **defender quota**, **searcher quota**, **raid_intent** and **hunt_intent** (NPC clans; see **Area of Hunt**), strategic mood, economic weights. NPCs **pull** quotas and self-assign states. Player clans get neighbor/threat parity; NPC raids still skip the player unless design adds them. **Planned:** clan **skills**, **traits**, and **stats** derived from **clansmen** (averaged stats; traits when enough clansmen share one), a clan **morale bar**, and **buffs/debuffs** on the brain — see `ai_clan_brain.md` § Clan identity. |
+| **ClanBrain stats** | *Planned.* Numeric attributes on the brain = **average** of each stat across clansmen in the clan. |
+| **ClanBrain traits** | *Planned.* When a **quorum** of clansmen share a trait, the brain gains that trait for clan-level decisions (threshold TBD). |
+| **ClanBrain skills** | *Planned.* Clan-scale skills that modify defend/raid/hunt and job bias (roster TBD). |
+| **Morale bar (ClanBrain)** | *Planned.* Clan-level mood on the brain (bold vs brittle). **Not** the per-fighter morale / flight bar in `morale_bar_flight.md`. |
+| **ClanBrain buff / debuff** | *Planned.* Temporary or lasting modifiers on the brain (relics, events, rally, shame) stacked with averaged stats and quorum traits. |
 | **Area of Hunt (AoH)** | Zone on **land claim** wider than the claim footprint. Counts **`WildRole.PREY`** wildlife (**deer**, **mammoth** via **`NPCConfig.is_ai_hunt_prey_type`**) that ClanBrain uses for **`hunt_intent`**. **Herdables** (sheep, goat, woman) can be in the zone but are **not** AoH hunt targets — they route through **`herd_wildnpc`** / search. |
 | **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties — player uses RTS **Peace / Agro / Hunt**. |
 | **Defender quota** | How many clansmen **ClanBrain** wants on **defend** duty at the claim edge. |
@@ -180,7 +186,9 @@ High-level priority stack (not every state): **Agro** → **Combat** → **Herd 
 | Term | Definition |
 |------|------------|
 | **Hotbar** | **1–8** equipment (hands, armor, backpack, …); **9–0** **consumables** (eat on key). |
-| **Drag-and-drop** | Move stacks between player, **flag** inventory, **buildings**, **NPCs**, **corpse**, ground. **Drop clansman on player** → **ordered follow**. |
+| **Stockpile** | Claim / building / campfire list: **one row per type**, stacking, big count. Compact — empty slots hidden except one drop row. |
+| **Drag-and-drop** | Pick up a **whole stack**. Stockpile **merges**. Player bag: only the **dropped-on slot** (wood/stone count 1; food up to 5). **Drop clansman on player** → ordered follow. Canon: [UI.md](UI.md). |
+| **Window layout** | Drag a menu **title bar**; bag / stockpile / NPC inventory remember that screen spot. |
 
 ---
 

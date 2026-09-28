@@ -2,6 +2,7 @@ extends Task
 class_name ButcherTask
 
 const MoveToTaskScript = preload("res://scripts/ai/tasks/move_to_task.gd")
+const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
 
 ## One timed slice from a corpse NPC (metadata meat_remaining / hide_remaining / bone_remaining).
 ## Returns SUCCESS after a single extraction (or corpse already empty → empty pull for another hunter).
@@ -24,9 +25,7 @@ func _init(corpse_node: Node, duration: float = 1.0, dist: float = 52.0) -> void
 
 
 static func corpse_yield_total(corpse_node: Node) -> int:
-	if not corpse_node or not is_instance_valid(corpse_node):
-		return 0
-	return int(corpse_node.get_meta("meat_remaining", 0)) + int(corpse_node.get_meta("hide_remaining", 0)) + int(corpse_node.get_meta("bone_remaining", 0))
+	return CorpseHarvestScript.yield_total(corpse_node)
 
 
 func _start_impl(actor: Node) -> void:
@@ -138,36 +137,13 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	if npc.progress_display:
 		npc.progress_display.stop_collection(false)
 
-	var meat_left: int = int(corpse.get_meta("meat_remaining", 0))
-	var hide_left: int = int(corpse.get_meta("hide_remaining", 0))
-	var bone_left: int = int(corpse.get_meta("bone_remaining", 0))
-
-	var took: ResourceData.ResourceType = ResourceData.ResourceType.NONE
-	if meat_left > 0:
-		corpse.set_meta("meat_remaining", meat_left - 1)
-		took = ResourceData.ResourceType.MEAT
-	elif hide_left > 0:
-		corpse.set_meta("hide_remaining", hide_left - 1)
-		took = ResourceData.ResourceType.HIDE
-	elif bone_left > 0:
-		corpse.set_meta("bone_remaining", bone_left - 1)
-		took = ResourceData.ResourceType.BONE
-	else:
+	var slice: Dictionary = CorpseHarvestScript.take_slice(corpse, func(t): return npc.inventory.add_item(t, 1), npc.npc_name)
+	if not bool(slice.get("ok", false)):
+		if bool(slice.get("undone", false)):
+			return TaskStatus.SUCCESS
 		_emit_empty(npc)
 		return TaskStatus.SUCCESS
-
-	corpse.set_meta("last_butcher_time", Time.get_ticks_msec() / 1000.0)
-
-	if not npc.inventory.add_item(took, 1):
-		# Undo meta if bag full — let another hunter take it or leave on corpse
-		if took == ResourceData.ResourceType.MEAT:
-			corpse.set_meta("meat_remaining", meat_left)
-		elif took == ResourceData.ResourceType.HIDE:
-			corpse.set_meta("hide_remaining", hide_left)
-		elif took == ResourceData.ResourceType.BONE:
-			corpse.set_meta("bone_remaining", bone_left)
-		return TaskStatus.SUCCESS  # Inventory full → stop chaining in hunt_state
-
+	var took: ResourceData.ResourceType = slice.get("type") as ResourceData.ResourceType
 	var prev_units: int = int(npc.get_meta("hunt_butcher_units", 0))
 	npc.set_meta("hunt_butcher_units", prev_units + 1)
 	match took:
@@ -185,20 +161,14 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 			print("[HUNT_BUTCHER] %s took %s from corpse (remain m=%d h=%d b=%d)" % [
 				npc.npc_name,
 				ResourceData.get_resource_name(took),
-				int(corpse.get_meta("meat_remaining", 0)),
-				int(corpse.get_meta("hide_remaining", 0)),
-				int(corpse.get_meta("bone_remaining", 0)),
+				int(corpse.get_meta("meat_remaining", 0)) if is_instance_valid(corpse) else 0,
+				int(corpse.get_meta("hide_remaining", 0)) if is_instance_valid(corpse) else 0,
+				int(corpse.get_meta("bone_remaining", 0)) if is_instance_valid(corpse) else 0,
 			])
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled() and pi.has_method("hunt_butcher_extract"):
-			var ctype: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "unknown"
+			var ctype: String = str(corpse.get("npc_type")) if is_instance_valid(corpse) and corpse.get("npc_type") != null else "unknown"
 			pi.hunt_butcher_extract(npc.npc_name, ctype, ResourceData.get_resource_name(took), int(took), 1)
-
-	var mr: int = int(corpse.get_meta("meat_remaining", 0))
-	var hr: int = int(corpse.get_meta("hide_remaining", 0))
-	var br: int = int(corpse.get_meta("bone_remaining", 0))
-	if mr <= 0 and hr <= 0 and br <= 0 and corpse.is_inside_tree():
-		corpse.queue_free()
 
 	return TaskStatus.SUCCESS
 

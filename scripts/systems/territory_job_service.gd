@@ -97,6 +97,8 @@ static func generate_gather_job(claim: Node2D, worker: Node) -> Job:
 	return job
 
 static func generate_craft_job(claim: Node2D, worker: Node) -> Job:
+	if NPCConfig and not bool(NPCConfig.npc_blade_craft_enabled):
+		return null
 	if not claim or not worker:
 		return null
 	var claim_clan: String = claim.get("clan_name") if "clan_name" in claim else ""

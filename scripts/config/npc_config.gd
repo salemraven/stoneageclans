@@ -66,6 +66,8 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var eat_duration: float = 2.0  # Time to eat one berry (seconds)
 @export var gather_duration: float = 0.5  # Time to gather a resource (seconds) - faster for more productive gathering
 @export var craft_knap_duration: float = 30.0  # Time to knap stone into blade (seconds)
+## AI clans do not knap blades. Player can still craft. NPCs do not need blades.
+@export var npc_blade_craft_enabled: bool = false
 @export var action_speed_multiplier: float = 0.3  # Speed multiplier when eating/gathering (0.3 = 30% speed)
 
 # ============================================
@@ -256,34 +258,37 @@ enum WildRole { PREY, PREDATOR, NONE }
 # ============================================
 @export_group("Agro System")
 @export var combat_disabled: bool = false  # When true, agro stays 0 and combat never triggers (for testing gather/herd)
-@export var agro_enter_threshold: float = 70.0  # Step 8: Enter combat when agro >= this
-@export var agro_exit_threshold: float = 60.0   # Step 8: Exit combat (hysteresis) when agro < this
+@export var agro_enter_threshold: float = 45.0  # Enter combat when agro >= this (was 70; valley camps were not crossing it)
+@export var agro_exit_threshold: float = 30.0   # Exit combat (hysteresis) when agro < this
 @export var agro_max: float = 100.0              # Agro cap
 @export var agro_decay_combat: float = 2.0       # Decay per second while in combat
 @export var agro_decay_idle: float = 5.0         # Decay per second when not in combat
 @export var agro_state_meter_rise_per_second: float = 10.0  # While in agro_state, agro_meter rise per second (hostile indicator)
 @export var agro_absolute_max_seconds: float = 45.0  # Safety: force-clear agro_meter if positive this long (CombatTick)
-@export var hostile_threshold: float = 70.0  # agro_meter needed for hostile mode in recover (shows "!!!" indicator)
-@export var hostile_threshold_defend: float = 70.0  # Agro level for hostile mode in defend mode (agro_state)
+@export var hostile_threshold: float = 45.0  # agro_meter needed for hostile mode in recover (shows "!!!" indicator)
+@export var hostile_threshold_defend: float = 45.0  # Agro level for hostile mode in defend mode (agro_state)
 @export var hostile_duration_max: float = 10.0  # Max duration of hostile indicator display (seconds)
 @export var agro_approach_distance: float = 150.0  # Distance to approach lost woman (pixels)
 @export var agro_retreat_distance: float = 250.0  # Distance to retreat from lost woman (pixels)
 @export var agro_flee_player_distance: float = 100.0  # Distance from player to trigger flee in agro mode (pixels)
 @export var agro_steal_attempt: float = 20.0  # Agro meter increase when steal attempt fails (challenger tried to steal)
 @export var agro_steal_success: float = 40.0  # Agro meter increase when steal succeeds (old herder lost the animal)
-@export var agro_perception_range: float = 300.0  # Max distance (px) from NPC to target to trigger agro; NPCs cannot agro on things outside this.
+@export var agro_perception_range: float = 720.0  # Cap on proximity/AOA. Was 300, which silently capped 380 proximity and kept the 1200px camps from noticing each other.
 # Chase break: pumps suppressed while in combat/flee; extra decay when target is out of range
 @export var agro_outranged_extra_decay: float = 18.0  # Extra decay per second when combat target is beyond agro_perception_range (runner is getting away).
-@export var agro_far_instant_break_distance: float = 560.0  # Beyond this distance to combat target, drop agro and clear target immediately (hard leash).
+@export var agro_far_instant_break_distance: float = 1100.0  # Hard leash; must stay above proximity radius or they agro then instantly drop.
 @export var agro_lost_target_give_up_seconds: float = 7.0  # If combat target stays beyond perception this long, force-clear (failsafe if decay tuning changes)
+@export var agro_stalemate_seconds: float = 6.0  # In spear range with no HP change: drop the fight. Real hits reset this.
+@export var agro_disengage_seconds: float = 8.0  # After a break, proximity cannot refill agro. Stops the same duel restarting.
 
 # ============================================
 # Flee combat (disengage)
 # ============================================
 @export_group("Flee System")
-@export var flee_hp_threshold: float = 0.30  # Base HP ratio to flee (scaled by bravery)
+@export var flee_hp_threshold: float = 0.38  # Base HP ratio to flee (scaled by bravery)
 @export var flee_outnumber_ratio: float = 2.0  # Enemy:ally ratio that triggers flee (scaled by bravery)
 @export var flee_speed_multiplier: float = 1.4  # Sprint while fleeing
+@export var pursue_rout_speed_multiplier: float = 2.2  # Chase a routing man. Must stay above flee_speed_multiplier.
 @export var flee_duration_seconds: float = 5.0  # Base flee duration before re-eval
 @export var flee_combat_cooldown: float = 10.0  # Seconds before willing to re-enter combat after flee
 @export var flee_scatter_angle_deg: float = 30.0  # Random +/- degrees on flee heading
@@ -299,9 +304,9 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var caveman_push_radius: float = 60.0  # Radius for push/bump detection (pixels)
 @export var caveman_push_force: float = 500.0  # Force applied when pushing (higher = stronger push)
 @export var caveman_push_agro_multiplier: float = 1.5  # Push force multiplier when in agro mode
-@export var area_of_agro_radius: float = 200.0  # AOA: Trigger agro when enemy enters this range (px). Must be <= AOP (claim radius).
-@export var proximity_agro_radius: float = 380.0  # Proximity agro: enemy within this range (px) builds agro so whole formations engage. No claim required.
-@export var proximity_agro_rate: float = 50.0  # Agro per second when enemy in proximity_agro_radius (same as intrusion so groups cross 70 quickly).
+@export var area_of_agro_radius: float = 280.0  # AOA: personal-space agro (px).
+@export var proximity_agro_radius: float = 700.0  # Enemy in this range builds agro. No claim required. Adjacent eval camps are ~1700px; they must close ~500px.
+@export var proximity_agro_rate: float = 80.0  # Agro per second in proximity (enter is 45, so ~0.6s of contact).
 @export var aop_radius_default: float = 380.0  # Default AOP (matches proximity_agro_radius). Used for caveman, clansman, woman, sheep, goat.
 @export var aop_radius_mammoth: float = 600.0  # Mammoth AOP - agro when threats enter
 @export var aop_radius_gather: float = 800.0  # AOP for gather resource queries (opportunistic gather)

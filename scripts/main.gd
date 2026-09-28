@@ -1,6 +1,8 @@
 extends Node2D
 
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
+const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
+const ThrownProjectile = preload("res://scripts/combat/thrown_projectile.gd")
 const PlayerMovementDebugOverlayScript = preload("res://scripts/debug/player_movement_debug_overlay.gd")
 
 # Phase 3: Land claims cache signals
@@ -56,6 +58,8 @@ var butchering_corpse: Node = null
 var butcher_timer: float = 0.0
 const BUTCHER_DURATION: float = 1.0
 const CORPSE_DESPAWN_SEC: float = 120.0  # Corpse despawns after this many seconds without player interaction
+const PLAYER_NEARBY_CHECK_SEC: float = 0.1
+var _player_nearby_check_accum: float = 0.0
 var butcher_start_pos: Vector2 = Vector2.ZERO
 const BUTCHER_MOVE_CANCEL: float = 20.0
 
@@ -80,6 +84,10 @@ var baby_pool_manager: BabyPoolManager = null  # Baby pool manager for reproduct
 var active_clan_name_dialog: AcceptDialog = null  # Track active dialog to prevent duplicates
 var combat_hud: Control = null  # Bottom: Follow | Guard | Attack | Break (left of hotbar; visible when clansmen selected)
 var _combat_hud_width_px: float = 420.0  # layout width; widened for RTS mode strip + stance row
+var player_party_ranged_ratio: float = 0.5
+var _throw_stance_hint: Label = null
+## Hotbar index 0 = key 1 (right hand), 1 = key 2 (left hand) — which slot drives `set_equipment`.
+var _player_active_hand_hotbar_index: int = 0
 
 enum RTS_MODE { PEACE, AGRO, HUNT }
 var _player_rts_mode: int = RTS_MODE.PEACE
@@ -436,10 +444,6 @@ func _spawn_replacement_caveman() -> void:
 	
 	_apply_placeholder_card_to_npc(npc)
 	
-	var npc_inventory = npc.get("inventory")
-	if npc_inventory:
-		npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)
-	
 	_equip_spear_to_npc(npc)
 	npc.visible = true
 	print("✓ Spawned replacement Caveman: %s at %s with land claim '%s' (AI claim destroyed)" % [npc_name, pos, clan_name])
@@ -499,9 +503,6 @@ func spawn_seeded_ai_clan_at(
 	land_claim.owner_npc_name = npc_name
 	land_claim.set_meta("owner_npc_name", npc_name)
 	call_deferred("_deferred_finish_caveman_visual", npc)
-	var npc_inventory = npc.get("inventory")
-	if npc_inventory:
-		npc_inventory.add_item(ResourceData.ResourceType.SPEAR, 1)
 	_equip_spear_to_npc(npc)
 	npc.visible = true
 	var pi_clan: Node = get_node_or_null("/root/PlaytestInstrumentor")
@@ -1111,6 +1112,8 @@ func _process(delta: float) -> void:
 				return
 	if not player:
 		return
+	_tick_village_probe_snap(delta)
+	_tick_raid_probe_snap(delta)
 	if _production_chain_test_active:
 		_production_chain_test_tick(Time.get_ticks_msec() / 1000.0)
 		return
@@ -1306,9 +1309,12 @@ func _process(delta: float) -> void:
 		if player:
 			world.ensure_chunks_for_position(player.global_position, delta)
 	_process_weapon_ready_input()
-	_check_nearby_buildings()
-	_check_nearby_corpses()
-	_check_nearby_travois_ground()
+	_player_nearby_check_accum += delta
+	if _player_nearby_check_accum >= PLAYER_NEARBY_CHECK_SEC:
+		_player_nearby_check_accum = 0.0
+		_check_nearby_buildings()
+		_check_nearby_corpses()
+		_check_nearby_travois_ground()
 	
 	# Corpse butcher: gather meat with blade in left hand (takes priority over resource gather)
 	if butchering_corpse:
@@ -1487,21 +1493,22 @@ func _input(event: InputEvent) -> void:
 		_test_task_runner()
 		get_viewport().set_input_as_handled()
 	
-	# Number keys 9 and 0 for consumables from hotbar slots 9 and 0
+	# Hotbar hands: 1 = right hand, 2 = left hand; 9/0 = consumables
 	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_9:
+		if event.keycode == KEY_1 or event.keycode == KEY_KP_1:
+			_on_player_weapon_hotbar_key(player_inventory_ui.RIGHT_HAND_SLOT_INDEX)
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_2 or event.keycode == KEY_KP_2:
+			_on_player_weapon_hotbar_key(player_inventory_ui.LEFT_HAND_SLOT_INDEX)
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_9:
 			_use_hotbar_consumable(8)  # Slot 9 is index 8
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_0:
 			_use_hotbar_consumable(9)  # Slot 0 is index 9
 			get_viewport().set_input_as_handled()
 	
-	# Handle NPC and land claim click and hold for inventory
-	# Block world interactions when any inventory UI or context menu is open
-	# Phase 4: Allow LMB through when building occupation drag is active (map-to-slot)
-	if _is_any_inventory_open():
-		if not _is_building_occupation_drag_allowed():
-			return
+	# Bags stay open while you walk, gather, and fight. Clicks on a panel are eaten by that panel.
 	if dropdown_menu_ui and dropdown_menu_ui.is_menu_open():
 		return
 
@@ -1595,37 +1602,11 @@ func _input(event: InputEvent) -> void:
 				if npc_drag_source:
 					npc_drag_source = null
 					npc_drag_hold_timer = 0.0
-				# Mouse button released - hide NPC and building inventories
-				# Unfreeze NPC first (if it was frozen)
-				if clicked_npc and is_instance_valid(clicked_npc):
-					_freeze_npc_for_inspection(clicked_npc, false)
-				
-				# Close character menu (merged with inventory - it also unfreezes)
-				if character_menu_ui and character_menu_ui.is_open:
-					character_menu_ui.hide_menu()
-				
-				# Phase 6: Clear occupation / NPC click state on LMB release
+				# Bags and the person sheet stay open. Press I to close them.
 				clicked_npc = null
 				set("dragged_occupation_building", null)
 				set("dragged_occupation_slot_index", -1)
 				set("dragged_occupation_is_woman", false)
-				
-				# Hide building inventory unless release was over the panel, or still over the campfire we opened (same click)
-				var mp_release: Vector2 = get_viewport().get_mouse_position()
-				var keep_building_ui_open: bool = false
-				if building_inventory_ui and building_inventory_ui.visible and _is_mouse_over_ui(mp_release):
-					keep_building_ui_open = true
-				elif building_inventory_ui and building_inventory_ui.visible:
-					var claim_node: Node = nearby_building
-					if claim_node == null or not is_instance_valid(claim_node):
-						claim_node = building_inventory_ui.campfire
-					if claim_node is CampfireScript and is_instance_valid(claim_node):
-						var world_r: Vector2 = _get_world_mouse_position()
-						if world_r.distance_to(claim_node.global_position) <= CONTEXT_MENU_CLICK_RADIUS * 2.5:
-							keep_building_ui_open = true
-				if not keep_building_ui_open and building_inventory_ui:
-					building_inventory_ui.hide_inventory()
-					nearby_building = null
 				
 				# Handle building placement from inventory
 				# This runs after inventory UI handles its input, so we check if drag is still active
@@ -1648,7 +1629,7 @@ func _check_nearby_buildings() -> void:
 	var closest_distance := 100.0  # Interaction range
 	
 	# Check all land claims and campfires
-	var land_claims := get_tree().get_nodes_in_group("land_claims")
+	var land_claims := get_cached_land_claims()
 	for claim in land_claims:
 		if claim is LandClaim or claim is CampfireScript:
 			var distance := player_pos.distance_to(claim.global_position)
@@ -1690,19 +1671,8 @@ func _check_nearby_corpses() -> void:
 	var closest_corpse: Node = null
 	var closest_distance := 50.0  # Interaction range (reduced from 100px per UI.md spec)
 	
-	# Corpse despawn: remove corpses that have been idle too long without player interaction
+	# Corpse despawn + nearby pick on one group walk (~10 Hz)
 	var now_sec: float = Time.get_ticks_msec() / 1000.0
-	var corpses_all := get_tree().get_nodes_in_group("corpses")
-	for corpse in corpses_all:
-		if not is_instance_valid(corpse):
-			continue
-		var created: float = corpse.get_meta("corpse_created_at", 0.0) as float
-		var last_interact: float = corpse.get_meta("last_butcher_time", created) as float
-		if now_sec - last_interact >= CORPSE_DESPAWN_SEC:
-			corpse.queue_free()
-			continue
-	
-	# Check all corpses
 	var corpses := get_tree().get_nodes_in_group("corpses")
 	for corpse in corpses:
 		if not is_instance_valid(corpse):
@@ -1715,6 +1685,7 @@ func _check_nearby_corpses() -> void:
 		var created_at: float = corpse.get_meta("corpse_created_at", 0.0) as float
 		var last_int: float = corpse.get_meta("last_butcher_time", created_at) as float
 		if now_sec - last_int >= CORPSE_DESPAWN_SEC:
+			CorpseHarvestScript.despawn_idle(corpse)
 			continue
 		
 		# Also check health component to verify it's dead (if it has one)
@@ -1728,13 +1699,13 @@ func _check_nearby_corpses() -> void:
 			closest_distance = distance
 			closest_corpse = corpse
 	
+	if nearby_corpse != null and not is_instance_valid(nearby_corpse):
+		nearby_corpse = null
 	nearby_corpse = closest_corpse
-	
-	# Debug: Log if corpse found
-	if nearby_corpse:
-		var corpse_name = nearby_corpse.get("npc_name") if nearby_corpse else "unknown"
-		var corpse_inv = nearby_corpse.get("inventory")
-		print("🔍 CORPSE DETECTED: %s at distance %.1f (inventory: %s)" % [corpse_name, closest_distance, "found" if corpse_inv else "missing"])
+	# Only a corpse bag closes when you walk away. Campfire and hut bags stay open so you can drop items in.
+	if nearby_corpse == null and building_inventory_ui and building_inventory_ui.visible:
+		if building_inventory_ui.is_corpse_inventory and building_inventory_ui.has_method("hide_inventory"):
+			building_inventory_ui.hide_inventory()
 
 func _process_butcher(delta: float) -> void:
 	if not butchering_corpse or not is_instance_valid(butchering_corpse):
@@ -1748,32 +1719,17 @@ func _process_butcher(delta: float) -> void:
 	butcher_timer += delta
 	if butcher_timer < BUTCHER_DURATION:
 		return
-	# Yield meat first, then hide, then bone (sequential)
-	var meat_left: int = butchering_corpse.get_meta("meat_remaining", 0) as int
-	var hide_left: int = butchering_corpse.get_meta("hide_remaining", 0) as int
-	var bone_left: int = butchering_corpse.get_meta("bone_remaining", 0) as int
-	if meat_left > 0:
-		add_to_inventory(ResourceData.ResourceType.MEAT, 1)
-		butchering_corpse.set_meta("meat_remaining", meat_left - 1)
-		butchering_corpse.set_meta("last_butcher_time", Time.get_ticks_msec() / 1000.0)
-		print("🥩 Butchered 1 meat from %s (%d remaining)" % [butchering_corpse.get("npc_name"), meat_left - 1])
-	elif hide_left > 0:
-		add_to_inventory(ResourceData.ResourceType.HIDE, 1)
-		butchering_corpse.set_meta("hide_remaining", hide_left - 1)
-		butchering_corpse.set_meta("last_butcher_time", Time.get_ticks_msec() / 1000.0)
-		print("🦌 Butchered 1 hide from %s (%d remaining)" % [butchering_corpse.get("npc_name"), hide_left - 1])
-	elif bone_left > 0:
-		add_to_inventory(ResourceData.ResourceType.BONE, 1)
-		var new_bone: int = bone_left - 1
-		butchering_corpse.set_meta("bone_remaining", new_bone)
-		butchering_corpse.set_meta("last_butcher_time", Time.get_ticks_msec() / 1000.0)
-		print("🦴 Butchered 1 bone from %s (%d remaining)" % [butchering_corpse.get("npc_name"), new_bone])
-	# Corpse fully butchered when all yields exhausted
-	var m: int = butchering_corpse.get_meta("meat_remaining", 0) as int
-	var h: int = butchering_corpse.get_meta("hide_remaining", 0) as int
-	var b: int = butchering_corpse.get_meta("bone_remaining", 0) as int
-	if m <= 0 and h <= 0 and b <= 0:
-		butchering_corpse.queue_free()
+	var slice: Dictionary = CorpseHarvestScript.take_slice(
+		butchering_corpse,
+		func(t): return add_to_inventory(t, 1),
+		"player"
+	)
+	if bool(slice.get("ok", false)):
+		if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
+			print("🥩 Butchered 1 %s from %s" % [
+				ResourceData.get_resource_name(int(slice.get("type"))),
+				butchering_corpse.get("npc_name") if is_instance_valid(butchering_corpse) else "?"
+			])
 	_clear_butcher()
 
 func _clear_butcher() -> void:
@@ -1792,6 +1748,8 @@ func _configure_input() -> void:
 	_define_action("gather", [KEY_SPACE])
 	_define_action("war_horn", [KEY_H])
 	_define_action("weapon_ready", [KEY_SHIFT])
+	_define_action("hotbar_1", [KEY_1, KEY_KP_1])
+	_define_action("hotbar_2", [KEY_2, KEY_KP_2])
 
 func _define_action(action_name: StringName, keys: Array) -> void:
 	if not InputMap.has_action(action_name):
@@ -1815,27 +1773,55 @@ func _give_starting_items() -> void:
 	if _npc_only_world:
 		print("NPC_ONLY_WORLD: skipping player starting items (no human avatar loop)")
 		return
-	# Campfire plus starter weapon on right-hand hotbar slot (until gather/crafting loop is primary).
+	# Starter building plus weapon on right-hand hotbar slot (until gather/crafting loop is primary).
 	await get_tree().process_frame
-	
-	add_building_item_to_player_inventory(ResourceData.ResourceType.CAMPFIRE)
-	var start_weapon: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
+
+	var start_building: ResourceData.ResourceType = ResourceData.ResourceType.CAMPFIRE
 	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc and bool(dc.get("enable_start_landclaim")):
+		start_building = ResourceData.ResourceType.LANDCLAIM
+	add_building_item_to_player_inventory(start_building)
+	var start_weapon: ResourceData.ResourceType = ResourceData.ResourceType.SPEAR
 	if dc and bool(dc.get("enable_start_club")):
 		start_weapon = ResourceData.ResourceType.WOOD
+	var start_stone_count: int = 10
+	if dc and dc.get("start_stone_count") != null:
+		start_stone_count = maxi(1, int(dc.get("start_stone_count")))
 	if player_inventory_ui:
 		var hotbar_data := player_inventory_ui.get_meta("hotbar_data", null) as InventoryData
 		if hotbar_data:
+			var start_weapon_count: int = 3 if start_weapon == ResourceData.ResourceType.SPEAR else 1
 			hotbar_data.set_slot(player_inventory_ui.RIGHT_HAND_SLOT_INDEX, {
 				"type": start_weapon,
-				"count": 1,
+				"count": start_weapon_count,
+				"quality": 0
+			})
+			hotbar_data.set_slot(player_inventory_ui.LEFT_HAND_SLOT_INDEX, {
+				"type": ResourceData.ResourceType.STONE,
+				"count": start_stone_count,
 				"quality": 0
 			})
 		player_inventory_ui._update_all_slots()
 		player_inventory_ui._update_hotbar_slots()
-		_update_equipment()
-		var weapon_label: String = "club" if start_weapon == ResourceData.ResourceType.WOOD else "spear"
-		print("Starting items: campfire in inventory + %s in hotbar slot 1" % weapon_label)
+		_player_active_hand_hotbar_index = player_inventory_ui.RIGHT_HAND_SLOT_INDEX
+		_select_player_hotbar_hand(player_inventory_ui.RIGHT_HAND_SLOT_INDEX)
+		var starter_bag: Array = [
+			[ResourceData.ResourceType.WOOD, 20],
+			[ResourceData.ResourceType.STONE, 20],
+			[ResourceData.ResourceType.BERRIES, 12],
+			[ResourceData.ResourceType.FIBER, 12],
+			[ResourceData.ResourceType.MEAT, 8],
+			[ResourceData.ResourceType.WHEAT, 8],
+		]
+		for row in starter_bag:
+			add_to_inventory(row[0], row[1])
+		player_inventory_ui._update_all_slots()
+		var weapon_label: String = ResourceData.get_resource_name(start_weapon)
+		var building_label: String = "land-claim flag" if start_building == ResourceData.ResourceType.LANDCLAIM else "campfire"
+		print(
+			"Starting items: %s in inventory + %s hotbar slot 1 + Stone x%d hotbar slot 2 (keys 1/2 to swap)"
+			% [building_label, weapon_label, start_stone_count]
+		)
 
 
 func _get_random_sheep_goat_tint(rng: RandomNumberGenerator = null) -> Color:
@@ -2234,7 +2220,7 @@ func _refresh_combat_hud_layout() -> void:
 		return
 	var hud_w: float = _combat_hud_width_px
 	var hud_h: float = 104.0
-	var hotbar_width: float = float(PlayerInventoryUI.HOTBAR_COUNT * 32 + (PlayerInventoryUI.HOTBAR_COUNT - 1) * 6 + 24)
+	var hotbar_width: float = float(PlayerInventoryUI.HOTBAR_COUNT * 40 + (PlayerInventoryUI.HOTBAR_COUNT - 1) * 6 + 24)
 	const COMBAT_HUD_GAP := 8.0
 	const SIDE_MARGIN := 16.0
 	const HOTBAR_INNER_MARGIN_BOTTOM := 12.0
@@ -2272,7 +2258,7 @@ func _setup_combat_hud() -> void:
 	UITheme.apply_panel_style(panel)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var hud_w := int(_combat_hud_width_px)
-	var hud_h := 104
+	var hud_h := 136
 	panel.anchor_left = 0.5
 	panel.anchor_top = 1.0
 	panel.anchor_right = 0.5
@@ -2329,6 +2315,26 @@ func _setup_combat_hud() -> void:
 	break_btn.pressed.connect(_break_and_dismiss_all)
 	stance_row.add_child(break_btn)
 	outer.add_child(stance_row)
+	var range_row := HBoxContainer.new()
+	range_row.add_theme_constant_override("separation", 8)
+	var melee_lab := Label.new()
+	melee_lab.text = "Melee"
+	melee_lab.add_theme_font_size_override("font_size", 11)
+	range_row.add_child(melee_lab)
+	var range_slider := HSlider.new()
+	range_slider.name = "RangedRatioSlider"
+	range_slider.min_value = 0
+	range_slider.max_value = 100
+	range_slider.step = 1
+	range_slider.value = player_party_ranged_ratio * 100.0
+	range_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	range_slider.value_changed.connect(_on_party_ranged_ratio_changed)
+	range_row.add_child(range_slider)
+	var ranged_lab := Label.new()
+	ranged_lab.text = "Ranged"
+	ranged_lab.add_theme_font_size_override("font_size", 11)
+	range_row.add_child(ranged_lab)
+	outer.add_child(range_row)
 	ui_layer.add_child(panel)
 	panel.z_index = 100
 	combat_hud = panel
@@ -2342,6 +2348,10 @@ func _setup_combat_hud() -> void:
 
 func _stances_current_mode() -> Array:
 	return STANCES_BY_MODE.get(_player_rts_mode, STANCES_BY_MODE[RTS_MODE.PEACE])
+
+
+func _on_party_ranged_ratio_changed(value: float) -> void:
+	player_party_ranged_ratio = clampf(value / 100.0, 0.0, 1.0)
 
 
 func _on_rts_mode_selected(mode: int) -> void:
@@ -2470,6 +2480,15 @@ func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
 	npc.set("quality_tier", str(data.get("quality_tier", "Flawed")))
 	npc.set("skin_tone", str(data.get("skin_tone", "Medium")))
 	npc.set("card_index", int(data.get("card_index", 0)))
+	npc.set("hair_id", int(data.get("hair_id", 0)))
+	if int(data.get("hair_id", 0)) > 0:
+		npc.set_meta("hair_id", int(data.get("hair_id", 0)))
+	var sleep_hair_tone: String = str(data.get("hair_tone", ""))
+	npc.set("hair_tone", sleep_hair_tone)
+	if not sleep_hair_tone.is_empty():
+		npc.set_meta("hair_tone", sleep_hair_tone)
+	if data.get("genetics_profile") is Dictionary:
+		npc.set("genetics_profile", (data.get("genetics_profile") as Dictionary).duplicate(true))
 	var traits_val = data.get("traits", [])
 	if traits_val is Array:
 		npc.set("traits", (traits_val as Array).duplicate())
@@ -2699,9 +2718,6 @@ func _apply_command_context_to_followers() -> void:
 		if "command_context" in n:
 			n.command_context = ctx
 		n.set("is_hostile", is_hostile)
-		if "agro_meter" in n and is_hostile:
-			n.set("agro_meter", 70.0)
-			n.agro_meter = 70.0
 	if player:
 		var any_guard: bool = false
 		for id2 in ids:
@@ -2738,8 +2754,6 @@ func _update_player_formation_speed(follower_ids: Dictionary = {}) -> void:
 func _process_weapon_ready_input() -> void:
 	if not player or not is_instance_valid(player):
 		return
-	if _is_any_inventory_open():
-		return
 	var combat_comp: CombatComponent = player.get_node_or_null("CombatComponent") as CombatComponent
 	if combat_comp == null:
 		return
@@ -2758,18 +2772,271 @@ func _process_weapon_ready_input() -> void:
 
 
 func _player_has_weapon_equipped() -> bool:
-	"""Step 4: Hostile = leader weapon equipped (right hand slot)."""
-	if not player_inventory_ui or player_inventory_ui.hotbar_slots.size() <= player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
+	"""Step 4: Hostile = leader weapon equipped (active hand hotbar slot)."""
+	var t: ResourceData.ResourceType = _player_active_hand_type()
+	return (
+		t == ResourceData.ResourceType.AXE
+		or t == ResourceData.ResourceType.PICK
+		or t == ResourceData.ResourceType.WOOD
+		or t == ResourceData.ResourceType.SPEAR
+		or t == ResourceData.ResourceType.STONE
+	)
+
+
+func _player_active_hand_type() -> ResourceData.ResourceType:
+	if not player_inventory_ui:
+		return ResourceData.ResourceType.NONE
+	var slot: Dictionary = player_inventory_ui.get_hotbar_slot(_player_active_hand_hotbar_index)
+	if slot.is_empty():
+		return ResourceData.ResourceType.NONE
+	return slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+
+
+func _player_active_hand_count() -> int:
+	if not player_inventory_ui:
+		return 0
+	var slot: Dictionary = player_inventory_ui.get_hotbar_slot(_player_active_hand_hotbar_index)
+	if slot.is_empty():
+		return 0
+	return int(slot.get("count", 1))
+
+
+func _player_right_hand_type() -> ResourceData.ResourceType:
+	return _player_active_hand_type()
+
+
+func _player_right_hand_count() -> int:
+	return _player_active_hand_count()
+
+
+func _on_player_weapon_hotbar_key(hotbar_index: int) -> void:
+	# Already on this slot and it can be thrown: flip melee <-> throw. Otherwise select it in melee.
+	if (
+		_player_active_hand_hotbar_index == hotbar_index
+		and ResourceData.is_throwable(_player_active_hand_type())
+		and _player_active_hand_count() > 0
+	):
+		_toggle_player_throw_stance()
+		return
+	_select_player_hotbar_hand(hotbar_index)
+
+
+func _select_player_hotbar_hand(hotbar_index: int) -> void:
+	if not player_inventory_ui:
+		return
+	if (
+		hotbar_index != player_inventory_ui.RIGHT_HAND_SLOT_INDEX
+		and hotbar_index != player_inventory_ui.LEFT_HAND_SLOT_INDEX
+	):
+		return
+	var slot: Dictionary = player_inventory_ui.get_hotbar_slot(hotbar_index)
+	if slot.is_empty():
+		return
+	var item_type: ResourceData.ResourceType = slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	if not ResourceData.is_equipment(item_type) and not ResourceData.is_throwable(item_type):
+		return
+	_player_active_hand_hotbar_index = hotbar_index
+	_update_equipment()
+	if player_inventory_ui.has_method("refresh_active_hand_highlight"):
+		player_inventory_ui.refresh_active_hand_highlight(_player_active_hand_hotbar_index)
+	if player and player.has_meta("pending_throw_item"):
+		player.remove_meta("pending_throw_item")
+	if player and ResourceData.is_throwable(item_type):
+		# First select = melee rock; press 2 again to toggle ranged (throw stance).
+		WeaponOverlayCombat.set_throw_stance(player, false)
+	elif player:
+		WeaponOverlayCombat.set_throw_stance(player, false)
+	_refresh_throw_stance_hint()
+	if player and player.has_method("_sync_card_weapon_overlay"):
+		player._sync_card_weapon_overlay()
+
+
+func _toggle_player_throw_stance() -> void:
+	if player == null:
+		return
+	if not ResourceData.is_throwable(_player_right_hand_type()) or _player_right_hand_count() < 1:
+		WeaponOverlayCombat.set_throw_stance(player, false)
+		_refresh_throw_stance_hint()
+		return
+	var on: bool = not WeaponOverlayCombat.entity_in_throw_stance(player)
+	WeaponOverlayCombat.set_throw_stance(player, on)
+	var hand: ResourceData.ResourceType = _player_right_hand_type()
+	if on and ResourceData.is_throwable(hand):
+		player.set_meta("pending_throw_item", hand)
+	elif player.has_meta("pending_throw_item"):
+		player.remove_meta("pending_throw_item")
+	_refresh_throw_stance_hint()
+	var aim: Vector2 = Vector2(1, 0)
+	if player.has_method("_get_cursor_aim_direction"):
+		aim = player._get_cursor_aim_direction()
+	if player.has_method("_sync_card_weapon_overlay"):
+		player._sync_card_weapon_overlay()
+	if PlaceholderCardService:
+		PlaceholderCardService.update_weapon_overlay_combat(player, _player_active_hand_type(), aim)
+
+
+func _refresh_throw_stance_hint() -> void:
+	if _throw_stance_hint == null or not is_instance_valid(_throw_stance_hint):
+		if ui_layer == null:
+			return
+		_throw_stance_hint = Label.new()
+		_throw_stance_hint.name = "ThrowStanceHint"
+		_throw_stance_hint.add_theme_font_size_override("font_size", 14)
+		_throw_stance_hint.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+		_throw_stance_hint.position = Vector2(16, 72)
+		_throw_stance_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ui_layer.add_child(_throw_stance_hint)
+	var show: bool = player != null and WeaponOverlayCombat.entity_in_throw_stance(player)
+	_throw_stance_hint.visible = show
+	if show:
+		var label: String = "THROW"
+		if _player_active_hand_type() == ResourceData.ResourceType.SPEAR:
+			label = "SPEAR THROW"
+		_throw_stance_hint.text = label
+
+
+func consume_throw_ammo(actor: Node) -> bool:
+	if actor == null:
 		return false
-	var slot = player_inventory_ui.hotbar_slots[player_inventory_ui.RIGHT_HAND_SLOT_INDEX]
-	var item = slot.get("item_data") if slot else null
-	if not item:
-		return false
-	var t = item.get("type") if item.get("type") != null else -1
-	return t == ResourceData.ResourceType.AXE or t == ResourceData.ResourceType.PICK or t == ResourceData.ResourceType.WOOD or t == ResourceData.ResourceType.SPEAR
+	if actor.is_in_group("player"):
+		var hand_type: ResourceData.ResourceType = _player_right_hand_type()
+		if not ResourceData.is_throwable(hand_type):
+			return false
+		var hotbar_data: InventoryData = player_inventory_ui.get_meta("hotbar_data", null) as InventoryData if player_inventory_ui else null
+		if hotbar_data == null:
+			return false
+		var idx: int = _player_active_hand_hotbar_index
+		var slot: Dictionary = hotbar_data.get_slot(idx)
+		if slot.is_empty():
+			return false
+		var cnt: int = int(slot.get("count", 1)) - 1
+		if cnt <= 0:
+			hotbar_data.set_slot(idx, {})
+			WeaponOverlayCombat.set_throw_stance(player, false)
+			player.set_meta("throw_clear_hand_on_release", true)
+		else:
+			slot["count"] = cnt
+			hotbar_data.set_slot(idx, slot)
+		player_inventory_ui._update_hotbar_slots()
+		_refresh_throw_stance_hint()
+		return true
+	var ammo: ResourceData.ResourceType = ResourceData.ResourceType.STONE
+	if actor.has_meta("pending_throw_item"):
+		ammo = actor.get_meta("pending_throw_item") as ResourceData.ResourceType
+	var inv: InventoryData = actor.get("inventory") as InventoryData if actor.get("inventory") != null else null
+	if inv and inv.get_count(ammo) > 0:
+		var removed_inv: bool = inv.remove_item(ammo, 1)
+		if removed_inv:
+			_mark_throw_hand_empty(actor, ammo)
+		return removed_inv
+	var hb: InventoryData = actor.get("hotbar") as InventoryData if actor.get("hotbar") != null else null
+	if hb and hb.get_count(ammo) > 0:
+		var removed_hb: bool = hb.remove_item(ammo, 1)
+		if removed_hb:
+			_mark_throw_hand_empty(actor, ammo)
+		return removed_hb
+	if ammo != ResourceData.ResourceType.STONE:
+		if inv and inv.get_count(ResourceData.ResourceType.STONE) > 0:
+			actor.set_meta("pending_throw_item", ResourceData.ResourceType.STONE)
+			var removed_stone_inv: bool = inv.remove_item(ResourceData.ResourceType.STONE, 1)
+			if removed_stone_inv:
+				_mark_throw_hand_empty(actor, ResourceData.ResourceType.STONE)
+			return removed_stone_inv
+		if hb and hb.get_count(ResourceData.ResourceType.STONE) > 0:
+			actor.set_meta("pending_throw_item", ResourceData.ResourceType.STONE)
+			var removed_stone_hb: bool = hb.remove_item(ResourceData.ResourceType.STONE, 1)
+			if removed_stone_hb:
+				_mark_throw_hand_empty(actor, ResourceData.ResourceType.STONE)
+			return removed_stone_hb
+	return false
+
+
+func _mark_throw_hand_empty(actor: Node, ammo: ResourceData.ResourceType) -> void:
+	var left: int = 0
+	var inv: InventoryData = actor.get("inventory") as InventoryData if actor.get("inventory") != null else null
+	if inv:
+		left += inv.get_count(ammo)
+	var hb: InventoryData = actor.get("hotbar") as InventoryData if actor.get("hotbar") != null else null
+	if hb:
+		left += hb.get_count(ammo)
+	if left > 0:
+		return
+	var weapon_comp: Node = actor.get_node_or_null("WeaponComponent")
+	if weapon_comp == null:
+		return
+	var held: ResourceData.ResourceType = weapon_comp.get("equipped_weapon") as ResourceData.ResourceType
+	if held != ammo:
+		return
+	actor.set_meta("throw_clear_hand_on_release", true)
+
+
+func refund_throw_ammo(actor: Node) -> void:
+	if actor == null:
+		return
+	if actor.has_meta("throw_clear_hand_on_release"):
+		actor.remove_meta("throw_clear_hand_on_release")
+	if actor.is_in_group("player"):
+		if player_inventory_ui == null:
+			return
+		var hotbar_data: InventoryData = player_inventory_ui.get_meta("hotbar_data", null) as InventoryData
+		if hotbar_data == null:
+			return
+		var idx: int = _player_active_hand_hotbar_index
+		var slot: Dictionary = hotbar_data.get_slot(idx)
+		if slot.is_empty() or (slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType) != ResourceData.ResourceType.STONE:
+			hotbar_data.set_slot(idx, {
+				"type": ResourceData.ResourceType.STONE,
+				"count": 1,
+				"quality": 0
+			})
+		else:
+			slot["count"] = mini(int(slot.get("count", 1)) + 1, ResourceData.THROWABLE_MAX_STACK)
+			hotbar_data.set_slot(idx, slot)
+		player_inventory_ui._update_hotbar_slots()
+		return
+	var inv: InventoryData = actor.get("inventory") as InventoryData if actor.get("inventory") != null else null
+	if inv:
+		inv.add_item(ResourceData.ResourceType.STONE, 1)
+		return
+	var hb: InventoryData = actor.get("hotbar") as InventoryData if actor.get("hotbar") != null else null
+	if hb:
+		hb.add_item(ResourceData.ResourceType.STONE, 1)
+
+
+func spawn_thrown_ground_item(type: ResourceData.ResourceType, spawn_pos: Vector2) -> void:
+	if world_objects == null:
+		return
+	for child in world_objects.get_children():
+		if child is GroundItem and is_instance_valid(child) and bool(child.get_meta("thrown_ammo", false)):
+			if child.item_type == type and child.global_position.distance_to(spawn_pos) < 28.0:
+				return
+	var pos: Vector2 = spawn_pos
+	if _is_position_occupied(pos):
+		var found := false
+		for radius in range(1, 5):
+			for a in range(0, 8):
+				var test: Vector2 = spawn_pos + Vector2(cos(a * TAU / 8.0), sin(a * TAU / 8.0)) * (20.0 * float(radius))
+				if not _is_position_occupied(test):
+					pos = test
+					found = true
+					break
+			if found:
+				break
+		if not found:
+			pos = spawn_pos + Vector2(18, 12)
+	var ground_item: GroundItem = GroundItem.new()
+	ground_item.item_type = type
+	ground_item.set_meta("thrown_ammo", true)
+	var sprite := Sprite2D.new()
+	sprite.name = "Sprite"
+	ground_item.add_child(sprite)
+	ground_item.global_position = pos
+	world_objects.add_child(ground_item)
+	ThrownProjectile.register_landed(ground_item)
+
 
 func _update_followers_hostile() -> void:
-	"""Step 4: Derive is_hostile from player weapon; sustain 70 agro when hostile."""
+	"""Derive is_hostile from the player weapon. Stance decides whether that starts a fight."""
 	if not player:
 		return
 	var is_hostile: bool = _player_has_weapon_equipped()
@@ -2785,11 +3052,6 @@ func _update_followers_hostile() -> void:
 			ctx["commander_id"] = commander_id
 			n.set("command_context", ctx)
 			n.command_context = ctx
-		if is_hostile:
-			n.set("agro_meter", 70.0)
-			if "agro_meter" in n:
-				n.agro_meter = 70.0
-
 func _is_npc_draggable(npc: Node) -> bool:
 	"""Step 10: Caveman/clansman for follow/defend. Phase 4: Woman/sheep/goat for building occupation."""
 	if not npc:
@@ -3003,6 +3265,8 @@ func _apply_selection_outline() -> void:
 				sp.modulate = Color.WHITE
 
 func _handle_inventory_toggle() -> void:
+	if character_menu_ui and character_menu_ui.is_open:
+		character_menu_ui.hide_menu()
 	if nearby_travois_ground:
 		player_inventory_ui.toggle()
 		if nearby_travois_ground.has_method("get") and nearby_travois_ground.get("inventory"):
@@ -3011,8 +3275,6 @@ func _handle_inventory_toggle() -> void:
 			building_inventory_ui.show_inventory()
 		else:
 			building_inventory_ui.hide_inventory()
-		if player and player.has_method("set_can_move"):
-			player.set_can_move(not player_inventory_ui.is_open)
 		return
 	if nearby_building:
 		# Toggle both inventories
@@ -3035,9 +3297,6 @@ func _handle_inventory_toggle() -> void:
 		else:
 			building_inventory_ui.hide_inventory()
 		
-		# Prevent player movement when open
-		if player and player.has_method("set_can_move"):
-			player.set_can_move(not player_inventory_ui.is_open)
 	elif nearby_corpse:
 		# Toggle both inventories (player and corpse)
 		player_inventory_ui.toggle()
@@ -3069,18 +3328,11 @@ func _handle_inventory_toggle() -> void:
 			# Hide building inventory if no corpse inventory
 			building_inventory_ui.hide_inventory()
 		
-		# Prevent player movement when open
-		if player and player.has_method("set_can_move"):
-			player.set_can_move(not player_inventory_ui.is_open)
 	else:
 		# Just toggle player inventory
 		player_inventory_ui.toggle()
 		building_inventory_ui.hide_inventory()
 		
-		# Prevent player movement when open
-		if player and player.has_method("set_can_move"):
-			player.set_can_move(not player_inventory_ui.is_open)
-
 # Build menu removed - building icons now integrated into building inventory UI
 # Buildings can be built directly from the land claim inventory window
 
@@ -3310,11 +3562,17 @@ func is_butcher_tool_equipped() -> bool:
 	return t == ResourceData.ResourceType.BLADE or t == ResourceData.ResourceType.OLDOWAN
 
 func _on_item_dropped(_item_data: Dictionary, from_slot: InventorySlot, to_slot: InventorySlot) -> void:
-	# Check if equipment changed (slot 1 / right hand)
-	if to_slot.is_hotbar and to_slot.slot_index == player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
-		_update_equipment()
-	elif from_slot.is_hotbar and from_slot.slot_index == player_inventory_ui.RIGHT_HAND_SLOT_INDEX:
-		_update_equipment()
+	# Check if equipment changed (hands slots 1–2)
+	var hand_indices: Array[int] = [
+		player_inventory_ui.RIGHT_HAND_SLOT_INDEX,
+		player_inventory_ui.LEFT_HAND_SLOT_INDEX,
+	]
+	if to_slot.is_hotbar and to_slot.slot_index in hand_indices:
+		if to_slot.slot_index == _player_active_hand_hotbar_index:
+			_update_equipment()
+	elif from_slot.is_hotbar and from_slot.slot_index in hand_indices:
+		if from_slot.slot_index == _player_active_hand_hotbar_index:
+			_update_equipment()
 
 func _on_dropdown_option_selected(id: String) -> void:
 	var target = dropdown_menu_ui.get_target() if dropdown_menu_ui else null
@@ -3325,18 +3583,21 @@ func _on_dropdown_option_selected(id: String) -> void:
 				building_inventory_ui.setup_campfire(target)
 				building_inventory_ui.show_inventory()
 				nearby_building = target
+				_open_player_bag_beside_building()
 		elif target is LandClaim or target is BuildingBase:
 			if building_inventory_ui:
 				if target is LandClaim:
 					building_inventory_ui.setup_land_claim(target)
 					building_inventory_ui.show_inventory()
 					nearby_building = target
+					_open_player_bag_beside_building()
 				elif target is BuildingBase:
 					var inv: InventoryData = target.inventory
 					if inv:
 						building_inventory_ui.setup_inventory(inv, null, target)
 						building_inventory_ui.show_inventory()
 						nearby_building = target
+						_open_player_bag_beside_building()
 		else:
 			# NPC: character menu
 			if character_menu_ui:
@@ -3474,9 +3735,6 @@ func _set_ordered_follow(npc: Node, follow_source: String = "unknown") -> void:
 	if "command_context" in npc:
 		npc.command_context = ctx
 	npc.set("is_hostile", is_hostile)
-	if is_hostile and "agro_meter" in npc:
-		npc.set("agro_meter", 70.0)
-		npc.agro_meter = 70.0
 	var fid: int = EntityRegistry.get_id(npc) if EntityRegistry else -1
 	if fid >= 0 and _follower_cache.find(fid) < 0:
 		_follower_cache.append(fid)
@@ -3811,7 +4069,6 @@ func _debug_spawn_test_npcs() -> void:
 		var inv = caveman.get("inventory")
 		if inv:
 			inv.add_item(ResourceData.ResourceType.LANDCLAIM, 1)
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)  # Spear starter
 		await get_tree().process_frame
 		_equip_spear_to_npc(caveman)
 		caveman.visible = true
@@ -4405,8 +4662,6 @@ func _spawn_rts_playtest_pack() -> void:
 		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
 		await get_tree().process_frame
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		npc.visible = true
 		npc_names.append(unit_name)
@@ -4444,7 +4699,8 @@ func _update_equipment() -> void:
 	
 	var first_slot: Dictionary = player_inventory_ui.get_hotbar_slot(player_inventory_ui.RIGHT_HAND_SLOT_INDEX)
 	var second_slot: Dictionary = player_inventory_ui.get_hotbar_slot(player_inventory_ui.LEFT_HAND_SLOT_INDEX)
-	var item_type: ResourceData.ResourceType = first_slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
+	var active_slot: Dictionary = player_inventory_ui.get_hotbar_slot(_player_active_hand_hotbar_index)
+	var item_type: ResourceData.ResourceType = active_slot.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType
 	if first_slot.is_empty() and second_slot.is_empty():
 		if player and player.has_method("set_equipment"):
 			player.set_equipment(ResourceData.ResourceType.NONE)
@@ -4455,9 +4711,14 @@ func _update_equipment() -> void:
 		if ResourceData.is_equipment(item_type):
 			if player and player.has_method("set_equipment"):
 				player.set_equipment(item_type)
+		elif active_slot.is_empty() and player and player.has_method("set_equipment"):
+			player.set_equipment(ResourceData.ResourceType.NONE)
 	var combat_node: Node = player.get_node_or_null("CombatComponent") if player else null
 	if combat_node and combat_node.has_method("refresh_attack_sprite_sheet"):
 		combat_node.refresh_attack_sprite_sheet()
+	if player and not ResourceData.is_throwable(item_type):
+		WeaponOverlayCombat.set_throw_stance(player, false)
+		_refresh_throw_stance_hint()
 
 func _on_drag_ended() -> void:
 	_dbg("🔵 _on_drag_ended() called")
@@ -5230,6 +5491,7 @@ func _on_travois_ground_clicked(tg: Node) -> void:
 		building_inventory_ui.setup_travois_ground(tg)
 		building_inventory_ui.show_inventory()
 		nearby_building = tg
+		_open_player_bag_beside_building()
 
 func _on_building_clicked(building_ref: BuildingBase) -> void:
 	if _is_any_inventory_open():
@@ -5240,6 +5502,12 @@ func _on_building_clicked(building_ref: BuildingBase) -> void:
 		building_inventory_ui.setup_inventory(building_ref.inventory, null, building_ref)
 		building_inventory_ui.show_inventory()
 		nearby_building = building_ref
+		_open_player_bag_beside_building()
+
+func _open_player_bag_beside_building() -> void:
+	if not player_inventory_ui or player_inventory_ui.is_open:
+		return
+	player_inventory_ui.toggle()
 
 func _on_campfire_clicked(campfire: CampfireScript) -> void:
 	# Prefer right-click → INFO (_resolve_click_target "campfire"); kept for callers/tests.
@@ -5247,6 +5515,7 @@ func _on_campfire_clicked(campfire: CampfireScript) -> void:
 		building_inventory_ui.setup_campfire(campfire)
 		building_inventory_ui.show_inventory()
 		nearby_building = campfire
+		_open_player_bag_beside_building()
 
 func _instantiate_land_claim_for_campfire_upgrade() -> LandClaim:
 	var inst: Node = LAND_CLAIM_SCENE.instantiate()
@@ -6287,6 +6556,15 @@ func _try_run_dev_test_harness() -> bool:
 	if _cmdline_has("--milestone-chain-test"):
 		print("MILESTONE_CHAIN_TEST: skipping default spawn (isolated milestone harness at 51000,50000)")
 		return true
+	if DebugConfig and DebugConfig.enable_ai_combat_observe:
+		await _setup_ai_combat_observe()
+		return true
+	if DebugConfig and DebugConfig.enable_eval_ai_arena:
+		await _setup_eval_ai_spectator_arena()
+		return true
+	if DebugConfig and DebugConfig.enable_eval_camp:
+		await _setup_eval_camp_environment()
+		return true
 	if DebugConfig and DebugConfig.enable_session_quickstart:
 		await _setup_session_quickstart_environment()
 		return true
@@ -6385,6 +6663,362 @@ func _place_player_at_spawn(spawn_pos: Vector2, spawn_reason: String) -> void:
 	print("SPAWN: player at %s (%s)" % [spawn_pos, spawn_reason])
 
 
+func _spawn_eval_ai_clans_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if not DebugConfig:
+		return
+	var count: int = int(DebugConfig.eval_ai_claims_near_start)
+	if count < 1:
+		return
+	if not player or not is_instance_valid(player):
+		return
+	await _spawn_session_nearby_ai_clans(player.global_position, count, 960.0, "eval_start_clan")
+
+
+func _spawn_eval_wild_women_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if _cmdline_has("--repro-harness") or _cmdline_has("--production-chain-test") or _cmdline_has("--milestone-chain-test"):
+		return
+	if DebugConfig and (DebugConfig.enable_agro_combat_test or DebugConfig.enable_raid_test or DebugConfig.enable_woman_transport_test):
+		return
+	if not DebugConfig:
+		return
+	var count: int = int(DebugConfig.eval_wild_women_near_start)
+	if count < 1 or not player or not world_objects:
+		return
+	# Just outside a 400px claim, inside sim wake so they walk and you can find them.
+	const RING_RADIUS_PX: float = 420.0
+	print("=== EVAL WILD WOMEN: spawning %d around player (%.0fpx) ===" % [count, RING_RADIUS_PX])
+	var ws: int = _playtest_world_seed_value()
+	var center: Vector2 = player.global_position
+	for i in range(count):
+		var angle: float = TAU * float(i) / float(count) + 0.35
+		var pos: Vector2 = center + Vector2(cos(angle), sin(angle)) * RING_RADIUS_PX
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var name_seed: int = hash(Vector3i(int(pos.x), int(pos.y), ws + i + 4400))
+		var npc_name: String = _seeded_caveman_name(name_seed)
+		npc.set("npc_name", npc_name)
+		npc.set("npc_type", "woman")
+		npc.set("traits", ["herd"])
+		npc.set("age", 20 + (i * 3) % 25)
+		npc.set("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
+		npc.set_meta("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
+		var woman_tone: String = CharacterCardPartsRegistry.hair_tone_at(i)
+		npc.set("hair_tone", woman_tone)
+		npc.set_meta("hair_tone", woman_tone)
+		npc.set_meta("hair_tone_forced", true)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		var stats: Node = npc.get_node_or_null("Stats")
+		if stats and stats.has_method("set_stat"):
+			stats.set_stat("agility", 9.0)
+		elif stats:
+			stats.agility = 9.0
+		npc.visible = true
+		print("✓ Eval wild woman: %s at %s" % [npc_name, pos])
+	await get_tree().process_frame
+
+
+func _spawn_eval_hair_gallery_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if _cmdline_has("--repro-harness") or _cmdline_has("--production-chain-test") or _cmdline_has("--milestone-chain-test"):
+		return
+	if DebugConfig and (DebugConfig.enable_agro_combat_test or DebugConfig.enable_raid_test or DebugConfig.enable_woman_transport_test):
+		return
+	if not DebugConfig:
+		return
+	var count: int = int(DebugConfig.eval_hair_gallery_count)
+	if count < 1 or not player or not world_objects:
+		return
+	count = mini(count, CharacterCardPartsRegistry.HAIR_STYLE_COUNT)
+	## Inside sim wake radius (450) so they stay animated for art review.
+	const RING_RADIUS_PX: float = 240.0
+	print("=== HAIR EVAL GALLERY: %d styles × %d colors at %.0fpx (awake) ===" % [
+		count, CharacterCardPartsRegistry.hair_tone_count(), RING_RADIUS_PX
+	])
+	var ws: int = _playtest_world_seed_value()
+	var center: Vector2 = player.global_position
+	for i in range(count):
+		var angle: float = TAU * float(i) / float(count) - 0.2
+		var pos: Vector2 = center + Vector2(cos(angle), sin(angle)) * RING_RADIUS_PX
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var hair_id: int = i + 1
+		var hair_tone: String = CharacterCardPartsRegistry.hair_tone_at(i)
+		var is_woman: bool = (i % 2) == 0
+		var name_seed: int = hash(Vector3i(int(pos.x), int(pos.y), ws + i + 8800))
+		npc.set("npc_name", _seeded_caveman_name(name_seed))
+		npc.set("npc_type", "woman" if is_woman else "caveman")
+		npc.set("traits", ["herd"] if is_woman else [])
+		npc.set("age", 18 + (i * 2) % 30)
+		npc.set("hair_id", hair_id)
+		npc.set_meta("hair_id", hair_id)
+		npc.set("hair_tone", hair_tone)
+		npc.set_meta("hair_tone", hair_tone)
+		npc.set_meta("hair_tone_forced", true)
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.visible = true
+		print("✓ Hair eval %02d %s %s at %s" % [
+			hair_id, "woman" if is_woman else "man", hair_tone, pos
+		])
+	await get_tree().process_frame
+
+
+func _spawn_eval_height_pair_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if not DebugConfig or not DebugConfig.enable_eval_height_pair:
+		return
+	if not player or not world_objects:
+		return
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var CatalogScript = load("res://scripts/genetics/locus_catalog.gd")
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var center: Vector2 = player.global_position
+	var rows: Array[Dictionary] = [
+		{"name": "TALL", "all_h": true, "offset": Vector2(-36.0, 72.0)},
+		{"name": "SHORT", "all_h": false, "offset": Vector2(36.0, 72.0)},
+	]
+	print("=== HEIGHT EVAL: clansmen TALL vs SHORT in front of player ===")
+	for row in rows:
+		var genome: Dictionary = {}
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_DARK, ["B", "b"])
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_RED, ["r", "r"])
+		for sid in CatalogScript.skin_locus_ids():
+			GenomeOpsScript.set_pair(genome, sid, ["D", "d"])
+		var h_pair: Array = ["H", "H"] if bool(row["all_h"]) else ["h", "h"]
+		for hid in CatalogScript.height_locus_ids():
+			GenomeOpsScript.set_pair(genome, hid, h_pair)
+		for wid in CatalogScript.width_locus_ids():
+			GenomeOpsScript.set_pair(genome, wid, ["W", "w"])
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		npc.set("npc_name", str(row["name"]))
+		npc.set("npc_type", "clansman")
+		npc.set("traits", [])
+		npc.set("age", 22)
+		npc.set("hair_id", 1)
+		npc.set_meta("hair_id", 1)
+		npc.set("hair_tone", "Brown")
+		npc.set_meta("hair_tone", "Brown")
+		npc.set_meta("hair_tone_forced", true)
+		BirthEngineScript.apply_genome(npc, genome)
+		var pos: Vector2 = center + row["offset"]
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.visible = true
+		var sc: Vector2 = PhenotypeScript.body_scale_from_genome(genome, "male")
+		print("✓ Height eval %s scale=%s at %s" % [row["name"], sc, pos])
+	await get_tree().process_frame
+
+
+func _spawn_eval_width_pair_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if not DebugConfig or not DebugConfig.enable_eval_width_pair:
+		return
+	if not player or not world_objects:
+		return
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var CatalogScript = load("res://scripts/genetics/locus_catalog.gd")
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var center: Vector2 = player.global_position
+	var rows: Array[Dictionary] = [
+		{"name": "WIDE", "all_w": true, "offset": Vector2(-36.0, 72.0)},
+		{"name": "NARROW", "all_w": false, "offset": Vector2(36.0, 72.0)},
+	]
+	print("=== WIDTH EVAL: clansmen WIDE vs NARROW in front of player ===")
+	for row in rows:
+		var genome: Dictionary = {}
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_DARK, ["B", "b"])
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_RED, ["r", "r"])
+		for sid in CatalogScript.skin_locus_ids():
+			GenomeOpsScript.set_pair(genome, sid, ["D", "d"])
+		for hid in CatalogScript.height_locus_ids():
+			GenomeOpsScript.set_pair(genome, hid, ["H", "h"])
+		var w_pair: Array = ["W", "W"] if bool(row["all_w"]) else ["w", "w"]
+		for wid in CatalogScript.width_locus_ids():
+			GenomeOpsScript.set_pair(genome, wid, w_pair)
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		npc.set("npc_name", str(row["name"]))
+		npc.set("npc_type", "clansman")
+		npc.set("traits", [])
+		npc.set("age", 22)
+		npc.set("hair_id", 1)
+		npc.set_meta("hair_id", 1)
+		npc.set("hair_tone", "Brown")
+		npc.set_meta("hair_tone", "Brown")
+		npc.set_meta("hair_tone_forced", true)
+		BirthEngineScript.apply_genome(npc, genome)
+		var pos: Vector2 = center + row["offset"]
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.visible = true
+		var sc: Vector2 = PhenotypeScript.body_scale_from_genome(genome, "male")
+		print("✓ Width eval %s scale=%s at %s" % [row["name"], sc, pos])
+	await get_tree().process_frame
+
+
+func _spawn_eval_women_build_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if not DebugConfig or not DebugConfig.enable_eval_women_build:
+		return
+	if not player or not world_objects:
+		return
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var CatalogScript = load("res://scripts/genetics/locus_catalog.gd")
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var center: Vector2 = player.global_position
+	var rows: Array[Dictionary] = [
+		{"name": "TALL", "h": "max", "w": "mid", "offset": Vector2(-90.0, 72.0)},
+		{"name": "SHORT", "h": "min", "w": "mid", "offset": Vector2(-30.0, 72.0)},
+		{"name": "WIDE", "h": "mid", "w": "max", "offset": Vector2(30.0, 72.0)},
+		{"name": "NARROW", "h": "mid", "w": "min", "offset": Vector2(90.0, 72.0)},
+	]
+	print("=== WOMEN BUILD EVAL: TALL SHORT WIDE NARROW ===")
+	for row in rows:
+		var genome: Dictionary = {}
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_DARK, ["B", "b"])
+		GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_RED, ["r", "r"])
+		for sid in CatalogScript.skin_locus_ids():
+			GenomeOpsScript.set_pair(genome, sid, ["D", "d"])
+		var h_pair: Array = ["H", "h"]
+		if str(row["h"]) == "max":
+			h_pair = ["H", "H"]
+		elif str(row["h"]) == "min":
+			h_pair = ["h", "h"]
+		var w_pair: Array = ["W", "w"]
+		if str(row["w"]) == "max":
+			w_pair = ["W", "W"]
+		elif str(row["w"]) == "min":
+			w_pair = ["w", "w"]
+		for hid in CatalogScript.height_locus_ids():
+			GenomeOpsScript.set_pair(genome, hid, h_pair)
+		for wid in CatalogScript.width_locus_ids():
+			GenomeOpsScript.set_pair(genome, wid, w_pair)
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		npc.set("npc_name", str(row["name"]))
+		npc.set("npc_type", "woman")
+		npc.set("traits", [])
+		npc.set("age", 22)
+		npc.set("hair_id", 3)
+		npc.set_meta("hair_id", 3)
+		npc.set("hair_tone", "Brown")
+		npc.set_meta("hair_tone", "Brown")
+		npc.set_meta("hair_tone_forced", true)
+		BirthEngineScript.apply_genome(npc, genome)
+		var pos: Vector2 = center + row["offset"]
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.visible = true
+		var sc: Vector2 = PhenotypeScript.body_scale_from_genome(genome, "female")
+		print("✓ Women eval %s scale=%s at %s" % [row["name"], sc, pos])
+	await get_tree().process_frame
+
+
+func _eval_build_genome(h_mode: String, w_mode: String) -> Dictionary:
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var CatalogScript = load("res://scripts/genetics/locus_catalog.gd")
+	var genome: Dictionary = {}
+	GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_DARK, ["B", "b"])
+	GenomeOpsScript.set_pair(genome, CatalogScript.HAIR_RED, ["r", "r"])
+	for sid in CatalogScript.skin_locus_ids():
+		GenomeOpsScript.set_pair(genome, sid, ["D", "d"])
+	var h_pair: Array = ["H", "h"]
+	if h_mode == "max":
+		h_pair = ["H", "H"]
+	elif h_mode == "min":
+		h_pair = ["h", "h"]
+	var w_pair: Array = ["W", "w"]
+	if w_mode == "max":
+		w_pair = ["W", "W"]
+	elif w_mode == "min":
+		w_pair = ["w", "w"]
+	for hid in CatalogScript.height_locus_ids():
+		GenomeOpsScript.set_pair(genome, hid, h_pair)
+	for wid in CatalogScript.width_locus_ids():
+		GenomeOpsScript.set_pair(genome, wid, w_pair)
+	return genome
+
+
+func _spawn_eval_babies_near_player_if_requested() -> void:
+	if _is_online_multiplayer() and not multiplayer.is_server():
+		return
+	if not DebugConfig or not DebugConfig.enable_eval_babies:
+		return
+	if not player or not world_objects:
+		return
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var center: Vector2 = player.global_position
+	print("=== BABY EVAL: adult MID + TALL SHORT WIDE NARROW babies ===")
+	var adult: Node = NPC_SCENE.instantiate()
+	if adult:
+		var ag: Dictionary = _eval_build_genome("mid", "mid")
+		adult.set("npc_name", "ADULT")
+		adult.set("npc_type", "clansman")
+		adult.set("age", 22)
+		adult.set("hair_id", 1)
+		adult.set_meta("hair_id", 1)
+		adult.set("hair_tone", "Brown")
+		adult.set_meta("hair_tone", "Brown")
+		adult.set_meta("hair_tone_forced", true)
+		BirthEngineScript.apply_genome(adult, ag)
+		var apos: Vector2 = center + Vector2(-120.0, 80.0)
+		world_objects.add_child(adult)
+		adult.global_position = apos
+		adult.set("spawn_position", apos)
+		adult.visible = true
+		print("✓ Baby eval ADULT scale=%s at %s" % [PhenotypeScript.body_scale_from_genome(ag, "male"), apos])
+	var rows: Array[Dictionary] = [
+		{"name": "TALL", "h": "max", "w": "mid", "offset": Vector2(-40.0, 80.0)},
+		{"name": "SHORT", "h": "min", "w": "mid", "offset": Vector2(20.0, 80.0)},
+		{"name": "WIDE", "h": "mid", "w": "max", "offset": Vector2(80.0, 80.0)},
+		{"name": "NARROW", "h": "mid", "w": "min", "offset": Vector2(140.0, 80.0)},
+	]
+	for row in rows:
+		var genome: Dictionary = _eval_build_genome(str(row["h"]), str(row["w"]))
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		npc.set("npc_name", str(row["name"]))
+		npc.set("npc_type", "baby")
+		npc.set("traits", [])
+		npc.set("age", 2)
+		BirthEngineScript.apply_genome(npc, genome)
+		var pos: Vector2 = center + row["offset"]
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.visible = true
+		print("✓ Baby eval %s scale=%s at %s" % [
+			row["name"], PhenotypeScript.body_scale_from_genome(genome, "baby"), pos
+		])
+	await get_tree().process_frame
+
+
 func _log_spawn_flow_summary() -> void:
 	var type_counts: Dictionary = {}
 	for node in get_tree().get_nodes_in_group("npcs"):
@@ -6404,6 +7038,723 @@ func _log_spawn_flow_summary() -> void:
 	if pi and pi.has_method("spawn_flow_summary"):
 		pi.call("spawn_flow_summary", summary)
 	print("SPAWN_FLOW_SUMMARY: claims=%d npcs=%s player=%s" % [claim_count, type_counts, str(player.global_position if player else Vector2.ZERO)])
+
+
+const EVAL_CAMP_CLAN := "EVALCAMP"
+const EVAL_CAMP_AI_COUNT := 3
+const EVAL_CAMP_WOMEN_PER_MAN := 2
+const EVAL_CAMP_AI_RING_PX: float = 1600.0
+const EVAL_CAMP_WILD_WOMEN_COUNT := 10
+const EVAL_CAMP_WILD_RING_PX: float = 2200.0
+
+
+func _stock_eval_camp_food(building_inventory: InventoryData) -> void:
+	if building_inventory == null:
+		return
+	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
+	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
+	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
+	building_inventory.add_item(ResourceData.ResourceType.BREAD, 10)
+	building_inventory.add_item(ResourceData.ResourceType.STONE, 24)
+
+
+func _give_eval_camp_throw_stones() -> void:
+	if not get_tree():
+		return
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc):
+			continue
+		var t: String = str(npc.get("npc_type"))
+		if t != "caveman" and t != "human" and t != "clansman" and t != "woman":
+			continue
+		var inv: InventoryData = npc.get("inventory") as InventoryData
+		if inv == null:
+			continue
+		if inv.get_count(ResourceData.ResourceType.STONE) > 0:
+			continue
+		var placed := false
+		for i in range(inv.slot_count):
+			if inv.get_slot(i).is_empty():
+				inv.set_slot(i, {"type": ResourceData.ResourceType.STONE, "count": 6, "quality": 0})
+				placed = true
+				break
+		if not placed:
+			inv.set_slot(mini(1, inv.slot_count - 1), {"type": ResourceData.ResourceType.STONE, "count": 6, "quality": 0})
+
+
+func _spawn_eval_arena_fighters(land_claim: LandClaim, extra_count: int) -> void:
+	if extra_count < 1 or land_claim == null or not is_instance_valid(land_claim) or not world_objects:
+		return
+	var clan_canon: String = str(land_claim.clan_name)
+	var claim_pos: Vector2 = land_claim.global_position
+	var bravery_rungs: Array[float] = [0.15, 0.30, 0.50, 0.70, 0.90]
+	for i in range(extra_count):
+		var ang: float = float(i) * (TAU / float(maxi(extra_count, 1))) + 1.1
+		var pos: Vector2 = claim_pos + Vector2(cos(ang), sin(ang)) * 110.0
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var name_seed: int = hash(Vector3i(int(pos.x), int(pos.y), i + 8800))
+		var npc_name: String = "F%d_%s" % [i + 1, _seeded_caveman_name(name_seed)]
+		npc.set("npc_name", npc_name)
+		var fighter_type := "caveman"
+		if DebugConfig and DebugConfig.enable_ai_combat_observe:
+			fighter_type = "clansman"
+		npc.set("npc_type", fighter_type)
+		npc.set("age", 18 + (i * 6) % 30)
+		npc.set("traits", ["solitary"])
+		npc.set("agro_meter", 0.0)
+		npc.set("clan_name", clan_canon)
+		npc.set("bravery", bravery_rungs[i % bravery_rungs.size()])
+		npc.set_meta("clan_name", clan_canon)
+		npc.set_meta("land_claim_clan_name", clan_canon)
+		npc.set_meta("has_land_claim", true)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		npc.set("spawn_time", Time.get_ticks_msec() / 1000.0)
+		if npc.has_method("set_clan_name"):
+			npc.set_clan_name(clan_canon, "eval_ai_arena_fighter")
+		var inv = npc.get("inventory")
+		if i % 2 == 0:
+			if inv:
+				inv.add_item(ResourceData.ResourceType.STONE, 6)
+			# Three spears: far fights throw a spear. Close fights still stab.
+			_equip_spear_to_npc(npc)
+		else:
+			if inv:
+				inv.add_item(ResourceData.ResourceType.STONE, 6)
+			# Stone in hand: far fights throw, close fights use the stone smack.
+			_equip_stone_to_npc(npc)
+		npc.visible = true
+	print("✓ Eval extra fighters: %d for clan %s" % [extra_count, clan_canon])
+
+
+func _spawn_eval_camp_women_with_huts(land_claim: LandClaim, _father: Node, count: int, name_prefix: String) -> Array[Node]:
+	var women: Array[Node] = []
+	if land_claim == null or not is_instance_valid(land_claim) or not world_objects:
+		return women
+	var clan_canon: String = str(land_claim.clan_name)
+	var claim_pos: Vector2 = land_claim.global_position
+	for i in range(count):
+		var ang: float = float(i) * (TAU / float(maxi(count, 1))) + 0.4
+		var woman_pos: Vector2 = claim_pos + Vector2(cos(ang), sin(ang)) * 90.0
+		var npc: Node = NPC_SCENE.instantiate()
+		if not npc:
+			continue
+		var name_seed: int = hash(Vector3i(int(woman_pos.x), int(woman_pos.y), i + 1700))
+		var npc_name: String = "%s_%s" % [name_prefix, _seeded_caveman_name(name_seed)]
+		npc.set("npc_name", npc_name)
+		npc.set("npc_type", "woman")
+		npc.set("traits", ["herd"])
+		npc.set("age", 20 + (i * 5) % 20)
+		npc.set("clan_name", clan_canon)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = woman_pos
+		npc.set("spawn_position", woman_pos)
+		npc.visible = true
+		if npc.has_method("set_clan_name"):
+			npc.set_clan_name(clan_canon, "eval_camp")
+		women.append(npc)
+	return women
+
+
+func _spawn_eval_camp_wilderness_women(center: Vector2) -> void:
+	if not world_objects:
+		return
+	print("=== EVAL CAMP: spawning %d wild women at %.0fpx (outside claims) ===" % [
+		EVAL_CAMP_WILD_WOMEN_COUNT, EVAL_CAMP_WILD_RING_PX
+	])
+	var ws: int = _playtest_world_seed_value()
+	for i in range(EVAL_CAMP_WILD_WOMEN_COUNT):
+		var angle: float = TAU * float(i) / float(EVAL_CAMP_WILD_WOMEN_COUNT) + 0.2
+		var pos: Vector2 = center + Vector2(cos(angle), sin(angle)) * EVAL_CAMP_WILD_RING_PX
+		var npc: Node = NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var name_seed: int = hash(Vector3i(int(pos.x), int(pos.y), ws + i + 5500))
+		var npc_name: String = _seeded_caveman_name(name_seed)
+		npc.set("npc_name", npc_name)
+		npc.set("npc_type", "woman")
+		npc.set("traits", ["herd"])
+		npc.set("age", 18 + (i * 4) % 28)
+		npc.set("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
+		npc.set_meta("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
+		var woman_tone: String = CharacterCardPartsRegistry.hair_tone_at(i)
+		npc.set("hair_tone", woman_tone)
+		npc.set_meta("hair_tone", woman_tone)
+		npc.set_meta("hair_tone_forced", true)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = pos
+		npc.set("spawn_position", pos)
+		if npc.has_method("_apply_wild_profile"):
+			npc._apply_wild_profile()
+		var stats: Node = npc.get_node_or_null("Stats")
+		if stats and stats.has_method("set_stat"):
+			stats.set_stat("agility", 9.0)
+		elif stats:
+			stats.agility = 9.0
+		npc.visible = true
+		print("✓ Eval wilderness woman: %s at %s" % [npc_name, pos])
+
+
+func _setup_ai_combat_observe() -> void:
+	const CLAN_COUNT := 2
+	const RING_PX := 1100.0
+	var extra_fighters: int = 7 if DebugConfig and bool(DebugConfig.get("enable_ai_raid_probe")) else 4
+	var center := Vector2.ZERO
+	print("=== AI COMBAT OBSERVE: %d clans on a %.0fpx ring, player hidden ===" % [CLAN_COUNT, RING_PX])
+	if player and is_instance_valid(player):
+		player.global_position = center
+		player.velocity = Vector2.ZERO
+		player.visible = false
+		player.collision_layer = 0
+		player.collision_mask = 0
+		if player.has_method("set_can_move"):
+			player.set_can_move(false)
+	_observer_cam_active = true
+	_observer_cam_pos = center
+	if camera and is_instance_valid(camera):
+		camera.global_position = center
+	if world:
+		world.ensure_chunks_for_position(center)
+	await _spawn_session_nearby_ai_clans(center, CLAN_COUNT, RING_PX, "ai_combat_observe")
+	var clan_i := 0
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim) or bool(claim.get("player_owned")):
+			continue
+		clan_i += 1
+		claim.inventory = _new_land_claim_inventory()
+		_stock_eval_camp_food(claim.inventory)
+		claim.set("ranged_ratio", 0.5)
+		var father: Node = claim.get("owner_npc") as Node
+		_spawn_eval_camp_women_with_huts(claim as LandClaim, father, 2, "W%d" % clan_i)
+		_spawn_eval_arena_fighters(claim as LandClaim, extra_fighters)
+		if world:
+			world.ensure_chunks_for_position(claim.global_position)
+		var brain: Node = claim.get("clan_brain") as Node
+		if brain and brain.has_method("set_dormant"):
+			brain.set_dormant(false)
+		await get_tree().process_frame
+		if brain and brain.has_method("_begin_evaluation_snapshot"):
+			brain._begin_evaluation_snapshot()
+		if brain and brain.has_method("_refresh_clan_members"):
+			brain._refresh_clan_members()
+		var fighters := 0
+		var women := 0
+		var clan_label := str(claim.get("clan_name"))
+		for member in get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(member):
+				continue
+			var member_clan := str(member.get_meta("clan_name", "")) if member.has_meta("clan_name") else ""
+			if member_clan != clan_label:
+				continue
+			var member_type := str(member.get("npc_type"))
+			if member_type == "caveman" or member_type == "clansman":
+				fighters += 1
+			elif member_type == "woman":
+				women += 1
+		var leader_name := str(father.get("npc_name")) if father and father.get("npc_name") != null else "?"
+		print(
+			"AI_COMBAT_OBSERVE clan=%s leader=%s fighters=%d women=%d pos=%s"
+			% [str(claim.get("clan_name")), leader_name, fighters, women, str(claim.global_position)]
+		)
+		await get_tree().process_frame
+	var raid_probe: bool = DebugConfig and bool(DebugConfig.get("enable_ai_raid_probe"))
+	if not raid_probe:
+		await _seed_party_hunt_debug_deer_near_claims(world_objects)
+	set_meta("ai_combat_observe_ready", true)
+	print("AI_COMBAT_OBSERVE_READY clans=%d" % clan_i)
+	if raid_probe:
+		_start_raid_probe()
+	elif DebugConfig and bool(DebugConfig.get("enable_ai_village_probe")):
+		_place_village_probe()
+	print("Watch CLAN_COMBAT lines. Quit on a timer with --eval-behavior-sec 300 or --playtest-5min.")
+
+
+func _place_village_probe() -> void:
+	var claims: Array = []
+	for claim in get_cached_land_claims():
+		if is_instance_valid(claim) and not bool(claim.get("player_owned")):
+			claims.append(claim)
+	if claims.size() < 2:
+		push_warning("VILLAGE_PROBE: need two claims")
+		return
+	var home: Node2D = claims[0] as Node2D
+	var away: Node2D = claims[1] as Node2D
+	var away_clan: String = str(away.get("clan_name"))
+	var intruder: Node2D = null
+	for member in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member) or not (member is Node2D):
+			continue
+		var member_clan: String = str(member.get_meta("clan_name", "")) if member.has_meta("clan_name") else ""
+		if member_clan != away_clan:
+			continue
+		var kind: String = str(member.get("npc_type"))
+		if kind != "caveman" and kind != "clansman":
+			continue
+		if member == away.get("owner_npc"):
+			continue
+		intruder = member as Node2D
+		break
+	if intruder == null:
+		push_warning("VILLAGE_PROBE: no fighter to place")
+		return
+	var rad: float = float(home.get("radius")) if home.get("radius") != null else 400.0
+	intruder.global_position = home.global_position + Vector2(rad * 0.85, 40.0)
+	intruder.set("spawn_position", intruder.global_position)
+	var home_clan: String = str(home.get("clan_name"))
+	var staged_band: String = "-"
+	var staged_far: String = "-"
+	var camp_names: PackedStringArray = PackedStringArray()
+	var men: Array[Node2D] = []
+	for member2 in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member2) or not (member2 is Node2D):
+			continue
+		var member_clan2: String = str(member2.get_meta("clan_name", "")) if member2.has_meta("clan_name") else ""
+		if member_clan2 != home_clan:
+			continue
+		var kind2: String = str(member2.get("npc_type"))
+		if kind2 != "caveman" and kind2 != "clansman":
+			continue
+		if member2 == home.get("owner_npc"):
+			member2.set_meta("village_probe_role", "camp")
+			camp_names.append(str(member2.get("npc_name")))
+			continue
+		men.append(member2 as Node2D)
+	if men.size() >= 1:
+		var band_man: Node2D = men[0]
+		band_man.global_position = home.global_position + Vector2(-rad * 1.5, 60.0)
+		band_man.set("spawn_position", band_man.global_position)
+		band_man.set_meta("village_probe_role", "band")
+		staged_band = str(band_man.get("npc_name"))
+	if men.size() >= 2:
+		var far_man: Node2D = men[1]
+		far_man.global_position = home.global_position + Vector2(0.0, rad * 2.6)
+		far_man.set("spawn_position", far_man.global_position)
+		far_man.set_meta("village_probe_role", "far")
+		staged_far = str(far_man.get("npc_name"))
+	for i in range(2, men.size()):
+		men[i].set_meta("village_probe_role", "camp")
+		camp_names.append(str(men[i].get("npc_name")))
+	if home.has_method("_refresh_lists_from_grid"):
+		home._refresh_lists_from_grid()
+	set_meta("village_probe_claim", home)
+	set_meta("village_probe_intruder", intruder)
+	set_meta("village_probe_t0", Time.get_ticks_msec() / 1000.0)
+	set_meta("village_probe_snap_acc", 1.0)
+	print("VILLAGE_PROBE claim=%s radius=%.0f intruder=%s at=%.0fpx band=%s at=%.0fpx far=%s at=%.0fpx camp=%s" % [
+		home_clan, rad, str(intruder.get("npc_name")), rad * 0.85, staged_band, rad * 1.5, staged_far, rad * 2.6, ",".join(camp_names)
+	])
+
+
+func _start_raid_probe() -> void:
+	var claims: Array = []
+	for claim in get_cached_land_claims():
+		if is_instance_valid(claim) and not bool(claim.get("player_owned")):
+			claims.append(claim)
+	if claims.size() < 2:
+		push_warning("RAID_PROBE: need two claims")
+		return
+	var attacker: Node2D = claims[0] as Node2D
+	var defender: Node2D = claims[1] as Node2D
+	var removed_deer: int = 0
+	for animal in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(animal):
+			continue
+		if str(animal.get("npc_type")) != "deer":
+			continue
+		animal.queue_free()
+		removed_deer += 1
+	print("RAID_PROBE deer_removed=%d" % removed_deer)
+	var brain: Variant = attacker.get_clan_brain() if attacker.has_method("get_clan_brain") else attacker.get("clan_brain")
+	if brain and brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
+	if brain == null or not brain.has_method("_start_raid"):
+		push_warning("RAID_PROBE: attacker has no raid")
+		return
+	brain._start_raid(defender)
+	var leader: Node = attacker.get_meta("raid_party_leader") as Node if attacker.has_meta("raid_party_leader") else null
+	var followers: Array = attacker.get_meta("raid_party_followers", []) if attacker.has_meta("raid_party_followers") else []
+	var names: PackedStringArray = PackedStringArray()
+	if leader and is_instance_valid(leader):
+		names.append(str(leader.get("npc_name")))
+	for follower in followers:
+		if follower and is_instance_valid(follower):
+			names.append(str(follower.get("npc_name")))
+	var home: PackedStringArray = PackedStringArray()
+	var attacker_clan: String = str(attacker.get("clan_name"))
+	for member in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member):
+			continue
+		var member_clan: String = str(member.get_meta("clan_name", "")) if member.has_meta("clan_name") else ""
+		if member_clan != attacker_clan:
+			continue
+		var kind: String = str(member.get("npc_type"))
+		if kind != "caveman" and kind != "clansman":
+			continue
+		if str(member.get("npc_name")) not in names:
+			home.append(str(member.get("npc_name")))
+	set_meta("raid_probe_attacker", attacker)
+	set_meta("raid_probe_defender", defender)
+	set_meta("raid_probe_t0", Time.get_ticks_msec() / 1000.0)
+	set_meta("raid_probe_snap_acc", 1.0)
+	set_meta("raid_probe_leader_killed", false)
+
+
+func _maybe_raid_probe_kill_leader(attacker: Node2D) -> void:
+	if DisplayServer.get_name() != "headless":
+		return
+	if bool(get_meta("raid_probe_leader_killed", false)):
+		return
+	if not attacker.has_meta("raid_form_left") or not bool(attacker.get_meta("raid_form_left")):
+		return
+	if not attacker.has_meta("raid_party_leader"):
+		return
+	var leader_v: Variant = attacker.get_meta("raid_party_leader")
+	if leader_v == null or not is_instance_valid(leader_v):
+		return
+	var leader: Node = leader_v as Node
+	var hc: Node = leader.get_node_or_null("HealthComponent")
+	if hc and hc.has_method("take_damage") and not bool(hc.get("is_dead")):
+		hc.take_damage(9999, null)
+		set_meta("raid_probe_leader_killed", true)
+		print("RAID_PROBE leader_killed=%s" % str(leader.get("npc_name")))
+
+
+func _tick_raid_probe_snap(delta: float) -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_ai_raid_probe")):
+		return
+	if not has_meta("raid_probe_attacker"):
+		return
+	var acc: float = float(get_meta("raid_probe_snap_acc", 0.0)) + delta
+	if acc < 1.0:
+		set_meta("raid_probe_snap_acc", acc)
+		return
+	set_meta("raid_probe_snap_acc", 0.0)
+	_emit_raid_probe_snap()
+
+
+func _emit_raid_probe_snap() -> void:
+	var attacker_v: Variant = get_meta("raid_probe_attacker")
+	var defender_v: Variant = get_meta("raid_probe_defender")
+	if attacker_v == null or defender_v == null or not is_instance_valid(attacker_v) or not is_instance_valid(defender_v):
+		return
+	var attacker: Node2D = attacker_v as Node2D
+	var defender: Node2D = defender_v as Node2D
+	_maybe_raid_probe_kill_leader(attacker)
+	var elapsed: float = Time.get_ticks_msec() / 1000.0 - float(get_meta("raid_probe_t0", 0.0))
+	var attacker_clan: String = str(attacker.get("clan_name"))
+	var defender_clan: String = str(defender.get("clan_name"))
+	var def_rad: float = float(defender.get("radius")) if defender.get("radius") != null else 400.0
+	var raid_bits: PackedStringArray = PackedStringArray()
+	var defend_bits: PackedStringArray = PackedStringArray()
+	var in_circle: int = 0
+	var in_band: int = 0
+	for member in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member) or not (member is Node2D):
+			continue
+		var kind: String = str(member.get("npc_type"))
+		if kind != "caveman" and kind != "clansman":
+			continue
+		var body: Node2D = member as Node2D
+		var member_clan: String = str(body.get_meta("clan_name", "")) if body.has_meta("clan_name") else ""
+		var dead: bool = body.has_method("is_dead") and body.is_dead()
+		if member_clan == attacker_clan and body.has_meta("raid_joined"):
+			var phase: String = _raid_probe_phase(body)
+			var dist_enemy: float = defender.global_position.distance_to(body.global_position)
+			var mode: String = "-"
+			if body.has_method("get_follow_mode_string") and bool(body.get("follow_is_ordered")):
+				mode = body.get_follow_mode_string()
+			var sig: String = "0"
+			if bool(body.get_meta("raid_form_signal", false)):
+				sig = "1"
+			raid_bits.append("%s ph=%s d_enemy=%.0f st=%s hp=%s dead=%s mode=%s sig=%s" % [
+				str(body.get("npc_name")), phase, dist_enemy, _village_probe_state(body), _village_probe_hp(body), "yes" if dead else "no", mode, sig
+			])
+		elif member_clan == defender_clan:
+			var dist_home: float = defender.global_position.distance_to(body.global_position)
+			if dist_home <= def_rad * 2.0 and not dead:
+				in_band += 1
+			var gate: String = "-"
+			if defender.has_method("village_gate"):
+				gate = str(defender.village_gate(body).get("reason", "-"))
+			var tgt: String = "-"
+			var raw_t: Variant = body.get("combat_target")
+			if raw_t != null and is_instance_valid(raw_t):
+				tgt = str(raw_t.get("npc_name"))
+			defend_bits.append("%s d=%.0f st=%s gate=%s mark=%s tgt=%s hp=%s" % [
+				str(body.get("npc_name")), dist_home, _village_probe_state(body), gate,
+				"yes" if body.has_meta("village_defense") else "no", tgt, _village_probe_hp(body)
+			])
+	for member2 in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member2) or not (member2 is Node2D):
+			continue
+		var clan2: String = str(member2.get_meta("clan_name", "")) if member2.has_meta("clan_name") else ""
+		if clan2 != attacker_clan:
+			continue
+		var kind2: String = str(member2.get("npc_type"))
+		if kind2 != "caveman" and kind2 != "clansman":
+			continue
+		if member2.has_method("is_dead") and member2.is_dead():
+			continue
+		if defender.global_position.distance_to((member2 as Node2D).global_position) <= def_rad:
+			in_circle += 1
+	if in_circle > 0 and in_band == 0:
+		print("DEFEND_EMPTY t=%.0f intruders=%d" % [elapsed, in_circle])
+	var brain: Variant = attacker.get_clan_brain() if attacker.has_method("get_clan_brain") else attacker.get("clan_brain")
+	var raid_state: String = "-"
+	if brain and brain.get("raid_intent") is Dictionary:
+		var intent: Dictionary = brain.get("raid_intent")
+		var raid_names: Array = ["NONE", "RECRUITING", "ACTIVE", "RETREATING"]
+		var raid_idx: int = int(intent.get("state", -1))
+		raid_state = str(raid_names[raid_idx]) if raid_idx >= 0 and raid_idx < raid_names.size() else str(raid_idx)
+	print("RAID_SNAP t=%.0f intent=%s in_circle=%d | %s" % [elapsed, raid_state, in_circle, " | ".join(raid_bits)])
+	print("DEFEND_SNAP t=%.0f band=%d | %s" % [elapsed, in_band, " | ".join(defend_bits)])
+
+
+func _raid_probe_phase(body: Node) -> String:
+	var fsm: Node = body.get("fsm") as Node
+	if fsm and fsm.has_method("_get_state"):
+		var raid_st: Node = fsm._get_state("raid")
+		if raid_st and str(fsm.get("current_state_name")) == "raid" and raid_st.get("raid_phase") != null:
+			var keys: Array = ["ASSEMBLING", "MOVING", "ENGAGING", "RETREATING"]
+			var idx: int = int(raid_st.get("raid_phase"))
+			if idx >= 0 and idx < keys.size():
+				return str(keys[idx])
+	return _village_probe_state(body)
+
+
+func _tick_village_probe_snap(delta: float) -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_ai_village_probe")):
+		return
+	if not has_meta("village_probe_claim"):
+		return
+	var acc: float = float(get_meta("village_probe_snap_acc", 0.0)) + delta
+	if acc < 1.0:
+		set_meta("village_probe_snap_acc", acc)
+		return
+	set_meta("village_probe_snap_acc", 0.0)
+	_emit_village_probe_snap()
+
+
+func _emit_village_probe_snap() -> void:
+	var claim_v: Variant = get_meta("village_probe_claim")
+	if claim_v == null or not is_instance_valid(claim_v) or not (claim_v is Node2D):
+		return
+	var claim: Node2D = claim_v as Node2D
+	var rad: float = float(claim.get("radius")) if claim.get("radius") != null else 400.0
+	var t0: float = float(get_meta("village_probe_t0", Time.get_ticks_msec() / 1000.0))
+	var elapsed: float = Time.get_ticks_msec() / 1000.0 - t0
+	var intruder_v: Variant = get_meta("village_probe_intruder") if has_meta("village_probe_intruder") else null
+	var intruder_bit: String = "intruder=gone"
+	if intruder_v != null and is_instance_valid(intruder_v) and intruder_v is Node2D:
+		var intruder: Node2D = intruder_v as Node2D
+		var idist: float = claim.global_position.distance_to(intruder.global_position)
+		var ihp: String = _village_probe_hp(intruder)
+		var ist: String = _village_probe_state(intruder)
+		var idead: bool = intruder.has_method("is_dead") and intruder.is_dead()
+		intruder_bit = "intruder=%s hp=%s dist=%.0f in=%s state=%s dead=%s" % [
+			str(intruder.get("npc_name")), ihp, idist, "yes" if idist <= rad else "no", ist, "yes" if idead else "no"
+		]
+	var home_clan: String = str(claim.get("clan_name"))
+	var men_bits: PackedStringArray = PackedStringArray()
+	var women_flee: int = 0
+	var women_n: int = 0
+	for member in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(member) or not (member is Node2D):
+			continue
+		var member_clan: String = str(member.get_meta("clan_name", "")) if member.has_meta("clan_name") else ""
+		if member_clan != home_clan:
+			continue
+		var kind: String = str(member.get("npc_type"))
+		if kind == "woman":
+			women_n += 1
+			if _village_probe_state(member as Node2D) == "flee_combat":
+				women_flee += 1
+			continue
+		if kind != "caveman" and kind != "clansman":
+			continue
+		var body: Node2D = member as Node2D
+		var dist: float = claim.global_position.distance_to(body.global_position)
+		var role: String = str(body.get_meta("village_probe_role", "camp")) if body.has_meta("village_probe_role") else "camp"
+		var mark: String = "yes" if body.has_meta("village_defense") else "no"
+		var gate: String = "-"
+		if claim.has_method("village_gate"):
+			var g: Dictionary = claim.village_gate(body)
+			gate = str(g.get("reason", "-"))
+		var tgt: String = "-"
+		var raw_t: Variant = body.get("combat_target")
+		if raw_t != null and is_instance_valid(raw_t):
+			tgt = str(raw_t.get("npc_name"))
+		men_bits.append("%s role=%s d=%.0f st=%s gate=%s mark=%s tgt=%s hp=%s" % [
+			str(body.get("npc_name")), role, dist, _village_probe_state(body), gate, mark, tgt, _village_probe_hp(body)
+		])
+	print("VILLAGE_SNAP t=%.0f %s women=%d fleeing=%d | %s" % [elapsed, intruder_bit, women_n, women_flee, " | ".join(men_bits)])
+
+
+func _village_probe_state(body: Node) -> String:
+	var fsm: Node = body.get("fsm") as Node
+	if fsm and fsm.has_method("get_current_state_name"):
+		return str(fsm.get_current_state_name())
+	return "-"
+
+
+func _village_probe_hp(body: Node) -> String:
+	var hp: Node = body.get_node_or_null("HealthComponent")
+	if hp == null:
+		return "-"
+	return "%d/%d" % [int(hp.get("current_hp")), int(hp.get("max_hp"))]
+
+
+func _setup_eval_ai_spectator_arena() -> void:
+	var clan_n: int = 4
+	if DebugConfig:
+		clan_n = maxi(1, int(DebugConfig.eval_ai_arena_clan_count))
+	const RING_PX: float = 1200.0
+	var center := Vector2.ZERO
+	## Halfway between clan 0 (east) and clan 1 — on the ring, not the hub.
+	var player_angle: float = TAU / float(clan_n) * 0.5
+	var player_pos: Vector2 = center + Vector2(cos(player_angle), sin(player_angle)) * RING_PX
+	print("=== EVAL AI ARENA: player + %d AI clans on a %.0fpx ring ===" % [clan_n, RING_PX])
+	if player and is_instance_valid(player):
+		player.visible = true
+		if player.has_method("set_can_move"):
+			player.set_can_move(true)
+		_place_player_at_spawn(player_pos, "eval_ai_arena")
+	_observer_cam_active = false
+	_npc_only_world = false
+	if world:
+		world.ensure_chunks_for_position(player_pos)
+	await _spawn_session_nearby_ai_clans(center, clan_n, RING_PX, "eval_ai_arena")
+	var ai_index := 0
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim) or bool(claim.get("player_owned")):
+			continue
+		claim.inventory = _new_land_claim_inventory()
+		_stock_eval_camp_food(claim.inventory)
+		claim.set("ranged_ratio", 0.5)
+		var father: Node = claim.get("owner_npc") as Node
+		ai_index += 1
+		var extra: Array[Node] = _spawn_eval_camp_women_with_huts(
+			claim as LandClaim, father, EVAL_CAMP_WOMEN_PER_MAN, "AI%d" % ai_index
+		)
+		await get_tree().process_frame
+		for w in extra:
+			if w and is_instance_valid(w):
+				_place_herder_hut(claim, w, father, false)
+				await get_tree().process_frame
+		if father and is_instance_valid(father):
+			father.set("bravery", 1.0)
+		var extras: int = 5
+		if DebugConfig:
+			extras = maxi(0, int(DebugConfig.eval_ai_arena_extra_fighters))
+		_spawn_eval_arena_fighters(claim as LandClaim, extras)
+		await get_tree().process_frame
+	_give_eval_camp_throw_stones()
+	set_meta("eval_ai_arena_ready", true)
+	print("=== EVAL AI ARENA: ready (player on ring between camps + %d AI claims) ===" % ai_index)
+	print("EVAL_AI_ARENA_READY")
+
+
+func _setup_eval_camp_environment() -> void:
+	print("=== EVAL CAMP: player claim + 2 huts + food; 3 AI cavemen; 8 women ===")
+	if WorldGenConfig:
+		WorldGenConfig.wild_woman_chunk_chance = 0.45
+		WorldGenConfig.wild_woman_per_chunk_max = 3
+	if not player or not world_objects:
+		push_error("EVAL CAMP: missing player or world_objects")
+		return
+	if player.global_position == Vector2.ZERO:
+		_place_player_at_spawn(Vector2.ZERO, "eval_camp")
+	var center_pos: Vector2 = player.global_position
+	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
+	if not land_claim:
+		push_error("EVAL CAMP: LandClaim instantiate failed")
+		return
+	land_claim.global_position = center_pos
+	land_claim.set_clan_name(EVAL_CAMP_CLAN)
+	var clan_canon: String = land_claim.clan_name
+	land_claim.player_owned = true
+	var building_inventory := _new_land_claim_inventory()
+	land_claim.inventory = building_inventory
+	_stock_eval_camp_food(building_inventory)
+	world_objects.add_child(land_claim)
+	_despawn_tallgrass_near(center_pos, land_claim.radius)
+	_despawn_decorative_trees_near(center_pos, land_claim.radius)
+	register_land_claim(land_claim)
+	land_claim.visible = true
+	_set_player_name(clan_canon)
+	await get_tree().process_frame
+	var player_women: Array[Node] = _spawn_eval_camp_women_with_huts(land_claim, player, EVAL_CAMP_WOMEN_PER_MAN, "PC")
+	await get_tree().process_frame
+	for w in player_women:
+		if w and is_instance_valid(w):
+			# Huts exist; leave women unassigned so they walk (assigned = hidden in hut).
+			_place_herder_hut(land_claim, w, player, false)
+			await get_tree().process_frame
+	await _spawn_session_nearby_ai_clans(center_pos, EVAL_CAMP_AI_COUNT, EVAL_CAMP_AI_RING_PX, "eval_camp_ai")
+	var ai_index := 0
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim) or claim == land_claim:
+			continue
+		if bool(claim.get("player_owned")):
+			continue
+		claim.inventory = _new_land_claim_inventory()
+		_stock_eval_camp_food(claim.inventory)
+		var father: Node = claim.get("owner_npc") as Node
+		ai_index += 1
+		var extra: Array[Node] = _spawn_eval_camp_women_with_huts(claim as LandClaim, father, EVAL_CAMP_WOMEN_PER_MAN, "AI%d" % ai_index)
+		await get_tree().process_frame
+		for w in extra:
+			if w and is_instance_valid(w):
+				_place_herder_hut(claim, w, father, false)
+				await get_tree().process_frame
+	_spawn_eval_camp_wilderness_women(center_pos)
+	_give_eval_camp_throw_stones()
+	set_meta("eval_camp_ready", true)
+	print("=== EVAL CAMP: ready (clan '%s', 1 player + %d AI, %d women/man, %d wild women at %.0fpx) ===" % [
+		clan_canon, EVAL_CAMP_AI_COUNT, EVAL_CAMP_WOMEN_PER_MAN, EVAL_CAMP_WILD_WOMEN_COUNT, EVAL_CAMP_WILD_RING_PX
+	])
+	print("EVAL_CAMP_READY")
+	_log_eval_camp_ai_status("spawn")
+	var pulse := get_tree().create_timer(3.0)
+	pulse.timeout.connect(_log_eval_camp_ai_status.bind("t+3s"), CONNECT_ONE_SHOT)
+
+
+func _log_eval_camp_ai_status(tag: String = "") -> void:
+	if not DebugConfig or not DebugConfig.enable_eval_camp:
+		return
+	print("=== EVAL CAMP AI (%s) ===" % tag)
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc):
+			continue
+		if str(npc.get("npc_type")) != "caveman":
+			continue
+		var dormant := false
+		if npc.has_method("is_sim_dormant"):
+			dormant = bool(npc.call("is_sim_dormant"))
+		var fsm: Node = npc.get("fsm")
+		var st: String = "?"
+		if fsm and fsm.has_method("get_current_state_name"):
+			st = str(fsm.call("get_current_state_name"))
+		var claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+		var brain_dormant := true
+		var work_n := 0
+		if claim:
+			var brain: Variant = claim.get("clan_brain")
+			if brain:
+				brain_dormant = bool(brain.get("is_dormant"))
+				var wr: Variant = brain.get("work_requests")
+				if wr is Array:
+					work_n = (wr as Array).size()
+		print("  caveman %s fsm=%s npc_dormant=%s brain_dormant=%s work_req=%d pos=%s" % [
+			str(npc.get("npc_name")), st, dormant, brain_dormant, work_n, str(npc.global_position)
+		])
 
 
 # Session / playtest: player-owned claim + 2 women + 2 Living Huts (Player = designated father via herder path). Skips AI cavemen.
@@ -6499,37 +7850,41 @@ func _setup_session_quickstart_environment() -> void:
 		pi_qs.phase7_playtest_briefing(clan_canon, preg_sec, tick_sec)
 	print("=== SESSION QUICKSTART: complete (clan '%s', claim center %s — you are inside; ~%.0fs pregnancy) ===" % [clan_canon, land_claim_pos, BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0])
 	if DebugConfig and int(DebugConfig.session_nearby_clans_count) > 0:
-		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count))
+		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count), 1500.0, "session_nearby_clan")
 
 
-func _spawn_session_nearby_ai_clans(player_center: Vector2, count: int) -> void:
+func _spawn_session_nearby_ai_clans(
+	player_center: Vector2,
+	count: int,
+	ring_radius_px: float = 1500.0,
+	spawn_source: String = "session_nearby_clan"
+) -> void:
 	if count < 1 or not world_objects:
 		return
-	const RING_RADIUS_PX: float = 1500.0
 	const CAVEMAN_OFFSET_PX: float = 90.0
-	print("=== SESSION QUICKSTART: Spawning %d AI clans ~%.0fpx from player ===" % [count, RING_RADIUS_PX])
+	print("=== EVAL AI CLAIMS: spawning %d camps ~%.0fpx from player ===" % [count, ring_radius_px])
 	var ws: int = _playtest_world_seed_value()
 	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
 	for i in range(count):
 		var angle: float = TAU * float(i) / float(count)
 		var dir := Vector2(cos(angle), sin(angle))
-		var claim_pos := player_center + dir * RING_RADIUS_PX
+		var claim_pos := player_center + dir * ring_radius_px
 		claim_pos = Vector2(round(claim_pos.x / 64.0) * 64.0, round(claim_pos.y / 64.0) * 64.0)
 		var cave_pos := claim_pos + dir * CAVEMAN_OFFSET_PX
 		var seed_h: int = hash(Vector3i(int(claim_pos.x), int(claim_pos.y), ws + i + 9001))
 		var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
-		var leader: Node = spawn_seeded_ai_clan_at(claim_pos, cave_pos, clan_name, world_objects, "session_nearby_clan")
+		var leader: Node = spawn_seeded_ai_clan_at(claim_pos, cave_pos, clan_name, world_objects, spawn_source)
 		var leader_name: String = str(leader.get("npc_name")) if leader else "?"
-		print("✓ Session quickstart: AI clan '%s' claim at %s (caveman near %s)" % [clan_name, claim_pos, cave_pos])
+		print("✓ AI camp '%s' claim at %s (caveman %s near %s)" % [clan_name, claim_pos, leader_name, cave_pos])
 		if pi and pi.is_enabled() and pi.has_method("session_nearby_clan_spawned"):
 			pi.session_nearby_clan_spawned(
-				clan_name, leader_name, claim_pos.x, claim_pos.y, cave_pos.x, cave_pos.y, i, RING_RADIUS_PX
+				clan_name, leader_name, claim_pos.x, claim_pos.y, cave_pos.x, cave_pos.y, i, ring_radius_px
 			)
 	await get_tree().process_frame
 	if pi and pi.is_enabled() and pi.has_method("session_nearby_clans_complete"):
-		pi.session_nearby_clans_complete(count, RING_RADIUS_PX, player_center.x, player_center.y)
+		pi.session_nearby_clans_complete(count, ring_radius_px, player_center.x, player_center.y)
 	if DebugConfig and DebugConfig.session_ai_clan_tour:
-		await _run_session_ai_clan_tour(player_center, count, RING_RADIUS_PX)
+		await _run_session_ai_clan_tour(player_center, count, ring_radius_px)
 
 
 func _run_session_ai_clan_tour(player_center: Vector2, count: int, ring_radius_px: float) -> void:
@@ -6842,8 +8197,6 @@ func _setup_agro_combat_test_environment() -> void:
 		await get_tree().process_frame
 		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		npc.visible = true
 		if i == 0:
@@ -6899,8 +8252,6 @@ func _setup_agro_combat_test_environment() -> void:
 		await get_tree().process_frame
 		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		npc.visible = true
 		if i == 0:
@@ -7014,8 +8365,6 @@ func _setup_raid_test_environment() -> void:
 		await get_tree().process_frame
 		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		npc.visible = true
 		print("  ClanA: %s at %s" % [npc_name, pos])
@@ -7044,8 +8393,6 @@ func _setup_raid_test_environment() -> void:
 		await get_tree().process_frame
 		_apply_placeholder_card_to_npc(npc)
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		npc.visible = true
 		print("  ClanB: %s at %s" % [npc_name, pos])
@@ -7215,8 +8562,6 @@ func _setup_gather_test_environment() -> void:
 		
 		# Equip club (add wood to inventory first)
 		var inv = npc.get("inventory")
-		if inv:
-			inv.add_item(ResourceData.ResourceType.SPEAR, 1)
 		_equip_spear_to_npc(npc)
 		
 		npc.visible = true
@@ -7259,7 +8604,7 @@ func _setup_gather_test_logging() -> void:
 const PARTY_HUNT_DEBUG_DEER_PER_CLAIM := 2
 
 func _seed_party_hunt_debug_deer_near_claims(spawn_parent: Node2D) -> void:
-	if not DebugConfig or not DebugConfig.enable_party_hunt_debug:
+	if not DebugConfig or not (DebugConfig.enable_party_hunt_debug or DebugConfig.enable_ai_combat_observe):
 		return
 	if spawn_parent == null or not is_instance_valid(spawn_parent):
 		spawn_parent = world_objects
@@ -7665,6 +9010,23 @@ func _spawn_wild_woman(count: int) -> void:
 		npc.visible = true
 		print("✓ Respawned Wild Woman: %s at %s (agility 9.0 = 288.0 speed)" % [npc_name, pos])
 
+func _equip_stone_to_npc(npc: Node) -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	await get_tree().process_frame
+	var hotbar = npc.get("hotbar")
+	if hotbar:
+		hotbar.set_slot(0, {"type": ResourceData.ResourceType.STONE, "count": 6, "quality": 0})
+	var weapon_comp = npc.get_node_or_null("WeaponComponent")
+	if not weapon_comp:
+		await get_tree().process_frame
+		weapon_comp = npc.get_node_or_null("WeaponComponent")
+	if weapon_comp and weapon_comp.has_method("equip_weapon"):
+		weapon_comp.equip_weapon(ResourceData.ResourceType.STONE)
+		var npc_name = npc.get("npc_name") if npc.has_method("get") else "unknown"
+		print("Equipped %s with stone" % npc_name)
+
+
 func _equip_spear_to_npc(npc: Node) -> void:
 	"""Spear behaves like club for NPCs: same stance visibility rules; melee thrust only (walk + spearattack sheet)."""
 	if not npc or not is_instance_valid(npc):
@@ -7674,7 +9036,7 @@ func _equip_spear_to_npc(npc: Node) -> void:
 	
 	var hotbar = npc.get("hotbar")
 	if hotbar:
-		hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
+		hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 3, "quality": 0})
 	
 	var weapon_comp = npc.get_node_or_null("WeaponComponent")
 	if not weapon_comp:
@@ -7797,6 +9159,13 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 		if father_for_card == null:
 			father_for_card = get_tree().get_first_node_in_group("player")
 		var inherited_card: int = PlaceholderCardService.assign_inherited_card_index(npc, father_for_card)
+		var father_for_genes: Node = father_for_card
+		var gene_ws: int = 0
+		if SimRng and SimRng.has_method("get_world_seed"):
+			gene_ws = int(SimRng.get_world_seed())
+		var gene_rng: RandomNumberGenerator = SimRng.make_scoped_rng(gene_ws, int(hash(npc_name)) ^ int(hash("baby_genome")))
+		var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+		BirthEngineScript.apply_child_to_entity(npc, mother, father_for_genes, gene_rng)
 		UnifiedLogger.log_system("SPAWN_BABY: Inherited father card_index %d" % inherited_card, {
 			"clan": clan_name,
 			"baby_name": npc_name,
@@ -7809,18 +9178,7 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 	if verify_father == null or verify_mother == null:
 		push_warning("BABY LINEAGE: %s - lineage may not have persisted (father=%s, mother=%s)" % [npc_name, verify_father, verify_mother])
 	
-	# Set sprite - use baby.png (64x64 pixels)
-	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-	if sprite:
-		var texture: Texture2D = AssetRegistry.get_baby_sprite()
-		if texture:
-			sprite.texture = texture
-			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			sprite.visible = true
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
-		else:
-			print("WARNING: baby.png sprite not found, using default")
+	# Card is the layered half-size mannequin (npc_base._ready → PlaceholderCardService).
 	
 	# Add to scene
 	UnifiedLogger.log_system("SPAWN_BABY: Adding baby to scene tree", {
@@ -7831,6 +9189,8 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 	})
 	
 	world_objects.add_child(npc)
+	if LagProfiler and LagProfiler.is_enabled():
+		LagProfiler.record_gameplay("births")
 	npc.global_position = spawn_pos
 	npc.set("spawn_position", spawn_pos)
 	
@@ -8174,6 +9534,7 @@ func _on_land_claim_clicked(land_claim: LandClaim) -> void:
 		building_inventory_ui.setup_land_claim(land_claim)
 		building_inventory_ui.show_inventory()
 		nearby_building = land_claim
+		_open_player_bag_beside_building()
 		print("Showing inventory for land claim: ", land_claim.clan_name)
 
 func _try_click_npc_for_inventory() -> void:
@@ -8263,8 +9624,6 @@ func _player_attack_npc(target_npc: Node) -> void:
 
 func _player_attack_target(target: Node) -> void:
 	"""Player attacks with overlay combat — must be in READY (Shift held) unless menu forces aim."""
-	if _is_any_inventory_open():
-		return
 	if not player or not target or not is_instance_valid(target):
 		return
 	if not _player_has_weapon_equipped():

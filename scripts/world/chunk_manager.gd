@@ -100,12 +100,22 @@ func _queue_disk(center: Vector2i, radius: int) -> void:
 func _process_pending_loads(immediate: bool) -> void:
 	var per_frame: int = 9999 if immediate else (int(_wgc.chunks_load_per_frame) if _wgc else 2)
 	var budget := per_frame
+	var t0_usec: int = Time.get_ticks_usec()
+	var time_budget_ms: float = 9999.0 if immediate else (float(_wgc.chunk_load_time_budget_ms) if _wgc else 8.0)
+	var loaded_this_call: int = 0
 	while budget > 0 and not _pending_loads.is_empty():
 		var c: Vector2i = _pending_loads.pop_front() as Vector2i
 		if _loaded.has(c):
 			continue
 		_load_chunk(c)
 		budget -= 1
+		loaded_this_call += 1
+		if not immediate:
+			var elapsed_ms: float = float(Time.get_ticks_usec() - t0_usec) / 1000.0
+			if elapsed_ms >= time_budget_ms:
+				break
+	if loaded_this_call > 0:
+		set_meta("last_chunk_loads_this_call", loaded_this_call)
 
 
 func _process_unloads(center: Vector2i, radius: int, delta: float) -> void:
@@ -406,6 +416,14 @@ func _neighbors_block_clan_spawn(chunk: Vector2i) -> bool:
 func _spawn_clans(root: Node2D, chunk: Vector2i, clans: Array) -> void:
 	if clans.is_empty():
 		return
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc and (
+		int(dc.get("eval_ai_claims_near_start")) > 0
+		or bool(dc.get("enable_eval_camp"))
+		or bool(dc.get("enable_eval_ai_arena"))
+		or bool(dc.get("enable_ai_combat_observe"))
+	):
+		return
 	if _neighbors_block_clan_spawn(chunk):
 		return
 	for cdesc in clans:
@@ -424,6 +442,14 @@ func _spawn_clans(root: Node2D, chunk: Vector2i, clans: Array) -> void:
 
 func _process_density_timer(delta: float) -> void:
 	if not _wgc or not bool(_wgc.clan_respawn_enabled):
+		return
+	var dc_eval: Node = get_node_or_null("/root/DebugConfig")
+	if dc_eval and (
+		int(dc_eval.get("eval_ai_claims_near_start")) > 0
+		or bool(dc_eval.get("enable_eval_camp"))
+		or bool(dc_eval.get("enable_eval_ai_arena"))
+		or bool(dc_eval.get("enable_ai_combat_observe"))
+	):
 		return
 	if not _main or not is_instance_valid(_main):
 		return

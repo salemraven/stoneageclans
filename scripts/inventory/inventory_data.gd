@@ -226,3 +226,44 @@ func get_used_slots() -> int:
 		if slot != null:
 			count += 1
 	return count
+
+
+func empty_slot_count() -> int:
+	return slot_count - get_used_slots()
+
+
+## Put as much as `max_in_slot` allows into one index. Different type = no change. Returns leftover.
+func add_to_slot(index: int, type: ResourceData.ResourceType, amount: int, quality: int = 0, max_in_slot: int = 1) -> int:
+	if amount <= 0 or index < 0 or index >= slot_count or max_in_slot <= 0:
+		return maxi(amount, 0)
+	var existing: Dictionary = get_slot(index)
+	if existing.is_empty():
+		var put: int = mini(amount, max_in_slot)
+		set_slot(index, {"type": type, "count": put, "quality": quality})
+		return amount - put
+	if existing.get("type", -1) != type:
+		return amount
+	var have: int = int(existing.get("count", 1))
+	var room: int = max_in_slot - have
+	if room <= 0:
+		return amount
+	var add: int = mini(amount, room)
+	var merged: Dictionary = existing.duplicate()
+	merged["count"] = have + add
+	set_slot(index, merged)
+	return amount - add
+
+
+## Fill empty slots with one item each. Returns leftover count.
+func add_one_per_empty_slot(type: ResourceData.ResourceType, amount: int, quality: int = 0) -> int:
+	var remaining: int = amount
+	if remaining <= 0:
+		return 0
+	for i in slot_count:
+		if remaining <= 0:
+			break
+		if slots[i] != null:
+			continue
+		slots[i] = {"type": type, "count": 1, "quality": quality}
+		remaining -= 1
+	return remaining

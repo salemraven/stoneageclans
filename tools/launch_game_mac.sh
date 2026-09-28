@@ -68,8 +68,10 @@ mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="$LOG_DIR/game_gui_${STAMP}.log"
 
-EXTRA_ARGS=("$@")
-RUN_ARGS=(--path "$ROOT" res://scenes/Main.tscn --skip-single-instance "${EXTRA_ARGS[@]}")
+RUN_ARGS=(--path "$ROOT" res://scenes/Main.tscn --skip-single-instance)
+if (($# > 0)); then
+	RUN_ARGS+=("$@")
+fi
 
 export SKIP_SINGLE_INSTANCE=1
 stop_existing_game

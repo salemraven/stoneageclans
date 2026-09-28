@@ -61,16 +61,14 @@ func exit() -> void:
 	_cancel_tasks_if_active()
 	if npc and npc.has_meta("chunk_sticky"):
 		npc.remove_meta("chunk_sticky")
-	# Leave the raid
-	if clan_brain and clan_brain.has_method("npc_leave_raid"):
-		clan_brain.npc_leave_raid(npc)
-	
-	# Clear hostile mode
+	if npc and npc.has_method("set_raid_form_signal"):
+		npc.set_raid_form_signal(false)
 	if npc:
 		npc.set("is_hostile", false)
-		npc.remove_meta("raid_joined")
-	
-	print("⚔️ RAID_STATE: %s left raid" % (npc.npc_name if npc else "NPC"))
+	print("⚔️ RAID_STATE: %s left raid state (still joined=%s)" % [
+		npc.npc_name if npc else "NPC",
+		str(npc.get_meta("raid_joined")) if npc and npc.has_meta("raid_joined") else "false"
+	])
 
 func update(delta: float) -> void:
 	if not npc:
@@ -89,6 +87,8 @@ func update(delta: float) -> void:
 	if not clan_brain or not clan_brain.is_raiding():
 		print("⚔️ RAID_STATE: %s - raid ended, exiting" % npc.npc_name)
 		_emit_raid_abort_if_needed("raid_ended")
+		if npc.has_method("set_raid_form_signal"):
+			npc.set_raid_form_signal(false)
 		if fsm:
 			fsm.change_state("wander")
 		return
@@ -112,6 +112,8 @@ func update(delta: float) -> void:
 			raid_phase = RaidPhase.RETREATING
 	
 	# Execute current phase
+	if land_claim and is_instance_valid(land_claim):
+		clan_brain = clan_brain if clan_brain else null
 	match raid_phase:
 		RaidPhase.ASSEMBLING:
 			_update_assembling(delta)
@@ -122,28 +124,19 @@ func update(delta: float) -> void:
 		RaidPhase.RETREATING:
 			_update_retreating(delta)
 
-func _update_assembling(delta: float) -> void:
-	"""Move to rally point and wait for others."""
-	assembly_timer += delta
-	
-	# Timeout - if we can't assemble, exit
-	if assembly_timer > assembly_timeout:
-		print("⚔️ RAID_STATE: %s - assembly timeout, exiting" % npc.npc_name)
-		_emit_raid_abort_if_needed("assembly_timeout")
-		if fsm:
-			fsm.change_state("wander")
-		return
-	
-	# Move to rally point
-	var rally_point: Vector2 = clan_brain.get_raid_rally_point() if clan_brain.has_method("get_raid_rally_point") else Vector2.ZERO
-	if rally_point != Vector2.ZERO and npc.steering_agent:
-		npc.steering_agent.set_target_position(rally_point)
-	
-	# Check if we've arrived at rally point
-	var distance: float = npc.global_position.distance_to(rally_point)
-	if distance < 50.0:
-		# Wait at rally point - phase will advance when ClanBrain says raid is ACTIVE
-		pass
+func _update_assembling(_delta: float) -> void:
+	"""Hold at claim center until ClanBrain marks form complete."""
+	if not land_claim or not is_instance_valid(land_claim):
+		_find_clan_brain()
+	if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+		npc.steering_agent.hold_still()
+	elif npc.steering_agent:
+		var center: Vector2 = land_claim.global_position if land_claim else npc.global_position
+		npc.steering_agent.set_target_position(center)
+	if npc.has_method("set_raid_form_signal"):
+		var left: bool = land_claim != null and land_claim.has_meta("raid_form_left") and bool(land_claim.get_meta("raid_form_left"))
+		npc.set_raid_form_signal(not left)
+
 
 func _update_moving(_delta: float) -> void:
 	"""Move toward raid target."""
@@ -293,8 +286,15 @@ func _find_clan_brain() -> void:
 		clan_brain = claim.clan_brain
 
 func can_enter() -> bool:
-	if not npc:
+	if not npc or not is_instance_valid(npc):
 		return false
+	if npc.has_meta("raid_joined") and npc.get_meta("raid_joined") == true:
+		_find_clan_brain()
+		if clan_brain and clan_brain.is_raiding():
+			if land_claim and land_claim.has_meta("raid_party_leader"):
+				var rl: Variant = land_claim.get_meta("raid_party_leader")
+				if rl == npc:
+					return true
 	# Agro combat test leaders are driven by main — must not join ClanBrain raid
 	if npc.has_meta("agro_combat_test_leader"):
 		return false
@@ -302,6 +302,13 @@ func can_enter() -> bool:
 	var tp: String = npc.get("npc_type") if npc else ""
 	if tp != "caveman" and tp != "clansman":
 		return false
+	
+	# Only the designated raid party leader uses raid state (followers stay in party).
+	_find_clan_brain()
+	if land_claim and land_claim.has_meta("raid_party_leader"):
+		var rl: Variant = land_claim.get_meta("raid_party_leader")
+		if rl != npc:
+			return false
 	
 	# Don't raid while ordered to follow
 	if npc.get("follow_is_ordered"):

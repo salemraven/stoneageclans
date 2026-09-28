@@ -192,6 +192,13 @@ func _tick_impl(actor: Node, delta: float) -> TaskStatus:
 	# Step 2: Start gathering animation/display — must stay in place until done
 	if not _has_started_gathering:
 		_has_started_gathering = true
+		var pi_gs = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_gs and pi_gs.is_enabled() and pi_gs.has_method("gather_started"):
+			var rt_gs: int = _expected_resource_type as int
+			if resource_node and resource_node.get("resource_type") != null:
+				rt_gs = resource_node.get("resource_type") as int
+			var nt_gs: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+			pi_gs.gather_started(npc.npc_name, _playtest_clan(npc), rt_gs, nt_gs)
 		_gather_start_position = npc.global_position
 		npc.set("is_gathering", true)
 		npc.velocity = Vector2.ZERO

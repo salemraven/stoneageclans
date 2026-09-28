@@ -79,8 +79,15 @@ func _npc_should_sim_awake(npc: Node, main: Node) -> bool:
 		return true
 	if not (npc is Node2D):
 		return true
+	# Eval watch modes: keep claim NPCs awake so you can see AI walk/work.
+	var dc: Node = get_node_or_null("/root/DebugConfig")
+	if dc and (bool(dc.get("enable_eval_camp")) or bool(dc.get("enable_eval_ai_arena")) or bool(dc.get("enable_ai_combat_observe"))):
+		var interest: Node = get_node_or_null("/root/WorldInterestManager")
+		var claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+		if claim and (interest == null or bool(interest.call("is_claim_active", claim))):
+			return true
 	# Idle NPCs wake on player proximity only — not the whole sim-active chunk ring.
-	var wake_r: float = 450.0
+	var wake_r: float = 1200.0
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
 	if wgc:
 		wake_r = float(wgc.get("sim_wake_player_radius_px"))

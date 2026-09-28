@@ -1,5 +1,7 @@
 # Drag & Drop & Inventory Guide
 
+**Status: STALE (September 2026).** Slot grid, “1 item per drag,” stack-max-10, and “panels are fixed / drag not implemented” are **wrong**. Title-bar move + remembered positions **ship**. **Canon:** [UI.md](UI.md). Do not implement from this file.
+
 ## Overview
 
 The drag-and-drop inventory system is the core interaction mechanic in Stone Age Clans. **Everything is drag-and-drop** - you can seamlessly drag items between inventories, from inventories to the game world, and from the world to inventories. The system is designed to be intuitive, responsive, and visually clear.

@@ -24,7 +24,8 @@ enum SteeringMode {
 	SEEK,
 	ARRIVE,
 	FLEE,
-	WANDER
+	WANDER,
+	HOLD
 }
 var current_mode: SteeringMode = SteeringMode.WANDER
 
@@ -162,6 +163,19 @@ func set_target_position_immediate(pos: Vector2) -> void:
 		npc.velocity = Vector2.ZERO
 	_log_steering_change("SEEK", "position_immediate", pos)
 
+
+func retarget_seek(pos: Vector2) -> void:
+	## Move the seek point without wiping the step already taken.
+	## Flee and pursuit refresh every frame; a full reset would hitch them.
+	target_position = pos
+	target_node = null
+	current_mode = SteeringMode.SEEK
+	_pending_target_pos = pos
+	_pending_target_node = null
+	_pending_mode = SteeringMode.SEEK
+	_pending_intent_time = 0.0
+	last_target_change_time = Time.get_ticks_msec() / 1000.0
+
 func set_target_node(node: Node2D) -> void:
 	var current_time: float = Time.get_ticks_msec() / 1000.0
 	if node and is_instance_valid(node):
@@ -202,6 +216,18 @@ func set_speed_multiplier(multiplier: float) -> void:
 # Restore original speed
 func restore_original_speed() -> void:
 	max_speed = original_max_speed
+
+func hold_still() -> void:
+	## Stop seeking. Clears a delayed walk order so melee does not step after we decide to stand.
+	target_node = null
+	if npc and is_instance_valid(npc):
+		target_position = npc.global_position
+	current_mode = SteeringMode.HOLD
+	_pending_intent_time = 0.0
+	_pending_target_node = null
+	_pending_mode = SteeringMode.HOLD
+	_pending_target_pos = target_position
+
 
 func set_flee_target(pos: Vector2) -> void:
 	# Flee is immediate - no intent delay (urgency)
@@ -319,7 +345,7 @@ func get_steering_force(delta: float = 0.016) -> Vector2:
 	var ab_stuck = OccupationSystem.get_workplace(npc) if (OccupationSystem and npc) else null
 	var has_building_target: bool = ab_stuck != null and is_instance_valid(ab_stuck)
 	var is_test_leader: bool = npc and npc.has_meta("agro_combat_test_leader")
-	if stuck_check_time > stuck_threshold and pathfinding_attempts >= max_pathfinding_attempts and not has_building_target and not is_test_leader:
+	if current_mode != SteeringMode.HOLD and stuck_check_time > stuck_threshold and pathfinding_attempts >= max_pathfinding_attempts and not has_building_target and not is_test_leader:
 		# Too difficult to pathfind - go in a different direction (skip for agro combat test leaders - main drives them)
 		if current_mode != SteeringMode.WANDER:
 			# Switch to wander mode to break out of stuck state
@@ -347,6 +373,8 @@ func get_steering_force(delta: float = 0.016) -> Vector2:
 			force = _flee(target_position)
 		SteeringMode.WANDER:
 			force = _wander()
+		SteeringMode.HOLD:
+			force = Vector2.ZERO
 	
 	# Add separation (but only if we have a force, to avoid canceling out)
 	if force.length() > 0.1:

@@ -69,6 +69,7 @@ func _setup_panel() -> void:
 	character_panel.name = "CharacterPanel"
 	UITheme.apply_panel_style(character_panel)
 	character_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
+	character_panel.clip_contents = true
 	character_panel.set_as_top_level(true)  # Allow positioning above NPC
 	add_child(character_panel)
 	
@@ -743,7 +744,9 @@ func show_menu() -> void:
 	
 	is_open = true
 	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if character_panel:
+		character_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	
 	print("CharacterMenuUI: Freezing NPC movement...")
 	# Freeze NPC movement FIRST (before showing UI)
@@ -767,6 +770,8 @@ func hide_menu() -> void:
 	is_open = false
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if character_panel:
+		character_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
 	# Reset timing
 	_menu_open_time = 0.0
@@ -967,18 +972,6 @@ func _input(event: InputEvent) -> void:
 						_handle_drop(check_slot)
 						get_viewport().set_input_as_handled()
 						return
-	
-	# Close menu on mouse button release (simple and flexible)
-	# But prevent immediate close when menu first opens (wait at least 0.1 seconds)
-	if event is InputEventMouseButton and is_open:
-		var mouse_event := event as InputEventMouseButton
-		if mouse_event.button_index == MOUSE_BUTTON_LEFT and not mouse_event.pressed:
-			# Left mouse button released - close menu if it's been open for a bit
-			var time_since_open = Time.get_ticks_msec() / 1000.0 - _menu_open_time
-			if time_since_open > 0.1:  # Prevent immediate close (menu opens on press, this release might be the same click)
-				hide_menu()
-				get_viewport().set_input_as_handled()
-				return
 	
 	# Update position continuously while open (NPC might be moving)
 	if is_open:

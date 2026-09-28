@@ -104,6 +104,13 @@ These are **design locks** for implementation (player + eventual MP authority).
 
 - Craftable **arrow** stacks, ammo consumption on validated fire; **object pooling** for many in-flight shots; **server-authoritative** hit resolution; clients **FX only**.
 
+**Thrown stone (current, rocks)**
+
+- Geometry: [`scripts/combat/throw_hit_resolver.gd`](../scripts/combat/throw_hit_resolver.gd). Constants on **BalanceConfig** (`throw_land_hit_radius_px` 48, `throw_snap_radius_px` 32, `throw_range_px` 420).
+- Player: mouse land + snap to nearest valid **hit point** (torso). NPC: land on combat-target hit point, never always-max-range.
+- Hit check at land only; moving targets can dodge during flight. Skill hit-chance gated off (`throw_use_skill_hit_chance = false`).
+- Headless lock-in: `bash tools/run_throw_hit_tests.sh`. Dev overlay: `--throw-debug`.
+
 ---
 
 ## 5. Inventory / authority / UI

@@ -1,6 +1,6 @@
 extends TileMap
 
-## Classic ground: `WorldLayer/DirtBase` (dirtgrass shader tiles). This TileMap stays for optional overlays.
+## Classic ground: `WorldLayer/DirtBase` (grass1–4 shader tiles). This TileMap stays for optional overlays.
 ## Godot 4.5 canvas z_index is 0..4095 — do not use negative z or the sprite is skipped.
 
 const DIRT_BASE_PATH := NodePath("../DirtBase")
@@ -54,13 +54,13 @@ func _sync_classic_ground_tiles(focus: Vector2) -> void:
 		return
 	dirt.visible = true
 	dirt.z_index = 0
-	dirt.global_position = focus.floor()
+	# Cover the camera with one sprite; shader UVs are world-locked so grass does not slide.
+	dirt.global_position = focus
 	var cam: Camera2D = get_viewport().get_camera_2d()
 	if cam == null:
 		return
 	var vp: Vector2 = get_viewport().get_visible_rect().size
 	var zoom: float = maxf(cam.zoom.x, 0.05)
-	# Godot 4: larger zoom = closer. Visible world size is viewport / zoom.
 	var cover: float = maxf(vp.x, vp.y) / zoom * COVER_PAD
 	var tex_px: float = TILE_PX
 	if dirt.texture:
@@ -68,3 +68,9 @@ func _sync_classic_ground_tiles(focus: Vector2) -> void:
 	var need_scale: float = maxf(80.0, ceil(cover / tex_px))
 	if absf(dirt.scale.x - need_scale) > 0.5:
 		dirt.scale = Vector2(need_scale, need_scale)
+	var mat := dirt.material as ShaderMaterial
+	if mat:
+		var world_size: Vector2 = Vector2(tex_px, tex_px) * dirt.scale
+		mat.set_shader_parameter("world_center", dirt.global_position)
+		mat.set_shader_parameter("world_size", world_size)
+		mat.set_shader_parameter("tile_px", tex_px)

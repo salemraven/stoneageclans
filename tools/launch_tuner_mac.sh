@@ -4,6 +4,8 @@
 #
 # Usage (repo root):
 #   bash tools/launch_tuner_mac.sh                    # spear preview (default)
+#   bash tools/launch_tuner_mac.sh --stone-pose
+#   bash tools/launch_tuner_mac.sh --spear-throw-windup
 #   bash tools/launch_tuner_mac.sh --spear-windup-edit
 #   bash tools/launch_tuner_mac.sh --spear-preview --spear-pose-b
 #   bash tools/launch_tuner_mac.sh --gather1-preview

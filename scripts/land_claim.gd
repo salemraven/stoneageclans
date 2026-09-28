@@ -3,6 +3,7 @@ class_name LandClaim
 
 const BuildingHealthBar = preload("res://scripts/ui/building_health_bar.gd")
 const _TerritoryJobService = preload("res://scripts/systems/territory_job_service.gd")
+const CombatTargetPick = preload("res://scripts/combat/combat_target_pick.gd")
 
 signal claim_destroyed(clan_name: String)
 
@@ -21,6 +22,8 @@ var _collision_area: Area2D = null
 @export var aoh_radius_trait_multiplier: float = 1.0
 var _aoh_zone: Area2D = null
 var _huntables_in_aoh: Array = []
+var _grid_scan_accum: float = 0.0
+const GRID_SCAN_SEC: float = 0.1
 var inventory: InventoryData = null
 var _clan_name_label: Label = null
 # World-space label: must draw above the flag sprite (Y-sorted) and sit centered above the pole
@@ -46,6 +49,7 @@ var assigned_defenders: Array = []  # Node refs; prune invalid when used
 var assigned_searchers: Array = []
 var defend_ratio: float = 0.2
 var search_ratio: float = 0.2
+var ranged_ratio: float = 0.5
 
 # Persisted preference: 0 = auto (baseline n/4 + drag pool); >0 = min slots ceil(n * ratio). ClanBrain applies (single quota writer).
 @export var player_defend_ratio: float = 0.0
@@ -159,13 +163,24 @@ func get_huntables_in_aoh() -> Array:
 	return _huntables_in_aoh.duplicate()
 
 func _refresh_huntables_in_aoh_from_overlap() -> void:
-	## Re-scan overlap each query so slow/migrating prey stay on the board until they leave the ring.
-	if not _aoh_authority_ok() or not _aoh_zone or not is_instance_valid(_aoh_zone):
+	if not _aoh_authority_ok():
 		return
-	for body in _aoh_zone.get_overlapping_bodies():
+	_refresh_lists_from_grid()
+
+
+func _refresh_lists_from_grid() -> void:
+	if HostileEntityIndex == null:
+		return
+	var prey: Array = HostileEntityIndex.get_in_range(global_position, get_effective_aoh_radius(), HostileEntityIndex.FILTER_HUNT_PREY, self)
+	_huntables_in_aoh.clear()
+	for body in prey:
 		if body is Node2D and _is_huntable_wild_in_aoh(body):
-			if _huntables_in_aoh.find(body) < 0:
-				_huntables_in_aoh.append(body)
+			_huntables_in_aoh.append(body)
+	var foes: Array = HostileEntityIndex.get_in_range(global_position, radius, HostileEntityIndex.FILTER_CLAIM_HOSTILES, self)
+	_enemies_in_claim.clear()
+	for body in foes:
+		if _is_enemy_of_claim(body):
+			_enemies_in_claim.append(body)
 
 func _prune_huntables_in_aoh() -> void:
 	var valid: Array = []
@@ -183,7 +198,7 @@ func _aoh_authority_ok() -> bool:
 func _setup_area_of_hunt() -> void:
 	_aoh_zone = Area2D.new()
 	_aoh_zone.name = "AreaOfHunt"
-	_aoh_zone.monitoring = true
+	_aoh_zone.monitoring = false
 	_aoh_zone.monitorable = false
 	_aoh_zone.collision_layer = 0
 	_aoh_zone.collision_mask = 3  # Same as EnemiesInClaim: player + NPC CharacterBody layers
@@ -264,7 +279,7 @@ func register_huntable_in_aoh(body: Node2D) -> void:
 func _setup_enemies_in_claim() -> void:
 	_enemies_zone = Area2D.new()
 	_enemies_zone.name = "EnemiesInClaimZone"
-	_enemies_zone.monitoring = true
+	_enemies_zone.monitoring = false
 	_enemies_zone.monitorable = false
 	_enemies_zone.collision_mask = 3  # Layers 1+2: player and NPCs (AOP Phase 2 fix; mask=1 missed NPCs)
 	var shape := CircleShape2D.new()
@@ -287,6 +302,8 @@ func _is_enemy_of_claim(body: Node) -> bool:
 		if t == "caveman" or t == "clansman":
 			return true
 	if body.is_in_group("player"):
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(body):
+			return false
 		return not player_owned
 	return false
 
@@ -299,6 +316,99 @@ func _on_enemies_zone_body_exited(body: Node2D) -> void:
 	var idx: int = _enemies_in_claim.find(body)
 	if idx >= 0:
 		_enemies_in_claim.remove_at(idx)
+
+func has_village_intruder() -> bool:
+	return _nearest_village_intruder(global_position) != null
+
+
+func village_target(asker: Node) -> Node2D:
+	var gate: Dictionary = village_gate(asker)
+	var raw: Variant = gate.get("target")
+	if raw is Node2D and is_instance_valid(raw):
+		return raw as Node2D
+	return null
+
+
+func village_gate(asker: Node) -> Dictionary:
+	## One answer: the man to fight, and why this asker was or was not called.
+	if asker == null or not is_instance_valid(asker):
+		return {"target": null, "reason": "none"}
+	if str(asker.get("npc_type")) == "woman":
+		return {"target": null, "reason": "woman"}
+	if _asker_is_last_resort(asker):
+		return {"target": null, "reason": "last_resort"}
+	if not (asker is Node2D):
+		return {"target": null, "reason": "none"}
+	var band: float = radius * 2.0
+	if (asker as Node2D).global_position.distance_to(global_position) > band:
+		return {"target": null, "reason": "far"}
+	var current: Node2D = _living_person_target(asker)
+	if current != null and _body_in_circle(current) and _is_enemy_of_claim(current):
+		return {"target": current, "reason": "keep"}
+	if current != null:
+		return {"target": null, "reason": "busy"}
+	var nearest: Node2D = _nearest_village_intruder((asker as Node2D).global_position, asker)
+	if nearest != null:
+		return {"target": nearest, "reason": "call"}
+	return {"target": null, "reason": "none"}
+
+
+func _nearest_village_intruder(from_pos: Vector2, asker: Node = null) -> Node2D:
+	var candidates: Array = []
+	for body in get_enemies_in_claim():
+		if body == null or not is_instance_valid(body) or not (body is Node2D):
+			continue
+		if not _body_in_circle(body as Node2D):
+			continue
+		if not _is_enemy_of_claim(body):
+			continue
+		candidates.append(body)
+	if asker != null and is_instance_valid(asker):
+		var picked: Node = CombatTargetPick.pick_best_enemy(from_pos, asker, candidates)
+		if picked is Node2D and is_instance_valid(picked):
+			return picked as Node2D
+	var best: Node2D = null
+	var best_d: float = INF
+	for body in candidates:
+		var d: float = from_pos.distance_squared_to((body as Node2D).global_position)
+		if d < best_d:
+			best_d = d
+			best = body as Node2D
+	return best
+
+
+func _body_in_circle(body: Node2D) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	return global_position.distance_to(body.global_position) <= radius
+
+
+func _living_person_target(asker: Node) -> Node2D:
+	var raw: Variant = asker.get("combat_target")
+	if raw == null or not is_instance_valid(raw) or not (raw is Node2D):
+		return null
+	var body: Node2D = raw as Node2D
+	if body.has_method("is_dead") and body.is_dead():
+		return null
+	var hp: Node = body.get_node_or_null("HealthComponent")
+	if hp and bool(hp.get("is_dead")):
+		return null
+	var kind: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
+	var person: bool = body.is_in_group("player") or kind == "caveman" or kind == "clansman" or kind == "woman"
+	if not person:
+		return null
+	return body
+
+
+func _asker_is_last_resort(asker: Node) -> bool:
+	var hp: Node = asker.get_node_or_null("HealthComponent")
+	if hp == null:
+		return false
+	var max_hp: int = int(hp.get("max_hp"))
+	if max_hp <= 0:
+		return false
+	return int(hp.get("current_hp")) <= maxi(1, max_hp / 3)
+
 
 func get_enemies_in_claim() -> Array:
 	# Prune invalid refs
@@ -676,15 +786,20 @@ func _update_player_defender_quota() -> void:
 		clan_brain._update_defender_assignments()
 
 
-func set_sim_zones_monitoring(enabled: bool) -> void:
+func set_sim_zones_monitoring(_enabled: bool) -> void:
 	if _aoh_zone and is_instance_valid(_aoh_zone):
-		_aoh_zone.monitoring = enabled
+		_aoh_zone.monitoring = false
 	if _enemies_zone and is_instance_valid(_enemies_zone):
-		_enemies_zone.monitoring = enabled
+		_enemies_zone.monitoring = false
 
 
 func _process(delta: float) -> void:
 	"""Process building decay and ClanBrain updates"""
+	_grid_scan_accum += delta
+	if _grid_scan_accum >= GRID_SCAN_SEC:
+		_grid_scan_accum = 0.0
+		if _aoh_authority_ok():
+			_refresh_lists_from_grid()
 	
 	# Phase 3 Part C: Update ClanBrain (all clans; player quota = n/4 + drag pool)
 	# Server-authoritative: clients skip brain simulation (multiplayer-safe).

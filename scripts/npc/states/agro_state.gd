@@ -649,6 +649,14 @@ func can_enter() -> bool:
 		}, UnifiedLogger.Level.DEBUG)
 		return false
 	
+	var agro_tgt: Variant = npc.get("agro_target")
+	var lw_check: Variant = npc.get("lost_wildnpc")
+	var has_lost: bool = lw_check != null and is_instance_valid(lw_check)
+	if agro_tgt != null and is_instance_valid(agro_tgt) and not FightOverScript.is_living_attack_target(agro_tgt) and not has_lost:
+		npc.set("agro_target", null)
+		npc.set("agro_meter", 0.0)
+		return false
+
 	var am_enter: float = npc.get("agro_meter") as float if npc.get("agro_meter") != null else 0.0
 	if am_enter <= 0.0001:
 		UnifiedLogger.log_npc("Can enter check: %s cannot enter agro (agro_meter_zero)" % npc_name, {

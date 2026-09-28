@@ -137,10 +137,7 @@ func _update_weapon_visibility() -> void:
 			npc.apply_sprite_offset_for_texture()
 		return
 	if show_spear:
-		if WalkAnimation.get_spear_walk_sheet():
-			WalkAnimation.apply_spear_idle(sprite)
-		else:
-			WalkAnimation.apply_walk_idle(sprite)
+		WalkAnimation.apply_walk_idle(sprite)
 		if npc.has_method("apply_sprite_offset_for_texture"):
 			npc.apply_sprite_offset_for_texture()
 		return
@@ -209,10 +206,7 @@ func force_apply_idle() -> void:
 			npc.apply_sprite_offset_for_texture()
 		return
 	if show_spear:
-		if WalkAnimation.get_spear_walk_sheet():
-			WalkAnimation.apply_spear_idle(sprite)
-		else:
-			WalkAnimation.apply_walk_idle(sprite)
+		WalkAnimation.apply_walk_idle(sprite)
 		_last_show_spear = true
 		_last_show_club = false
 		_last_show_axe = false
@@ -246,7 +240,7 @@ func _card_overlay_should_show() -> bool:
 	if equipped_weapon == ResourceData.ResourceType.NONE:
 		return false
 	match equipped_weapon:
-		ResourceData.ResourceType.WOOD, ResourceData.ResourceType.SPEAR, ResourceData.ResourceType.PICK, ResourceData.ResourceType.OLDOWAN:
+		ResourceData.ResourceType.WOOD, ResourceData.ResourceType.SPEAR, ResourceData.ResourceType.STONE, ResourceData.ResourceType.PICK, ResourceData.ResourceType.OLDOWAN:
 			return _club_or_spear_visible_conditions()
 		ResourceData.ResourceType.AXE:
 			var hostile: bool = npc.get("is_hostile") if npc.get("is_hostile") != null else false

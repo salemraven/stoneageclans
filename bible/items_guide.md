@@ -475,13 +475,14 @@ Items that can be worn/equipped on the character. Includes armor, accessories, a
 
 ### Stacking Rules
 
+**Canon:** [UI.md](UI.md). Player bag does not stack (food max 5). Buildings / claims stack; drag moves the **whole** stack. Drop on the bag fills **only that slot** (1 wood/stone, food up to 5). Claim UI is a **compact stockpile** (one row per type). Title-bar drag remembers menu placement.
+
 **Player/NPC Inventory:**
 - Most items: **No stacking** (1 per slot)
-- Exception: Building inventories allow stacking
+- Food: up to 5 in bag / hotbar 9–0
 
 **Building Inventories:**
-- All items: **Stackable** (up to 999999 for testing)
-- Allows efficient storage
+- All items: **Stackable** (max from `BalanceConfig` / building scripts)
 
 ### Tier System
 
@@ -502,10 +503,9 @@ Items that can be worn/equipped on the character. Includes armor, accessories, a
 ## Item Interactions
 
 ### Drag-and-Drop
-- All items can be dragged between inventories
+- **Canon:** [UI.md](UI.md) — whole-stack drag; player bag cannot hold a stack in one slot
 - Buildings can be dragged to world map for placement
-- Regular items cannot be dropped on world map
-- Single item transfer (not entire stack)
+- Regular items dropped on empty world cancel the drag
 
 ### Hotbar Usage
 - Equipment slots (1-8): Tools, weapons, armor, accessories

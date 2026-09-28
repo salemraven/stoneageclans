@@ -4,6 +4,8 @@ class_name CombatComponent
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+const ThrownProjectile = preload("res://scripts/combat/thrown_projectile.gd")
+const ThrowHitResolver = preload("res://scripts/combat/throw_hit_resolver.gd")
 
 # Combat Component - handles attack logic, damage calculation, combat state
 # Now with event-driven windup/recovery system
@@ -17,6 +19,10 @@ var npc: Node2D = null  # Can be NPCBase or Player (CharacterBody2D)
 var attack_range: float = 100.0
 var current_target: Node2D = null  # Can be NPCBase or Player (CharacterBody2D)
 var base_damage: int = 10  # Base damage per hit (3 hits = 30 HP to kill)
+var pending_throw: bool = false
+var throw_item_type: ResourceData.ResourceType = ResourceData.ResourceType.STONE
+var throw_land_pos: Vector2 = Vector2.ZERO
+var throw_aim_target: Node2D = null
 
 # New event-driven combat timing
 var state: CombatState = CombatState.IDLE
@@ -224,8 +230,10 @@ func _sync_overlay_facing_from_aim() -> void:
 	if sprite == null:
 		return
 	## Club swing + spear thrust: horizontal aim sets card facing (overlay arc mirrors via flip_h).
-	if absf(aim_dir.x) > 0.05:
-		sprite.flip_h = aim_dir.x < 0.0
+	if aim_dir.x < -0.3:
+		sprite.flip_h = true
+	elif aim_dir.x > 0.3:
+		sprite.flip_h = false
 
 
 func _should_hold_weapon_ready() -> bool:
@@ -323,7 +331,24 @@ func commit_strike(strike_aim: Vector2) -> void:
 				npc.set("aim_dir", strike_aim)
 	locked_strike_dir = strike_aim
 	aim_dir = locked_strike_dir
-	current_target = _find_strike_target(locked_strike_dir)
+	pending_throw = false
+	throw_aim_target = null
+	if WeaponOverlayCombat.entity_in_throw_stance(npc):
+		if npc:
+			var ct: Variant = npc.get("combat_target")
+			if ct is Node2D and is_instance_valid(ct):
+				throw_aim_target = ct as Node2D
+			elif current_target and is_instance_valid(current_target):
+				throw_aim_target = current_target
+		if not _prepare_throw(locked_strike_dir):
+			_combat_d("COMBAT: throw cancelled — no ammo")
+			throw_aim_target = null
+			return
+		pending_throw = true
+		current_target = null
+		wt = throw_item_type
+	else:
+		current_target = _find_strike_target(locked_strike_dir)
 	state = CombatState.WINDUP
 	windup_start_time = Time.get_ticks_msec()
 	_sync_overlay_facing_from_aim()
@@ -564,11 +589,79 @@ func _on_windup_mid() -> void:
 	_combat_d("🎨 ANIMATION: Updating to mid-windup frame (frame 2)")
 	_set_combat_frame(2)
 
+func _prepare_throw(strike_aim: Vector2) -> bool:
+	var main: Node = get_tree().get_first_node_in_group("main") if is_inside_tree() else null
+	if main == null or not main.has_method("consume_throw_ammo"):
+		return false
+	throw_item_type = _resolve_throw_item_type()
+	if npc:
+		npc.set_meta("pending_throw_item", throw_item_type)
+	if not main.consume_throw_ammo(npc):
+		return false
+	if npc and npc.has_meta("pending_throw_item"):
+		throw_item_type = npc.get_meta("pending_throw_item") as ResourceData.ResourceType
+	throw_land_pos = _resolve_throw_land(strike_aim)
+	return true
+
+
+func _resolve_throw_item_type() -> ResourceData.ResourceType:
+	if npc and npc.has_meta("pending_throw_item"):
+		var pending: ResourceData.ResourceType = npc.get_meta("pending_throw_item") as ResourceData.ResourceType
+		if ResourceData.is_throwable(pending):
+			return pending
+	var equipped: ResourceData.ResourceType = _get_equipped_weapon_type()
+	if ResourceData.is_throwable(equipped):
+		return equipped
+	return ResourceData.ResourceType.STONE
+
+
+func _resolve_throw_land(strike_aim: Vector2) -> Vector2:
+	if npc == null or not is_instance_valid(npc):
+		return Vector2.ZERO
+	var tree := get_tree() if is_inside_tree() else null
+	if npc.is_in_group("player"):
+		var cursor: Vector2 = npc.global_position + strike_aim.normalized() * 80.0
+		var main: Node = tree.get_first_node_in_group("main") if tree else null
+		if main and main.has_method("_get_world_mouse_position"):
+			cursor = main._get_world_mouse_position()
+		return ThrowHitResolver.resolve_player_landing(npc, cursor, tree, ThrowHitResolver.throw_range_px_for(throw_item_type))
+	return ThrowHitResolver.resolve_npc_landing(npc, throw_aim_target, strike_aim, ThrowHitResolver.throw_range_px_for(throw_item_type))
+
+
+func _release_throw() -> void:
+	if not npc or not is_inside_tree():
+		pending_throw = false
+		throw_aim_target = null
+		return
+	throw_land_pos = _resolve_throw_land(locked_strike_dir)
+	var spawn_at: Vector2 = npc.global_position + Vector2(0, -40)
+	if npc.has_meta("throw_flight_from"):
+		spawn_at = npc.get_meta("throw_flight_from") as Vector2
+	var parent: Node = npc.get_parent()
+	ThrownProjectile.fire(parent, spawn_at, throw_land_pos, npc, ThrowHitResolver.throw_damage_for(throw_item_type), throw_item_type)
+	pending_throw = false
+	throw_aim_target = null
+	if _uses_overlay_combat():
+		return
+	state = CombatState.RECOVERY
+	recovery_start_time = Time.get_ticks_msec()
+	windup_start_time = 0
+	_update_combat_sprite(CombatState.RECOVERY)
+	var now = Time.get_ticks_msec()
+	var recovery_end_time = now + int(recovery_time * 1000)
+	var recovery_callable = _on_recovery_end.bind()
+	if recovery_callable.is_valid():
+		CombatScheduler.schedule(recovery_end_time, recovery_callable, npc.get_instance_id())
+
+
 func _on_hit_frame() -> void:
 	_combat_d("_on_hit_frame: state=%s windup_start_ms=%d" % [
 		CombatState.keys()[state] if state < CombatState.size() else "INVALID",
 		windup_start_time
 	])
+	if pending_throw:
+		_release_throw()
+		return
 	
 	# CRITICAL: Must exit WINDUP state immediately
 	if state != CombatState.WINDUP:
@@ -827,6 +920,13 @@ func _cancel_attack() -> void:
 	var cancel_entity_id = npc.get_instance_id() if npc else 0
 	_combat_d("🚫 COMBAT: _cancel_attack() called - current_state=%s, entity_id=%d" % [CombatState.keys()[state] if state < CombatState.size() else "INVALID", cancel_entity_id])
 	
+	if pending_throw:
+		var main: Node = get_tree().get_first_node_in_group("main") if is_inside_tree() else null
+		if main and main.has_method("refund_throw_ammo"):
+			main.refund_throw_ammo(npc)
+		pending_throw = false
+		throw_aim_target = null
+	
 	var was_ready_only: bool = state == CombatState.READY
 	# CRITICAL: Always return to IDLE, regardless of current state
 	state = CombatState.IDLE
@@ -1074,6 +1174,14 @@ func _get_attack_profile_for_weapon(weapon_type: ResourceData.ResourceType) -> D
 				"stagger": 0.16,
 				"attack_range": 200.0  # Thrust — matches long overlay reach + hold frame
 			}
+		ResourceData.ResourceType.STONE:
+			return {
+				"windup": 0.22,
+				"recovery": 0.28,
+				"arc": PI / 4.0,
+				"stagger": 0.12,
+				"attack_range": 100.0
+			}
 		_:
 			return {
 				"windup": 0.4,
@@ -1300,7 +1408,7 @@ func _update_combat_sprite(combat_state: CombatState) -> void:
 					"woman":
 						fallback_path = "res://assets/sprites/woman.png"
 					"baby":
-						fallback_path = "res://assets/sprites/baby.png"
+						fallback_path = "res://assets/sprites/male1.png"
 					"sheep":
 						fallback_path = "res://assets/sprites/sheep.png"
 					"goat":

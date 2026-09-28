@@ -1,8 +1,11 @@
 # RTS — Player commands, formations, and playtest
 
-**Stone Age Clans** — lightweight RTS layer on top of the sim: you **order clansmen** (not cavemen/women as combat squads in the same way), set **stance**, **rally** with the horn, **defend** territory, and **break** formation so they go back to work.
+**Stone Age Clans** — lightweight RTS layer on top of the sim: you **order clansmen**, set **stance**, **rally** with the horn, **defend** territory, and **break** so they go back to work.
 
-This doc matches **implementation** as of May 2026 (`main.gd`, `party_state.gd`, `formation_utils.gd`, `rts_formation_config.gd`, `wander_state.gd`, UI). **Vision / planned horn+herd fix:** [earlygame_vision.md](earlygame_vision.md) §5. **Wild herdables** use **`herd` state**, not party.
+**This file:** how the RTS layer **works in code today** (May–Sep 2026).  
+**Agreed next (not shipped):** party dock, short horn, pile, Walk/Hunt/Fight, mode shout — **[party_ui.md](party_ui.md)**. Do not implement the old HUD as the long-term UI.
+
+**Wild herdables** use **`herd` state**, not party. Horn+herd ignore: [earlygame_vision.md](earlygame_vision.md) §5.
 
 ---
 
@@ -208,10 +211,11 @@ The bottom RTS HUD has a **mode strip** (**PEACE**, **AGRO**, **HUNT**) plus **t
 ## 11. Related docs
 
 - **bible.md** — §XVIII (summary), §I primitive command, hunt/raid travel bullets
+- **[party_ui.md](party_ui.md)** — **Agreed next** party dock / pile / H / B / I+X
 - **`bible/rtsguide.md`** — Player-facing RTS guide (selection, drag, stances; links here for numbers)
 - **bible/earlygame.md**, **bible/Phase4/config.md** — economy / tuning may mention move speeds
 - **.cursor/plans/** — historical RTS cleanup plans (read-only reference)
 
 ---
 
-*Last updated: May 2026 — Peace/Agro/Hunt modes, hunting stances; deer use fright meter + flee burst (see `bible/Phase4/raiding_hunting.md`).*
+*Last updated: September 2026 — pointer to party_ui.md; in-game HUD still Peace/Agro/Hunt until that ships.*

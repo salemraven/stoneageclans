@@ -43,6 +43,9 @@ func _run() -> void:
 	_test_accept_raidable_enemy_building()
 	_test_craft_consume_and_finish()
 	_test_reject_craft_without_materials()
+	_test_stockpile_merge_and_consolidate()
+	_test_spill_stack_to_player_partial()
+	_test_spill_reject_when_bag_full()
 	_finish()
 
 
@@ -350,6 +353,56 @@ func _test_craft_consume_and_finish() -> void:
 		_fail("craft_finish: oldowan not added")
 
 
+func _test_stockpile_merge_and_consolidate() -> void:
+	var stock := InventoryData.new(6, true, 999)
+	if not stock.add_item(ResourceData.ResourceType.WOOD, 20):
+		_fail("stockpile_merge: add 20 wood")
+		return
+	if not stock.add_item(ResourceData.ResourceType.WOOD, 27):
+		_fail("stockpile_merge: add 27 more wood")
+		return
+	stock.set_slot(2, {"type": ResourceData.ResourceType.STONE, "count": 3})
+	stock.set_slot(4, {"type": ResourceData.ResourceType.STONE, "count": 2})
+	stock.consolidate_stacks()
+	if stock.get_count(ResourceData.ResourceType.WOOD) != 47:
+		_fail("stockpile_merge: expected 47 wood, got %d" % stock.get_count(ResourceData.ResourceType.WOOD))
+	if stock.get_count(ResourceData.ResourceType.STONE) != 5:
+		_fail("stockpile_merge: expected 5 stone, got %d" % stock.get_count(ResourceData.ResourceType.STONE))
+	if stock.get_used_slots() != 2:
+		_fail("stockpile_merge: expected 2 used rows after consolidate, got %d" % stock.get_used_slots())
+
+
+func _test_spill_stack_to_player_partial() -> void:
+	_reset_player_inventory()
+	var leftover: int = _player_ui.inventory_data.add_to_slot(
+		2, ResourceData.ResourceType.WOOD, 47, 0, 1
+	)
+	if leftover != 46:
+		_fail("one_slot: leftover should be 46, got %d" % leftover)
+	if _player_ui.inventory_data.get_count(ResourceData.ResourceType.WOOD) != 1:
+		_fail("one_slot: bag should have 1 wood")
+	if _player_ui.inventory_data.get_used_slots() != 1:
+		_fail("one_slot: only one bag slot should fill")
+	var only_two: Dictionary = _player_ui.inventory_data.get_slot(2)
+	if only_two.is_empty() or int(only_two.get("count", 0)) != 1:
+		_fail("one_slot: wood should be in slot 2")
+
+
+func _test_spill_reject_when_bag_full() -> void:
+	_reset_player_inventory()
+	for i in 5:
+		_player_ui.inventory_data.set_slot(i, {"type": ResourceData.ResourceType.STONE, "count": 1})
+	if _player_ui.inventory_data.can_add_item(ResourceData.ResourceType.WOOD, 1):
+		_fail("spill_full: bag should reject wood when full")
+	var leftover: int = _player_ui.inventory_data.add_to_slot(
+		0, ResourceData.ResourceType.WOOD, 47, 0, 1
+	)
+	if leftover != 47:
+		_fail("occupied_slot: leftover should stay 47, got %d" % leftover)
+	if _player_ui.inventory_data.get_count(ResourceData.ResourceType.WOOD) != 0:
+		_fail("occupied_slot: wood should not replace stone")
+
+
 func _test_reject_craft_without_materials() -> void:
 	_reset_player_inventory()
 	var op: Dictionary = {
@@ -367,7 +420,7 @@ func _fail(msg: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("TEST_INVENTORY_VALIDATION: all 13 checks passed")
+		print("TEST_INVENTORY_VALIDATION: all 16 checks passed")
 		quit(0)
 	else:
 		for msg in _failures:

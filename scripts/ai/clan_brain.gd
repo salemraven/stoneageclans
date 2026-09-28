@@ -22,6 +22,7 @@ class_name ClanBrain
 extends RefCounted
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
+const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
@@ -846,8 +847,22 @@ func _log_evaluation_snapshot() -> void:
 		"build_requests_pending": _count_build_requests_by_state("PENDING"),
 		"build_requests_active": _count_build_requests_by_state("CLAIMED") + _count_build_requests_by_state("IN_PROGRESS"),
 		"workforce_mode": WorkforceMode.keys()[workforce_mode],
+		"gather_count": _count_fighters_in_fsm("gather"),
+		"combat_count": _count_fighters_in_fsm("combat"),
+		"wander_count": _count_fighters_in_fsm("wander"),
 	}
 	pi.clan_brain_eval(clan_name, metrics)
+
+
+func _count_fighters_in_fsm(state_name: String) -> int:
+	var n: int = 0
+	for c in cavemen:
+		if c == null or not is_instance_valid(c):
+			continue
+		var fsm_n: Node = c.get_node_or_null("FSM")
+		if fsm_n and str(fsm_n.get("current_state_name")) == state_name:
+			n += 1
+	return n
 
 func _refresh_clan_members() -> void:
 	"""Refresh the list of clan members."""
@@ -1218,6 +1233,8 @@ func _count_enemy_fighters(enemy_claim: Node2D) -> int:
 		
 		var npc_type: String = npc.get("npc_type") if "npc_type" in npc else ""
 		if npc_type == "caveman" or npc_type == "clansman":
+			if npc.has_method("is_dead") and npc.is_dead():
+				continue
 			count += 1
 	
 	return count
@@ -2035,6 +2052,9 @@ func start_player_emergency_defend() -> void:
 # Raid configuration
 const MIN_RAID_PARTY_SIZE: int = 2
 const MAX_RAID_PARTY_SIZE: int = 8
+const RAID_FORM_STUCK_SEC: float = 18.0
+const LEADER_SHOCK_SEC: float = 8.0
+const LEADER_SHOCK_SCORE_PENALTY: float = -1.5
 const MIN_DEFENDERS_DURING_RAID: float = 0.3  # Keep 30% defending during raids
 const RAID_COOLDOWN: float = 60.0  # Seconds between raids
 const RAID_DISTANCE_MAX: float = 1500.0  # Max distance to consider for raid targets
@@ -2053,9 +2073,8 @@ var raid_intent: Dictionary = {
 var _last_raid_time: float = -RAID_COOLDOWN  # Allow immediate first raid
 var _raid_pressure: float = 0.0  # How much we want to raid (0.0 - 1.0)
 
-# Raid population / logistics gates (plan: 6+ fighters, food buffer, strength advantage)
+# Raid population / logistics gates (plan: 6+ fighters, food buffer). Target clan size is scored below.
 const RAID_POPULATION_THRESHOLD: int = 6
-const RAID_STRENGTH_ADVANTAGE: float = 1.5
 const RAID_MIN_FOOD_DAYS_FOR_RAID: float = 3.0
 
 # Hunting party (Area of Hunt)
@@ -2131,10 +2150,16 @@ func _evaluate_raid_opportunity() -> void:
 	# 3. Aggression personality (hostile clans raid even when stable)
 	score += raid_aggression * 0.3
 	
-	# 4. Opportunity (weak nearby enemy)
+	# 4. Opportunity (a clan we are not smaller than)
 	var weak_enemy: Node = _find_weak_enemy()
+	var numbers_contrib: float = 0.0
 	if weak_enemy:
+		var our_n: int = _living_clan_fighters()
+		var their_n: int = _count_enemy_fighters(weak_enemy)
+		var edge: float = float(our_n - their_n) / maxf(1.0, float(our_n))
+		numbers_contrib = clampf(edge, 0.0, 1.0) * 0.35
 		score += raid_opportunity_weight
+		score += numbers_contrib
 	
 	# 5. Strategic state modifier (applied once)
 	var state_contrib: float = 0.0
@@ -2166,6 +2191,7 @@ func _evaluate_raid_opportunity() -> void:
 				"population_contrib": population_contrib,
 				"aggression_contrib": aggression_contrib,
 				"weak_enemy_contrib": weak_enemy_contrib,
+				"numbers_contrib": numbers_contrib,
 				"state_contrib": state_contrib
 			}
 			pi.raid_evaluated(clan_name, score, breakdown)
@@ -2179,40 +2205,41 @@ func _evaluate_raid_opportunity() -> void:
 		else:
 			print("⚔️ ClanBrain %s: Raid score >= 1.0 but no valid target — block: no_weak_enemy" % clan_name)
 
+func _living_clan_fighters() -> int:
+	var n: int = 0
+	for body in cavemen:
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.has_method("is_dead") and body.is_dead():
+			continue
+		n += 1
+	return n
+
+
 func _find_weak_enemy() -> Node:
-	"""Find an enemy land claim that has fewer defenders than we have raiders available."""
+	"""Pick a raid target by clan size, then distance. A larger clan is not a target."""
 	var best_target: Node = null
-	var best_score: float = 0.0
-	
+	var best_score: float = -INF
+	var our_strength: int = _living_clan_fighters()
+	if our_strength <= 0 or territory == null:
+		return null
+
 	for enemy_claim in nearby_enemy_claims:
 		if not is_instance_valid(enemy_claim):
 			continue
-		
-		# Calculate enemy strength
-		var enemy_defenders: int = enemy_claim.assigned_defenders.size() if "assigned_defenders" in enemy_claim else 0
 		var enemy_strength: int = _count_enemy_fighters(enemy_claim)
-		
-		# Calculate our available raid force (keep defenders)
-		var defender_quota: int = get_defender_quota()
-		var available_raiders: int = cavemen.size() - defender_quota
-		
-		# Skip if we are not strong enough vs enemy (need ~1.5x their fighters in available raiders)
-		if float(available_raiders) < float(enemy_strength) * RAID_STRENGTH_ADVANTAGE:
+		if enemy_strength > our_strength:
 			continue
-		
-		# Score based on weakness and distance
 		var distance: float = territory.global_position.distance_to(enemy_claim.global_position)
 		if distance > RAID_DISTANCE_MAX:
 			continue
-		
-		var weakness_score: float = float(available_raiders - enemy_defenders) / maxf(1.0, float(available_raiders))
+		var size_score: float = float(our_strength - enemy_strength) / float(our_strength)
 		var distance_score: float = 1.0 - (distance / RAID_DISTANCE_MAX)
-		var score: float = weakness_score * 0.6 + distance_score * 0.4
-		
+		var score: float = size_score * 0.7 + distance_score * 0.3
 		if score > best_score:
 			best_score = score
 			best_target = enemy_claim
-	
+
 	return best_target
 
 func _find_best_raid_target() -> Node:
@@ -2227,6 +2254,14 @@ func _start_raid(target: Node) -> void:
 		_cancel_hunt("raid_started")
 	
 	var target_clan: String = target.get("clan_name") if "clan_name" in target else "enemy"
+	var our_fighters: int = _living_clan_fighters()
+	var their_fighters: int = _count_enemy_fighters(target)
+	if their_fighters > our_fighters:
+		print("RAID_SKIP clan=%s reason=outnumbered ours=%d theirs=%d target=%s" % [
+			clan_name, our_fighters, their_fighters, target_clan
+		])
+		return
+
 	print("⚔️ ClanBrain %s: Setting raid intent against %s" % [clan_name, target_clan])
 	
 	# Calculate raider quota (fighters not needed for defense)
@@ -2238,11 +2273,11 @@ func _start_raid(target: Node) -> void:
 			clan_name, MIN_RAID_PARTY_SIZE, raider_quota
 		])
 		return
-	
-	# Calculate rally point (between our claim and target)
+
 	var target_pos: Vector2 = target.global_position
 	var our_pos: Vector2 = territory.global_position
-	var rally_point: Vector2 = our_pos + (target_pos - our_pos).normalized() * (territory.radius + 50.0)
+	# Rally inside own claim — leader waits at center until party is formed
+	var rally_point: Vector2 = our_pos
 	
 	# Set raid intent - NPCs will read this
 	raid_intent["state"] = RaidState.RECRUITING
@@ -2289,30 +2324,23 @@ func _update_raid() -> void:
 	
 	match raid_intent["state"]:
 		RaidState.RECRUITING:
-			# Wait for raiders to join, then advance to ACTIVE
-			if raider_count >= MIN_RAID_PARTY_SIZE:
-				_log_raid_phase_change("RECRUITING", "ACTIVE")
-				raid_intent["state"] = RaidState.ACTIVE
-				if territory:
-					territory.set_meta("raid_intent", raid_intent.duplicate())
-				print("⚔️ ClanBrain %s: Raid active with %d raiders" % [clan_name, raider_count])
-			else:
-				# Timeout after 30 seconds of recruiting
-				var elapsed: float = (Time.get_ticks_msec() / 1000.0) - raid_intent["start_time"]
-				if elapsed > 30.0:
-					_cancel_raid("recruitment_timeout")
+			_tick_raid_form_up()
+			if bool(territory.get_meta("raid_form_left", false)):
+				if raid_intent["state"] == RaidState.RECRUITING:
+					_log_raid_phase_change("RECRUITING", "ACTIVE")
+					raid_intent["state"] = RaidState.ACTIVE
+					raid_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
+					if territory:
+						territory.set_meta("raid_intent", raid_intent.duplicate())
+					print("⚔️ ClanBrain %s: Raid active with %d raiders" % [clan_name, _count_active_raiders()])
 		
 		RaidState.ACTIVE:
-			# Check if all enemies defeated
+			_tick_raid_march_modes()
 			var enemy_fighters: int = _count_enemy_fighters(target)
 			if enemy_fighters == 0:
-				_log_raid_phase_change("ACTIVE", "RETREATING")
-				raid_intent["state"] = RaidState.RETREATING
-				raid_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
-				if territory:
-					territory.set_meta("raid_intent", raid_intent.duplicate())
-				print("⚔️ ClanBrain %s: Enemies defeated, retreat intent set" % clan_name)
-			# Check if we lost too many raiders
+				_begin_raid_retreat("enemies_defeated")
+			elif _raid_morale_has_broken():
+				_begin_raid_retreat("morale")
 			elif raider_count < MIN_RAID_PARTY_SIZE:
 				_cancel_raid("raiders_lost")
 		
@@ -2323,8 +2351,75 @@ func _update_raid() -> void:
 			if retreat_elapsed > 30.0:
 				_complete_raid("retreat_complete")
 
+func _raid_morale_has_broken() -> bool:
+	## Most living raiders have dropped under their flight line. Spawn value is 50, so a timid line alone does not count.
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	var living: int = 0
+	var broken: int = 0
+	var total: float = 0.0
+	for npc in cavemen:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not npc.has_meta("raid_joined") or npc.get_meta("raid_joined") != true:
+			continue
+		if npc.has_method("is_dead") and npc.is_dead():
+			continue
+		living += 1
+		var bar: float = MoraleBarScript.current(npc)
+		total += bar
+		if bar < 50.0 and bar < MoraleBarScript.flight_line(npc):
+			broken += 1
+	if living < 2 or broken * 2 < living:
+		return false
+	var avg: float = total / float(living)
+	print("RAID_CALLOFF clan=%s reason=morale broken=%d living=%d avg=%.0f" % [clan_name, broken, living, avg])
+	return true
+
+
+func _begin_raid_retreat(reason: String) -> void:
+	_log_raid_phase_change("ACTIVE", "RETREATING")
+	raid_intent["state"] = RaidState.RETREATING
+	raid_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
+	if territory:
+		raid_intent["target_position"] = territory.global_position
+		territory.set_meta("raid_intent", raid_intent.duplicate())
+	_send_raid_party_home()
+	if reason == "enemies_defeated":
+		print("⚔️ ClanBrain %s: Enemies defeated, retreat intent set" % clan_name)
+	else:
+		print("⚔️ ClanBrain %s: Raid called off (%s)" % [clan_name, reason])
+
+
+func _send_raid_party_home() -> void:
+	var leader: Node = _raid_party_leader_node()
+	var party: Array = _raid_party_follower_list()
+	if leader != null and is_instance_valid(leader):
+		party.append(leader)
+	for body in party:
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.has_method("is_dead") and body.is_dead():
+			continue
+		if body != leader and body.has_method("set_follow_mode_from_string"):
+			body.set_follow_mode_from_string("FOLLOW")
+		body.set("combat_target", null)
+		body.set("combat_target_id", -1)
+		var combat_comp: Node = body.get_node_or_null("CombatComponent")
+		if combat_comp and combat_comp.has_method("clear_target"):
+			combat_comp.clear_target()
+		var fsm: Node = body.get_node_or_null("FSM")
+		if fsm == null or not fsm.has_method("change_state"):
+			continue
+		if body == leader:
+			if str(fsm.get("current_state_name")) != "raid":
+				fsm.change_state("raid")
+		elif str(fsm.get("current_state_name")) != "party":
+			fsm.change_state("party")
+
+
 func _log_raid_phase_change(old_phase: String, new_phase: String) -> void:
 	"""Log raid phase transitions for debugging."""
+	print("RAID_PHASE clan=%s %s→%s raiders=%d" % [clan_name, old_phase, new_phase, _count_active_raiders()])
 	if DebugConfig and DebugConfig.enable_party_hunt_debug:
 		print("🟥 PARTY/HUNT RAID PHASE: %s %s → %s" % [clan_name, old_phase, new_phase])
 	var tree = territory.get_tree() if territory else null
@@ -2415,16 +2510,15 @@ func should_npc_raid(npc: Node) -> bool:
 		return false
 	if not npc or not is_instance_valid(npc):
 		return false
-	
+	if npc.has_meta("raid_joined") and npc.get_meta("raid_joined") == true:
+		return true
 	# Don't raid if defending
 	if territory and npc in territory.assigned_defenders:
 		return false
-	
 	# Check if quota is met
 	var current_raiders: int = _count_active_raiders()
 	if current_raiders >= raid_intent["raider_quota"]:
 		return false  # Quota full
-	
 	return true
 
 func npc_join_raid(npc: Node) -> void:
@@ -2432,12 +2526,16 @@ func npc_join_raid(npc: Node) -> void:
 	if not npc or not is_instance_valid(npc):
 		return
 	npc.set_meta("raid_joined", true)
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	npc.set_meta("flight_line_offset", MoraleBarScript.RAID_FLIGHT_LINE_OFFSET)
 
 func npc_leave_raid(npc: Node) -> void:
 	"""NPC leaves the raid (on death, flee, etc)."""
 	if not npc or not is_instance_valid(npc):
 		return
 	npc.remove_meta("raid_joined")
+	if npc.has_meta("flight_line_offset"):
+		npc.remove_meta("flight_line_offset")
 
 func get_raid_target_position() -> Vector2:
 	"""Get the raid target position (NPCs call this for navigation)."""
@@ -2448,10 +2546,33 @@ func get_raid_rally_point() -> Vector2:
 	return raid_intent["rally_point"]
 
 
+func _split_party_roles(candidates: Array, max_count: int) -> Dictionary:
+	var owner: Node = null
+	if territory and territory.get("owner_npc") != null and is_instance_valid(territory.get("owner_npc")):
+		owner = territory.get("owner_npc")
+	var leader: Node = null
+	if owner != null and candidates.has(owner):
+		leader = owner
+	elif not candidates.is_empty():
+		leader = candidates[0]
+	var followers: Array = []
+	var cap: int = maxi(0, max_count - 1)
+	for n in candidates:
+		if not is_instance_valid(n) or n == leader:
+			continue
+		if str(n.get("npc_type")) == "caveman":
+			continue
+		followers.append(n)
+		if followers.size() >= cap:
+			break
+	return {"leader": leader, "followers": followers}
+
+
 func _form_raid_party(max_raiders: int) -> void:
-	"""NPC-led party: first non-defender fighter is leader; rest follow in party state (same as player formations)."""
+	"""Clan leader leads when he is free. Other men follow. One man does not start a raid."""
 	if not territory:
 		return
+	var reserve_n: int = maxi(get_defender_quota(), cavemen.size() / 3)
 	var candidates: Array = []
 	for n in cavemen:
 		if not is_instance_valid(n):
@@ -2462,17 +2583,51 @@ func _form_raid_party(max_raiders: int) -> void:
 		if nt != "caveman" and nt != "clansman":
 			continue
 		candidates.append(n)
-	var total: int = mini(max_raiders, candidates.size())
-	if total < 2:
+	var owner: Node = null
+	if territory.get("owner_npc") != null and is_instance_valid(territory.get("owner_npc")):
+		owner = territory.get("owner_npc")
+	var leader: Node = null
+	if owner != null and candidates.has(owner):
+		leader = owner
+	elif not candidates.is_empty():
+		leader = candidates[0]
+	if leader == null or not is_instance_valid(leader):
 		return
-	var leader: Node = candidates[0]
+	var follower_pool: Array = []
+	for n in candidates:
+		if n == leader:
+			continue
+		follower_pool.append(n)
+	follower_pool.sort_custom(func(a: Node, b: Node) -> bool:
+		var da: float = territory.global_position.distance_to(a.global_position)
+		var db: float = territory.global_position.distance_to(b.global_position)
+		return da > db
+	)
+	var home_names: PackedStringArray = PackedStringArray()
+	var home_skip: int = mini(reserve_n, maxi(0, follower_pool.size() - (MIN_RAID_PARTY_SIZE - 1)))
+	for i in range(home_skip):
+		home_names.append(str(follower_pool[i].get("npc_name")))
 	var followers: Array = []
-	for i in range(1, total):
-		followers.append(candidates[i])
+	var cap: int = maxi(0, mini(max_raiders, candidates.size()) - 1)
+	for i in range(home_skip, follower_pool.size()):
+		if followers.size() >= cap:
+			break
+		followers.append(follower_pool[i])
+	if followers.is_empty():
+		return
 	territory.set_meta("raid_party_leader", leader)
 	territory.set_meta("raid_party_followers", followers.duplicate())
+	territory.set_meta("raid_form_left", false)
+	territory.set_meta("raid_home_guard", home_names)
+	territory.remove_meta("raid_form_logged")
+	for f in followers:
+		if not is_instance_valid(f):
+			continue
+		if f.has_meta("raid_form_best_dist"):
+			f.remove_meta("raid_form_best_dist")
+		if f.has_meta("raid_form_stuck_t"):
+			f.remove_meta("raid_form_stuck_t")
 	leader.set("is_hostile", true)
-	var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
 	npc_join_raid(leader)
 	for f in followers:
 		if not is_instance_valid(f):
@@ -2486,14 +2641,230 @@ func _form_raid_party(max_raiders: int) -> void:
 		PartyCommandUtils.apply_context_to_follower(leader, f)
 		if HerdManager:
 			HerdManager.register_follower(leader, f)
-		var fsm = f.get_node_or_null("FSM")
-		if fsm and fsm.has_method("change_state"):
-			fsm.evaluation_timer = 0.0
-			fsm.change_state("party")
+		var fsm_f = f.get_node_or_null("FSM")
+		if fsm_f and fsm_f.has_method("change_state"):
+			fsm_f.evaluation_timer = 0.0
+			fsm_f.change_state("party")
 		npc_join_raid(f)
+	var lfsm = leader.get_node_or_null("FSM")
+	if lfsm and lfsm.has_method("change_state"):
+		lfsm.evaluation_timer = 0.0
+		lfsm.change_state("raid")
+	if leader.has_method("set_raid_form_signal"):
+		leader.set_raid_form_signal(true)
 	var tree = territory.get_tree() if territory else null
 	if tree:
 		_notify_party_instrument(true, leader, followers, "raid_start")
+	var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+	print("RAID_START clan=%s leader=%s party=%d home_guard=%d names=%s" % [
+		clan_name, lname, followers.size() + 1, home_names.size(), ",".join(home_names)
+	])
+
+
+func _raid_party_leader_node() -> Node:
+	if not territory or not territory.has_meta("raid_party_leader"):
+		return null
+	var l: Variant = territory.get_meta("raid_party_leader")
+	if l == null or not is_instance_valid(l):
+		return null
+	return l as Node
+
+
+func _raid_party_follower_list() -> Array:
+	if not territory or not territory.has_meta("raid_party_followers"):
+		return []
+	var raw: Variant = territory.get_meta("raid_party_followers")
+	return raw as Array if raw is Array else []
+
+
+func _set_raid_party_followers(followers: Array) -> void:
+	if territory:
+		territory.set_meta("raid_party_followers", followers.duplicate())
+
+
+func _is_in_own_claim(body: Node2D) -> bool:
+	if not territory or body == null:
+		return false
+	var rad: float = float(territory.get("radius")) if territory.get("radius") != null else 400.0
+	return territory.global_position.distance_to(body.global_position) <= rad
+
+
+func _tick_raid_form_up() -> void:
+	if not territory:
+		return
+	var leader: Node = _raid_party_leader_node()
+	if leader == null:
+		_cancel_raid("no_raid_leader")
+		return
+	var followers: Array = _raid_party_follower_list()
+	var pruned: Array = []
+	var inside: int = 0
+	var outside: int = 0
+	var now: float = Time.get_ticks_msec() / 1000.0
+	for f in followers:
+		if f == null or not is_instance_valid(f):
+			continue
+		if f.has_method("is_dead") and f.is_dead():
+			npc_leave_raid(f)
+			continue
+		if not f.has_meta("raid_joined"):
+			continue
+		var body: Node2D = f as Node2D
+		if body == null:
+			continue
+		if _is_in_own_claim(body):
+			inside += 1
+			pruned.append(f)
+			continue
+		outside += 1
+		var dist: float = territory.global_position.distance_to(body.global_position)
+		var best: float = float(f.get_meta("raid_form_best_dist", dist + 1.0))
+		if dist < best - 8.0:
+			f.set_meta("raid_form_best_dist", dist)
+			f.set_meta("raid_form_stuck_t", now)
+		else:
+			var stuck_since: float = float(f.get_meta("raid_form_stuck_t", now))
+			if now - stuck_since >= RAID_FORM_STUCK_SEC:
+				npc_leave_raid(f)
+				if HerdManager and is_instance_valid(leader):
+					HerdManager.unregister_follower(leader, f)
+				f.set("follow_is_ordered", false)
+				f.set("is_herded", false)
+				f.set("herder", null)
+				print("RAID_FORM drop=%s reason=stuck" % str(f.get("npc_name")))
+				continue
+		pruned.append(f)
+	_set_raid_party_followers(pruned)
+	var living: int = 1
+	for f in pruned:
+		if is_instance_valid(f):
+			living += 1
+	if living < MIN_RAID_PARTY_SIZE:
+		_cancel_raid("party_too_small")
+		return
+	if territory.has_method("has_village_intruder") and territory.has_village_intruder():
+		return
+	if not _is_in_own_claim(leader as Node2D):
+		if leader.steering_agent and leader.steering_agent.has_method("hold_still"):
+			pass
+	var all_in: bool = outside == 0 and inside == pruned.size()
+	if not territory.has_meta("raid_form_logged"):
+		var lname: String = str(leader.get("npc_name"))
+		print("RAID_FORM leader=%s inside=%d outside=%d signal=1" % [lname, inside, outside])
+		territory.set_meta("raid_form_logged", true)
+	if not all_in:
+		return
+	if not _is_in_own_claim(leader as Node2D):
+		return
+	if leader.has_method("set_raid_form_signal"):
+		leader.set_raid_form_signal(false)
+	territory.set_meta("raid_form_left", true)
+	var lname2: String = str(leader.get("npc_name"))
+	print("RAID_LEAVE leader=%s raiders=%d" % [lname2, living])
+
+
+func _tick_raid_march_modes() -> void:
+	var leader: Node = _raid_party_leader_node()
+	if leader == null or not is_instance_valid(leader):
+		return
+	var target: Node = raid_intent.get("target")
+	if target == null or not is_instance_valid(target):
+		return
+	var enemy_rad: float = float(target.get("radius")) if target.get("radius") != null else 400.0
+	var dist: float = leader.global_position.distance_to(target.global_position)
+	var use_attack: bool = dist <= enemy_rad
+	var followers: Array = _raid_party_follower_list()
+	for f in followers:
+		if f == null or not is_instance_valid(f):
+			continue
+		if not bool(f.get("follow_is_ordered")):
+			continue
+		var want: String = "ATTACK" if use_attack else "FOLLOW"
+		var have: String = "FOLLOW"
+		if f.has_method("get_follow_mode_string"):
+			have = f.get_follow_mode_string()
+		if have != want and f.has_method("set_follow_mode_from_string"):
+			f.set_follow_mode_from_string(want)
+			if want == "ATTACK" and not territory.has_meta("raid_line_logged"):
+				territory.set_meta("raid_line_logged", true)
+				print("RAID_LINE leader=%s mode=ATTACK" % str(leader.get("npc_name")))
+
+
+func hand_raid_party_to_new_leader(new_leader: Node, old_leader_name: String) -> void:
+	if not territory or new_leader == null or not is_instance_valid(new_leader):
+		return
+	if raid_intent["state"] == RaidState.NONE:
+		return
+	if not territory.has_meta("raid_party_leader"):
+		return
+	var followers: Array = _raid_party_follower_list()
+	var kept: Array = []
+	for f in followers:
+		if f == null or not is_instance_valid(f):
+			continue
+		if f == new_leader:
+			continue
+		kept.append(f)
+	_set_raid_party_followers(kept)
+	var phase: String = "fight"
+	if not bool(territory.get_meta("raid_form_left", false)):
+		phase = "form"
+	elif raid_intent["state"] == RaidState.RECRUITING:
+		phase = "form"
+	else:
+		var target: Node = raid_intent.get("target")
+		if target and is_instance_valid(target):
+			var er: float = float(target.get("radius")) if target.get("radius") != null else 400.0
+			if new_leader.global_position.distance_to(target.global_position) > er:
+				phase = "march"
+	followers = _raid_party_follower_list()
+	for f in followers:
+		if f == null or not is_instance_valid(f) or f == new_leader:
+			continue
+		f.set("is_herded", true)
+		f.set("herder", new_leader)
+		f.set("follow_is_ordered", true)
+		if f.has_method("set_follow_mode_from_string"):
+			var mode: String = "FOLLOW"
+			if bool(territory.get_meta("raid_form_left", false)):
+				var tgt: Node = raid_intent.get("target")
+				if tgt and is_instance_valid(tgt):
+					var er2: float = float(tgt.get("radius")) if tgt.get("radius") != null else 400.0
+					if new_leader.global_position.distance_to(tgt.global_position) <= er2:
+						mode = "ATTACK"
+			f.set_follow_mode_from_string(mode)
+		if HerdManager:
+			HerdManager.register_follower(new_leader, f)
+	new_leader.set("is_herded", false)
+	new_leader.set("herder", null)
+	new_leader.set("follow_is_ordered", false)
+	npc_join_raid(new_leader)
+	territory.set_meta("raid_party_leader", new_leader)
+	if phase == "form" and new_leader.has_method("set_raid_form_signal"):
+		new_leader.set_raid_form_signal(true)
+	elif new_leader.has_method("set_raid_form_signal"):
+		new_leader.set_raid_form_signal(false)
+	var nfsm = new_leader.get_node_or_null("FSM")
+	if nfsm and nfsm.has_method("change_state"):
+		nfsm.evaluation_timer = 0.0
+		nfsm.change_state("raid")
+	print("RAID_SUCCESSION dead=%s new=%s phase=%s" % [
+		old_leader_name, str(new_leader.get("npc_name")), phase
+	])
+
+
+func apply_leader_death_shock(dead_leader_name: String) -> void:
+	if not territory:
+		return
+	var tree = territory.get_tree()
+	if tree == null:
+		return
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	MoraleBarScript.apply_leader_death_clan(clan_name, tree, dead_leader_name)
+	MoraleBarScript.apply_leader_shock_timer(clan_name, tree)
+	print("NPC_LEADER_SHOCK clan=%s sec=%.0f dead=%s" % [
+		clan_name, MoraleBarScript.LEADER_SHOCK_SEC, dead_leader_name
+	])
 
 
 func _disband_raid_party(reason: String) -> void:
@@ -2501,11 +2872,19 @@ func _disband_raid_party(reason: String) -> void:
 		return
 	var leader: Node = territory.get_meta("raid_party_leader") as Node
 	var followers: Array = territory.get_meta("raid_party_followers", []) as Array
+	if leader and is_instance_valid(leader) and leader.has_method("set_raid_form_signal"):
+		leader.set_raid_form_signal(false)
 	territory.remove_meta("raid_party_leader")
 	territory.remove_meta("raid_party_followers")
+	territory.remove_meta("raid_form_left")
+	territory.remove_meta("raid_form_logged")
+	territory.remove_meta("raid_line_logged")
+	territory.remove_meta("raid_home_guard")
+	territory.remove_meta("leader_shock_logged")
 	var lname: String = ""
 	if leader and is_instance_valid(leader):
 		lname = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
+		npc_leave_raid(leader)
 		if leader.has_meta("formation_slots"):
 			leader.remove_meta("formation_slots")
 		if leader.has_meta("formation_velocity"):
@@ -2514,6 +2893,7 @@ func _disband_raid_party(reason: String) -> void:
 	for f in followers:
 		if not is_instance_valid(f):
 			continue
+		npc_leave_raid(f)
 		if HerdManager and leader and is_instance_valid(leader):
 			HerdManager.unregister_follower(leader, f)
 		f.set("follow_is_ordered", false)
@@ -2886,13 +3266,11 @@ func _form_hunt_party(max_hunters: int) -> void:
 		candidates.sort_custom(func(a, b):
 			return a.global_position.distance_to(prey_pos) < b.global_position.distance_to(prey_pos)
 		)
-	var total: int = mini(max_hunters, candidates.size())
-	if total < 2:
+	var roles: Dictionary = _split_party_roles(candidates, mini(max_hunters, candidates.size()))
+	var leader: Node = roles.get("leader")
+	var followers: Array = roles.get("followers", [])
+	if leader == null or not is_instance_valid(leader) or followers.is_empty():
 		return
-	var leader: Node = candidates[0]
-	var followers: Array = []
-	for i in range(1, total):
-		followers.append(candidates[i])
 	territory.set_meta("hunt_party_leader", leader)
 	territory.set_meta("hunt_party_followers", followers.duplicate())
 	leader.set("is_hostile", true)
@@ -2992,6 +3370,11 @@ func set_hunt_party_arc_stance() -> void:
 			continue
 		PartyCommandUtils.set_follower_mode_string(f, "ARC")
 		PartyCommandUtils.apply_context_to_follower(leader, f)
+	var phi_arc: Node = null
+	if territory and territory.get_tree():
+		phi_arc = territory.get_tree().root.get_node_or_null("PartyHuntInstrument")
+	if phi_arc and phi_arc.has_method("note_hunt_arc"):
+		phi_arc.note_hunt_arc(clan_name, leader, followers.size())
 
 func is_hunt_party_encircled(prey: Node) -> bool:
 	if not prey or not is_instance_valid(prey) or not territory:
@@ -3036,6 +3419,9 @@ func trigger_hunt_party_attack(prey: Node) -> void:
 		else:
 			m.set("combat_target", prey)
 		m.set("agro_meter", 100.0)
+		m.set_meta("allow_last_spear_throw", true)
+		m.set_meta("volley_prey", prey)
+		m.remove_meta("volley_attacker")
 		if m == leader:
 			m.set_meta("hunt_after_combat", true)
 		var fsm_m = m.get_node_or_null("FSM")
@@ -3052,6 +3438,7 @@ func open_corpse_job_site(corpse: Node) -> void:
 	var existing: Node = CorpseJobs.get_site_corpse(territory)
 	if existing == corpse:
 		return
+	CorpseHarvestScript.add_candidate(territory, corpse)
 	CorpseJobs.register_site(territory, corpse)
 	_soft_disband_hunt_party_for_loot()
 	var tree = territory.get_tree() if territory else null

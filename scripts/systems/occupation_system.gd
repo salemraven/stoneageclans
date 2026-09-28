@@ -248,7 +248,7 @@ func get_home_living_hut(npc: Node) -> Node2D:
 		return null
 	if npc.has_meta(HOME_LIVING_HUT_META):
 		var hut: Variant = npc.get_meta(HOME_LIVING_HUT_META)
-		if hut is Node2D and is_instance_valid(hut):
+		if hut != null and is_instance_valid(hut) and hut is Node2D:
 			return hut as Node2D
 	if _npc_to_ref.has(npc):
 		var ref = _npc_to_ref[npc]

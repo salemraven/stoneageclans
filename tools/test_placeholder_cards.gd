@@ -50,7 +50,7 @@ func _count_head_pivots(sprite: Sprite2D) -> int:
 	return count
 
 
-func _assert_layered_body_mannequin(entity: Node, sprite: Sprite2D, label: String) -> void:
+func _assert_layered_body_mannequin(entity: Node, sprite: Sprite2D, label: String, display_h: float = MANNEQUIN_TARGET_HEIGHT) -> void:
 	if sprite == null:
 		_fail("%s sprite missing" % label)
 		return
@@ -63,9 +63,9 @@ func _assert_layered_body_mannequin(entity: Node, sprite: Sprite2D, label: Strin
 	if body_visual == null:
 		_fail("%s BodyVisual missing" % label)
 	var body_tex: Texture2D = _mannequin_body_tex()
-	_assert_near(sprite.position.y, _expected_foot_y(body_tex, MANNEQUIN_TARGET_HEIGHT), "%s foot_y" % label)
-	if absf(sprite.scale.y - (MANNEQUIN_TARGET_HEIGHT / float(body_tex.get_height()))) > 0.02:
-		_fail("%s scale not 56px tall runtime mannequin layout" % label)
+	_assert_near(sprite.position.y, _expected_foot_y(body_tex, display_h), "%s foot_y" % label)
+	if absf(sprite.scale.y - (display_h / float(body_tex.get_height()))) > 0.02:
+		_fail("%s scale not %.0fpx tall runtime mannequin layout" % [label, display_h])
 	var arm_ctrl: Node = entity.get_node_or_null("ProceduralArmController")
 	if arm_ctrl != null and arm_ctrl.is_processing():
 		_fail("%s ProceduralArmController should not run in game" % label)
@@ -75,6 +75,57 @@ func _texture_path(texture: Texture2D) -> String:
 	if texture == null:
 		return ""
 	return texture.resource_path
+
+
+func _hair_front(entity: Node) -> Sprite2D:
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return null
+	var head: Node = sprite.get_node_or_null("HeadPivot")
+	if head == null:
+		return null
+	return head.get_node_or_null("HairFront") as Sprite2D
+
+
+func _hair_layout_path(entity: Node) -> String:
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return ""
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	if body_visual == null or not body_visual.has_method("get_layer_layout"):
+		return ""
+	var layer = body_visual.call("get_layer_layout")
+	if layer == null:
+		return ""
+	return str(layer.hair_texture_path)
+
+
+func _hair_texture_path(entity: Node) -> String:
+	var layout_path: String = _hair_layout_path(entity)
+	if not layout_path.is_empty():
+		return layout_path
+	var hair: Sprite2D = _hair_front(entity)
+	if hair == null or hair.texture == null:
+		return ""
+	var path: String = _texture_path(hair.texture)
+	if not path.is_empty():
+		return path
+	return str(hair.texture)
+
+
+func _assert_hair_layer(entity: Node, _sprite: Sprite2D, label: String) -> void:
+	var hair_id: int = int(entity.get("hair_id"))
+	if hair_id < 1 or hair_id > PartsRegistry.HAIR_STYLE_COUNT:
+		_fail("%s hair_id out of range: %d" % [label, hair_id])
+	var hair: Sprite2D = _hair_front(entity)
+	if hair == null or hair.texture == null:
+		_fail("%s missing HairFront texture" % label)
+	var path: String = _hair_texture_path(entity)
+	if path.find("/hair/") < 0 and path.find("hair/") < 0:
+		_fail("%s hair should load from character_cards/hair/, got: %s" % [label, path])
+	var expected: String = PartsRegistry.hair_texture_path_for_id(hair_id)
+	if path.find(expected.get_file()) < 0:
+		_fail("%s hair file should be %s, got %s" % [label, expected.get_file(), path])
 
 
 func _run() -> void:
@@ -133,7 +184,7 @@ func _run() -> void:
 	if card_index < 1 or card_index > 18:
 		_fail("caveman card_index out of range: %d" % card_index)
 
-	# Woman NPC
+	# Woman NPC — same layered mannequin as males, female body/head PNGs
 	var woman: Node = npc_scene.instantiate()
 	woman.set("npc_type", "woman")
 	woman.set("npc_name", "TEST_WOMAN")
@@ -141,11 +192,89 @@ func _run() -> void:
 	await process_frame
 	svc.apply_to_npc(woman)
 	var woman_sprite: Sprite2D = woman.get_node_or_null("Sprite") as Sprite2D
-	if woman_sprite == null or woman_sprite.texture == null:
-		_fail("woman sprite/texture missing")
-	_assert_near(woman_sprite.position.y, _expected_foot_y(woman_sprite.texture), "woman foot_y")
-	if not _texture_path(woman_sprite.texture).contains("woman_card"):
-		_fail("woman card path wrong: %s" % _texture_path(woman_sprite.texture))
+	_assert_layered_body_mannequin(woman, woman_sprite, "woman")
+	if not svc.uses_layered_body_mannequin(woman):
+		_fail("woman should use layered body mannequin in game")
+	var body_visual: Node = woman_sprite.get_node_or_null("BodyVisual")
+	var body_layer: Sprite2D = body_visual.get_node_or_null("BodySprite") as Sprite2D if body_visual else null
+	if body_layer == null or body_layer.texture == null:
+		_fail("woman BodySprite missing")
+	var body_path: String = _texture_path(body_layer.texture)
+	if not body_path.contains("fbody1"):
+		_fail("woman body must be fbody1.png, got: %s" % body_path)
+
+	for i in range(1, PartsRegistry.HAIR_STYLE_COUNT + 1):
+		var hair_path: String = PartsRegistry.hair_texture_path_for_id(i)
+		if hair_path.is_empty():
+			_fail("hair id %d path empty" % i)
+		var hair_tex: Texture2D = PartsRegistry._load_png(hair_path)
+		if hair_tex == null:
+			_fail("hair id %d failed to load: %s" % [i, hair_path])
+		if hair_tex.get_width() != 500 or hair_tex.get_height() != 700:
+			_fail("hair id %d must be 500x700, got %dx%d" % [i, hair_tex.get_width(), hair_tex.get_height()])
+	var seven_path: String = PartsRegistry.hair_texture_path_for_id(7)
+	if not seven_path.ends_with("07.png") and not seven_path.ends_with("07hair.png"):
+		_fail("hair 7 should resolve to 07hair.png or 07.png, got %s" % seven_path)
+
+	_assert_hair_layer(player, player_sprite, "player")
+	_assert_hair_layer(caveman, cave_sprite, "caveman")
+	_assert_hair_layer(woman, woman_sprite, "woman")
+	var hair_one: Node = npc_scene.instantiate()
+	hair_one.set("npc_type", "caveman")
+	hair_one.set("npc_name", "HAIR_ONE")
+	hair_one.set("hair_id", 1)
+	hair_one.set_meta("hair_id", 1)
+	root_node.add_child(hair_one)
+	await process_frame
+	svc.apply_to_npc(hair_one)
+	var hair_fifteen: Node = npc_scene.instantiate()
+	hair_fifteen.set("npc_type", "woman")
+	hair_fifteen.set("npc_name", "HAIR_FIFTEEN")
+	hair_fifteen.set("hair_id", 15)
+	hair_fifteen.set_meta("hair_id", 15)
+	root_node.add_child(hair_fifteen)
+	await process_frame
+	svc.apply_to_npc(hair_fifteen)
+	var path_one: String = _hair_texture_path(hair_one)
+	var path_fifteen: String = _hair_texture_path(hair_fifteen)
+	if not path_one.contains("01hair"):
+		_fail("forced hair 1 should be 01hair.png, got %s" % path_one)
+	if not path_fifteen.contains("15hair"):
+		_fail("forced hair 15 should be 15hair.png, got %s" % path_fifteen)
+	if int(hair_one.get("hair_id")) != 1 or int(hair_fifteen.get("hair_id")) != 15:
+		_fail("hair_id should stick after apply")
+
+	if PartsRegistry.hair_tone_count() < 2:
+		_fail("need at least 2 hair tones for eval")
+	var black_c: Color = PartsRegistry.hair_tone_to_color("Black")
+	var blonde_c: Color = PartsRegistry.hair_tone_to_color("DirtyBlonde")
+	if black_c.is_equal_approx(blonde_c):
+		_fail("Black and DirtyBlonde hair colors must differ")
+	hair_one.set("hair_tone", "Black")
+	hair_one.set_meta("hair_tone", "Black")
+	hair_one.set_meta("hair_tone_forced", true)
+	svc.apply_to_npc(hair_one)
+	hair_fifteen.set("hair_tone", "DirtyBlonde")
+	hair_fifteen.set_meta("hair_tone", "DirtyBlonde")
+	hair_fifteen.set_meta("hair_tone_forced", true)
+	svc.apply_to_npc(hair_fifteen)
+	var hair_spr_one: Sprite2D = _hair_front(hair_one)
+	var hair_spr_fifteen: Sprite2D = _hair_front(hair_fifteen)
+	if hair_spr_one == null or hair_spr_fifteen == null:
+		_fail("hair sprites missing after tone apply")
+	if not hair_spr_one.modulate.is_equal_approx(black_c):
+		_fail("Black hair modulate mismatch")
+	if not hair_spr_fifteen.modulate.is_equal_approx(blonde_c):
+		_fail("DirtyBlonde hair modulate mismatch")
+	for label_ent in [player, caveman, woman]:
+		var ht: String = str(label_ent.get("hair_tone"))
+		var ok_tone := false
+		for id in PartsRegistry.HAIR_TONE_IDS:
+			if id == ht:
+				ok_tone = true
+				break
+		if not ok_tone:
+			_fail("%s missing hair_tone, got '%s'" % [str(label_ent.get("npc_name")), ht])
 
 	# WeaponOverlay child exists
 	var overlay: Node = cave_sprite.get_node_or_null("WeaponOverlay")
@@ -379,6 +508,14 @@ func _run() -> void:
 	var son_index: int = int(son.get("card_index"))
 	if son_index != 5:
 		_fail("son should inherit player card_index 5, got %d" % son_index)
+	if not svc.uses_layered_body_mannequin(son):
+		_fail("baby should use layered mannequin, not baby.png card")
+	svc.apply_to_npc(son)
+	var baby_sprite: Sprite2D = son.get_node_or_null("Sprite") as Sprite2D
+	_assert_layered_body_mannequin(son, baby_sprite, "baby son", 28.0)
+	var hair_front: Node = son.get_node_or_null("Sprite/HeadPivot/HairFront")
+	if hair_front != null:
+		_fail("baby should have no HairFront")
 	son.set("npc_type", "clansman")
 	svc.apply_to_npc(son)
 	var son_sprite: Sprite2D = son.get_node_or_null("Sprite") as Sprite2D

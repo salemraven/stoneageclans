@@ -118,6 +118,8 @@ static func _append_pose_row(lines: PackedStringArray, row: Dictionary) -> void:
 			lines.append("%s: %s" % [bend_key, row[bend_key]])
 	if row.has("rotation_deg"):
 		lines.append("rotation_deg: %s" % _stringify_value(row["rotation_deg"]))
+	if row.has("overlay_scale_mul"):
+		lines.append("overlay_scale_mul: %s" % _stringify_value(row["overlay_scale_mul"]))
 	if row.has("grip_on_art_px"):
 		lines.append("grip_on_art_px: %s" % _stringify_value(row["grip_on_art_px"]))
 	if row.has("hand_1_role"):
@@ -245,6 +247,7 @@ static func _build_pose_block(
 		"elbow_1_bend": WeaponLimbPreset.bend_sign_chat_label(pose.elbow_weapon_bend_sign),
 		"elbow_2_bend": WeaponLimbPreset.bend_sign_chat_label(pose.elbow_support_bend_sign),
 		"rotation_deg": _rotation_for_export(pose.weapon_rotation_deg),
+		"overlay_scale_mul": snappedf(pose.overlay_scale_mul, 0.01),
 	}
 	if pose.grip_on_art_px.length_squared() > 0.0001:
 		row["grip_on_art_px"] = _vec2_array(pose.grip_on_art_px)

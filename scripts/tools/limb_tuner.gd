@@ -28,6 +28,7 @@ const HOLDABLE_MENU: Array[Dictionary] = [
 	{"label": "Axe", "type": ResourceData.ResourceType.AXE},
 	{"label": "Pick", "type": ResourceData.ResourceType.PICK},
 	{"label": "Oldowan tool", "type": ResourceData.ResourceType.OLDOWAN},
+	{"label": "Stone", "type": ResourceData.ResourceType.STONE},
 ]
 ## Back-compat alias for tests / older references.
 const WEAPON_MENU: Array[Dictionary] = HOLDABLE_MENU
@@ -66,6 +67,8 @@ const CharacterAnimationPresetStoreScript = preload(
 @onready var _pose_row: HBoxContainer = $UI/Panel/Margin/Scroll/VBox/TunerSection/PreviewSection/PoseRow
 @onready var _weapon_section: VBoxContainer = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection
 @onready var _weapon_rotation_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponRotationRow/WeaponRotationSpin
+@onready var _weapon_size_slider: HSlider = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow/WeaponSizeSlider
+@onready var _weapon_size_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow/WeaponSizeSpin
 @onready var _summary_label: Label = $UI/Panel/Margin/Scroll/VBox/SummaryLabel
 @onready var _status_label: Label = $UI/Panel/Margin/Scroll/VBox/StatusLabel
 @onready var _upper_arm_length_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmLengthRow/UpperArmLengthSpin
@@ -153,6 +156,12 @@ var _spear_grab_offset: Vector2 = Vector2.ZERO
 var _spear_grip_2_grab_offset: Vector2 = Vector2.ZERO
 var _syncing_arm_length_ui: bool = false
 var _syncing_weapon_rotation_ui: bool = false
+var _weapon_base_scale: Vector2 = Vector2.ONE
+var _syncing_weapon_size_ui: bool = false
+var _throw_spear_dragging: bool = false
+var _throw_spear_grab_offset: Vector2 = Vector2.ZERO
+var _throw_spear_user_moved: bool = false
+var _stone_pose_placed: Array[bool] = [false, false]
 var _syncing_arm_thickness_ui: bool = false
 var _syncing_picker_ui: bool = false
 var _idle_club_minimal_active: bool = false
@@ -238,8 +247,10 @@ func _finish_startup() -> void:
 		or _wants_club_walk_preview_startup()
 	):
 		_selected_weapon = ResourceData.ResourceType.WOOD
-	if _wants_spear_preview_startup() or _wants_spear_windup_edit_startup():
+	if _wants_spear_preview_startup() or _wants_spear_windup_edit_startup() or _wants_spear_throw_windup_startup():
 		_selected_weapon = ResourceData.ResourceType.SPEAR
+	if _wants_stone_pose_startup():
+		_selected_weapon = ResourceData.ResourceType.STONE
 	if _rig:
 		_rig.weapon_type = _selected_weapon
 		_rig.refresh_weapon_overlay()
@@ -261,6 +272,10 @@ func _finish_startup() -> void:
 		call_deferred("_begin_idle_club1_edit_session")
 	if _wants_idle_club1_place_startup():
 		call_deferred("_begin_idle_club1_place_session")
+	elif _wants_stone_pose_startup():
+		call_deferred("_begin_stone_pose_session")
+	elif _wants_spear_throw_windup_startup():
+		call_deferred("_begin_spear_throw_windup_session")
 	elif _wants_spear_windup_edit_startup():
 		call_deferred("_begin_spear_windup_edit_session")
 	elif _wants_spear_strike_edit_startup():
@@ -1336,6 +1351,18 @@ func _wants_spear_idle_play_startup() -> bool:
 	return "--spear-idle-play" in OS.get_cmdline_args()
 
 
+func _wants_stone_pose_startup() -> bool:
+	if "--stone-pose" in OS.get_cmdline_user_args():
+		return true
+	return "--stone-pose" in OS.get_cmdline_args()
+
+
+func _wants_spear_throw_windup_startup() -> bool:
+	if "--spear-throw-windup" in OS.get_cmdline_user_args():
+		return true
+	return "--spear-throw-windup" in OS.get_cmdline_args()
+
+
 func _wants_spear_windup_edit_startup() -> bool:
 	if "--spear-windup-edit" in OS.get_cmdline_user_args():
 		return true
@@ -1362,6 +1389,8 @@ func _has_special_startup() -> bool:
 		or _wants_idle_club1_edit_startup()
 		or _wants_idle_club1_place_startup()
 		or _wants_spear_preview_startup()
+		or _wants_stone_pose_startup()
+		or _wants_spear_throw_windup_startup()
 		or _wants_spear_windup_edit_startup()
 		or _wants_spear_strike_edit_startup()
 	)
@@ -1479,6 +1508,48 @@ func _begin_spear_preview_session() -> void:
 				+ "drag yellow 2h · Copy for chat · Save all · ▶ Play when both poses are saved · "
 				+ _spear_combat_controls_hint()
 			)
+
+
+func _begin_spear_throw_windup_session() -> void:
+	## Same pose the fight uses: spear stays equipped, cocked back over the head.
+	_set_weapon(ResourceData.ResourceType.SPEAR, false)
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	if _rig:
+		_rig.weapon_type = ResourceData.ResourceType.SPEAR
+		_rig.refresh_weapon_overlay()
+		WeaponOverlayCombat.set_throw_stance(_rig, true)
+		if _rig.combat_component:
+			_rig.combat_component.state = CombatComponent.CombatState.WINDUP
+		WeaponOverlayCombat.set_overlay_state(_rig, WeaponOverlayCombat.OverlayState.READY)
+		if _rig.sprite and _rig.weapon_overlay:
+			WeaponOverlayCombat.apply_throw_ready_pose(_rig.sprite, _rig.weapon_overlay, Vector2(1, 0))
+	_hide_throw_spear_pins()
+	_sync_weapon_rotation_spin_from_rig()
+	_sync_preview_playback()
+	_update_ui()
+	if _status_label:
+		_status_label.text = "Pose 1 = ranged idle. Pose 2 = windup. Place both, then one Copy has both."
+
+
+func _begin_stone_pose_session() -> void:
+	_set_weapon(ResourceData.ResourceType.STONE, false)
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	_pose_index = 0
+	if _rig:
+		_rig.weapon_type = ResourceData.ResourceType.STONE
+		_rig.refresh_weapon_overlay()
+		WeaponOverlayCombat.set_throw_stance(_rig, false)
+		if _rig.sprite and _rig.weapon_overlay:
+			WeaponOverlayCombat._apply_locked_stone_melee(_rig.sprite, _rig.weapon_overlay, false)
+	_note_weapon_base_scale()
+	_hide_throw_spear_pins()
+	_sync_weapon_rotation_spin_from_rig()
+	_sync_preview_playback()
+	_update_ui()
+	if _status_label:
+		_status_label.text = "Stone melee idle. This is the held rock. Size is on the slider."
 
 
 func _begin_spear_windup_edit_session() -> void:
@@ -2003,9 +2074,78 @@ func _update_pose_row_ui() -> void:
 	_sync_duration_ui()
 
 
+func _commit_throw_spear_pose() -> void:
+	if not _throw_spear_edit_active() or _preset == null:
+		return
+	var pose = _preset.current_pose(_active_clip_id(), _pose_index)
+	if pose == null:
+		return
+	pose.overlay_offset_px = _rig.display_px_from_overlay_position()
+	pose.weapon_rotation_deg = _live_weapon_rotation_deg()
+	if _weapon_size_slider:
+		pose.overlay_scale_mul = float(_weapon_size_slider.value)
+	if _rig.sprite and _rig.weapon_overlay:
+		WeaponOverlayCombat._store_overlay_local(_rig.sprite, _rig.weapon_overlay)
+	if _wants_stone_pose_startup() and _pose_index >= 0 and _pose_index < _stone_pose_placed.size():
+		_stone_pose_placed[_pose_index] = true
+	_mark_pose_dirty()
+
+
+func _load_throw_spear_pose() -> void:
+	if not _throw_spear_edit_active() or _preset == null or _rig.sprite == null:
+		return
+	var pose = _preset.current_pose(_active_clip_id(), _pose_index)
+	if pose == null:
+		return
+	if _wants_stone_pose_startup() and not _stone_pose_placed[_pose_index]:
+		_show_stone_default_pose()
+		_throw_spear_user_moved = false
+		_hide_throw_spear_pins()
+		_sync_weapon_rotation_spin_from_rig()
+		return
+	var sx: float = absf(_rig.sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var local := Vector2(pose.overlay_offset_px.x / sx, pose.overlay_offset_px.y / sx)
+	if _rig.sprite.flip_h:
+		local.x = -local.x
+	_rig.weapon_overlay.position = local
+	if pose.weapon_rotation_deg > WeaponLimbPreset.ROTATION_UNSET + 1.0:
+		_rig.weapon_overlay.rotation = deg_to_rad(pose.weapon_rotation_deg)
+	if _weapon_size_slider and pose.overlay_scale_mul > 0.01:
+		_syncing_weapon_size_ui = true
+		_weapon_size_slider.value = pose.overlay_scale_mul
+		if _weapon_size_spin:
+			_weapon_size_spin.value = pose.overlay_scale_mul
+		_syncing_weapon_size_ui = false
+	_note_weapon_base_scale()
+	_throw_spear_user_moved = true
+	_hide_throw_spear_pins()
+	_sync_weapon_rotation_spin_from_rig()
+
+
 func _snap_pose_edit(pose_b: bool) -> void:
 	if _pose_index == (1 if pose_b else 0):
 		_update_pose_row_ui()
+		return
+	if _throw_spear_edit_active():
+		_commit_throw_spear_pose()
+		_pose_index = 1 if pose_b else 0
+		_load_throw_spear_pose()
+		_update_pose_row_ui()
+		if _status_label:
+			if _wants_stone_pose_startup():
+				_status_label.text = (
+					"Pose 2 — melee windup. Drag it, then Copy once."
+					if pose_b
+					else "Pose 1 — melee idle. Drag it, then switch to Pose 2."
+				)
+			else:
+				_status_label.text = (
+					"Pose 2 — windup. Drag the spear, then Copy once."
+					if pose_b
+					else "Pose 1 — ranged idle. Drag the spear, then switch to Pose 2."
+				)
 		return
 	_commit_active_unified_pose()
 	_pose_index = 1 if pose_b else 0
@@ -2524,6 +2664,7 @@ func _apply_fixed_stage_view() -> void:
 	elif _preset != null:
 		_sync_handle_positions()
 		_lock_arm_lines_to_handles()
+	_apply_throw_spear_pose_if_needed()
 	_stage_view_initialized = true
 
 
@@ -2626,7 +2767,98 @@ func _apply_ui_theme() -> void:
 			label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
 
 
+func _show_stone_default_pose() -> void:
+	if _rig == null or _rig.sprite == null or _rig.weapon_overlay == null:
+		return
+	_rig.weapon_type = ResourceData.ResourceType.STONE
+	if _pose_index == 0:
+		WeaponOverlayCombat.set_throw_stance(_rig, false)
+		WeaponOverlayCombat._apply_locked_stone_melee(_rig.sprite, _rig.weapon_overlay, false)
+	else:
+		WeaponOverlayCombat.set_throw_stance(_rig, true)
+		WeaponOverlayCombat.apply_throw_ready_pose(_rig.sprite, _rig.weapon_overlay, Vector2(1, 0))
+	_note_weapon_base_scale()
+
+
+func _throw_spear_edit_active() -> bool:
+	return (
+		(_wants_spear_throw_windup_startup() or _wants_stone_pose_startup())
+		and _rig != null
+		and _rig.weapon_overlay != null
+	)
+
+
+func _apply_throw_spear_pose_if_needed() -> void:
+	if not _throw_spear_edit_active() or _rig.sprite == null:
+		return
+	if _throw_spear_user_moved:
+		_hide_throw_spear_pins()
+		return
+	if _wants_stone_pose_startup():
+		_show_stone_default_pose()
+		_hide_throw_spear_pins()
+		_sync_weapon_rotation_spin_from_rig()
+		return
+	WeaponOverlayCombat.set_throw_stance(_rig, true)
+	WeaponOverlayCombat.apply_throw_ready_pose(_rig.sprite, _rig.weapon_overlay, Vector2(1, 0))
+	_note_weapon_base_scale()
+	_hide_throw_spear_pins()
+	_sync_weapon_rotation_spin_from_rig()
+
+
+func _hide_throw_spear_pins() -> void:
+	if not (_wants_spear_throw_windup_startup() or _wants_stone_pose_startup()):
+		return
+	for handle in [
+		_shoulder_handle,
+		_hand_handle,
+		_support_shoulder_handle,
+		_support_hand_handle,
+		_weapon_elbow_handle,
+		_support_elbow_handle,
+		_head_handle,
+		_hair_handle,
+		_spear_handle,
+		_spear_grip_2_handle,
+	]:
+		if handle:
+			handle.visible = false
+			handle.set_draggable(false)
+	if _rig and _rig.arm_controller:
+		_rig.arm_controller.visible = false
+		_rig.arm_controller.force_show_arms = false
+	if _rig:
+		for arm_draw_name in ["Arm1Draw", "Arm2Draw"]:
+			var arm_draw := _rig.get_node_or_null(arm_draw_name) as CanvasItem
+			if arm_draw:
+				arm_draw.visible = false
+
+
+func _mouse_hits_throw_spear(mouse_global: Vector2) -> bool:
+	if not _throw_spear_edit_active():
+		return false
+	var overlay := _rig.weapon_overlay
+	if overlay == null or overlay.texture == null or not overlay.visible:
+		return false
+	var rect := overlay.get_rect()
+	var xform := overlay.get_global_transform()
+	var corners: Array[Vector2] = [
+		xform * rect.position,
+		xform * (rect.position + Vector2(rect.size.x, 0.0)),
+		xform * (rect.position + rect.size),
+		xform * (rect.position + Vector2(0.0, rect.size.y)),
+	]
+	var min_p := corners[0]
+	var max_p := corners[0]
+	for corner in corners:
+		min_p = min_p.min(corner)
+		max_p = max_p.max(corner)
+	return Rect2(min_p, max_p - min_p).grow(16.0).has_point(mouse_global)
+
+
 func _input(event: InputEvent) -> void:
+	if _throw_spear_edit_active() and _try_throw_spear_drag(event):
+		return
 	if _try_handle_view_zoom_input(event):
 		return
 	if _is_reviewer_workspace():
@@ -3147,6 +3379,50 @@ func _setup_weapon_rotation_field() -> void:
 	_weapon_rotation_spin.step = 1.0
 	_weapon_rotation_spin.rounded = true
 	_weapon_rotation_spin.value_changed.connect(_on_weapon_rotation_changed)
+	_setup_weapon_size_slider()
+
+
+func _setup_weapon_size_slider() -> void:
+	if _weapon_size_slider:
+		_weapon_size_slider.value_changed.connect(_on_weapon_size_slider_changed)
+	if _weapon_size_spin:
+		_weapon_size_spin.value_changed.connect(_on_weapon_size_spin_changed)
+
+
+func _on_weapon_size_slider_changed(value: float) -> void:
+	if _syncing_weapon_size_ui:
+		return
+	_syncing_weapon_size_ui = true
+	if _weapon_size_spin:
+		_weapon_size_spin.value = value
+	_syncing_weapon_size_ui = false
+	_apply_weapon_size_from_slider()
+
+
+func _on_weapon_size_spin_changed(value: float) -> void:
+	if _syncing_weapon_size_ui:
+		return
+	_syncing_weapon_size_ui = true
+	if _weapon_size_slider:
+		_weapon_size_slider.value = value
+	_syncing_weapon_size_ui = false
+	_apply_weapon_size_from_slider()
+
+
+func _note_weapon_base_scale() -> void:
+	if _rig == null or _rig.weapon_overlay == null or _rig.sprite == null:
+		return
+	if _selected_weapon == ResourceData.ResourceType.STONE:
+		WeaponOverlayCombat.apply_stone_overlay_scale(_rig.sprite, _rig.weapon_overlay)
+	_weapon_base_scale = _rig.weapon_overlay.scale
+	_apply_weapon_size_from_slider()
+
+
+func _apply_weapon_size_from_slider() -> void:
+	if _rig == null or _rig.weapon_overlay == null or _weapon_size_slider == null:
+		return
+	var mul := float(_weapon_size_slider.value)
+	_rig.weapon_overlay.scale = _weapon_base_scale * mul
 
 
 func _live_weapon_rotation_deg() -> float:
@@ -3159,7 +3435,9 @@ func _sync_weapon_rotation_spin_from_rig() -> void:
 	if _weapon_rotation_spin == null or _rig == null:
 		return
 	_syncing_weapon_rotation_ui = true
-	if _preset != null and _selected_weapon == ResourceData.ResourceType.WOOD and _rig != null and _rig.is_shift_ready_windup_loop():
+	if _throw_spear_edit_active():
+		_weapon_rotation_spin.value = _live_weapon_rotation_deg()
+	elif _preset != null and _selected_weapon == ResourceData.ResourceType.WOOD and _rig != null and _rig.is_shift_ready_windup_loop():
 		if _preset.club_windup_idle_key_b_rotation_deg > WeaponLimbPreset.ROTATION_UNSET + 1.0:
 			_weapon_rotation_spin.value = WeaponLimbPreset.signed_rotation_deg(
 				_preset.club_windup_idle_key_b_rotation_deg
@@ -3175,10 +3453,43 @@ func _sync_weapon_rotation_spin_from_rig() -> void:
 	_syncing_weapon_rotation_ui = false
 
 
+func _try_throw_spear_drag(event: InputEvent) -> bool:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			var mouse := get_global_mouse_position()
+			if not _workspace_rect().has_point(mouse):
+				return false
+			if not _mouse_hits_throw_spear(mouse):
+				return false
+			_throw_spear_dragging = true
+			_throw_spear_user_moved = true
+			_rig.weapon_overlay.set_meta("throw_pose_dragging", true)
+			_throw_spear_grab_offset = _rig.weapon_overlay.global_position - mouse
+			get_viewport().set_input_as_handled()
+			return true
+		if _throw_spear_dragging:
+			_commit_throw_spear_pose()
+			_throw_spear_dragging = false
+			if _rig and _rig.weapon_overlay:
+				_rig.weapon_overlay.set_meta("throw_pose_dragging", false)
+			get_viewport().set_input_as_handled()
+			return true
+	if event is InputEventMouseMotion and _throw_spear_dragging:
+		_rig.weapon_overlay.global_position = get_global_mouse_position() + _throw_spear_grab_offset
+		get_viewport().set_input_as_handled()
+		return true
+	return false
+
+
 func _on_weapon_rotation_changed(value: float) -> void:
-	if _syncing_weapon_rotation_ui or _preset == null or _rig == null:
+	if _syncing_weapon_rotation_ui or _rig == null:
 		return
-	if _combat_animation_busy():
+	if _throw_spear_edit_active() and _rig.weapon_overlay:
+		_throw_spear_user_moved = true
+		_rig.weapon_overlay.rotation = deg_to_rad(value)
+		_commit_throw_spear_pose()
+		return
+	if _preset == null or _combat_animation_busy():
 		return
 	if _selected_weapon == ResourceData.ResourceType.WOOD and _rig.is_shift_ready_windup_loop():
 		_preset.club_windup_idle_key_b_rotation_deg = WeaponLimbPreset.normalize_rotation_deg(value)
@@ -3730,6 +4041,18 @@ func _poll_walk_input() -> void:
 
 
 func _poll_tuner_walk_ad_preview() -> void:
+	if _wants_stone_pose_startup() or _wants_spear_throw_windup_startup():
+		var face_dir := 0
+		if Input.is_action_pressed("move_left") or Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
+			face_dir = -1
+		elif Input.is_action_pressed("move_right") or Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_RIGHT):
+			face_dir = 1
+		_walk_ad_preview_active = false
+		if _rig:
+			_rig.set_walk_direction(0)
+			if face_dir != 0:
+				_rig.apply_travel_facing_direction(face_dir)
+		return
 	var dir := 0
 	if Input.is_action_pressed("move_left") or Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_LEFT):
 		dir = -1
@@ -4771,6 +5094,9 @@ func _sync_handles_from_live_arms() -> void:
 func _refresh_rig_from_preset() -> void:
 	if _rig == null or _preset == null:
 		return
+	if (_wants_spear_throw_windup_startup() or _wants_stone_pose_startup()) and _rig.sprite and _rig.weapon_overlay:
+		_apply_throw_spear_pose_if_needed()
+		return
 	if _uses_unified_tuner_pose():
 		_preset.ensure_unified_clips(LimbPresetRegistry)
 		var overlay_mode_unified := _overlay_storage_mode()
@@ -4962,6 +5288,9 @@ func _set_anim_mode(mode: AnimMode) -> void:
 
 
 func _apply_handle_draggable() -> void:
+	if _wants_spear_throw_windup_startup() or _wants_stone_pose_startup():
+		_hide_throw_spear_pins()
+		return
 	var can_drag := (
 		_mode == AppMode.ASSEMBLE
 		and _workspace_mode == WorkspaceMode.TUNER
@@ -5836,6 +6165,8 @@ func _reload_all_from_disk() -> void:
 func _on_copy_pressed() -> void:
 	if _preset == null:
 		return
+	if _throw_spear_edit_active():
+		_commit_throw_spear_pose()
 	if _pose_dirty:
 		_commit_all_poses_to_preset(true)
 	else:
@@ -5997,6 +6328,7 @@ func _update_ui() -> void:
 	_sync_bake_button()
 	_update_weapon_rotation_section_visibility()
 	_sync_weapon_rotation_spin_from_rig()
+	_hide_throw_spear_pins()
 	_update_pose_row_ui()
 	_update_save_button_style()
 	if (

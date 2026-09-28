@@ -6,8 +6,11 @@ extends Node
 const TRACKED_FSM: Array[String] = ["party", "hunt", "raid", "search", "agro", "combat"]
 const SCAN_INTERVAL_SEC: float = 8.0
 const STUCK_PARTY_SEC: float = 45.0
+const COMBAT_SNAPSHOT_SEC: float = 10.0
+const FightFlight = preload("res://scripts/combat/fight_flight.gd")
 
 var _scan_timer: float = 0.0
+var _combat_timer: float = 0.0
 var _stuck_warned: Dictionary = {}  # group_key -> last warn time
 
 
@@ -28,6 +31,10 @@ func is_active() -> bool:
 
 
 func _process(delta: float) -> void:
+	_combat_timer += delta
+	if _combat_timer >= COMBAT_SNAPSHOT_SEC:
+		_combat_timer = 0.0
+		_print_clan_combat_snapshot()
 	if not is_active():
 		return
 	_scan_timer += delta
@@ -243,7 +250,8 @@ func _brain_hunt_state(brain: Variant) -> String:
 		0: return "NONE"
 		1: return "RECRUITING"
 		2: return "ACTIVE"
-		3: return "RETREATING"
+		3: return "LOOTING"
+		4: return "RETREATING"
 		_: return str(st)
 
 
@@ -265,6 +273,228 @@ func _node_name(n: Variant) -> String:
 	var node := n as Node
 	var nn = node.get("npc_name")
 	return str(nn) if nn != null else str(node.name)
+
+
+func note_fight_enter(npc: Node, target: Node) -> void:
+	if not _is_ai_fighter(npc):
+		return
+	var mode := _ordered_mode(npc)
+	var fill := str(npc.get_meta("last_agro_reason", "")) if npc.has_meta("last_agro_reason") else ""
+	var odd := ""
+	if mode == "FOLLOW" and fill != "" and fill != "hit":
+		odd = " follow_acquired_without_hit"
+	print(
+		"CLAN_COMBAT ENGAGE clan=%s name=%s mode=%s ordered=%s target=%s score=%.2f clan_leader=%s leads=%s fill=%s%s"
+		% [
+			_clan_of(npc),
+			_node_name(npc),
+			mode if mode != "" else "-",
+			str(npc.get("follow_is_ordered") == true),
+			_node_name(target),
+			_score_of(npc, target),
+			_clan_leader_name(_clan_of(npc)),
+			str(_is_clan_leader(npc)),
+			fill,
+			odd,
+		]
+	)
+
+
+func note_fight_break(npc: Node, why: String, target: Node) -> void:
+	if not _is_ai_fighter(npc) and not (npc != null and str(npc.get("npc_type")) == "woman" and not npc.is_in_group("player")):
+		return
+	print(
+		"CLAN_COMBAT BREAK clan=%s name=%s why=%s mode=%s score=%.2f target=%s"
+		% [
+			_clan_of(npc),
+			_node_name(npc),
+			why,
+			_ordered_mode(npc) if _ordered_mode(npc) != "" else "-",
+			_score_of(npc, target),
+			_node_name(target),
+		]
+	)
+
+
+func note_leash(npc: Node, mode: String, dist: float, max_dist: float) -> void:
+	if not _is_ai_fighter(npc):
+		return
+	print(
+		"CLAN_COMBAT LEASH clan=%s name=%s mode=%s dist=%.0f max=%.0f"
+		% [_clan_of(npc), _node_name(npc), mode, dist, max_dist]
+	)
+
+
+func note_hunt_arc(clan_name: String, leader: Node, follower_count: int) -> void:
+	var same := _is_clan_leader(leader)
+	print(
+		"CLAN_COMBAT ARC clan=%s party_leader=%s clan_leader=%s same=%s followers=%d"
+		% [clan_name, _node_name(leader), _clan_leader_name(clan_name), str(same), follower_count]
+	)
+
+
+func _print_clan_combat_snapshot() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	for lc in tree.get_nodes_in_group("land_claims"):
+		if not is_instance_valid(lc) or lc.get("player_owned") == true:
+			continue
+		var clan := str(lc.get("clan_name"))
+		if clan == "":
+			continue
+		var brain: Variant = lc.get("clan_brain")
+		var hunt_st := _brain_hunt_state(brain)
+		var raid_st := _brain_raid_state(brain)
+		var counts := _clan_fight_counts(clan)
+		var busy: bool = hunt_st != "NONE" or raid_st != "NONE" or int(counts["combat"]) > 0 or int(counts["flee"]) > 0
+		if not busy:
+			continue
+		var party_leader: String = str(counts["party_leader"])
+		var clan_leader := _clan_leader_name(clan)
+		var same := party_leader != "" and party_leader == clan_leader
+		var odd: Array = counts["odd"]
+		var odd_text := ""
+		if odd.size() > 0:
+			odd_text = " odd=%s" % ",".join(PackedStringArray(odd))
+		print(
+			"CLAN_COMBAT clan=%s hunt=%s raid=%s clan_leader=%s(%s) party_leader=%s same=%s modes=%s combat=%d flee=%d women_combat=%d%s"
+			% [
+				clan,
+				hunt_st,
+				raid_st,
+				clan_leader,
+				counts["leader_state"],
+				party_leader if party_leader != "" else "-",
+				str(same) if party_leader != "" else "-",
+				counts["modes"],
+				int(counts["combat"]),
+				int(counts["flee"]),
+				int(counts["women_combat"]),
+				odd_text,
+			]
+		)
+
+
+func _clan_fight_counts(clan_name: String) -> Dictionary:
+	var combat := 0
+	var flee := 0
+	var women_combat := 0
+	var modes: Dictionary = {}
+	var party_leader := ""
+	var leader_state := "-"
+	var odd: Array = []
+	var leader := _clan_leader_node(clan_name)
+	if leader != null:
+		leader_state = _state_name(leader)
+	for n in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(n) or str(n.get("clan_name")) != clan_name:
+			continue
+		if n.has_method("is_dead") and n.is_dead():
+			continue
+		var st := _state_name(n)
+		var nt := str(n.get("npc_type"))
+		if nt == "woman" and st == "combat":
+			women_combat += 1
+			if not odd.has("woman_in_combat"):
+				odd.append("woman_in_combat")
+		if st == "combat":
+			combat += 1
+		elif st == "flee_combat":
+			flee += 1
+		if n.get("follow_is_ordered") == true:
+			var mode := _ordered_mode(n)
+			var key := mode if mode != "" else "-"
+			modes[key] = int(modes.get(key, 0)) + 1
+			if key != "FOLLOW" and key != "ARC" and not odd.has("unexpected_%s" % key):
+				odd.append("unexpected_%s" % key)
+			var hr = n.get("herder")
+			if hr != null and is_instance_valid(hr) and party_leader == "":
+				party_leader = _node_name(hr)
+			if key == "FOLLOW" and st == "combat":
+				var fill := str(n.get_meta("last_agro_reason", "")) if n.has_meta("last_agro_reason") else ""
+				if fill != "" and fill != "hit" and not odd.has("follow_without_hit"):
+					odd.append("follow_without_hit")
+	var mode_bits: PackedStringArray = PackedStringArray()
+	for k in modes.keys():
+		mode_bits.append("%s:%d" % [k, int(modes[k])])
+	return {
+		"combat": combat,
+		"flee": flee,
+		"women_combat": women_combat,
+		"modes": ",".join(mode_bits) if mode_bits.size() > 0 else "-",
+		"party_leader": party_leader,
+		"leader_state": leader_state,
+		"odd": odd,
+	}
+
+
+func _is_ai_fighter(npc: Node) -> bool:
+	if npc == null or not is_instance_valid(npc) or npc.is_in_group("player"):
+		return false
+	var nt := str(npc.get("npc_type"))
+	if nt != "caveman" and nt != "clansman":
+		return false
+	var claim := _claim_for_clan(_clan_of(npc))
+	return claim != null and claim.get("player_owned") != true
+
+
+func _ordered_mode(npc: Node) -> String:
+	if npc == null or npc.get("follow_is_ordered") != true:
+		return ""
+	var ctx: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+	return str(ctx.get("mode", "FOLLOW"))
+
+
+func _score_of(npc: Node, target: Node) -> float:
+	if npc == null or target == null or not is_instance_valid(target):
+		return 0.0
+	if FightFlight.is_building(target):
+		return 0.0
+	return FightFlight.score(npc, target)
+
+
+func _state_name(npc: Node) -> String:
+	var fsm: Node = npc.get("fsm") as Node
+	if fsm and fsm.has_method("get_current_state_name"):
+		return str(fsm.get_current_state_name())
+	return "?"
+
+
+func _clan_of(npc: Node) -> String:
+	if npc == null:
+		return ""
+	return str(npc.get("clan_name")) if npc.get("clan_name") != null else ""
+
+
+func _claim_for_clan(clan_name: String) -> Node:
+	if clan_name == "" or get_tree() == null:
+		return null
+	for lc in get_tree().get_nodes_in_group("land_claims"):
+		if is_instance_valid(lc) and str(lc.get("clan_name")) == clan_name:
+			return lc
+	return null
+
+
+func _clan_leader_node(clan_name: String) -> Node:
+	var claim := _claim_for_clan(clan_name)
+	if claim == null:
+		return null
+	var owner: Variant = claim.get("owner_npc")
+	if owner is Node and is_instance_valid(owner):
+		return owner
+	return null
+
+
+func _clan_leader_name(clan_name: String) -> String:
+	var leader := _clan_leader_node(clan_name)
+	return _node_name(leader) if leader != null else "-"
+
+
+func _is_clan_leader(npc: Node) -> bool:
+	if npc == null:
+		return false
+	return npc == _clan_leader_node(_clan_of(npc))
 
 
 func _format_stuck_followers(rows: Array) -> String:

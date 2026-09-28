@@ -18,6 +18,28 @@ AI controller for NPC clans. It:
 
 **Location:** `scripts/ai/clan_brain.gd` (RefCounted; no `_process`. Territory node calls `brain.update(delta)` each frame — `land_claim.gd` or `campfire.gd`.)
 
+---
+
+## Clan identity on the brain (planned — design lock)
+
+The ClanBrain is not only quotas and raid math. It also **mirrors the fighting clan**:
+
+| Layer | Rule |
+|-------|------|
+| **Stats** | Each numeric stat on the brain = **average** of that stat across **clansmen** (male roster). Recompute when membership changes. |
+| **Traits** | If **enough** clansmen share a trait, the brain **inherits that trait** for clan-level AI (threshold = headcount or % — TBD at implementation). |
+| **Skills** | The brain has its own **skill** list (clan-scale modifiers on defend/raid/hunt pressure and job bias). Skill roster TBD. |
+| **Morale bar** | **Clan-level** mood on the brain (bold vs brittle). Drives strategic appetite and ties to future defection/morale systems. **Not** the per-fighter morale / flight bar — see [morale_bar_flight.md](future%20implementations/morale_bar_flight.md). |
+| **Buffs / debuffs** | Relics, shrine, events, shame after losses, temporary rally, etc. Stack with averaged stats and quorum traits. |
+
+**UI target:** Tab / clan panel shows brain stats, quorum traits, morale, and active buffs so the player reads the tribe as one character.
+
+**Wiki:** `wiki/terms/clan-brain.md`, `wiki/terms/morale-bar-clan.md`.
+
+**Not implemented** in `clan_brain.gd` yet — today the brain uses pressures, strategic state, and quotas only.
+
+---
+
 **Combat allies:** Friendly-fire rules (same clan, herder/party, shared defend/search claim, player-owned claim ties, `get_my_land_claim()` match) live in **`CombatAllyCheck.is_ally(a, b)`** (`scripts/systems/combat_ally_check.gd`). Perception, hostile index, agro, combat state, hit validation, and retaliation all call it—do not duplicate inline `clan_a == clan_b` checks elsewhere. Call sites use `const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")` so autoloads/CLI parse before the global class cache is built.
 
 ---

@@ -48,6 +48,8 @@ var eat_progress_display: Node2D = null
 var player_name: String = ""
 var _player_name_meta_key: String = "player_name"
 var card_index: int = 0
+var hair_id: int = 0
+var hair_tone: String = ""
 var genetics_profile: Dictionary = {}
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light — same as clan NPCs
 var _card_foot_y: float = -28.0
@@ -55,6 +57,8 @@ var _card_bounce_time: float = 0.0
 
 func _ready() -> void:
 	add_to_group("player")
+	if HostileEntityIndex and not (DebugConfig and DebugConfig.is_ignored_by_npcs(self)):
+		HostileEntityIndex.register(self)
 	if BalanceConfig:
 		hunger_deplete_rate = BalanceConfig.hunger_deplete_rate_per_min
 		calories_max = float(BalanceConfig.base_daily_calories_player)
@@ -196,6 +200,9 @@ func on_vitals_death(cause: String) -> void:
 
 
 func _apply_starvation_health_drain(delta: float) -> void:
+	if DebugConfig and (DebugConfig.npcs_ignore_player or DebugConfig.enable_eval_ai_arena):
+		_starvation_damage_accum = 0.0
+		return
 	if calories > 0.0 or not health_component or health_component.is_dead:
 		_starvation_damage_accum = 0.0
 		return
@@ -252,6 +259,8 @@ func set_player_name(name: String) -> void:
 	set_meta("player_clan_name", name)
 
 func _physics_process(_delta: float) -> void:
+	if HostileEntityIndex and not (DebugConfig and DebugConfig.is_ignored_by_npcs(self)):
+		HostileEntityIndex.sync_cell(self)
 	# Multiplayer: only authority runs input; remote players driven by sync (Phase 4).
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		velocity = Vector2.ZERO
@@ -315,6 +324,15 @@ func _physics_process(_delta: float) -> void:
 					sprite.flip_h = aim_dir.x < 0.0
 			elif combat_component.state == CombatComponent.CombatState.READY or shift_ready:
 				WeaponOverlayCombat.sync_swing_body_facing(self, sprite, aim_dir)
+	if sprite and WeaponOverlayCombat.entity_in_throw_stance(self):
+		var throw_aim := _get_cursor_aim_direction()
+		aim_dir = throw_aim
+		if absf(throw_aim.x) > 0.05:
+			last_facing = throw_aim
+			sprite.flip_h = throw_aim.x < 0.0
+		var throw_state: int = WeaponOverlayCombat.get_overlay_state(self)
+		if throw_state != WeaponOverlayCombat.OverlayState.STRIKING and PlaceholderCardService:
+			PlaceholderCardService.update_weapon_overlay_combat(self, get_equipped_weapon_type(), throw_aim)
 	if in_weapon_ready:
 		speed_mult *= WEAPON_READY_SPEED_MULT
 	velocity = input_vector * (move_speed * speed_mult)
@@ -351,12 +369,9 @@ func _physics_process(_delta: float) -> void:
 			var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
 			if not in_combat:
 				var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-				var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
 				var dir_sheet: DirectionalSpriteSheet = null
 				if show_club:
 					dir_sheet = WalkAnimation.get_directional_club_sheet()
-				elif show_spear:
-					dir_sheet = WalkAnimation.get_directional_spear_sheet()
 				else:
 					dir_sheet = WalkAnimation.get_directional_walk_sheet()
 				var used_directional := false
@@ -375,13 +390,6 @@ func _physics_process(_delta: float) -> void:
 							_walk_timer += _delta
 							var walk_index := int(_walk_timer * WalkAnimation.CLUB_WALK_FPS) % WalkAnimation.CLUB_WALK_FRAMES
 							WalkAnimation.apply_club_walk_frame_by_index(sprite, walk_index)
-							_sprite_base_position = Vector2.ZERO
-					elif show_spear:
-						var spear_sheet := WalkAnimation.get_spear_walk_sheet()
-						if spear_sheet:
-							_walk_timer += _delta
-							var sp_index := int(_walk_timer * WalkAnimation.SPEAR_WALK_FPS) % WalkAnimation.SPEAR_WALK_FRAMES
-							WalkAnimation.apply_spear_walk_frame_by_index(sprite, sp_index)
 							_sprite_base_position = Vector2.ZERO
 					else:
 						var sheet := WalkAnimation.get_walk_sheet()
@@ -407,12 +415,9 @@ func _physics_process(_delta: float) -> void:
 			var in_combat := combat_component and combat_component.state != CombatComponent.CombatState.IDLE
 			if not in_combat:
 				var show_club := _equipped_item == ResourceData.ResourceType.WOOD
-				var show_spear := _equipped_item == ResourceData.ResourceType.SPEAR
 				var dir_sheet: DirectionalSpriteSheet = null
 				if show_club:
 					dir_sheet = WalkAnimation.get_directional_club_sheet()
-				elif show_spear:
-					dir_sheet = WalkAnimation.get_directional_spear_sheet()
 				else:
 					dir_sheet = WalkAnimation.get_directional_idle_sheet()
 				if dir_sheet and WalkAnimation.apply_directional_idle(sprite, dir_sheet, last_facing):
@@ -607,10 +612,7 @@ func _update_sprite_texture() -> void:
 		sprite.visible = true
 		return
 	if _equipped_item == ResourceData.ResourceType.SPEAR:
-		if WalkAnimation.get_spear_walk_sheet():
-			WalkAnimation.apply_spear_idle(sprite)
-		else:
-			WalkAnimation.apply_walk_idle(sprite)
+		WalkAnimation.apply_walk_idle(sprite)
 		sprite.position = Vector2.ZERO
 		_sprite_base_position = sprite.position
 		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

@@ -40,30 +40,14 @@ func start_drag(slot: InventorySlot) -> void:
 		print("ERROR: Invalid item type in drag: ", item)
 		return
 	
-	# When dragging a stacked item, only drag 1 item (not the whole stack)
-	var item_count: int = item.get("count", 1) as int
+	# Whole row / whole stack leaves the source until drop or cancel.
+	var inventory_data = _get_inventory_data_for_slot(slot)
+	if inventory_data == null:
+		push_warning("DragManager.start_drag: no inventory data for slot — abort")
+		return
 	var dragged_item_copy: Dictionary = item.duplicate()
-	
-	if item_count > 1:
-		# Only drag 1 item from the stack
-		dragged_item_copy["count"] = 1
-		
-		# Reduce the stack in the source slot by 1
-		var remaining_count: int = item_count - 1
-		var updated_item: Dictionary = item.duplicate()
-		updated_item["count"] = remaining_count
-		slot.set_item(updated_item)
-		
-		# Update the inventory data
-		var inventory_data = _get_inventory_data_for_slot(slot)
-		if inventory_data:
-			inventory_data.set_slot(slot.slot_index, updated_item)
-	else:
-		# Single item - clear the source slot
-		slot.set_item({})
-		var inventory_data = _get_inventory_data_for_slot(slot)
-		if inventory_data:
-			inventory_data.set_slot(slot.slot_index, {})
+	slot.set_item({})
+	inventory_data.set_slot(slot.slot_index, {})
 	
 	# Log drag start
 	var dragged_item_type = dragged_item_copy.get("type", -1)
@@ -233,7 +217,7 @@ func _create_drag_preview(item: Dictionary) -> void:
 	# Create preview sprite
 	drag_preview = TextureRect.new()
 	drag_preview.name = "DragPreview"
-	drag_preview.custom_minimum_size = Vector2(32, 32)  # Start with icon size
+	drag_preview.custom_minimum_size = Vector2(40, 40)  # Match hotbar cell
 	drag_preview.texture_filter = TextureRect.TEXTURE_FILTER_NEAREST
 	drag_preview.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
 	drag_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -280,6 +264,23 @@ func _create_drag_preview(item: Dictionary) -> void:
 	
 	# Make semi-transparent
 	drag_preview.modulate = Color(1, 1, 1, 0.8)
+
+	var stack_count: int = int(item.get("count", 1))
+	if stack_count > 1 and not is_placeable_building:
+		var count_lab := Label.new()
+		count_lab.name = "StackCount"
+		count_lab.text = str(stack_count)
+		count_lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		count_lab.add_theme_font_size_override("font_size", 14)
+		count_lab.add_theme_color_override("font_color", Color.WHITE)
+		count_lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		count_lab.add_theme_constant_override("outline_size", 3)
+		count_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		count_lab.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		count_lab.set_anchors_preset(Control.PRESET_FULL_RECT)
+		count_lab.offset_right = -2
+		count_lab.offset_bottom = -1
+		drag_preview.add_child(count_lab)
 	
 	# Create red X overlay for invalid placement (only for placeable buildings)
 	if is_placeable_building:
@@ -365,7 +366,7 @@ func _process(_delta: float) -> void:
 					tween.parallel().tween_property(drag_preview, "modulate", Color(1, 1, 1, 0.9), 0.2)
 			else:
 				# Over UI: show icon size
-				var target_size: Vector2 = Vector2(32, 32)
+				var target_size: Vector2 = Vector2(40, 40)
 				if drag_preview.custom_minimum_size != target_size:
 					var tween := drag_preview.create_tween()
 					tween.tween_property(drag_preview, "custom_minimum_size", target_size, 0.2)
@@ -381,9 +382,11 @@ func _process(_delta: float) -> void:
 				invalid_overlay.custom_minimum_size = overlay_size
 				invalid_overlay.size = overlay_size
 		
-		# Center preview on mouse (account for size)
-		var preview_size: Vector2 = drag_preview.custom_minimum_size
-		drag_preview.position = mouse_pos - preview_size / 2.0
+	# Center preview slightly below the cursor like a desktop drag ghost.
+		var preview_size: Vector2 = drag_preview.size
+		if preview_size.x < 1.0:
+			preview_size = drag_preview.custom_minimum_size
+		drag_preview.position = mouse_pos + Vector2(8, 8)
 
 func _create_fallback_icon(item_type: ResourceData.ResourceType) -> Texture2D:
 	var image := Image.create(32, 32, false, Image.FORMAT_RGBA8)

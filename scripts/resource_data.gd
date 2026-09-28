@@ -188,11 +188,22 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.MUSHROOM: return "res://assets/sprites/mushroom.png"
 		ResourceType.BUGS: return "res://assets/sprites/bugs.png"
 		ResourceType.NUTS: return "res://assets/sprites/nuts1.png"
-		ResourceType.SPEAR: return "res://assets/sprites/spear.png"
+		ResourceType.SPEAR: return "res://assets/placeholder_cards/spear.png"
 		_: return ""
 
 static func is_equipment(type: ResourceType) -> bool:
-	return type == ResourceType.AXE or type == ResourceType.PICK or type == ResourceType.WOOD or type == ResourceType.BLADE or type == ResourceType.OLDOWAN or type == ResourceType.TRAVOIS or type == ResourceType.SPEAR
+	return type == ResourceType.AXE or type == ResourceType.PICK or type == ResourceType.WOOD or type == ResourceType.BLADE or type == ResourceType.OLDOWAN or type == ResourceType.TRAVOIS or type == ResourceType.SPEAR or type == ResourceType.STONE
+
+
+static func is_throwable(type: ResourceType) -> bool:
+	return type == ResourceType.STONE or type == ResourceType.SPEAR
+
+
+static func is_ammo(type: ResourceType) -> bool:
+	return is_throwable(type)
+
+
+const THROWABLE_MAX_STACK := 10
 
 static func get_resource_tier(_type: ResourceType) -> int:
 	# All basic resources are tier 0 (grey border)
@@ -308,3 +319,35 @@ static func is_food(type: ResourceType) -> bool:
 	return type in EDIBLE_FOOD_TYPES
 	# Note: GRAIN comes from harvesting WHEAT, but GRAIN is the food item stored in inventory
 	# FIBER is NOT a consumable - it's a resource used for crafting
+
+
+static func is_building_item(type: ResourceType) -> bool:
+	match type:
+		ResourceType.LANDCLAIM, ResourceType.LIVING_HUT, ResourceType.SUPPLY_HUT, \
+		ResourceType.SHRINE, ResourceType.DAIRY_FARM, ResourceType.FARM, \
+		ResourceType.OVEN, ResourceType.CAMPFIRE, ResourceType.DRYING_RACK:
+			return true
+		_:
+			return false
+
+
+static func is_tool_item(type: ResourceType) -> bool:
+	match type:
+		ResourceType.AXE, ResourceType.PICK, ResourceType.BLADE, \
+		ResourceType.OLDOWAN, ResourceType.SPEAR, ResourceType.TRAVOIS:
+			return true
+		_:
+			return false
+
+
+## One-word inventory class for tight list rows (building stock).
+static func get_item_class(type: ResourceType) -> String:
+	if is_food(type):
+		return "Food"
+	if is_building_item(type):
+		return "Building"
+	if is_tool_item(type):
+		return "Tool"
+	if type == ResourceType.NONE:
+		return ""
+	return "Resource"

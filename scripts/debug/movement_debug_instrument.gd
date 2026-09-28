@@ -12,6 +12,10 @@ static func prune_sample_time_cache_if_huge() -> void:
 		return
 	_last_sample_time.clear()
 
+static var _jsonl_last: Dictionary = {}
+static var _jsonl_last_pos: Dictionary = {}
+
+
 static func try_log_physics_step(
 	npc: CharacterBody2D,
 	_delta: float,
@@ -20,6 +24,7 @@ static func try_log_physics_step(
 	task_controls_movement: bool,
 	is_idle_brake: bool
 ) -> void:
+	_try_jsonl_move_sample(npc)
 	var cfg: Node = _get_debug_config()
 	if cfg == null or not (cfg.get("enable_movement_debug") as bool):
 		return
@@ -78,6 +83,58 @@ static func try_log_physics_step(
 		"path_try": str(path_attempts) if steer else "",
 	}
 	UnifiedLogger.log_movement("NPC_MOVE", details, UnifiedLogger.Level.INFO)
+
+
+static func _try_jsonl_move_sample(npc: CharacterBody2D) -> void:
+	if npc == null:
+		return
+	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if nt != "caveman" and nt != "clansman":
+		return
+	var st: SceneTree = Engine.get_main_loop() as SceneTree
+	if st == null:
+		return
+	var pi: Node = st.root.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi == null or not pi.has_method("is_enabled") or not pi.is_enabled() or not pi.has_method("npc_move_sample"):
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var oid: int = npc.get_instance_id()
+	var last_t: float = float(_jsonl_last.get(oid, -1.0))
+	if last_t >= 0.0 and (now - last_t) < 1.0:
+		return
+	_jsonl_last[oid] = now
+	if _jsonl_last.size() > 400:
+		_jsonl_last.clear()
+		_jsonl_last_pos.clear()
+	var fsm_state: String = ""
+	if npc.get("fsm") and npc.fsm and npc.fsm.has_method("get_current_state_name"):
+		fsm_state = str(npc.fsm.get_current_state_name())
+	var stuck_t: float = 0.0
+	var tgt: Vector2 = Vector2.ZERO
+	var steer: SteeringAgent = npc.steering_agent as SteeringAgent if npc.steering_agent else null
+	if steer:
+		stuck_t = steer.stuck_check_time
+		tgt = steer.target_position
+	var jump: float = 0.0
+	if _jsonl_last_pos.has(oid):
+		jump = npc.global_position.distance_to(_jsonl_last_pos[oid])
+	_jsonl_last_pos[oid] = npc.global_position
+	var clan: String = ""
+	if npc.has_method("get_clan_name"):
+		clan = str(npc.get_clan_name())
+	pi.npc_move_sample({
+		"npc": str(npc.get("npc_name")) if npc.get("npc_name") != null else "?",
+		"clan": clan,
+		"type": nt,
+		"fsm": fsm_state,
+		"x": snappedf(npc.global_position.x, 1.0),
+		"y": snappedf(npc.global_position.y, 1.0),
+		"spd": snappedf(npc.velocity.length(), 0.1),
+		"stuck_s": snappedf(stuck_t, 0.01),
+		"tgt_x": snappedf(tgt.x, 1.0),
+		"tgt_y": snappedf(tgt.y, 1.0),
+		"jump_px": snappedf(jump, 1.0),
+	})
 
 
 static func _get_debug_config() -> Node:

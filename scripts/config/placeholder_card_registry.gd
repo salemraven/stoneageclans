@@ -25,6 +25,7 @@ const TOOL_OVERLAY_PATHS := {
 	ResourceData.ResourceType.AXE: CARDS_DIR + "axe.png",
 	ResourceData.ResourceType.OLDOWAN: CARDS_DIR + "oldowan.png",
 	ResourceData.ResourceType.PICK: CARDS_DIR + "pick.png",
+	ResourceData.ResourceType.STONE: "res://assets/sprites/stone.png",
 }
 
 ## Large overlay PNGs (spear/axe/club) are 471×835; pick/oldowan are smaller and scaled up via TOOL_OVERLAY_SCALE.
@@ -42,6 +43,7 @@ const TOOL_OVERLAY_OFFSET_PX := {
 	ResourceData.ResourceType.WOOD: Vector2(62.0, -6.0),
 	ResourceData.ResourceType.PICK: Vector2(22.0, -34.0),
 	ResourceData.ResourceType.OLDOWAN: Vector2(22.0, -34.0),
+	ResourceData.ResourceType.STONE: Vector2(28.0, -20.0),
 }
 
 ## Shift-ready windup nudge from idle spear slot (display px: +X forward, -Y up).
@@ -53,6 +55,7 @@ const TOOL_OVERLAY_SCALE := {
 	ResourceData.ResourceType.WOOD: CLUB_OVERLAY_SCALE,
 	ResourceData.ResourceType.PICK: TOOL_OVERLAY_REFERENCE_HEIGHT / 32.0,
 	ResourceData.ResourceType.OLDOWAN: TOOL_OVERLAY_REFERENCE_HEIGHT / 64.0,
+	ResourceData.ResourceType.STONE: TOOL_OVERLAY_REFERENCE_HEIGHT / 48.0,
 }
 
 const WALK_BOUNCE_AMPLITUDE := 4.0
@@ -97,6 +100,33 @@ const WEAPON_COMBAT_PROFILES := {
 		"thrust_recover_ease": "out",
 		## Block near-vertical thrusts: minimum |aim.x| after normalize (0.35 ≈ within ~20° of straight up/down).
 		"thrust_min_horizontal_frac": 0.35,
+	},
+	ResourceData.ResourceType.STONE: {
+		"texture_tip_deg": -90.0,
+		"idle_rotation_deg": 0.0,
+		# Same chop as the club: cock back, swing down, return.
+		"ready_rotation_offset_deg": 50.0,
+		"pivot_x_frac": 0.5,
+		"pivot_y_frac": 0.5,
+		"swing_windup_deg": 22.0,
+		"swing_arc_deg": 76.0,
+		"swing_windup_frac": 0.08,
+		"swing_strike_frac": 0.64,
+		"swing_pull_back_px": 10.0,
+		"swing_pull_up_px": 6.0,
+		"swing_lunge_forward_px": 12.0,
+		"swing_lunge_down_px": 38.0,
+		"swing_windup_trans": "sine",
+		"swing_windup_ease": "out",
+		"swing_strike_trans": "cubic",
+		"swing_strike_ease": "in_out",
+		"swing_recover_trans": "cubic",
+		"swing_recover_ease": "out",
+		"attack_kind": 1,
+		"strike_duration": 0.30,
+		"recovery_duration": 0.18,
+		"combat_recovery_duration": 0.16,
+		"combat_recovery_duration_ready": 0.06,
 	},
 	ResourceData.ResourceType.WOOD: {
 		"texture_tip_deg": -90.0,

@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
 # Benchmark GDScript cost per NPC per physics tick, using the 4-clan eval arena.
 #
-# Reports microseconds per NPC per tick instead of FPS. Frame rate in this scenario
-# swings with crowd size, fight outcomes and vsync, so a single run cannot tell two
-# code versions apart. Dividing script time by tick count cancels population out.
-#
 # Usage (from project root):
 #   bash tools/bench_npc_tick.sh [label] [seconds]
+#   BENCH_AGAINST=user://lag_profile_....jsonl bash tools/bench_npc_tick.sh after 180
 #
-# To compare versions, stash ONLY the file under test:
-#   bash tools/bench_npc_tick.sh after
+# Stash only the file under test when A/B-ing:
 #   git stash push -- scripts/npc/npc_base.gd
-#   bash tools/bench_npc_tick.sh before
-#   git stash pop
-# Never a bare `git stash` here — it reverts every other uncommitted file in the repo
-# and the arena silently spawns no fighters, which invalidates the run.
 
 set -euo pipefail
 
@@ -32,16 +24,26 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 export SKIP_SINGLE_INSTANCE=1
+export BENCH_LABEL="$LABEL"
+export BENCH_WARMUP="$WARMUP"
+export BENCH_SECONDS="$SECONDS_TOTAL"
+export BENCH_GIT_SHA
+BENCH_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || true)"
 
+LOG="/tmp/bench_npc_tick_${LABEL}.log"
 echo "== capture: label=$LABEL seconds=$SECONDS_TOTAL warmup=$WARMUP =="
 "$GODOT" --path . --headless --eval-ai-arena --godmode --lag-profile \
-  --session-quit-after "$SECONDS_TOTAL" > "/tmp/bench_npc_tick_${LABEL}.log" 2>&1 || true
+  --session-quit-after "$SECONDS_TOTAL" > "$LOG" 2>&1 || true
 
-if grep -q "SCRIPT ERROR" "/tmp/bench_npc_tick_${LABEL}.log"; then
-  echo "!! SCRIPT ERROR during capture — see /tmp/bench_npc_tick_${LABEL}.log" >&2
+if grep -q "SCRIPT ERROR" "$LOG"; then
+  if grep "SCRIPT ERROR" "$LOG" | grep -vq "occupation_system.gd"; then
+    echo "!! SCRIPT ERROR during capture (not the known occupation_system leak) — see $LOG" >&2
+    exit 1
+  fi
+  echo "!! known occupation_system SCRIPT ERROR present (counted, not fatal until that sweep)"
 fi
 
 echo "== analyze =="
-BENCH_LABEL="$LABEL" BENCH_WARMUP="$WARMUP" \
-  "$GODOT" --path . --headless -s res://tools/bench_npc_tick.gd 2>&1 \
+"$GODOT" --path . --headless -s res://tools/bench_npc_tick.gd 2>&1 \
   | sed -n '/=== BENCH_NPC_TICK RESULT ===/,/BENCH_NPC_TICK: ok/p'
+echo "== analyze done =="

@@ -47,8 +47,8 @@
 ### Controls (implemented)
 
 - **WASD / Arrow keys** – Move.
-- **I** – Open inventory (player + nearby building/corpse/land claim).
-- **Tab** – Toggle player inventory.
+- **I** – **Today:** player + nearby building/corpse. **Agreed:** all applicable panels; party dock expands; **X** per window. [party_ui.md](party_ui.md).
+- **Tab** – Stats panel **planned** (not bound; inventory is **I**).
 - **9 / 0** – Consume item in hotbar slot 9 or 0.
 - **Click NPC** – Attack (if weapon equipped).
 - **Right-click NPC** – Context menu (Follow, Defend, Search, Work, Info). **Wild herdables:** influence attach when you walk within ~250px.

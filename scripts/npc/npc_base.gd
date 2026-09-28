@@ -98,6 +98,19 @@ func _store_sprite_base_position() -> void:
 		_sprite_base_position = sprite.position
 
 
+func _roll_bravery_if_needed() -> void:
+	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	if bravery >= 0.0:
+		return
+	var roll: float = npc_randf()
+	var hp_bonus: float = 0.0
+	var hc: Node = get_node_or_null("HealthComponent")
+	if hc and float(hc.get("max_hp")) > 0.0:
+		hp_bonus = clampf((float(hc.max_hp) - 50.0) / 80.0, -0.15, 0.2)
+	bravery = clampf(0.12 + roll * 0.78 + hp_bonus, 0.08, 0.98)
+
+
 func _init_gameplay_rng() -> void:
 	var ws: int = 0
 	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
@@ -329,6 +342,18 @@ func is_dead() -> bool:
 	if health_comp:
 		return health_comp.is_dead
 	return false
+
+
+func _decision_slot_this_tick() -> bool:
+	# ~10Hz: one of every 6 physics ticks, staggered by id so the crowd does not think together.
+	var nid: int = get_instance_id()
+	if EntityRegistry:
+		var rid: int = int(EntityRegistry.get_network_id(self))
+		if rid >= 0:
+			nid = rid
+	return posmod(nid + Engine.get_physics_frames(), 6) == 0
+
+
 var is_herded: bool = false  # True if being herded by player or clansman
 var herder: Node2D = null  # Reference to the NPC/player herding this NPC
 var herded_count: int = 0  # Phase 3: Count of NPCs being herded by this NPC (for herders)
@@ -545,7 +570,8 @@ var territorial_radius: float = 0.0
 
 # Caveman aggression tracking — single meter drives combat + agro_state; is_agro is derived
 var agro_meter: float = 0.0  # Agro meter (0.0 to 100.0) — combat, hostile indicator, agro_state
-var rout_meter: float = 0.0  # Battle rout; campfire women still use FSM panic
+var rout_meter: float = 0.0  # Legacy; flight uses morale_bar
+var morale_bar: float = 50.0
 var is_agro: bool:
 	get:
 		return agro_meter > 0.0001
@@ -553,6 +579,10 @@ var agro_target: Node2D = null  # Target to attack when agro
 var combat_target: Node2D = null  # NPCBase or player when defending vs intruders (resolve from combat_target_id at edge)
 var combat_target_id: int = -1  # Step 3: logic uses ID; resolve to Node at edge only
 var combat_locked: bool = false  # True during windup/recovery (prevents FSM state switching)
+var fight_over_latched: bool = false
+var fight_over_latched_until: float = 0.0
+var fight_over_emit_count: int = 0
+const FIGHT_OVER_LATCH_SEC: float = 2.5
 # Follow / Guard / Attack — persistent per clansman (ordered follow uses command_context.mode)
 enum FollowMode { FOLLOW = 0, GUARD = 1, ATTACK = 2, HIDE = 3, STALK = 4, ARC = 5, AMBUSH = 6 }
 var follow_mode: int = FollowMode.FOLLOW
@@ -563,18 +593,71 @@ var defend_target: Node2D = null  # Land claim to defend (Step 7); when set, NPC
 var assigned_to_search: bool = false  # Step 11: player-assigned SEARCHING role
 
 # Step 3: Resolve combat_target from combat_target_id; invalid target → agro 69, clear intent.
+func is_fight_over_latched() -> bool:
+	if not fight_over_latched:
+		return false
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	if now_s >= fight_over_latched_until:
+		clear_fight_over_latch()
+		return false
+	return true
+
+
+func clear_fight_over_latch() -> void:
+	fight_over_latched = false
+	fight_over_latched_until = 0.0
+	set("fight_over_latched", false)
+
+
+func _silent_clear_combat_slots() -> void:
+	combat_locked = false
+	set("combat_locked", false)
+	combat_target_id = -1
+	set("combat_target_id", -1)
+	combat_target = null
+	set("combat_target", null)
+	agro_target = null
+	set("agro_target", null)
+	var comp: Node = get_node_or_null("CombatComponent")
+	if comp and comp.has_method("clear_target"):
+		comp.clear_target()
+
+
 func resolve_combat_target() -> Node2D:
+	if combat_target != null and is_instance_valid(combat_target) and FightOverScript.is_living_attack_target(combat_target):
+		if combat_target_id < 0 and EntityRegistry:
+			combat_target_id = EntityRegistry.get_id(combat_target)
+			set("combat_target_id", combat_target_id)
+		return combat_target
 	if combat_target_id < 0:
 		combat_target = null
 		return null
 	var n: Node = EntityRegistry.get_entity_node(combat_target_id) if EntityRegistry else null
 	if not n or not is_instance_valid(n) or not FightOverScript.is_living_attack_target(n):
-		_invalidate_combat_target()
+		end_fight_target_dead(n if n and is_instance_valid(n) else combat_target)
 		return null
 	combat_target = n as Node2D
 	return combat_target
 
+func leave_combat_lost_target() -> void:
+	_silent_clear_combat_slots()
+	if not is_fight_over_latched():
+		fight_over_latched = true
+		fight_over_latched_until = Time.get_ticks_msec() / 1000.0 + 0.8
+		set("fight_over_latched", true)
+	if fsm and fsm.has_method("force_evaluation"):
+		if "evaluation_timer" in fsm:
+			fsm.evaluation_timer = 0.0
+		fsm.force_evaluation()
+
 func end_fight_target_dead(corpse: Node = null) -> void:
+	if is_fight_over_latched():
+		_silent_clear_combat_slots()
+		return
+	fight_over_latched = true
+	fight_over_latched_until = Time.get_ticks_msec() / 1000.0 + FIGHT_OVER_LATCH_SEC
+	set("fight_over_latched", true)
+	fight_over_emit_count += 1
 	combat_locked = false
 	set("combat_locked", false)
 	var comp: Node = get_node_or_null("CombatComponent")
@@ -602,12 +685,12 @@ func end_fight_target_dead(corpse: Node = null) -> void:
 		if fsm and fsm.has_method("get_current_state_name"):
 			fsm_name = str(fsm.get_current_state_name())
 		if pi.has_method("fight_over"):
-			pi.fight_over(nstr, cstr, "target_dead", agro_meter, fsm_name)
-		if pi.has_method("combat_ended"):
-			pi.combat_ended(nstr, cstr)
-		if pi.has_method("clansman_agro_reset"):
-			var ctx: Dictionary = command_context if command_context != null else {}
-			pi.clansman_agro_reset(nstr, str(ctx.get("mode", "FOLLOW")), agro_meter)
+			var extras: Dictionary = {}
+			if pi.has_method("morale_of"):
+				extras = pi.morale_of(self)
+			extras["next_fsm"] = fsm_name
+			extras["latched"] = true
+			pi.fight_over(nstr, cstr, "target_dead", agro_meter, fsm_name, extras)
 	if fsm and fsm.has_method("force_evaluation"):
 		if "evaluation_timer" in fsm:
 			fsm.evaluation_timer = 0.0
@@ -619,22 +702,8 @@ func end_fight_target_dead(corpse: Node = null) -> void:
 
 
 func reset_agro_after_combat() -> void:
-	"""Mode-aware agro reset when leaving combat (FOLLOW/GUARD/ATTACK ordered followers)."""
-	var ctx: Dictionary = {}
-	if get("command_context") != null:
-		ctx = get("command_context") as Dictionary
-	var mode: String = str(ctx.get("mode", "FOLLOW"))
+	"""Leaving a fight drops agro. Stance re-acquires only if a living enemy is still in reach."""
 	var v: float = 0.0
-	if mode == "GUARD":
-		v = 40.0
-	elif mode == "ATTACK" or mode == "ARC":
-		v = 69.0
-	elif mode == "AMBUSH":
-		v = 80.0
-	elif mode == "STALK" or mode == "HIDE":
-		v = 0.0
-	else:
-		v = 0.0
 	set("agro_meter", v)
 	agro_meter = v
 	if v <= 0.0001:
@@ -681,6 +750,161 @@ func _tick_rout_meter(delta: float) -> void:
 	set("rout_meter", rout_meter)
 
 
+func apply_village_alarm() -> void:
+	## One reaction to the claim's answer. Same intruder does not change state again.
+	if npc_type != "caveman" and npc_type != "clansman":
+		return
+	_enforce_village_call_band()
+	var claim: Node = get_my_land_claim()
+	var intruder: Node2D = null
+	var gate_reason: String = "none"
+	if claim != null and is_instance_valid(claim) and claim.has_method("village_gate"):
+		var gate: Dictionary = claim.village_gate(self)
+		gate_reason = str(gate.get("reason", "none"))
+		var raw: Variant = gate.get("target")
+		if raw is Node2D and is_instance_valid(raw):
+			intruder = raw as Node2D
+	elif claim != null and is_instance_valid(claim) and claim.has_method("village_target"):
+		var raw_only: Variant = claim.village_target(self)
+		if raw_only is Node2D and is_instance_valid(raw_only):
+			intruder = raw_only as Node2D
+			gate_reason = "call"
+	var alarm_up: bool = intruder != null
+	if not alarm_up and claim != null and is_instance_valid(claim) and claim.has_method("has_village_intruder"):
+		alarm_up = bool(claim.has_village_intruder())
+	if alarm_up:
+		_log_village_gate(gate_reason, intruder)
+	if intruder != null:
+		var iid: int = intruder.get_instance_id()
+		var current: Node2D = resolve_combat_target()
+		set_meta("village_defense", iid)
+		if current == intruder:
+			return
+		assign_combat_target_node(intruder)
+		if int(get_meta("village_logged_id", 0)) != iid:
+			set_meta("village_logged_id", iid)
+			print("NPC_VILLAGE name=%s target=%s gate=%s dist_claim=%.0f dist_man=%.0f in=%s state=%s" % [
+				npc_name, str(intruder.get("npc_name")), gate_reason,
+				_village_dist_to_own_claim(), global_position.distance_to(intruder.global_position),
+				"yes" if _village_body_in_own_claim(intruder) else "no",
+				str(fsm.get_current_state_name()) if fsm and fsm.has_method("get_current_state_name") else ""
+			])
+		var st_name: String = str(fsm.get_current_state_name()) if fsm and fsm.has_method("get_current_state_name") else ""
+		if st_name != "combat" and fsm and fsm.has_method("change_state"):
+			fsm.change_state("combat")
+		return
+	if not has_meta("village_defense"):
+		return
+	_stand_down_village()
+
+
+func _stand_down_village() -> void:
+	var st_name: String = str(fsm.get_current_state_name()) if fsm and fsm.has_method("get_current_state_name") else ""
+	var target: Node2D = _marked_village_man()
+	if target == null:
+		var raw_target: Variant = combat_target
+		if raw_target is Node2D and is_instance_valid(raw_target) and FightOverScript.is_living_attack_target(raw_target):
+			target = raw_target as Node2D
+	var close: bool = false
+	if target != null:
+		var per: float = 720.0
+		if NPCConfig and NPCConfig.get("agro_perception_range") != null:
+			per = float(NPCConfig.agro_perception_range)
+		close = global_position.distance_to(target.global_position) <= per
+	if close:
+		var hand_dist: float = global_position.distance_to(target.global_position)
+		print("NPC_VILLAGE_HANDOFF name=%s target=%s dist_man=%.0f dist_claim=%.0f target_in=%s state=%s" % [
+			npc_name, str(target.get("npc_name")), hand_dist, _village_dist_to_own_claim(),
+			"yes" if _village_body_in_own_claim(target) else "no", st_name
+		])
+		_enforce_village_call_band()
+		return
+	_silent_clear_combat_slots()
+	reset_agro_after_combat()
+	if fsm and fsm.has_method("_get_state"):
+		var combat_st: Node = fsm._get_state("combat")
+		if combat_st:
+			combat_st.set("combat_target", null)
+	remove_meta("village_defense")
+	var clear_why: String = "dead" if target == null else "far"
+	var clear_name: String = str(target.get("npc_name")) if target != null else "-"
+	var clear_dist: float = global_position.distance_to(target.global_position) if target != null else -1.0
+	print("NPC_VILLAGE_CLEAR name=%s why=%s target=%s dist_man=%.0f state=%s" % [npc_name, clear_why, clear_name, clear_dist, st_name])
+	if st_name == "combat" and fsm and fsm.has_method("change_state"):
+		fsm.change_state("wander")
+
+
+func _marked_village_man() -> Node2D:
+	if not has_meta("village_defense"):
+		return null
+	var marked: Variant = instance_from_id(int(get_meta("village_defense")))
+	if marked == null or not is_instance_valid(marked) or not (marked is Node2D):
+		return null
+	if not FightOverScript.is_living_attack_target(marked):
+		return null
+	return marked as Node2D
+
+
+func _enforce_village_call_band() -> void:
+	if not has_meta("village_defense"):
+		return
+	var claim: Node = get_my_land_claim()
+	if claim == null or not is_instance_valid(claim) or not (claim is Node2D):
+		return
+	var rad: float = float(claim.get("radius")) if claim.get("radius") != null else 400.0
+	var dist_claim: float = (claim as Node2D).global_position.distance_to(global_position)
+	if dist_claim <= rad * 2.0:
+		return
+	var target: Node2D = _marked_village_man()
+	var tname: String = str(target.get("npc_name")) if target != null else "-"
+	_silent_clear_combat_slots()
+	reset_agro_after_combat()
+	if fsm and fsm.has_method("_get_state"):
+		var combat_st: Node = fsm._get_state("combat")
+		if combat_st:
+			combat_st.set("combat_target", null)
+	remove_meta("village_defense")
+	if steering_agent and steering_agent.has_method("set_target_position"):
+		steering_agent.set_target_position((claim as Node2D).global_position)
+	var st_name: String = str(fsm.get_current_state_name()) if fsm and fsm.has_method("get_current_state_name") else ""
+	if st_name == "combat" and fsm and fsm.has_method("change_state"):
+		fsm.change_state("wander")
+	if not has_meta("village_home_logged"):
+		set_meta("village_home_logged", true)
+		print("NPC_VILLAGE_HOME name=%s target=%s dist_claim=%.0f state=%s" % [
+			npc_name, tname, dist_claim, st_name
+		])
+
+
+func _village_dist_to_own_claim() -> float:
+	var claim: Node = get_my_land_claim()
+	if claim == null or not is_instance_valid(claim) or not (claim is Node2D):
+		return -1.0
+	return global_position.distance_to((claim as Node2D).global_position)
+
+
+func _village_body_in_own_claim(body: Node2D) -> bool:
+	var claim: Node = get_my_land_claim()
+	if claim == null or not is_instance_valid(claim) or not (claim is Node2D) or body == null:
+		return false
+	var rad: float = float(claim.get("radius")) if claim.get("radius") != null else 400.0
+	return (claim as Node2D).global_position.distance_to(body.global_position) <= rad
+
+
+func _log_village_gate(reason: String, intruder: Node2D) -> void:
+	var tid: int = intruder.get_instance_id() if intruder != null and is_instance_valid(intruder) else 0
+	var folded: String = "on" if reason == "call" or reason == "keep" else reason
+	var sig: String = "%s|%d" % [folded, tid]
+	if str(get_meta("village_gate_sig", "")) == sig:
+		return
+	set_meta("village_gate_sig", sig)
+	var tname: String = str(intruder.get("npc_name")) if intruder != null else "-"
+	var st_name: String = str(fsm.get_current_state_name()) if fsm and fsm.has_method("get_current_state_name") else ""
+	print("NPC_VILLAGE_GATE name=%s reason=%s target=%s dist_claim=%.0f state=%s" % [
+		npc_name, reason, tname, _village_dist_to_own_claim(), st_name
+	])
+
+
 func try_rout_flee() -> void:
 	if npc_type != "caveman" and npc_type != "clansman":
 		return
@@ -688,6 +912,10 @@ func try_rout_flee() -> void:
 		return
 	if fsm.get("current_state_name") == "flee_combat":
 		return
+	if fsm.has_method("_get_state"):
+		var home_st: Node = fsm._get_state("flee_combat")
+		if home_st and home_st.has_method("village_holds") and bool(home_st.village_holds()):
+			return
 	if has_meta("last_flee_combat_time"):
 		var lf: float = float(get_meta("last_flee_combat_time", 0.0))
 		var cd: float = 3.0
@@ -696,13 +924,21 @@ func try_rout_flee() -> void:
 		if Time.get_ticks_msec() / 1000.0 - lf < cd:
 			return
 	fsm.change_state("flee_combat")
+	show_rout_flash()
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	MoraleBarScript.apply_ally_entered_flight(self)
 
 
 func equip_work_weapon_spear() -> void:
 	if npc_type != "caveman" and npc_type != "clansman":
 		return
 	if hotbar:
-		hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
+		var held: Dictionary = hotbar.get_slot(0)
+		var held_type: ResourceData.ResourceType = held.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType if not held.is_empty() else ResourceData.ResourceType.NONE
+		if held_type == ResourceData.ResourceType.STONE:
+			return
+		if held.is_empty() or held_type != ResourceData.ResourceType.SPEAR:
+			hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 3, "quality": 0})
 	var weapon_comp: Node = get_node_or_null("WeaponComponent")
 	if weapon_comp and weapon_comp.has_method("equip_weapon"):
 		weapon_comp.equip_weapon(ResourceData.ResourceType.SPEAR)
@@ -722,6 +958,10 @@ func assign_combat_target_node(target: Node2D) -> void:
 	if not target or not is_instance_valid(target):
 		_invalidate_combat_target()
 		return
+	if not FightOverScript.is_living_attack_target(target):
+		end_fight_target_dead(target)
+		return
+	clear_fight_over_latch()
 	var tid: int = EntityRegistry.get_id(target) if EntityRegistry else -1
 	set("combat_target_id", tid)
 	set("combat_target", target)
@@ -730,10 +970,17 @@ func assign_combat_target_node(target: Node2D) -> void:
 
 ## Skip proximity/AOA/intrusion pumps while already fighting or fleeing — decay handles exit.
 func _skip_agro_meter_pumps() -> bool:
+	if is_fight_over_latched():
+		return true
 	if not fsm or not fsm.has_method("get_current_state_name"):
 		return false
 	var st: String = str(fsm.get_current_state_name())
-	return st == "combat" or st == "flee_combat"
+	if st == "combat" or st == "flee_combat":
+		return true
+	var ctx: Dictionary = get("command_context") if get("command_context") != null else {}
+	if bool(get("follow_is_ordered")) and str(ctx.get("mode", "FOLLOW")) == "FOLLOW":
+		return true
+	return false
 
 func _invalidate_combat_target() -> void:
 	end_fight_target_dead(null)
@@ -800,7 +1047,12 @@ var progress_display: Node2D = null  # Progress circle for eating/harvesting
 var follow_line: Line2D = null  # Line showing connection to herder
 var _leader_lines_container: Node2D = null
 var _leader_line_pool: Array[Line2D] = []
+var _decision_accum: float = 0.0
+var _inside_claim_cached: Dictionary = {}
 var hostile_indicator: Label = null  # "!!!" indicator for hostile mode
+var rout_indicator: Label = null  # Yellow flash while routing / flee_combat
+var _raid_form_spear: Sprite2D = null
+var _raid_form_signal_on: bool = false
 
 func _ready() -> void:
 	if EntityRegistry:
@@ -916,6 +1168,7 @@ func _ready() -> void:
 	
 	# Create hostile indicator for agro mode
 	_create_hostile_indicator()
+	_create_rout_indicator()
 	
 	# Initialize components
 	if stats_component:
@@ -971,6 +1224,7 @@ func _ready() -> void:
 	elif fsm:
 		push_warning("NPCBase: FSM missing initialize() — check scene script on %s" % name)
 	_init_gameplay_rng()
+	_roll_bravery_if_needed()
 	
 	# Task System - Step 17: Add TaskRunner component if it doesn't exist
 	if not task_runner:
@@ -1179,6 +1433,14 @@ func _physics_tick(delta: float) -> void:
 	if HostileEntityIndex:
 		HostileEntityIndex.sync_cell(self)
 	_tick_rout_meter(delta)
+	_tick_rout_flash(delta)
+	_tick_raid_form_signal(delta)
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	MoraleBarScript.tick_drift(self, delta)
+	if fsm and fsm.has_method("get_current_state_name") and str(fsm.get_current_state_name()) == "combat":
+		var ct_nudge: Node2D = resolve_combat_target()
+		if ct_nudge != null and is_instance_valid(ct_nudge):
+			MoraleBarScript.tick_combat_nudge(self, ct_nudge, delta)
 	
 	# Update stats (hunger depletion, etc.)
 	if stats_component:
@@ -1254,14 +1516,17 @@ func _physics_tick(delta: float) -> void:
 	
 	# Update FSM (distance-based scaling: run FSM less often when far from player).
 	# Multiplayer: only authority runs AI so clients do not duplicate state evaluation (server is source of truth).
+	_decision_accum += delta
+	var run_decisions: bool = _decision_slot_this_tick()
+	var decision_delta: float = _decision_accum if run_decisions else 0.0
 	if fsm:
-		var run_fsm: bool = true
+		var run_fsm: bool = run_decisions
 		if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 			run_fsm = false
 		if run_fsm:
-			var effective_delta: float = delta
+			var effective_delta: float = _decision_accum
 			if _distance_based_update_scale < 1.0 and _distance_update_interval > 0.0:
-				_distance_update_accumulator += delta
+				_distance_update_accumulator += effective_delta
 				if _distance_update_accumulator < _distance_update_interval:
 					effective_delta = 0.0  # Skip this frame
 				else:
@@ -1270,13 +1535,20 @@ func _physics_tick(delta: float) -> void:
 			if effective_delta > 0.0 and fsm.has_method("update"):
 				if LagProfiler and LagProfiler.is_enabled():
 					LagProfiler.record_npc_fsm_update()
-				fsm.update(effective_delta)
+					var t_fsm: int = Time.get_ticks_usec()
+					fsm.update(effective_delta)
+					LagProfiler.record_section("fsm", Time.get_ticks_usec() - t_fsm)
+					LagProfiler.record_gameplay("decision_ticks")
+				else:
+					fsm.update(effective_delta)
+	if run_decisions:
+		_decision_accum = 0.0
 	
-	# Safety check: Cavemen cannot be herded - they are leaders
-	if npc_type == "caveman" and is_herded:
-		is_herded = false
-		herder = null
-		herd_mentality_active = false
+	# The clan leader is not a follower. A leftover order must not spin the party state.
+	if npc_type == "caveman" and (is_herded or follow_is_ordered):
+		if is_herded:
+			_clear_herd("leader_not_follower")
+		follow_is_ordered = false
 		print("Caveman %s: Cleared herded status (cavemen cannot be herded)" % npc_name)
 	
 	# Check herd break distance for herded NPCs (simplified - direct trigger handles following)
@@ -1284,7 +1556,7 @@ func _physics_tick(delta: float) -> void:
 	
 	# Check for caveman aggression (if a wild NPC is lost from the herd)
 	# Auto-deposit for cavemen and clansmen
-	if npc_type == "caveman" or npc_type == "clansman":
+	if run_decisions and (npc_type == "caveman" or npc_type == "clansman"):
 		if npc_type == "caveman":
 			_check_caveman_aggression()
 			# PUSH/BUMP MECHANICS DISABLED - Cavemen cannot push wild NPCs or player
@@ -1302,24 +1574,25 @@ func _physics_tick(delta: float) -> void:
 	# When combat is disabled (testing), keep agro at 0 and skip all agro buildup
 	if NPCConfig and NPCConfig.get("combat_disabled"):
 		agro_meter = 0.0
-	else:
+	elif run_decisions:
 		# Check for land claim intrusion and increase agro_meter for defending clansmen
 		# This applies to all NPCs with a land claim (cavemen and clansmen)
 		if clan_name != "" and (npc_type == "caveman" or npc_type == "clansman"):
-			_check_land_claim_intrusion(delta)
+			_check_land_claim_intrusion(decision_delta)
+			apply_village_alarm()
 		
 		# Proximity agro: enemy within radius → agro builds (both sides when formations meet). No claim required.
 		if npc_type == "caveman" or npc_type == "clansman":
-			_check_proximity_agro(delta)
+			_check_proximity_agro(decision_delta)
 		
 		# Area of Agro (AOA): Trigger agro when enemy caveman enters personal space - even outside land claim
 		# AOA is smaller than AOP (IMPLEMENTATION_CHECKLIST #2)
 		if npc_type == "caveman" or npc_type == "clansman":
-			_check_area_of_agro(delta)
+			_check_area_of_agro(decision_delta)
 		
 		# Mammoth agro: triggers when predators, cavemen, or player enter AOP; rate scales with threat count
 		if npc_type == "mammoth":
-			_check_mammoth_agro(delta)
+			_check_mammoth_agro(decision_delta)
 	
 	# If NPC is part of a clan, keep them inside their land claim
 	# EXCEPT for cavemen and clansmen - they can leave to gather materials and deposit them in storage
@@ -1363,7 +1636,14 @@ func _physics_tick(delta: float) -> void:
 	
 	# Check if NPC is inside a land claim they must not occupy — force flee out (wild NPCs, etc.)
 	# Do NOT `return` from _physics_process here: that skipped all movement for clan members in their own claim.
-	var inside_claim: Dictionary = is_inside_land_claim()
+	if run_decisions:
+		if LagProfiler and LagProfiler.is_enabled():
+			var t_claim: int = Time.get_ticks_usec()
+			_inside_claim_cached = is_inside_land_claim()
+			LagProfiler.record_section("claim", Time.get_ticks_usec() - t_claim)
+		else:
+			_inside_claim_cached = is_inside_land_claim()
+	var inside_claim: Dictionary = _inside_claim_cached
 	if not inside_claim.is_empty():
 		var claim: Node2D = inside_claim.get("land_claim")
 		var claim_clan: String = ""
@@ -1442,7 +1722,7 @@ func _physics_tick(delta: float) -> void:
 	
 	# If this NPC is a leader (caveman, clansman, or player), draw lines to all followers
 	# Skip follow line if we're a leader (mutually exclusive - leader lines show all connections)
-	if npc_type == "caveman" or npc_type == "clansman" or is_in_group("player"):
+	if run_decisions and (npc_type == "caveman" or npc_type == "clansman" or is_in_group("player")):
 		_draw_leader_lines()
 	
 	# Check if in idle state - don't apply movement
@@ -1466,6 +1746,8 @@ func _physics_tick(delta: float) -> void:
 			
 			for player_node in player_nodes:
 				if not is_instance_valid(player_node):
+					continue
+				if DebugConfig and DebugConfig.is_ignored_by_npcs(player_node):
 					continue
 				var distance_to_player: float = global_position.distance_to(player_node.global_position)
 				if distance_to_player < flee_distance:
@@ -1522,7 +1804,10 @@ func _physics_tick(delta: float) -> void:
 		# If caveman should flee from player, use flee behavior
 		if should_flee_from_player:
 			steering_agent.set_flee_target(player_flee_target)
+		if LagProfiler and LagProfiler.is_enabled():
+			var t_steer: int = Time.get_ticks_usec()
 			desired_velocity = steering_agent.get_steering_force(delta)
+			LagProfiler.record_section("move", Time.get_ticks_usec() - t_steer)
 		else:
 			desired_velocity = steering_agent.get_steering_force(delta)
 		
@@ -1623,7 +1908,7 @@ func _physics_tick(delta: float) -> void:
 		
 		# Add emergency separation force if NPCs are too close (prevent getting stuck)
 		# SMOOTHED: Apply separation force gradually instead of instantly to prevent jerky movement
-		var emergency_separation := _get_emergency_separation_force()
+		var emergency_separation := _timed_emergency_separation()
 		if emergency_separation.length() > 0.0:
 			# Smooth the separation force over time instead of applying instantly
 			if not has_meta("smoothed_separation_force"):
@@ -1667,7 +1952,7 @@ func _physics_tick(delta: float) -> void:
 			set_meta("stuck_check_time", stuck_check_time)
 			set_meta("last_velocity", velocity)
 			
-			_apply_sheep_grouping_behavior(delta)
+			_timed_sheep_grouping(delta)
 		
 		# Add slight velocity damping for more natural deceleration
 		# Use a larger threshold to prevent oscillation when arriving at target
@@ -1691,7 +1976,13 @@ func _physics_tick(delta: float) -> void:
 	
 	# Task (MoveTo/DropOff) already calls move_and_slide - don't double-move
 	if not task_controls_movement:
-		move_and_slide()
+		if LagProfiler and LagProfiler.is_enabled():
+			var t_move: int = Time.get_ticks_usec()
+			move_and_slide()
+			LagProfiler.record_section("move", Time.get_ticks_usec() - t_move)
+			LagProfiler.record_gameplay("move_ticks")
+		else:
+			move_and_slide()
 	SoundDetection.maybe_emit_footstep(self)
 	
 	if sprite:
@@ -1753,7 +2044,11 @@ func _physics_tick(delta: float) -> void:
 			if absf(keep_x) <= 0.05 and sprite:
 				keep_x = -1.0 if sprite.flip_h else 1.0
 			_last_facing = Vector2(keep_x, velocity.y).normalized()
-	var should_walk := (is_caveman_clansman or is_woman or is_goat) and moving and combat_idle and not is_dead()
+	var fight_state: String = ""
+	if fsm and fsm.has_method("get_current_state_name"):
+		fight_state = str(fsm.get_current_state_name())
+	var in_fight: bool = fight_state == "combat" or fight_state == "flee_combat"
+	var should_walk := (is_caveman_clansman or is_woman or is_goat) and moving and combat_idle and not in_fight and not is_dead()
 	if uses_placeholder_cards():
 		if PlaceholderCardService:
 			PlaceholderCardService.tick_card_bounce(self, delta, moving)
@@ -1794,7 +2089,7 @@ func _physics_tick(delta: float) -> void:
 		else:
 			var weapon_comp: Node = get_node_or_null("WeaponComponent")
 			var show_club: bool = weapon_comp and weapon_comp.has_method("should_show_club") and weapon_comp.should_show_club()
-			var show_spear: bool = weapon_comp and weapon_comp.has_method("should_show_spear") and weapon_comp.should_show_spear()
+			var show_spear: bool = false
 			var dir_sheet: DirectionalSpriteSheet = null
 			if show_club:
 				dir_sheet = WalkAnimation.get_directional_club_sheet()
@@ -1852,7 +2147,7 @@ func _physics_tick(delta: float) -> void:
 			else:
 				var weapon_comp: Node = get_node_or_null("WeaponComponent")
 				var show_club: bool = weapon_comp and weapon_comp.has_method("should_show_club") and weapon_comp.should_show_club()
-				var show_spear: bool = weapon_comp and weapon_comp.has_method("should_show_spear") and weapon_comp.should_show_spear()
+				var show_spear: bool = false
 				dir_sheet = null
 				if show_club:
 					dir_sheet = WalkAnimation.get_directional_club_sheet()
@@ -1898,8 +2193,7 @@ func _apply_caveman_idle_once() -> void:
 	var weapon_comp: Node = get_node_or_null("WeaponComponent")
 	if weapon_comp and weapon_comp.has_method("should_show_club"):
 		show_club = weapon_comp.should_show_club()
-	if weapon_comp and weapon_comp.has_method("should_show_spear"):
-		show_spear = weapon_comp.should_show_spear()
+	show_spear = false
 	var dir_sheet: DirectionalSpriteSheet = null
 	if show_club:
 		dir_sheet = WalkAnimation.get_directional_club_sheet()
@@ -2265,6 +2559,93 @@ func _create_follow_line() -> void:
 		leader_lines_container.name = "LeaderLines"
 		add_child(leader_lines_container)
 
+func _create_rout_indicator() -> void:
+	# Yellow "!!" above the head. Pulses so it is not the same as red hostile "!!!".
+	rout_indicator = Label.new()
+	rout_indicator.name = "RoutIndicator"
+	rout_indicator.text = "!!"
+	rout_indicator.position = Vector2(-14, -72)
+	rout_indicator.add_theme_color_override("font_color", Color(1.0, 0.92, 0.2, 1.0))
+	rout_indicator.add_theme_font_size_override("font_size", 28)
+	rout_indicator.z_as_relative = false
+	rout_indicator.z_index = YSortUtils.Z_ABOVE_WORLD
+	rout_indicator.visible = false
+	add_child(rout_indicator)
+
+
+func show_rout_flash() -> void:
+	if rout_indicator == null:
+		_create_rout_indicator()
+	if hostile_indicator:
+		hostile_indicator.visible = false
+	rout_indicator.visible = true
+	rout_indicator.modulate = Color(1, 1, 1, 1)
+
+
+func hide_rout_flash() -> void:
+	if rout_indicator and rout_indicator.visible:
+		rout_indicator.visible = false
+		rout_indicator.modulate = Color.WHITE
+
+
+func set_raid_form_signal(on: bool) -> void:
+	_raid_form_signal_on = on
+	set_meta("raid_form_signal", on)
+	if not on:
+		if _raid_form_spear:
+			_raid_form_spear.visible = false
+		return
+	if _raid_form_spear == null:
+		_ensure_raid_form_spear()
+	if _raid_form_spear:
+		_raid_form_spear.visible = true
+
+
+func _ensure_raid_form_spear() -> void:
+	if _raid_form_spear != null:
+		return
+	var tex: Texture2D = load("res://assets/sprites/spear.png") as Texture2D
+	if tex == null:
+		return
+	_raid_form_spear = Sprite2D.new()
+	_raid_form_spear.name = "RaidFormSpear"
+	_raid_form_spear.texture = tex
+	_raid_form_spear.rotation = deg_to_rad(-90.0)
+	_raid_form_spear.position = Vector2(-16, -72)
+	_raid_form_spear.scale = Vector2(0.45, 0.45)
+	_raid_form_spear.z_as_relative = false
+	_raid_form_spear.z_index = YSortUtils.Z_ABOVE_WORLD
+	_raid_form_spear.visible = false
+	add_child(_raid_form_spear)
+
+
+func _tick_raid_form_signal(_delta: float) -> void:
+	if not _raid_form_signal_on:
+		if _raid_form_spear and _raid_form_spear.visible:
+			_raid_form_spear.visible = false
+		return
+	if _raid_form_spear == null:
+		_ensure_raid_form_spear()
+	if _raid_form_spear:
+		_raid_form_spear.visible = true
+		var bob: float = sin(Time.get_ticks_msec() / 1000.0 * TAU * 1.2) * 6.0
+		_raid_form_spear.position = Vector2(-16, -72 + bob)
+	if hostile_indicator == null:
+		_create_hostile_indicator()
+	if hostile_indicator:
+		hostile_indicator.visible = true
+		var pulse: float = 0.45 + 0.55 * absf(sin(Time.get_ticks_msec() / 1000.0 * TAU * 2.5))
+		hostile_indicator.modulate = Color(1, 1, 1, pulse)
+
+
+func _tick_rout_flash(_delta: float) -> void:
+	if rout_indicator == null or not rout_indicator.visible:
+		return
+	# ~4 flashes per second
+	var pulse: float = 0.4 + 0.6 * absf(sin(Time.get_ticks_msec() / 1000.0 * TAU * 2.0))
+	rout_indicator.modulate = Color(1, 1, 1, pulse)
+
+
 func _create_hostile_indicator() -> void:
 	# Create a Label to show "!!!" when in hostile mode
 	hostile_indicator = Label.new()
@@ -2284,6 +2665,7 @@ func _clear_overlay_visuals() -> void:
 		follow_line.visible = false
 	if hostile_indicator and hostile_indicator.visible:
 		hostile_indicator.visible = false
+	hide_rout_flash()
 	for line in _leader_line_pool:
 		if is_instance_valid(line) and line.visible:
 			line.visible = false
@@ -3027,6 +3409,24 @@ func _apply_caveman_push_mechanics(delta: float) -> void:
 			# Also apply a small position offset for immediate feedback
 			player_node.global_position += push_direction * effective_force * delta * 0.1
 
+func _timed_emergency_separation() -> Vector2:
+	if LagProfiler and LagProfiler.is_enabled():
+		var t0: int = Time.get_ticks_usec()
+		var force: Vector2 = _get_emergency_separation_force()
+		LagProfiler.record_section("separation", Time.get_ticks_usec() - t0)
+		return force
+	return _get_emergency_separation_force()
+
+
+func _timed_sheep_grouping(delta: float) -> void:
+	if LagProfiler and LagProfiler.is_enabled():
+		var t0: int = Time.get_ticks_usec()
+		_apply_sheep_grouping_behavior(delta)
+		LagProfiler.record_section("sheep", Time.get_ticks_usec() - t0)
+		return
+	_apply_sheep_grouping_behavior(delta)
+
+
 func _get_emergency_separation_force() -> Vector2:
 	# Emergency separation force when NPCs are too close (prevents getting stuck)
 	# This is a direct push-away force, stronger than normal separation
@@ -3034,33 +3434,26 @@ func _get_emergency_separation_force() -> Vector2:
 	var min_safe_distance: float = 25.0  # Minimum safe distance between NPCs
 	var push_strength: float = 166.67  # 500/3 - reduced by 2/3; NPCs move 1/3 as far when pushed
 	
-	var npcs := get_tree().get_nodes_in_group("npcs")
-	for other_npc in npcs:
+	var neighbors: Array = []
+	if HostileEntityIndex:
+		neighbors = HostileEntityIndex.get_in_range(
+			global_position, min_safe_distance, HostileEntityIndex.FILTER_NEARBY, self
+		)
+	else:
+		neighbors = get_tree().get_nodes_in_group("npcs")
+		neighbors.append_array(get_tree().get_nodes_in_group("player"))
+	for other_npc in neighbors:
 		if other_npc == self or not is_instance_valid(other_npc):
 			continue
-		# Skip dead NPCs
 		if other_npc.has_method("is_dead") and other_npc.is_dead():
 			continue
-		
-		var distance: float = global_position.distance_to(other_npc.global_position)
-		if distance < min_safe_distance and distance > 0.0:
-			# Too close - push away immediately
-			var direction: Vector2 = (global_position - other_npc.global_position).normalized()
-			var push_force: float = (min_safe_distance - distance) / min_safe_distance * push_strength
-			emergency_force += direction * push_force
-	
-	# Also check for player
-	var player_nodes := get_tree().get_nodes_in_group("player")
-	for player_node in player_nodes:
-		if not is_instance_valid(player_node):
+		if not (other_npc is Node2D):
 			continue
-		var distance: float = global_position.distance_to(player_node.global_position)
+		var distance: float = global_position.distance_to((other_npc as Node2D).global_position)
 		if distance < min_safe_distance and distance > 0.0:
-			# Too close to player - push away
-			var direction: Vector2 = (global_position - player_node.global_position).normalized()
+			var direction: Vector2 = (global_position - (other_npc as Node2D).global_position).normalized()
 			var push_force: float = (min_safe_distance - distance) / min_safe_distance * push_strength
 			emergency_force += direction * push_force
-	
 	return emergency_force
 
 func _count_herd_size(leader: Node2D) -> int:
@@ -3216,47 +3609,8 @@ func _apply_defensive_herding_behavior(_delta: float) -> void:
 					# })
 
 func _find_agro_target() -> void:
-	# AGRO DISABLED: System not ready for implementation
+	# Archived to backups/find_agro_target_20260921.gd — no callers.
 	return
-	
-	# Find nearest caveman or player to target when agro
-	@warning_ignore("unreachable_code")
-	var perception: float = get_stat("perception")
-	var detection_range: float = perception * 20.0 * 2.0  # Double perception range when agro
-	
-	var nearest_target: Node2D = null
-	var nearest_distance: float = INF
-	
-	# Check player
-	var player_nodes := get_tree().get_nodes_in_group("player")
-	for player_node in player_nodes:
-		if not is_instance_valid(player_node):
-			continue
-		var distance: float = global_position.distance_to(player_node.global_position)
-		if distance < detection_range and distance < nearest_distance:
-			nearest_target = player_node
-			nearest_distance = distance
-	
-	# Check other cavemen
-	var npcs := get_tree().get_nodes_in_group("npcs")
-	for other_npc in npcs:
-		if other_npc == self or not is_instance_valid(other_npc):
-			continue
-		# Skip dead NPCs - they don't count as cavemen
-		if other_npc.has_method("is_dead") and other_npc.is_dead():
-			continue
-		var other_type: String = other_npc.get("npc_type") if other_npc else ""
-		if other_type == "caveman":
-			var distance: float = global_position.distance_to(other_npc.global_position)
-			if distance < detection_range and distance < nearest_distance:
-				nearest_target = other_npc
-				nearest_distance = distance
-	
-	agro_target = nearest_target
-	if agro_target:
-		@warning_ignore("incompatible_ternary")
-		var target_name: String = agro_target.name if agro_target else "unknown"
-		print("Caveman %s found agro target: %s (distance: %.1f)" % [npc_name, target_name, nearest_distance])
 
 func get_want(want_name: String) -> Dictionary:
 	for want in wants:
@@ -3771,25 +4125,24 @@ func _apply_sheep_grouping_behavior(_delta: float) -> void:
 	if workplace_building and is_instance_valid(workplace_building):
 		return
 	
-	# Find nearby sheep (use squared distance for performance)
-	var all_npcs := get_tree().get_nodes_in_group("npcs")
 	var nearby_sheep: Array[Node2D] = []
-	var grouping_range: float = 150.0  # Range to look for other sheep
-	var grouping_range_squared: float = grouping_range * grouping_range
+	var grouping_range: float = 150.0
 	var my_pos: Vector2 = global_position
-	
-	for other_npc in all_npcs:
+	var candidates: Array = []
+	if HostileEntityIndex:
+		candidates = HostileEntityIndex.get_in_range(
+			my_pos, grouping_range, HostileEntityIndex.FILTER_NEARBY, self
+		)
+	else:
+		candidates = get_tree().get_nodes_in_group("npcs")
+	for other_npc in candidates:
 		if other_npc == self or not is_instance_valid(other_npc):
 			continue
-		# Skip dead NPCs
 		if other_npc.has_method("is_dead") and other_npc.is_dead():
 			continue
-		
-		var other_type: String = other_npc.get("npc_type") if other_npc else ""
-		if other_type == "sheep":
-			var distance_squared: float = my_pos.distance_squared_to(other_npc.global_position)
-			if distance_squared <= grouping_range_squared:
-				nearby_sheep.append(other_npc)
+		var other_type: String = str(other_npc.get("npc_type")) if other_npc.get("npc_type") != null else ""
+		if other_type == "sheep" and other_npc is Node2D:
+			nearby_sheep.append(other_npc as Node2D)
 	
 	# Log grouping behavior occasionally
 	if not has_meta("last_grouping_log_time"):
@@ -3966,7 +4319,7 @@ func _check_land_claim_intrusion(delta: float) -> void:
 	
 	if not my_claim:
 		return  # No territory (flag/campfire) found
-	
+
 	# Step 5: Prefer EnemiesInClaim (event-driven) when available; else scan
 	var intruders: Array = []
 	if my_claim.has_method("get_enemies_in_claim"):
@@ -4203,6 +4556,15 @@ func _check_mammoth_agro(delta: float) -> void:
 
 # Get combat target candidates in range (Step 5: HostileEntityIndex; fallback PerceptionArea/legacy).
 func get_combat_target_candidates(center: Vector2, radius: float) -> Array:
+	if LagProfiler and LagProfiler.is_enabled():
+		var t0: int = Time.get_ticks_usec()
+		var found: Array = _combat_target_candidates_inner(center, radius)
+		LagProfiler.record_section("combat_query", Time.get_ticks_usec() - t0)
+		return found
+	return _combat_target_candidates_inner(center, radius)
+
+
+func _combat_target_candidates_inner(center: Vector2, radius: float) -> Array:
 	if HostileEntityIndex:
 		return HostileEntityIndex.get_enemies_in_range(center, radius, self)
 	var pa: PerceptionArea = get_node_or_null("DetectionArea") as PerceptionArea
@@ -4217,6 +4579,8 @@ func get_combat_target_candidates(center: Vector2, radius: float) -> Array:
 			continue
 		var target_type: String = target.get("npc_type") as String if target.get("npc_type") != null else ""
 		var is_player: bool = target.is_in_group("player")
+		if DebugConfig and DebugConfig.is_ignored_by_npcs(target):
+			continue
 		if target_type != "caveman" and target_type != "clansman" and not is_player:
 			continue
 		if CombatAllyCheck.is_ally(self, target):

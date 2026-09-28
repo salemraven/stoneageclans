@@ -14,11 +14,15 @@ const MannequinAnchorResolverScript = preload("res://scripts/systems/mannequin_a
 const LimbPresetCoordsScript = preload("res://scripts/systems/limb_preset_coords.gd")
 
 const CARD_NPC_TYPES: Array[String] = ["caveman", "clansman", "woman", "baby"]
-const PROCEDURAL_MANNEQUIN_NPC_TYPES: Array[String] = ["caveman", "clansman"]
-const LEGACY_BAKED_CARD_NPC_TYPES: Array[String] = ["woman", "baby"]
+const PROCEDURAL_MANNEQUIN_NPC_TYPES: Array[String] = ["caveman", "clansman", "woman", "baby"]
+const LEGACY_BAKED_CARD_NPC_TYPES: Array[String] = []
 ## Main/gameplay: layered body+head only; procedural IK stays in Limb Tuner.
 const PROCEDURAL_MANNEQUIN_ENABLED_IN_GAME := false
+var overlay_sync_call_count: int = 0
 const RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT := PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT
+const BABY_MANNEQUIN_DISPLAY_HEIGHT := RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+## Slightly larger head than the half-size body. Tune after a look, not per baby.
+const BABY_HEAD_MUL := 1.22
 
 const NPC_ARM_CULL_DISTANCE_PX := 1400.0
 
@@ -139,12 +143,17 @@ func sync_progress_display_position(entity: Node) -> void:
 	var y: float = -88.0
 	var tex: Texture2D = null
 	if uses_procedural_mannequin(entity) or uses_layered_body_mannequin(entity):
-		tex = PartsRegistry.load_blank_body()
+		if _entity_uses_female_mannequin(entity):
+			tex = PartsRegistry.load_female_body()
+		if tex == null:
+			tex = PartsRegistry.load_blank_body()
 	elif sprite and sprite.texture:
 		tex = sprite.texture
 	if tex:
 		if uses_layered_body_mannequin(entity):
 			y = registry.get_runtime_mannequin_progress_display_y(tex)
+			if str(entity.get("npc_type")) == "baby":
+				y *= 0.5
 		else:
 			y = registry.get_progress_display_y(tex)
 	var progress: Variant = entity.get("progress_display")
@@ -217,6 +226,7 @@ func tick_card_bounce(npc: Node, delta: float, moving: bool) -> void:
 func sync_weapon_overlay_flip(entity: Node) -> void:
 	if entity == null or not is_instance_valid(entity) or not uses_placeholder_cards(entity):
 		return
+	overlay_sync_call_count += 1
 	if entity_is_dead_or_dying(entity):
 		hide_holdables_on_death(entity)
 		return
@@ -351,12 +361,18 @@ func sync_weapon_overlay(entity: Node, weapon_type: ResourceData.ResourceType, s
 		return
 	overlay.texture = tex
 	# Body sprite is already card-scaled in apply_card_layout; large overlays match that grid.
-	var overlay_scale: float = (
-		registry.get_runtime_tool_overlay_scale(weapon_type)
-		if uses_layered_body_mannequin(entity)
-		else registry.get_tool_overlay_scale(weapon_type)
-	)
-	overlay.scale = Vector2(overlay_scale, overlay_scale)
+	if (
+		uses_layered_body_mannequin(entity)
+		and weapon_type == ResourceData.ResourceType.STONE
+	):
+		WeaponOverlayCombat.apply_stone_overlay_scale(sprite, overlay)
+	else:
+		var overlay_scale: float = (
+			registry.get_runtime_tool_overlay_scale(weapon_type)
+			if uses_layered_body_mannequin(entity)
+			else registry.get_tool_overlay_scale(weapon_type)
+		)
+		overlay.scale = Vector2(overlay_scale, overlay_scale)
 	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	overlay.visible = true
 	var ostate: int = WeaponOverlayCombat.get_overlay_state(entity)
@@ -447,7 +463,13 @@ func play_weapon_overlay_strike(
 		if not entity or not is_instance_valid(entity):
 			return
 		# Strike tween already retracts to ready — extra recovery poses caused visible bounce.
-		WeaponOverlayCombat.set_overlay_state(entity, WeaponOverlayCombat.OverlayState.READY)
+		var after: int = WeaponOverlayCombat.OverlayState.READY
+		if (
+			weapon_type == ResourceData.ResourceType.STONE
+			or WeaponOverlayCombat.entity_in_throw_stance(entity)
+		):
+			after = WeaponOverlayCombat.OverlayState.IDLE
+		WeaponOverlayCombat.set_overlay_state(entity, after)
 		if on_recovery_done.is_valid():
 			var unlock_d: float = combat_recovery_ready_d if WeaponOverlayCombat.should_hold_weapon_ready(entity) else combat_recovery_d
 			var unlock_t := entity.get_tree().create_timer(maxf(unlock_d, 0.03))
@@ -596,12 +618,116 @@ func play_pawn_death_animation(entity: Node, on_complete: Callable = Callable())
 	return PawnDeathAnimationScript.play(entity, on_complete)
 
 
-func _runtime_layered_mannequin_layout(card_index: int):
+func _entity_uses_female_mannequin(entity: Node) -> bool:
+	if entity == null or not is_instance_valid(entity):
+		return false
+	if entity.is_in_group("player"):
+		return false
+	var nt: Variant = entity.get("npc_type")
+	return nt != null and str(nt) == "woman"
+
+
+func _runtime_layered_mannequin_layout(card_index: int, entity: Node = null):
 	var layout = TunerMannequinLayoutScript.from_registry(registry, card_index)
-	layout.display_height = RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT
+	var display_h: float = RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT
+	if entity != null and str(entity.get("npc_type")) == "baby":
+		display_h = BABY_MANNEQUIN_DISPLAY_HEIGHT
+	layout.display_height = display_h
 	layout.sprite_scale = layout.display_height / layout.ref_texture_height
 	layout.foot_y = -layout.display_height * 0.5
 	return layout
+
+
+func _resolve_hair_id(entity: Node, allow_npc_rng: bool) -> int:
+	var hair_id: int = 0
+	if entity != null and entity.has_meta("hair_id"):
+		hair_id = int(entity.get_meta("hair_id"))
+	if hair_id <= 0 and entity != null and entity.get("hair_id") != null:
+		hair_id = int(entity.get("hair_id"))
+	if hair_id < 1 or hair_id > PartsRegistry.HAIR_STYLE_COUNT:
+		hair_id = 0
+	if hair_id <= 0:
+		if allow_npc_rng and entity != null and entity.has_method("npc_randi_range"):
+			hair_id = entity.npc_randi_range(1, PartsRegistry.HAIR_STYLE_COUNT)
+		else:
+			var ws: int = 0
+			if SimRng and SimRng.has_method("get_world_seed"):
+				ws = int(SimRng.get_world_seed())
+			var salt: int = 0
+			if EntityRegistry:
+				salt = int(EntityRegistry.get_id(entity))
+			else:
+				salt = int(hash(entity.get_instance_id())) if entity else 0
+			salt = int(salt) ^ int(hash("hair_style"))
+			hair_id = SimRng.make_scoped_rng(ws, salt).randi_range(1, PartsRegistry.HAIR_STYLE_COUNT)
+	if entity != null:
+		entity.set("hair_id", hair_id)
+		entity.set_meta("hair_id", hair_id)
+	return hair_id
+
+
+func _resolve_hair_tone(entity: Node, allow_npc_rng: bool) -> String:
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var forced := entity != null and bool(entity.get_meta("hair_tone_forced", false))
+	var tone := ""
+	if entity != null and entity.has_meta("hair_tone"):
+		tone = str(entity.get_meta("hair_tone"))
+	if tone.is_empty() and entity != null and entity.get("hair_tone") != null:
+		tone = str(entity.get("hair_tone"))
+	tone = tone.strip_edges()
+	var known := false
+	for id in PartsRegistry.HAIR_TONE_IDS:
+		if id == tone:
+			known = true
+			break
+	var rng := _hair_genetics_rng(entity, allow_npc_rng)
+	if entity != null:
+		BirthEngineScript.ensure_genome(entity, rng)
+	if not forced:
+		var genome: Dictionary = BirthEngineScript.genome_from_entity(entity)
+		if GenomeOpsScript.has_complete_genome(genome):
+			tone = PhenotypeScript.hair_tone_from_genome(genome)
+			known = true
+	if not known:
+		tone = "Brown"
+	tone = PartsRegistry.normalize_hair_tone(tone)
+	if entity != null:
+		entity.set("hair_tone", tone)
+		entity.set_meta("hair_tone", tone)
+	return tone
+
+
+func _hair_genetics_rng(entity: Node, allow_npc_rng: bool) -> RandomNumberGenerator:
+	if allow_npc_rng and entity != null and entity.has_method("npc_randi_range"):
+		var seeded := RandomNumberGenerator.new()
+		if entity.get("_gameplay_rng") is RandomNumberGenerator:
+			seeded.seed = int((entity.get("_gameplay_rng") as RandomNumberGenerator).seed) ^ int(hash("hair_genome"))
+		else:
+			seeded.seed = int(entity.get_instance_id())
+		return seeded
+	var ws: int = 0
+	if SimRng and SimRng.has_method("get_world_seed"):
+		ws = int(SimRng.get_world_seed())
+	var salt: int = 0
+	if EntityRegistry and entity != null:
+		salt = int(EntityRegistry.get_id(entity))
+	elif entity != null:
+		salt = int(hash(entity.get_instance_id()))
+	salt = int(salt) ^ int(hash("hair_genome"))
+	return SimRng.make_scoped_rng(ws, salt)
+
+
+func _layer_layout_for_entity(entity: Node) -> CharacterCardLayerLayout:
+	var allow_rng := not (entity != null and entity.is_in_group("player"))
+	if entity != null and str(entity.get("npc_type")) == "baby":
+		var baby_layout: CharacterCardLayerLayout = PartsRegistry.clone_layout(PartsRegistry.get_layout())
+		baby_layout.hair_texture_path = ""
+		return baby_layout
+	var hair_id: int = _resolve_hair_id(entity, allow_rng)
+	_resolve_hair_tone(entity, allow_rng)
+	return PartsRegistry.layout_with_hair(hair_id, _entity_uses_female_mannequin(entity))
 
 
 func _overlay_local_offset(sprite: Sprite2D, offset_px: Vector2) -> Vector2:
@@ -731,7 +857,7 @@ func _apply_procedural_mannequin(entity: Node, card_index: int) -> void:
 	_ensure_procedural_rig(entity)
 	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
 	if body_visual and body_visual.has_method("apply_layout"):
-		body_visual.call("apply_layout", layout)
+		body_visual.call("apply_layout", layout, _layer_layout_for_entity(entity))
 	if body_visual and body_visual.has_method("apply_runtime_draw_layers"):
 		body_visual.call("apply_runtime_draw_layers")
 	if body_visual and body_visual.has_method("sync_head_draw_transform"):
@@ -758,7 +884,7 @@ func _apply_layered_body_mannequin(entity: Node, card_index: int) -> void:
 		return
 	entity.set("card_index", card_index)
 	entity.set_meta("card_index", card_index)
-	var layout = _runtime_layered_mannequin_layout(card_index)
+	var layout = _runtime_layered_mannequin_layout(card_index, entity)
 	sprite.texture = null
 	sprite.region_enabled = false
 	sprite.hframes = 1
@@ -773,7 +899,7 @@ func _apply_layered_body_mannequin(entity: Node, card_index: int) -> void:
 	_disable_procedural_arms(entity)
 	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
 	if body_visual and body_visual.has_method("apply_layout"):
-		body_visual.call("apply_layout", layout)
+		body_visual.call("apply_layout", layout, _layer_layout_for_entity(entity))
 	if body_visual and body_visual.has_method("apply_runtime_draw_layers"):
 		body_visual.call("apply_runtime_draw_layers")
 	if body_visual and body_visual.has_method("sync_head_draw_transform"):
@@ -783,6 +909,7 @@ func _apply_layered_body_mannequin(entity: Node, card_index: int) -> void:
 	elif "_sprite_base_position" in entity:
 		entity.set("_sprite_base_position", sprite.position)
 	_apply_skin_modulate(entity)
+	_apply_body_build_scale(entity)
 	sync_progress_display_position(entity)
 
 
@@ -1107,13 +1234,60 @@ func _body_visual_for_sprite(sprite: Sprite2D) -> Node:
 	return MannequinPoseRuntimeScript.get_body_visual(sprite)
 
 
+func _apply_body_build_scale(entity: Node) -> void:
+	if entity == null:
+		return
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	if body_visual == null or not body_visual.has_method("apply_body_build_scale"):
+		return
+	var body_sc := Vector2.ONE
+	var head_sc := Vector2.ONE
+	var profile: Variant = entity.get("genetics_profile")
+	if profile is Dictionary:
+		var p: Dictionary = profile
+		if p.has("body_scale") and p["body_scale"] is Vector2:
+			body_sc = p["body_scale"]
+		if p.has("head_scale") and p["head_scale"] is Vector2:
+			head_sc = p["head_scale"]
+	if str(entity.get("npc_type")) == "baby":
+		head_sc = head_sc * BABY_HEAD_MUL
+	body_visual.call("apply_body_build_scale", body_sc, head_sc)
+
+
 func _apply_skin_modulate(entity: Node) -> void:
 	if entity == null:
 		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 	if sprite == null:
 		return
-	sprite.modulate = _resolve_skin_modulate(entity)
+	var skin: Color = _resolve_skin_modulate(entity)
+	var hair_color: Color = _resolve_hair_modulate(entity)
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	var head: Node = sprite.get_node_or_null("HeadPivot")
+	if body_visual != null and head != null:
+		sprite.modulate = Color.WHITE
+		var body_sprite: Sprite2D = body_visual.get_node_or_null("BodySprite") as Sprite2D
+		if body_sprite:
+			body_sprite.modulate = skin
+		var head_sprite: Sprite2D = head.get_node_or_null("HeadSprite") as Sprite2D
+		if head_sprite:
+			head_sprite.modulate = skin
+		var hair_sprite: Sprite2D = head.get_node_or_null("HairFront") as Sprite2D
+		if hair_sprite:
+			hair_sprite.modulate = hair_color
+		return
+	sprite.modulate = skin
+
+
+func _resolve_hair_modulate(entity: Node) -> Color:
+	var profile: Variant = entity.get("genetics_profile")
+	if profile is Dictionary and (profile as Dictionary).has("hair_modulate"):
+		return (profile as Dictionary)["hair_modulate"]
+	var allow_rng := not (entity != null and entity.is_in_group("player"))
+	return PartsRegistry.hair_tone_to_color(_resolve_hair_tone(entity, allow_rng))
 
 
 func _resolve_skin_modulate(entity: Node) -> Color:
@@ -1132,12 +1306,13 @@ func _resolve_skin_modulate(entity: Node) -> Color:
 
 
 func _skin_tone_to_color(tone: String) -> Color:
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
 	match tone:
 		"Dark":
-			return Color(0.55, 0.42, 0.35, 1.0)
+			return PhenotypeScript.SKIN_DARK
 		"Light":
-			return Color(1.05, 0.92, 0.82, 1.0)
+			return PhenotypeScript.SKIN_LIGHT
 		"Medium":
-			return Color(0.88, 0.72, 0.58, 1.0)
+			return PhenotypeScript.SKIN_MID
 		_:
-			return Color(0.88, 0.72, 0.58, 1.0)
+			return PhenotypeScript.SKIN_MID

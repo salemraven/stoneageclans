@@ -67,7 +67,7 @@ func _validate() -> void:
 		_fail("hair_texture_path expected %s got %s" % [HAIR_TEXTURE_PATH, layout.hair_texture_path])
 	var hair_tex := CharacterCardPartsRegistry.load_hair_texture(layout)
 	if hair_tex == null:
-		_fail("hair1.png missing or failed to load")
+		_fail("01hair.png missing or failed to load")
 	else:
 		print("  hair sheet = %dx%d" % [hair_tex.get_width(), hair_tex.get_height()])
 

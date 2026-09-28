@@ -70,6 +70,9 @@ func _ready() -> void:
 	var dc = get_node_or_null("/root/DebugConfig")
 	if dc and dc.get("playtest_capture_always") == true:
 		_enabled = true
+	if dc and dc.get("enable_eval_ai_arena") == true:
+		_enabled = true
+		_snapshot_interval = 2.0
 	var ua: PackedStringArray = _all_cli_args()
 	if "--session-quickstart" in ua and "--session-instrument" in ua:
 		_enabled = true
@@ -388,14 +391,113 @@ func agro_increased(npc_name: String, value: float, reason: String) -> void:
 func agro_threshold_crossed(npc_name: String, above_70: bool) -> void:
 	_write({"evt": "agro_threshold_crossed", "npc": npc_name, "above_70": above_70})
 
-func combat_started(npc_name: String, target_name: String, attacker_clan: String = "", target_clan: String = "", friendly_fire: bool = false) -> void:
+func combat_started(npc_name: String, target_name: String, attacker_clan: String = "", target_clan: String = "", friendly_fire: bool = false, extras: Dictionary = {}) -> void:
 	_combat_started_count += 1
 	if friendly_fire:
 		_write({"evt": "friendly_fire_combat_started", "npc": npc_name, "target": target_name, "attacker_clan": attacker_clan, "target_clan": target_clan})
-	_write({"evt": "combat_started", "npc": npc_name, "target": target_name, "attacker_clan": attacker_clan, "target_clan": target_clan, "friendly_fire": friendly_fire})
+	var row: Dictionary = {"evt": "combat_started", "npc": npc_name, "target": target_name, "attacker_clan": attacker_clan, "target_clan": target_clan, "friendly_fire": friendly_fire}
+	_merge_extras(row, extras)
+	_write(row)
 
-func combat_ended(npc_name: String, target_name: String) -> void:
-	_write({"evt": "combat_ended", "npc": npc_name, "target": target_name})
+func combat_ended(npc_name: String, target_name: String, extras: Dictionary = {}) -> void:
+	var row: Dictionary = {"evt": "combat_ended", "npc": npc_name, "target": target_name}
+	_merge_extras(row, extras)
+	_write(row)
+
+func fight_over(npc_name: String, corpse_name: String, reason: String, agro_after: float, fsm_after: String, extras: Dictionary = {}) -> void:
+	var row: Dictionary = {"evt": "fight_over", "npc": npc_name, "corpse": corpse_name, "reason": reason, "agro_after": agro_after, "fsm_after": fsm_after}
+	_merge_extras(row, extras)
+	_write(row)
+
+func npc_kill(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "npc_kill"}
+	_merge_extras(row, payload)
+	_write(row)
+
+func rout_delta(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "rout_delta"}
+	_merge_extras(row, payload)
+	_write(row)
+
+func rout_flee(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "rout_flee"}
+	_merge_extras(row, payload)
+	_write(row)
+
+func flee_decide(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "flee_decide"}
+	_merge_extras(row, payload)
+	_write(row)
+
+func npc_move_sample(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "npc_move_sample"}
+	_merge_extras(row, payload)
+	_write(row)
+
+func gather_started(npc_name: String, clan_name: String, resource_type: int, npc_type: String = "") -> void:
+	var res_name: String = ResourceData.get_resource_name(resource_type as ResourceData.ResourceType)
+	var obj: Dictionary = {
+		"evt": "gather_started",
+		"npc": npc_name,
+		"clan": clan_name,
+		"resource_type": resource_type,
+		"resource": res_name,
+	}
+	if npc_type != "":
+		obj["type"] = npc_type
+	_write(obj)
+
+func fsm_bounce(npc_name: String, clan_name: String, state_name: String, gap_sec: float, from_state: String) -> void:
+	_write({
+		"evt": "fsm_bounce",
+		"npc": npc_name,
+		"clan": clan_name,
+		"state": state_name,
+		"gap_s": snappedf(gap_sec, 0.01),
+		"from": from_state,
+	})
+
+func _merge_extras(row: Dictionary, extras: Dictionary) -> void:
+	for k in extras.keys():
+		row[k] = extras[k]
+
+
+static func morale_of(n: Node) -> Dictionary:
+	var out: Dictionary = {"bravery": 0.5, "morale_bar": 50.0, "flight_line": 50.0, "rout_meter": 0.0, "hp_ratio": 1.0}
+	if n == null or not is_instance_valid(n):
+		return out
+	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
+	out["morale_bar"] = snappedf(MoraleBarScript.current(n), 0.1)
+	out["flight_line"] = snappedf(MoraleBarScript.flight_line(n), 0.1)
+	var bvar: Variant = n.get("bravery")
+	if bvar != null:
+		var bf: float = float(bvar)
+		if bf >= 0.0:
+			out["bravery"] = snappedf(clampf(bf, 0.0, 1.0), 0.01)
+	if n.get("rout_meter") != null:
+		out["rout_meter"] = snappedf(float(n.get("rout_meter")), 0.1)
+	var hc: Node = n.get_node_or_null("HealthComponent")
+	if hc and hc.get("max_hp") != null and float(hc.get("max_hp")) > 0.0:
+		out["hp_ratio"] = snappedf(float(hc.get("current_hp")) / float(hc.get("max_hp")), 0.01)
+	return out
+
+func fight_over_broadcast(corpse_name: String, cleared: int) -> void:
+	_write({"evt": "fight_over_broadcast", "corpse": corpse_name, "count": cleared})
+
+func butcher_slice(actor: String, corpse_type: String, resource_name: String, remaining: int) -> void:
+	_write({"evt": "butcher_slice", "actor": actor, "corpse_type": corpse_type, "resource": resource_name, "remaining": remaining})
+
+func corpse_despawned(corpse_type: String, who: String) -> void:
+	_write({"evt": "corpse_despawned", "corpse_type": corpse_type, "who": who})
+
+func corpse_job_opened(clan: String, corpse_type: String, source: String, yield_left: int, closest_px: float) -> void:
+	_write({"evt": "corpse_job_opened", "clan": clan, "corpse_type": corpse_type, "source": source, "yield": yield_left, "closest_px": closest_px})
+
+func butcher_deferred(clan: String, reason: String) -> void:
+	_write({"evt": "butcher_deferred", "clan": clan, "reason": reason})
+
+func butcher_skipped_own_clan(clan: String) -> void:
+	_write({"evt": "butcher_skipped_own_clan", "clan": clan})
 
 func combat_target_switch(npc_name: String, old_target: String, new_target: String, reason: String) -> void:
 	_write({"evt": "combat_target_switch", "npc": npc_name, "old_target": old_target, "new_target": new_target, "reason": reason})
@@ -602,6 +704,12 @@ func session_started(mode: String, world_seed: int, player_count: int) -> void:
 
 func player_spawned(player_id: int, x: float, y: float, spawn_reason: String) -> void:
 	_write({"evt": "player_spawned", "player_id": player_id, "x": x, "y": y, "spawn_reason": spawn_reason})
+
+
+func player_died(cause: String, extras: Dictionary = {}) -> void:
+	var row: Dictionary = {"evt": "player_died", "cause": cause}
+	_merge_extras(row, extras)
+	_write(row)
 
 
 func chunk_npc_spawned(
@@ -1550,6 +1658,15 @@ func _capture_snapshot() -> void:
 	var herdable_wild: int = 0
 	var total_herded_count: int = 0
 	var in_combat_count: int = 0
+	var in_flee_count: int = 0
+	var pile_counts: Dictionary = {}
+	var pile_names: Dictionary = {}
+	var targeting_player: int = 0
+	var rout_sum: float = 0.0
+	var rout_n: int = 0
+	var rout_max: float = 0.0
+	var combat_brav_sum: float = 0.0
+	var combat_brav_n: int = 0
 	var ally_combat_violations: int = 0
 	var ally_combat_samples: Array = []
 	const MAX_ALLY_COMBAT_SAMPLES: int = 12
@@ -1564,7 +1681,15 @@ func _capture_snapshot() -> void:
 	const _PROBE_TYPES: Array = ["caveman", "clansman", "woman", "sheep", "goat", "deer", "mammoth"]
 	# Player is not in group "npcs" — add one row for distance-to-AI analysis
 	var pnode: Node = tree.get_first_node_in_group("player")
-	if pnode and is_instance_valid(pnode) and not (pnode.has_method("is_dead") and pnode.is_dead()):
+	var player_dead: bool = pnode != null and is_instance_valid(pnode) and pnode.has_method("is_dead") and pnode.is_dead()
+	var player_hp: int = -1
+	var player_max_hp: int = -1
+	if pnode and is_instance_valid(pnode):
+		var phc_n: Node = pnode.get_node_or_null("HealthComponent")
+		if phc_n:
+			player_hp = int(phc_n.get("current_hp")) if phc_n.get("current_hp") != null else -1
+			player_max_hp = int(phc_n.get("max_hp")) if phc_n.get("max_hp") != null else -1
+	if pnode and is_instance_valid(pnode) and not player_dead:
 		var vp: Vector2 = Vector2.ZERO
 		if pnode is CharacterBody2D:
 			vp = (pnode as CharacterBody2D).velocity
@@ -1591,20 +1716,46 @@ func _capture_snapshot() -> void:
 		if fsm:
 			state = fsm.get_current_state_name() if fsm.has_method("get_current_state_name") else ""
 		var is_dead: bool = n.has_method("is_dead") and n.is_dead()
+		var nt_f: String = str(n.get("npc_type")) if n.get("npc_type") != null else ""
 		if not is_dead:
 			alive_count += 1
 			var st_count: String = state if state != "" else "unknown"
 			state_counts[st_count] = state_counts.get(st_count, 0) + 1
-			var nt_f: String = str(n.get("npc_type")) if n.get("npc_type") != null else ""
 			var is_player_char: bool = n.is_in_group("player")
 			if not is_player_char:
 				if nt_f == "caveman":
 					ai_caveman_states[st_count] = ai_caveman_states.get(st_count, 0) + 1
 				elif nt_f == "clansman":
 					ai_clansman_states[st_count] = ai_clansman_states.get(st_count, 0) + 1
+		if state == "flee_combat" and not is_dead:
+			in_flee_count += 1
+		if not is_dead and (nt_f == "caveman" or nt_f == "clansman"):
+			var rm_s: float = float(n.get("rout_meter")) if n.get("rout_meter") != null else 0.0
+			rout_sum += rm_s
+			rout_n += 1
+			if rm_s > rout_max:
+				rout_max = rm_s
 		if state == "combat" and not is_dead:
 			in_combat_count += 1
+			var bvar: Variant = n.get("bravery")
+			if bvar != null and float(bvar) >= 0.0:
+				combat_brav_sum += float(bvar)
+				combat_brav_n += 1
 			var ct = n.get("combat_target")
+			if ct != null and is_instance_valid(ct):
+				var tid: int = ct.get_instance_id()
+				pile_counts[tid] = int(pile_counts.get(tid, 0)) + 1
+				if not pile_names.has(tid):
+					var tnm_p: String = "?"
+					if ct.get("npc_name") != null:
+						tnm_p = str(ct.get("npc_name"))
+					elif ct.is_in_group("player"):
+						tnm_p = "Player"
+					else:
+						tnm_p = str(ct.name)
+					pile_names[tid] = tnm_p
+				if ct.is_in_group("player"):
+					targeting_player += 1
 			if ct != null and is_instance_valid(ct) and CombatAllyCheck.is_ally(n, ct):
 				ally_combat_violations += 1
 				if ally_combat_samples.size() < MAX_ALLY_COMBAT_SAMPLES:
@@ -1688,6 +1839,28 @@ func _capture_snapshot() -> void:
 		"ai_clansman_states": ai_clansman_states,
 		"alive_npcs": alive_count
 	}
+	var pile_max: int = 0
+	var pile_name: String = ""
+	for pid in pile_counts.keys():
+		var pc: int = int(pile_counts[pid])
+		if pc > pile_max:
+			pile_max = pc
+			pile_name = str(pile_names.get(pid, "?"))
+	snap["in_combat"] = in_combat_count
+	snap["in_flee"] = in_flee_count
+	snap["pile_max"] = pile_max
+	snap["pile_target"] = pile_name
+	snap["targeting_player"] = targeting_player
+	snap["rout_max"] = snappedf(rout_max, 0.1)
+	if rout_n > 0:
+		snap["rout_mean"] = snappedf(rout_sum / float(rout_n), 0.1)
+	if combat_brav_n > 0:
+		snap["combat_bravery_mean"] = snappedf(combat_brav_sum / float(combat_brav_n), 0.01)
+	snap["player_hp"] = player_hp
+	snap["player_max_hp"] = player_max_hp
+	snap["player_dead"] = player_dead
+	if DebugConfig:
+		snap["npcs_ignore_player"] = bool(DebugConfig.npcs_ignore_player)
 	if _agro_combat_test or _raid_test:
 		snap["in_combat"] = in_combat_count
 	snap["ally_combat_violations"] = ally_combat_violations

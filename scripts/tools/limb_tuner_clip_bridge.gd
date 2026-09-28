@@ -118,6 +118,14 @@ static func read_handles_into_pose(app: Node, existing = null):
 		pose.elbow_support_bend_sign = _read_bend_from_handle(app, false, support_elbow.global_position)
 	if app.has_method("_read_weapon_rotation_for_pose"):
 		pose.weapon_rotation_deg = float(app.call("_read_weapon_rotation_for_pose"))
+	if existing != null:
+		pose.overlay_offset_px = existing.overlay_offset_px
+		pose.overlay_scale_mul = existing.overlay_scale_mul
+	if app.has_method("_throw_spear_edit_active") and bool(app.call("_throw_spear_edit_active")) and rig and rig.weapon_overlay:
+		pose.overlay_offset_px = rig.display_px_from_overlay_position()
+		var size_slider: HSlider = app.get("_weapon_size_slider") as HSlider
+		if size_slider:
+			pose.overlay_scale_mul = float(size_slider.value)
 	return pose
 
 

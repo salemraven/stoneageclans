@@ -87,9 +87,8 @@ func _update_progress(value: float) -> void:
 	queue_redraw()
 
 func _on_collection_complete() -> void:
-	_is_collecting = false
-	_progress = 1.0
-	queue_redraw()
+	# Hide immediately — leaving the icon at 100% is what stuck berry rings over heads.
+	_full_reset_hidden()
 
 func is_collecting() -> bool:
 	return _is_collecting

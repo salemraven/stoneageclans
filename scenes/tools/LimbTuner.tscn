@@ -312,6 +312,31 @@ step = 1.0
 value = 0.0
 rounded = true
 
+[node name="WeaponSizeRow" type="HBoxContainer" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="WeaponSizeLabel" type="Label" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow"]
+layout_mode = 2
+text = "Size"
+
+[node name="WeaponSizeSlider" type="HSlider" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 16.0
+step = 0.25
+value = 2.0
+
+[node name="WeaponSizeSpin" type="SpinBox" parent="UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow"]
+custom_minimum_size = Vector2(88, 32)
+layout_mode = 2
+min_value = 1.0
+max_value = 16.0
+step = 0.05
+value = 2.0
+
 [node name="Sep2b" type="HSeparator" parent="UI/Panel/Margin/Scroll/VBox/TunerSection"]
 layout_mode = 2
 

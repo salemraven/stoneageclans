@@ -133,7 +133,7 @@ func _grow_to_clansman(source: String = "timer") -> void:
 	if pi and pi.has_method("is_enabled") and pi.is_enabled() and pi.has_method("baby_grew_to_clansman"):
 		pi.baby_grew_to_clansman(baby_name, clan_name, source)
 	
-	# Apply father's placeholder card (card_index stored at birth; skin tint stays random)
+	# Apply stored card_index + genome hair_tone from birth (do not re-roll hair).
 	if PlaceholderCardService:
 		PlaceholderCardService.apply_to_npc(npc)
 		var inherited_idx: int = int(npc.get("card_index")) if npc.get("card_index") != null else 0
@@ -247,9 +247,7 @@ func _setup_clansman_combat_and_club() -> void:
 		npc.hotbar = InventoryData.new(10, false, 1)
 	# Spear in hotbar slot 0 — shown when aggro/defense/combat (same visibility as old club stance)
 	if npc.hotbar:
-		npc.hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 1, "quality": 0})
-	if npc.inventory:
-		npc.inventory.add_item(ResourceData.ResourceType.SPEAR, 1)  # Starter spear backup in inventory
+		npc.hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 3, "quality": 0})
 	# Combat/Weapon/Health components (babies don't have them; reuse npc_base caveman logic)
 	var health_comp = npc.get_node_or_null("HealthComponent")
 	if not health_comp:

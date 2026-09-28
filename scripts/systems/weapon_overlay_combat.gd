@@ -5,7 +5,18 @@ class_name WeaponOverlayCombat
 
 enum OverlayState { IDLE, READY, STRIKING, RECOVERING }
 
-enum AttackKind { THRUST, SWING_DOWN }
+enum AttackKind { THRUST, SWING_DOWN, THROW }
+
+const META_THROW_STANCE := "throw_stance"
+
+
+static func entity_in_throw_stance(entity: Node) -> bool:
+	return entity != null and bool(entity.get_meta(META_THROW_STANCE, false))
+
+
+static func set_throw_stance(entity: Node, on: bool) -> void:
+	if entity:
+		entity.set_meta(META_THROW_STANCE, on)
 
 const Registry = preload("res://scripts/config/placeholder_card_registry.gd")
 const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
@@ -103,6 +114,24 @@ static func apply_idle_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, 
 	var idle_deg: float = float(profile.get("idle_rotation_deg", 0.0))
 	_ensure_weapon_pivot(overlay, profile)
 	var entity: Node = body_sprite.get_parent()
+	if entity != null and ResourceData.is_throwable(weapon_type):
+		if entity_in_throw_stance(entity):
+			var aim := Vector2(1, 0)
+			if entity.has_method("_get_cursor_aim_direction"):
+				aim = entity._get_cursor_aim_direction()
+			elif entity.get("aim_dir") != null:
+				var ad: Vector2 = entity.get("aim_dir") as Vector2
+				if ad.length_squared() > 0.0001:
+					aim = ad
+			apply_throw_idle_pose(body_sprite, overlay, aim)
+			return
+		if PlaceholderCardService and PlaceholderCardService.uses_layered_body_mannequin(entity):
+			if weapon_type == ResourceData.ResourceType.STONE:
+				_apply_locked_stone_melee(body_sprite, overlay, false)
+			else:
+				PlaceholderCardService.apply_layered_pawn_tool_overlay_position(body_sprite, overlay, weapon_type)
+				overlay.rotation = deg_to_rad(idle_deg)
+			return
 	var base_offset: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, false)
 	overlay.rotation = deg_to_rad(idle_deg)
 	if (
@@ -181,13 +210,403 @@ static func resolve_thrust_aim(
 	return clamp_thrust_aim(world_aim, registry, weapon_type, sign_x)
 
 
+## Size 1. A third of the head width. Callers apply one multiplier after this. Do not multiply inside here.
+static func apply_stone_overlay_scale(body_sprite: Sprite2D, overlay: Sprite2D) -> void:
+	if body_sprite == null or overlay == null or overlay.texture == null:
+		return
+	var target_w := Registry.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT / 3.0
+	var head: Sprite2D = body_sprite.get_node_or_null("HeadPivot/HeadSprite") as Sprite2D
+	if head != null and head.texture != null:
+		target_w = float(head.texture.get_width()) * absf(head.global_scale.x) / 3.0
+	var parent_s := 1.0
+	if overlay.get_parent():
+		parent_s = maxf(absf(overlay.get_parent().global_scale.x), 0.001)
+	var tex_h := maxf(float(overlay.texture.get_height()), 1.0)
+	var local_s := target_w / (tex_h * parent_s)
+	overlay.scale = Vector2(local_s, local_s)
+
+
+static func _store_overlay_local(body_sprite: Sprite2D, overlay: Sprite2D) -> void:
+	var stored: Vector2 = overlay.position
+	if body_sprite.flip_h:
+		stored.x = -stored.x
+	overlay.set_meta("card_overlay_offset", stored)
+
+
+static func _head_sprite_top_global(body_sprite: Sprite2D) -> Vector2:
+	var head: Sprite2D = body_sprite.get_node_or_null("HeadPivot/HeadSprite") as Sprite2D
+	if head != null and head.texture != null:
+		var r := head.get_rect()
+		return head.to_global(Vector2(r.position.x + r.size.x * 0.5, r.position.y))
+	var sx := maxf(absf(body_sprite.scale.x), 0.001)
+	return body_sprite.to_global(Vector2(0.0, -Registry.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT / sx))
+
+
+static func _body_front_mid_global(body_sprite: Sprite2D) -> Vector2:
+	var body: Sprite2D = body_sprite.get_node_or_null("BodyVisual/BodySprite") as Sprite2D
+	if body == null or body.texture == null:
+		return body_sprite.global_position
+	var r := body.get_rect()
+	var nx: float = 1.0 if not body_sprite.flip_h else 0.0
+	return body.to_global(Vector2(r.position.x + r.size.x * nx, r.position.y + r.size.y * 0.5))
+
+
+static func apply_stone_melee_pose(body_sprite: Sprite2D, overlay: Sprite2D, idle_deg: float) -> void:
+	apply_stone_overlay_scale(body_sprite, overlay)
+	overlay.rotation = deg_to_rad(idle_deg)
+	overlay.flip_h = false
+	overlay.global_position = _body_front_mid_global(body_sprite)
+	_store_overlay_local(body_sprite, overlay)
+	overlay.visible = true
+
+
+static func apply_held_overlay_scale(body_sprite: Sprite2D, overlay: Sprite2D, weapon_type: ResourceData.ResourceType) -> void:
+	if body_sprite == null or overlay == null:
+		return
+	if weapon_type == ResourceData.ResourceType.STONE:
+		apply_stone_overlay_scale(body_sprite, overlay)
+		return
+	if PlaceholderCardService == null or PlaceholderCardService.registry == null:
+		return
+	var entity: Node = body_sprite.get_parent()
+	var overlay_scale: float = (
+		PlaceholderCardService.registry.get_runtime_tool_overlay_scale(weapon_type)
+		if PlaceholderCardService.uses_layered_body_mannequin(entity)
+		else PlaceholderCardService.registry.get_tool_overlay_scale(weapon_type)
+	)
+	overlay.scale = Vector2(overlay_scale, overlay_scale)
+
+
+static var _opaque_center_cache: Dictionary = {}
+
+
+static func _opaque_center_px(texture: Texture2D) -> Vector2:
+	if texture == null:
+		return Vector2.ZERO
+	var key := texture.resource_path if texture.resource_path != "" else str(texture.get_instance_id())
+	if _opaque_center_cache.has(key):
+		return _opaque_center_cache[key]
+	var img := texture.get_image()
+	var fallback := Vector2(texture.get_width() * 0.5, texture.get_height() * 0.5)
+	if img == null:
+		_opaque_center_cache[key] = fallback
+		return fallback
+	var min_x := img.get_width()
+	var min_y := img.get_height()
+	var max_x := 0
+	var max_y := 0
+	var found := false
+	for y in img.get_height():
+		for x in img.get_width():
+			if img.get_pixel(x, y).a > 0.04:
+				found = true
+				min_x = mini(min_x, x)
+				min_y = mini(min_y, y)
+				max_x = maxi(max_x, x)
+				max_y = maxi(max_y, y)
+	var center := fallback if not found else Vector2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
+	_opaque_center_cache[key] = center
+	return center
+
+
+## Tuner body scale (128px body). Display px / this = the same local spot on the shorter game body.
+const TUNER_POSE_SPRITE_SCALE := 0.27234
+## Tuner receipt 2026-09-24T02:41:07. Pose 1 = ranged idle. Pose 2 = windup.
+## Pose 2's saved overlay row was still the old default; the on-screen spear matched its 47° turn.
+const SPEAR_THROW_IDLE_DISPLAY := Vector2(16.0, -182.67)
+const SPEAR_THROW_IDLE_ROT_DEG := 37.0
+const SPEAR_THROW_WINDUP_DISPLAY := Vector2(-16.5, -142.67)
+const SPEAR_THROW_WINDUP_ROT_DEG := 47.0
+## Melee idle receipt 2026-09-26T17:54:48, then nudged away and up.
+## Pose 1 was (59.33, -141.33). Body is about 96px wide in this space, so +16 is a short step out.
+## Up is more negative Y. -12 is a small lift on the 128px tuner body.
+const STONE_THROW_IDLE_DISPLAY := Vector2(-38.67, -156.0)
+const STONE_THROW_DISPLAY := Vector2(-82.0, -111.33)
+const STONE_MELEE_IDLE_DISPLAY := Vector2(75.33, -153.33)
+const STONE_MELEE_WINDUP_DISPLAY := Vector2(-12.0, -170.0)
+## Stone hit receipt 2026-09-25T00:37:42. Pose 1 only. Pose 2 was unused.
+const STONE_MELEE_HIT_DISPLAY := Vector2(54.67, -12.67)
+const STONE_SIZE_MUL := 2.0
+
+
+static func apply_throw_idle_pose(body_sprite: Sprite2D, overlay: Sprite2D, aim_dir: Vector2) -> void:
+	_apply_throw_pose(body_sprite, overlay, aim_dir, false)
+
+
+static func apply_throw_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, aim_dir: Vector2) -> void:
+	_apply_throw_pose(body_sprite, overlay, aim_dir, true)
+
+
+static func _apply_throw_pose(body_sprite: Sprite2D, overlay: Sprite2D, aim_dir: Vector2, windup: bool) -> void:
+	if body_sprite == null or overlay == null:
+		return
+	var entity: Node = body_sprite.get_parent()
+	sync_swing_body_facing(entity, body_sprite, aim_dir)
+	var face: float = -1.0 if body_sprite.flip_h else 1.0
+	var weapon_type: ResourceData.ResourceType = _throw_display_type(entity)
+	if PlaceholderCardService and PlaceholderCardService.registry:
+		var tex: Texture2D = PlaceholderCardService.registry.get_tool_overlay(weapon_type)
+		if tex:
+			overlay.texture = tex
+	if weapon_type == ResourceData.ResourceType.STONE:
+		_assign_tool_texture(overlay, ResourceData.ResourceType.STONE)
+		apply_stone_overlay_scale(body_sprite, overlay)
+		overlay.scale *= STONE_SIZE_MUL
+		var stone_display: Vector2 = STONE_THROW_DISPLAY if windup else STONE_THROW_IDLE_DISPLAY
+		_apply_locked_display_pose(body_sprite, overlay, stone_display, 0.0)
+		return
+	if weapon_type == ResourceData.ResourceType.SPEAR:
+		# Tuner spear size. The runtime shrink would move the shaft off the posed spot.
+		overlay.scale = Vector2.ONE * Registry.SPEAR_OVERLAY_SCALE
+		var display: Vector2 = SPEAR_THROW_WINDUP_DISPLAY if windup else SPEAR_THROW_IDLE_DISPLAY
+		var pose_deg: float = SPEAR_THROW_WINDUP_ROT_DEG if windup else SPEAR_THROW_IDLE_ROT_DEG
+		var aim := aim_dir
+		if PlaceholderCardService and PlaceholderCardService.registry:
+			aim = resolve_thrust_aim(aim, PlaceholderCardService.registry, ResourceData.ResourceType.SPEAR, entity)
+		if absf(aim.x) > 0.05:
+			body_sprite.flip_h = aim.x < 0.0
+		var rot_rad := _spear_throw_aim_rotation_rad(body_sprite, aim, pose_deg)
+		_apply_locked_display_pose(body_sprite, overlay, display, rad_to_deg(rot_rad))
+		return
+	apply_held_overlay_scale(body_sprite, overlay, weapon_type)
+	overlay.rotation = deg_to_rad(-125.0 * face)
+	overlay.flip_h = false
+	var art_center := _opaque_center_px(overlay.texture)
+	var tex_h := float(overlay.texture.get_height()) if overlay.texture else 0.0
+	var tex_w := float(overlay.texture.get_width()) if overlay.texture else 0.0
+	var local_art := Vector2(
+		(art_center.x - tex_w * 0.5) * overlay.scale.x,
+		(art_center.y - tex_h * 0.5) * overlay.scale.y
+	)
+	var parent_2d := overlay.get_parent() as Node2D
+	var parent_scale: Vector2 = parent_2d.global_scale if parent_2d != null else Vector2.ONE
+	var world_art: Vector2 = local_art.rotated(overlay.rotation) * parent_scale
+	overlay.global_position = _head_sprite_top_global(body_sprite) - world_art
+	_store_overlay_local(body_sprite, overlay)
+	overlay.visible = true
+
+
+static func _throw_display_type(entity: Node) -> ResourceData.ResourceType:
+	# The player throws the weapon in hand. A leftover spear pick must not replace the stone.
+	if entity != null and entity.is_in_group("player") and entity.has_method("get_equipped_weapon_type"):
+		var in_hand: ResourceData.ResourceType = entity.get_equipped_weapon_type()
+		if ResourceData.is_throwable(in_hand):
+			return in_hand
+	if entity != null and entity.has_meta("pending_throw_item"):
+		var pending: ResourceData.ResourceType = entity.get_meta("pending_throw_item") as ResourceData.ResourceType
+		if ResourceData.is_throwable(pending):
+			return pending
+	if entity and entity.has_method("get_equipped_weapon_type"):
+		var equipped: ResourceData.ResourceType = entity.get_equipped_weapon_type()
+		if ResourceData.is_throwable(equipped):
+			return equipped
+	return ResourceData.ResourceType.STONE
+
+
+static func _kill_overlay_motion(overlay: Sprite2D) -> void:
+	if overlay == null or not overlay.has_meta("_locked_pose_tween"):
+		return
+	var old: Variant = overlay.get_meta("_locked_pose_tween")
+	if old is Tween and (old as Tween).is_valid():
+		(old as Tween).kill()
+	overlay.remove_meta("_locked_pose_tween")
+
+
+static func _begin_overlay_tween(overlay: Sprite2D) -> Tween:
+	_kill_overlay_motion(overlay)
+	var tw := overlay.create_tween()
+	overlay.set_meta("_locked_pose_tween", tw)
+	return tw
+
+
+static func _spear_throw_aim_rotation_rad(body_sprite: Sprite2D, aim: Vector2, pose_deg: float) -> float:
+	## Tuner angle is the pose while aiming right. Melee thrust rotation swings that to the cursor.
+	var tip_deg := -90.0
+	var posed := deg_to_rad(pose_deg)
+	var facing_right := compute_aim_rotation(body_sprite, Vector2(1, 0), tip_deg, 0.0)
+	var aimed := compute_aim_rotation(body_sprite, aim, tip_deg, 0.0)
+	return aimed + (posed - facing_right)
+
+
+static func _stone_display_local(body_sprite: Sprite2D, display_px: Vector2) -> Vector2:
+	var local := Vector2(display_px.x / TUNER_POSE_SPRITE_SCALE, display_px.y / TUNER_POSE_SPRITE_SCALE)
+	if body_sprite != null and body_sprite.flip_h:
+		local.x = -local.x
+	return local
+
+
+static func _play_throw_release(
+	body_sprite: Sprite2D,
+	overlay: Sprite2D,
+	entity: Node,
+	aim_dir: Vector2,
+	on_hit: Callable,
+	on_strike_anim_done: Callable
+) -> void:
+	# Release from the windup pose. Sliding idle → windup → idle first reads as a pump.
+	apply_throw_ready_pose(body_sprite, overlay, aim_dir)
+	var tw := _begin_overlay_tween(overlay)
+	tw.tween_interval(0.06)
+	tw.tween_callback(func() -> void:
+		if entity and is_instance_valid(entity):
+			entity.set_meta("throw_flight_scale", overlay.global_scale.abs())
+			entity.set_meta("throw_flight_rotation", overlay.global_rotation)
+			entity.set_meta("throw_flight_from", overlay.global_position)
+		overlay.visible = false
+		if on_hit.is_valid():
+			on_hit.call()
+	)
+	tw.tween_interval(0.12)
+	tw.tween_callback(func() -> void:
+		var clear_hand := entity != null and is_instance_valid(entity) and entity.has_meta("throw_clear_hand_on_release")
+		if clear_hand:
+			entity.remove_meta("throw_clear_hand_on_release")
+			_unequip_empty_throw_hand(entity)
+			overlay.visible = false
+		else:
+			overlay.visible = true
+			apply_throw_idle_pose(body_sprite, overlay, aim_dir)
+		set_overlay_state(entity, OverlayState.RECOVERING)
+		if on_strike_anim_done.is_valid():
+			on_strike_anim_done.call()
+	)
+
+
+static func _unequip_empty_throw_hand(entity: Node) -> void:
+	set_throw_stance(entity, false)
+	if entity.has_meta("pending_throw_item"):
+		entity.remove_meta("pending_throw_item")
+	if entity.has_method("set_equipment"):
+		entity.set_equipment(ResourceData.ResourceType.NONE)
+	var weapon_comp: Node = entity.get_node_or_null("WeaponComponent")
+	if weapon_comp and weapon_comp.has_method("equip_weapon"):
+		weapon_comp.equip_weapon(ResourceData.ResourceType.NONE)
+
+
+static func _prepare_stone_melee_overlay(body_sprite: Sprite2D, overlay: Sprite2D) -> void:
+	_assign_tool_texture(overlay, ResourceData.ResourceType.STONE)
+	apply_stone_overlay_scale(body_sprite, overlay)
+	overlay.scale *= STONE_SIZE_MUL
+	overlay.centered = true
+	overlay.flip_h = false
+	# Grip is the bottom of the rock, in texture pixels. Multiplying by scale here
+	# would throw the rock off the hand.
+	var tex_h := float(overlay.texture.get_height()) if overlay.texture else 32.0
+	overlay.offset = Vector2(0.0, -tex_h * 0.5)
+
+
+static func _stone_grip_drop(overlay: Sprite2D) -> float:
+	var tex_h := float(overlay.texture.get_height()) if overlay != null and overlay.texture else 32.0
+	return tex_h * 0.5 * absf(overlay.scale.y)
+
+
+static func _play_stone_club_swing(
+	overlay: Sprite2D,
+	body_sprite: Sprite2D,
+	profile: Dictionary,
+	ready_base: Vector2,
+	strike_duration: float,
+	tween: Tween,
+	on_hit_frame: Callable
+) -> void:
+	_prepare_stone_melee_overlay(body_sprite, overlay)
+	var targets: Dictionary = compute_swing_strike_targets(body_sprite, ready_base, profile)
+	var drop := _stone_grip_drop(overlay)
+	var ready_pos: Vector2 = targets["ready_pos"] + Vector2(0.0, drop)
+	var windup_pos: Vector2 = targets["windup_pos"] + Vector2(0.0, drop)
+	var hit_pos: Vector2 = targets["hit_pos"] + Vector2(0.0, drop)
+	var ready_rot: float = targets["ready_rot"]
+	var windup_rot: float = targets["windup_rot"]
+	var end_rot: float = targets["end_rot"]
+	var facing: float = _swing_facing_sign(body_sprite)
+	var windup_frac: float = clampf(float(profile.get("swing_windup_frac", 0.08)), 0.05, 0.25)
+	var strike_frac: float = clampf(float(profile.get("swing_strike_frac", 0.64)), 0.3, 0.75)
+	var recover_frac: float = maxf(1.0 - windup_frac - strike_frac, 0.08)
+	overlay.position = ready_pos
+	overlay.rotation = ready_rot
+	overlay.flip_h = false
+	tween.set_parallel(true)
+	tween.set_trans(_profile_swing_trans(profile, "swing_windup_trans", Tween.TRANS_SINE))
+	tween.set_ease(_profile_swing_ease(profile, "swing_windup_ease", Tween.EASE_OUT))
+	tween.tween_method(
+		func(t: float) -> void:
+			overlay.rotation = _lerp_swing_rotation_rad(ready_rot, windup_rot, t, facing, false)
+			overlay.flip_h = false,
+		0.0, 1.0, strike_duration * windup_frac
+	)
+	tween.tween_property(overlay, "position", windup_pos, strike_duration * windup_frac)
+	tween.chain().set_parallel(true)
+	tween.set_trans(_profile_swing_trans(profile, "swing_strike_trans", Tween.TRANS_CUBIC))
+	tween.set_ease(_profile_swing_ease(profile, "swing_strike_ease", Tween.EASE_IN_OUT))
+	tween.tween_method(
+		func(t: float) -> void:
+			overlay.rotation = _lerp_swing_rotation_rad(windup_rot, end_rot, t, facing, true)
+			overlay.flip_h = false,
+		0.0, 1.0, strike_duration * strike_frac
+	)
+	tween.tween_property(overlay, "position", hit_pos, strike_duration * strike_frac)
+	tween.chain().tween_callback(on_hit_frame)
+	tween.chain().set_parallel(true)
+	tween.set_trans(_profile_swing_trans(profile, "swing_recover_trans", Tween.TRANS_CUBIC))
+	tween.set_ease(_profile_swing_ease(profile, "swing_recover_ease", Tween.EASE_OUT))
+	tween.tween_method(
+		func(t: float) -> void:
+			overlay.rotation = _lerp_swing_rotation_rad(end_rot, ready_rot, t, facing, false)
+			overlay.flip_h = false,
+		0.0, 1.0, strike_duration * recover_frac
+	)
+	tween.tween_property(overlay, "position", ready_pos, strike_duration * recover_frac)
+
+
+static func _assign_tool_texture(overlay: Sprite2D, weapon_type: ResourceData.ResourceType) -> void:
+	if overlay == null or PlaceholderCardService == null or PlaceholderCardService.registry == null:
+		return
+	var tex: Texture2D = PlaceholderCardService.registry.get_tool_overlay(weapon_type)
+	if tex:
+		overlay.texture = tex
+
+
+static func _apply_locked_stone_melee(body_sprite: Sprite2D, overlay: Sprite2D, windup: bool) -> void:
+	_assign_tool_texture(overlay, ResourceData.ResourceType.STONE)
+	apply_stone_overlay_scale(body_sprite, overlay)
+	overlay.scale *= STONE_SIZE_MUL
+	var display: Vector2 = STONE_MELEE_WINDUP_DISPLAY if windup else STONE_MELEE_IDLE_DISPLAY
+	_apply_locked_display_pose(body_sprite, overlay, display, 0.0)
+
+
+static func _apply_locked_display_pose(body_sprite: Sprite2D, overlay: Sprite2D, display_px: Vector2, rot_deg: float) -> void:
+	var local := _stone_display_local(body_sprite, display_px)
+	overlay.position = local
+	overlay.rotation = deg_to_rad(rot_deg)
+	overlay.flip_h = false
+	# Tuner drag saves the sprite center. A swing-handle offset lifts the rock above that spot.
+	overlay.offset = Vector2.ZERO
+	overlay.centered = true
+	_store_overlay_local(body_sprite, overlay)
+	overlay.visible = true
+
+
 static func apply_ready_pose(body_sprite: Sprite2D, overlay: Sprite2D, registry, weapon_type: ResourceData.ResourceType, aim_dir: Vector2) -> void:
 	if body_sprite == null or overlay == null or registry == null:
+		return
+	var entity: Node = body_sprite.get_parent()
+	if entity_in_throw_stance(entity) and ResourceData.is_throwable(weapon_type):
+		apply_throw_ready_pose(body_sprite, overlay, aim_dir)
+		return
+	if weapon_type == ResourceData.ResourceType.STONE:
+		_prepare_stone_melee_overlay(body_sprite, overlay)
+		var stone_profile: Dictionary = _combat_profile(registry, weapon_type)
+		var stone_base: Vector2 = _pose_offset(body_sprite, registry, weapon_type, stone_profile, true)
+		overlay.position = _flipped_position(body_sprite, stone_base)
+		overlay.position.y += _stone_grip_drop(overlay)
+		overlay.rotation = deg_to_rad(_swing_ready_degrees(body_sprite, stone_profile))
+		overlay.flip_h = false
+		_store_overlay_local(body_sprite, overlay)
+		overlay.visible = true
 		return
 	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	var tip_deg: float = float(profile.get("texture_tip_deg", -90.0))
 	var kind: int = int(profile.get("attack_kind", AttackKind.SWING_DOWN))
-	var entity: Node = body_sprite.get_parent()
 	if kind == AttackKind.THRUST and uses_spear_keyframed_strike(profile):
 		var facing_aim := aim_dir if aim_dir.length_squared() > 0.0001 else Vector2(1.0, 0.0)
 		if absf(facing_aim.x) > 0.05:
@@ -277,6 +696,12 @@ static func play_strike(
 	if not entity.is_inside_tree():
 		return
 	set_overlay_state(entity, OverlayState.STRIKING)
+	_kill_overlay_motion(overlay)
+	if entity_in_throw_stance(entity) and ResourceData.is_throwable(_throw_display_type(entity)):
+		_play_throw_release(body_sprite, overlay, entity, aim_dir, on_hit, on_strike_anim_done)
+		return
+	if weapon_type == ResourceData.ResourceType.STONE:
+		_prepare_stone_melee_overlay(body_sprite, overlay)
 	var profile: Dictionary = _combat_profile(registry, weapon_type)
 	if not club_overlay_strike_enabled(profile, weapon_type):
 		set_overlay_state(entity, OverlayState.READY)
@@ -289,7 +714,7 @@ static func play_strike(
 	var ready_base: Vector2 = _pose_offset(body_sprite, registry, weapon_type, profile, true)
 	var start_rot: float
 	var hit_called := false
-	var tween := overlay.create_tween()
+	var tween := _begin_overlay_tween(overlay)
 	tween.set_trans(Tween.TRANS_QUAD)
 
 	if kind == AttackKind.THRUST:
@@ -385,7 +810,15 @@ static func play_strike(
 				tween.set_ease(recover_ease)
 				tween.tween_property(overlay, "position", ready_pos, retract_t)
 	else:
-		if uses_club_keyframed_strike(profile):
+		if weapon_type == ResourceData.ResourceType.STONE:
+			_play_stone_club_swing(
+				overlay, body_sprite, profile, ready_base,
+				strike_duration, tween, func() -> void:
+					if not hit_called and on_hit.is_valid():
+						hit_called = true
+						on_hit.call()
+			)
+		elif uses_club_keyframed_strike(profile):
 			_play_club_keyframed_strike(
 				overlay, body_sprite, registry, weapon_type, profile,
 				strike_duration, tween, func() -> void:
@@ -480,6 +913,8 @@ static func _base_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceD
 
 
 static func _pose_offset(body_sprite: Sprite2D, registry, weapon_type: ResourceData.ResourceType, profile: Dictionary, ready: bool) -> Vector2:
+	if weapon_type == ResourceData.ResourceType.STONE:
+		return _offset_px_to_local(body_sprite, STONE_MELEE_IDLE_DISPLAY)
 	var entity: Node = body_sprite.get_parent() if body_sprite else null
 	var layered_pawn := (
 		entity != null

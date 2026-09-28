@@ -17,10 +17,10 @@ const HOTBAR_FOOD_MAX_INDEX := 9
 const FOOD_MAX_STACK := 5  # Berries and other food stack up to 5 per slot
 const RIGHT_HAND_SLOT_INDEX := 0   # Slot 1 (right hand) = index 0 — primary weapon (axe/pick)
 const LEFT_HAND_SLOT_INDEX := 1    # Slot 2 (left hand) = index 1
-const SLOT_SIZE := 32
+const SLOT_SIZE := 40
 const PANEL_WIDTH := 320
-const PANEL_HEIGHT := 444  # Inventory slots + craft icons (32 + 8 separation) below
-const HOTBAR_HEIGHT := 64  # Just enough for 32x32 slots with padding (no labels below)
+const PANEL_HEIGHT := 360
+const HOTBAR_HEIGHT := 48
 const VITALS_BAR_HEIGHT := 8
 const VITALS_BAR_ROW_GAP := 3
 const VITALS_HALF_BAR_GAP := 4
@@ -52,6 +52,7 @@ var _active_craft_data: CraftRegistryScript.CraftData = null
 
 func _ready() -> void:
 	super._ready()
+	window_layout_id = "player_bag"
 	
 	# Create inventory data (5 slots, no stacking) - reduced from 10 per UI.md spec
 	inventory_data = InventoryData.new(SLOT_COUNT, false, 1)
@@ -78,6 +79,8 @@ func _position_inventory_for_viewport() -> void:
 	"""Keep inventory centered, shifted up so it clears hotbar + margin (reference 1920x1080)."""
 	if not inventory_panel or not is_instance_valid(inventory_panel):
 		return
+	if try_restore_window_position(inventory_panel):
+		return
 	var bottom_reserve: float = float(HOTBAR_HEIGHT + VITALS_BARS_BLOCK_HEIGHT + HOTBAR_MARGIN_VERTICAL + HOTBAR_SAFE_BOTTOM + 24)
 	inventory_panel.offset_left = -PANEL_WIDTH / 2.0
 	inventory_panel.offset_right = PANEL_WIDTH / 2.0
@@ -93,6 +96,7 @@ func _setup_panels() -> void:
 		add_child(inventory_panel)
 	
 	inventory_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
+	inventory_panel.clip_contents = true
 	
 	# Style inventory panel using UITheme
 	UITheme.apply_panel_style(inventory_panel)
@@ -115,10 +119,14 @@ func _setup_panels() -> void:
 		inventory_vbox.add_theme_constant_override("separation", 8)
 		margin.add_child(inventory_vbox)
 		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+		var title_bar := _make_title_bar("Inventory")
+		inventory_vbox.add_child(title_bar)
+		enable_window_drag(title_bar, inventory_panel)
 		
 		inventory_container = VBoxContainer.new()
 		inventory_container.name = "SlotContainer"
-		inventory_container.add_theme_constant_override("separation", 0)  # No spacing between slots
+		inventory_container.add_theme_constant_override("separation", 4)
 		inventory_vbox.add_child(inventory_container)
 		
 		craft_icons_container = HBoxContainer.new()
@@ -133,7 +141,7 @@ func _setup_panels() -> void:
 		add_child(hotbar_panel)
 	
 	# Calculate hotbar width: 10 slots * 32px + spacing + padding (accounting for labels)
-	var hotbar_width: float = (HOTBAR_COUNT * 32) + ((HOTBAR_COUNT - 1) * 6) + 24  # 6px spacing, 12px padding each side
+	var hotbar_width: float = (HOTBAR_COUNT * 40) + ((HOTBAR_COUNT - 1) * 6) + 24
 	var hotbar_content_h: float = float(HOTBAR_HEIGHT + VITALS_BARS_BLOCK_HEIGHT + HOTBAR_MARGIN_VERTICAL)
 	hotbar_panel.custom_minimum_size = Vector2(hotbar_width, hotbar_content_h)
 	
@@ -217,7 +225,7 @@ func _build_slots() -> void:
 			elif margin:
 				inventory_container = VBoxContainer.new()
 				inventory_container.name = "SlotContainer"
-				inventory_container.add_theme_constant_override("separation", 0)
+				inventory_container.add_theme_constant_override("separation", 4)
 				margin.add_child(inventory_container)
 	
 	if not hotbar_container:
@@ -325,10 +333,14 @@ func toggle() -> void:
 		inventory_panel.visible = is_open
 	
 	if is_open:
-		# Allow input when open
-		mouse_filter = Control.MOUSE_FILTER_STOP
+		# The root covers the whole screen. Leave clicks through so you can still play.
+		# The bag panel itself still catches clicks on slots.
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if inventory_panel:
+			inventory_panel.z_index = 25
 		if inventory_panel:
 			inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		_position_inventory_for_viewport()
 		_update_all_slots()
 		_update_hotbar_slots()
 		UnifiedLogger.log_inventory("PlayerInventoryUI opened")
@@ -354,14 +366,34 @@ func _update_hotbar_slots() -> void:
 	
 	for i in hotbar_slots.size():
 		var slot_data := hotbar_data.get_slot(i)
+		var t: ResourceData.ResourceType = slot_data.get("type", ResourceData.ResourceType.NONE) as ResourceData.ResourceType if not slot_data.is_empty() else ResourceData.ResourceType.NONE
+		hotbar_slots[i].can_stack = (
+			(i >= HOTBAR_FOOD_MIN_INDEX and i <= HOTBAR_FOOD_MAX_INDEX)
+			or ResourceData.is_throwable(t)
+		)
 		hotbar_slots[i].set_item(slot_data)
 	
 	_update_craft_icon_states()
 	
-	# Sync player equip from slot 1 / right hand (axe/pick visible, attack valid)
+	# Sync player equip from active hand slot (axe/pick/spear/stone visible, attack valid)
 	var main_node = get_tree().get_first_node_in_group("main")
 	if main_node and main_node.has_method("_update_equipment"):
 		main_node._update_equipment()
+	var active_idx: int = main_node.get("_player_active_hand_hotbar_index") if main_node else RIGHT_HAND_SLOT_INDEX
+	refresh_active_hand_highlight(active_idx)
+
+
+func refresh_active_hand_highlight(active_hotbar_index: int) -> void:
+	for i in hotbar_slots.size():
+		var slot: InventorySlot = hotbar_slots[i]
+		if i != RIGHT_HAND_SLOT_INDEX and i != LEFT_HAND_SLOT_INDEX:
+			slot.modulate = slot.base_modulate
+			continue
+		if i == active_hotbar_index:
+			slot.modulate = Color(1.15, 1.12, 0.82)
+		else:
+			slot.modulate = slot.base_modulate
+
 
 func add_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
 	if ResourceData.is_food(type):
@@ -371,11 +403,15 @@ func add_item(type: ResourceData.ResourceType, amount: int = 1) -> bool:
 func get_slot_stack_limit(slot: InventorySlot, item_type: ResourceData.ResourceType) -> int:
 	if ResourceData.is_food(item_type) and _player_slot_accepts_item(slot, item_type):
 		return FOOD_MAX_STACK
+	if ResourceData.is_throwable(item_type) and _player_slot_accepts_item(slot, item_type):
+		return ResourceData.THROWABLE_MAX_STACK
 	if slot.is_hotbar:
 		return 1
 	return inventory_data.max_stack if inventory_data else 1
 
 func slot_allows_stack_merge(slot: InventorySlot, item_type: ResourceData.ResourceType) -> bool:
+	if ResourceData.is_throwable(item_type) and _player_slot_accepts_item(slot, item_type):
+		return true
 	return ResourceData.is_food(item_type) and _player_slot_accepts_item(slot, item_type)
 
 func _food_slot_indices(data: InventoryData) -> Array[int]:
@@ -416,6 +452,45 @@ func _add_food_to_empty_slots(data: InventoryData, type: ResourceData.ResourceTy
 		data.set_slot(idx, {"type": type, "count": add_amt})
 		remaining -= add_amt
 	return remaining
+
+func _spill_food_from_stockpile(type: ResourceData.ResourceType, amount: int) -> int:
+	# Pickup / auto-add may still fill food slots; drag-from-stockpile uses one target slot.
+	var remaining := amount
+	var hotbar_data = get_meta("hotbar_data", null) as InventoryData
+	if not hotbar_data or not inventory_data:
+		return remaining
+	remaining = _add_food_to_existing_stacks(hotbar_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_existing_stacks(inventory_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_empty_slots(hotbar_data, type, remaining)
+	if remaining > 0:
+		remaining = _add_food_to_empty_slots(inventory_data, type, remaining)
+	return remaining
+
+
+func _take_stockpile_into_one_player_slot(
+	target_slot: InventorySlot,
+	dragged_type: ResourceData.ResourceType,
+	dragged_count: int,
+	quality: int
+) -> int:
+	if target_slot == null or not _player_slot_accepts_item(target_slot, dragged_type):
+		return dragged_count
+	var to_data: InventoryData = inventory_data
+	if target_slot.is_hotbar:
+		to_data = get_meta("hotbar_data", null) as InventoryData
+	if to_data == null:
+		return dragged_count
+	var idx: int = target_slot.slot_index
+	var max_here: int = get_slot_stack_limit(target_slot, dragged_type)
+	var target_item: Dictionary = to_data.get_slot(idx)
+	if not target_item.is_empty():
+		var target_type: ResourceData.ResourceType = target_item.get("type", -1) as ResourceData.ResourceType
+		if target_type != dragged_type or not slot_allows_stack_merge(target_slot, dragged_type):
+			return dragged_count
+	return to_data.add_to_slot(idx, dragged_type, dragged_count, quality, max_here)
+
 
 func add_item_preferring_food_slots(type: ResourceData.ResourceType, amount: int = 1) -> bool:
 	"""Food: stack on hotbar 9/0 first, then main inventory (max 5 per slot)."""
@@ -550,6 +625,7 @@ func _on_slot_drag_ended(_slot: InventorySlot) -> void:
 	drag_manager.end_drag()
 
 func _input(event: InputEvent) -> void:
+	super._input(event)
 	# Global mouse button release handler for drag-and-drop
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
@@ -588,6 +664,52 @@ func _complete_bridge_drop(from_slot: InventorySlot, to_slot: InventorySlot, dra
 	if drag_manager:
 		drag_manager.complete_drop(to_slot)
 	item_dropped.emit(dragged_item, from_slot, to_slot)
+
+
+func _is_from_building_stockpile(from_slot: InventorySlot) -> bool:
+	var main: Node = get_tree().get_first_node_in_group("main")
+	if main == null or not main.get("building_inventory_ui"):
+		return false
+	var building_ui = main.get("building_inventory_ui")
+	return building_ui and from_slot in building_ui.slots
+
+
+func _restore_leftover_to_source(from_slot: InventorySlot, from_data: InventoryData, item: Dictionary, leftover: int) -> void:
+	if leftover <= 0 or from_data == null or from_slot == null:
+		return
+	var rest: Dictionary = item.duplicate()
+	rest["count"] = leftover
+	from_data.set_slot(from_slot.slot_index, rest)
+	from_slot.set_item(rest)
+
+
+func _handle_stockpile_drop_on_player(
+	from_slot: InventorySlot,
+	target_slot: InventorySlot,
+	from_data: InventoryData,
+	dragged_item: Dictionary
+) -> void:
+	var dragged_type: ResourceData.ResourceType = dragged_item.get("type", -1) as ResourceData.ResourceType
+	var dragged_count: int = int(dragged_item.get("count", 1))
+	var quality: int = int(dragged_item.get("quality", 0))
+	var leftover: int = dragged_count
+
+	leftover = _take_stockpile_into_one_player_slot(target_slot, dragged_type, dragged_count, quality)
+
+	if leftover == dragged_count:
+		if drag_manager:
+			drag_manager.end_drag(true)
+		return
+	_restore_leftover_to_source(from_slot, from_data, dragged_item, leftover)
+	_update_all_slots()
+	_update_hotbar_slots()
+	var main: Node = get_tree().get_first_node_in_group("main")
+	var building_ui = main.get("building_inventory_ui") if main else null
+	if building_ui and building_ui.has_method("_update_all_slots"):
+		building_ui._update_all_slots()
+	if drag_manager:
+		drag_manager.complete_drop(target_slot)
+	item_dropped.emit(dragged_item, from_slot, target_slot)
 
 
 func _handle_drop(target_slot: InventorySlot) -> void:
@@ -651,6 +773,10 @@ func _handle_drop(target_slot: InventorySlot) -> void:
 	if not _player_slot_accepts_item(target_slot, dragged_type):
 		if drag_manager:
 			drag_manager.end_drag(true)
+		return
+
+	if _is_from_building_stockpile(from_slot):
+		_handle_stockpile_drop_on_player(from_slot, target_slot, from_data, dragged_item)
 		return
 	
 	# Handle the drop
@@ -815,9 +941,7 @@ func _create_craft_icon(craft: CraftRegistryScript.CraftData) -> Control:
 	icon_container.custom_minimum_size = Vector2(CRAFT_ICON_SIZE, CRAFT_ICON_SIZE)
 	icon_container.mouse_filter = Control.MOUSE_FILTER_STOP
 	
-	var style := UITheme.get_panel_style()
-	style.bg_color.a = 0.9
-	icon_container.add_theme_stylebox_override("panel", style)
+	UITheme.apply_slot_style(icon_container, true)
 	
 	var icon_texture := TextureRect.new()
 	var texture := load(craft.icon_path) as Texture2D

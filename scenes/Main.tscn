@@ -4,10 +4,10 @@
 [ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="2"]
 [ext_resource type="Script" uid="uid://mfhuqko3safe" path="res://scripts/world.gd" id="3"]
 [ext_resource type="Shader" uid="uid://biraj3so65rlw" path="res://assets/shaders/dirt_alternate.gdshader" id="4"]
-[ext_resource type="Texture2D" uid="uid://e7ro4mgcmkmd" path="res://assets/tiles/dirtgrassbase.png" id="5"]
-[ext_resource type="Texture2D" uid="uid://d1swekob5e0f8" path="res://assets/tiles/dirtgrassbase2.png" id="6"]
-[ext_resource type="Texture2D" uid="uid://c6xudloxi0car" path="res://assets/tiles/dirtgrassbase3.png" id="7"]
-[ext_resource type="Texture2D" uid="uid://7xq6brkpf7k1" path="res://assets/tiles/dirtgrassbase4.png" id="8"]
+[ext_resource type="Texture2D" uid="uid://wd8lspl5b7s8" path="res://assets/tiles/grass1.png" id="5"]
+[ext_resource type="Texture2D" uid="uid://dbsbtna63xwuk" path="res://assets/tiles/grass2.png" id="6"]
+[ext_resource type="Texture2D" uid="uid://b1dwqj26fjf4o" path="res://assets/tiles/grass3.png" id="7"]
+[ext_resource type="Texture2D" uid="uid://quvjh627jfis" path="res://assets/tiles/grass4.png" id="8"]
 [ext_resource type="Script" uid="uid://d0num85msbxkt" path="res://scripts/land_claim_circles_drawer.gd" id="9"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_dirt_alternate"]
@@ -15,7 +15,6 @@ shader = ExtResource("4")
 shader_parameter/texture2 = ExtResource("6")
 shader_parameter/texture3 = ExtResource("7")
 shader_parameter/texture4 = ExtResource("8")
-shader_parameter/repeat_count = 80.0
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1")

@@ -11,7 +11,7 @@ set +e
 "$GODOT" --path "$ROOT" --headless -s res://tools/test_inventory_validation.gd 2>&1 | tee "$test_log"
 test_status=$?
 set -e
-if ! grep -q "TEST_INVENTORY_VALIDATION: all 13 checks passed" "$test_log"; then
+if ! grep -q "TEST_INVENTORY_VALIDATION: all 16 checks passed" "$test_log"; then
   echo "Inventory validation tests FAILED (exit $test_status)"
   rm -f "$test_log"
   exit 1

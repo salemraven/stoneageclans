@@ -1,6 +1,8 @@
 extends Node
 class_name BaseState
 
+const FightOverScript = preload("res://scripts/systems/fight_over.gd")
+
 # Base class for all FSM states
 # All states should extend this
 
@@ -233,14 +235,7 @@ func _cancel_tasks_if_active() -> void:
 
 ## True if node exists and optional HealthComponent is not dead (used by combat/hunt/raid).
 func is_attack_target_alive(target: Node) -> bool:
-	if not target or not is_instance_valid(target):
-		return false
-	var hc: Node = target.get_node_or_null("HealthComponent")
-	if hc != null and "is_dead" in hc:
-		return not bool(hc.is_dead)
-	if target.has_method("is_dead"):
-		return not bool(target.is_dead())
-	return true
+	return FightOverScript.is_living_attack_target(target)
 
 func _npc_rngf() -> float:
 	if npc == null:
@@ -261,6 +256,9 @@ func _npc_rngi_max(exclusive_max: int) -> int:
 ## Clear combat target fields on the owning NPC (safe no-op if no npc).
 func clear_npc_combat_target() -> void:
 	if not npc:
+		return
+	if npc.has_method("end_fight_target_dead"):
+		npc.end_fight_target_dead(null)
 		return
 	npc.set("combat_target_id", -1)
 	npc.set("combat_target", null)

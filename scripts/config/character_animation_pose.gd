@@ -18,6 +18,8 @@ const ROTATION_UNSET := -1000.0
 @export var head_offset_px: Vector2 = Vector2.ZERO
 ## Grip on weapon art (overlay-local). Zero = use weapon primary grip fallback.
 @export var grip_on_art_px: Vector2 = Vector2.ZERO
+## Tuner size slider. 0 means unset. 1 is the small handheld rock.
+@export var overlay_scale_mul: float = 0.0
 
 
 func resolved_shoulder_weapon_px(preset) -> Vector2:
@@ -52,6 +54,7 @@ func duplicate_pose():
 	copy.weapon_rotation_deg = weapon_rotation_deg
 	copy.head_offset_px = head_offset_px
 	copy.grip_on_art_px = grip_on_art_px
+	copy.overlay_scale_mul = overlay_scale_mul
 	return copy
 
 
@@ -76,6 +79,7 @@ func lerp_to_blend(other, blend: float) -> Resource:
 	out.weapon_rotation_deg = lerpf(weapon_rotation_deg, other.weapon_rotation_deg, eased)
 	out.head_offset_px = head_offset_px.lerp(other.head_offset_px, eased)
 	out.grip_on_art_px = grip_on_art_px.lerp(other.grip_on_art_px, eased)
+	out.overlay_scale_mul = lerpf(overlay_scale_mul, other.overlay_scale_mul, eased)
 	return out
 
 

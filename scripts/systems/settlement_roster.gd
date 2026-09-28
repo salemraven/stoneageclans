@@ -148,6 +148,9 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		"quality_tier": str(npc.get("quality_tier") if npc.get("quality_tier") != null else "Flawed"),
 		"skin_tone": str(npc.get("skin_tone") if npc.get("skin_tone") != null else "Medium"),
 		"card_index": int(npc.get("card_index") if npc.get("card_index") != null else 0),
+		"hair_id": int(npc.get("hair_id") if npc.get("hair_id") != null else 0),
+		"hair_tone": str(npc.get("hair_tone") if npc.get("hair_tone") != null else ""),
+		"genetics_profile": (npc.get("genetics_profile") as Dictionary).duplicate(true) if npc.get("genetics_profile") is Dictionary else {},
 		"traits": traits,
 		"position": pos,
 		"npc_type": npc_type,
@@ -188,6 +191,9 @@ func _member_from_sleep_record(data: Dictionary, leader_npc: Node) -> Dictionary
 		"quality_tier": str(data.get("quality_tier", "Flawed")),
 		"skin_tone": str(data.get("skin_tone", "Medium")),
 		"card_index": int(data.get("card_index", 0)),
+		"hair_id": int(data.get("hair_id", 0)),
+		"hair_tone": str(data.get("hair_tone", "")),
+		"genetics_profile": (data.get("genetics_profile") as Dictionary).duplicate(true) if data.get("genetics_profile") is Dictionary else {},
 		"traits": traits,
 		"position": data.get("position", Vector2.ZERO),
 		"npc_type": npc_type,
@@ -288,6 +294,9 @@ func to_spawn_data(member: Dictionary, fallback_pos: Vector2) -> Dictionary:
 		"quality_tier": str(member.get("quality_tier", "Flawed")),
 		"skin_tone": str(member.get("skin_tone", "Medium")),
 		"card_index": int(member.get("card_index", 0)),
+		"hair_id": int(member.get("hair_id", 0)),
+		"hair_tone": str(member.get("hair_tone", "")),
+		"genetics_profile": (member.get("genetics_profile") as Dictionary).duplicate(true) if member.get("genetics_profile") is Dictionary else {},
 		"traits": (member.get("traits", []) as Array).duplicate(),
 		"clan_name": clan_name,
 		"position": pos,
@@ -387,11 +396,18 @@ func add_baby_member(mother_id: int, father_id: int, baby_name: String, fallback
 		"quality_tier": "Flawed",
 		"skin_tone": "Medium",
 		"card_index": int(father.get("card_index", 0)) if not father.is_empty() else 0,
+		"hair_id": int(father.get("hair_id", 0)) if not father.is_empty() else 0,
+		"hair_tone": "",
+		"genetics_profile": {},
 		"traits": [],
 		"position": mother.get("position", fallback_pos) if not mother.is_empty() else fallback_pos,
 		"mother_name": str(mother.get("name", "unknown")) if not mother.is_empty() else "unknown",
 		"father_name": str(father.get("name", "unknown")) if not father.is_empty() else "unknown",
 	}
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var ws: int = int(WorldGenConfig.world_seed) if WorldGenConfig else 0
+	var gene_rng: RandomNumberGenerator = SimRng.make_scoped_rng(ws, int(baby_id) ^ int(hash("roster_baby_genome")))
+	BirthEngineScript.apply_child_to_entity(entry, mother, father, gene_rng)
 	members.append(entry)
 	return entry
 

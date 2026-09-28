@@ -3,6 +3,11 @@ extends "res://scripts/npc/states/base_state.gd"
 # Preload PerceptionArea so it resolves (avoids "Could not find type" when run from CLI)
 const PerceptionArea = preload("res://scripts/npc/components/perception_area.gd")
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
+const FightFlight = preload("res://scripts/combat/fight_flight.gd")
+const CombatTargetPick = preload("res://scripts/combat/combat_target_pick.gd")
+const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
+const ThrowHitResolver = preload("res://scripts/combat/throw_hit_resolver.gd")
+const CombatStance = preload("res://scripts/systems/combat_stance.gd")
 
 # Combat State - NPCs attack enemies when agro_meter >= 70
 # Agro meter increases when attacked, decreases over time when not in combat
@@ -16,12 +21,6 @@ var _next_flee_check_sec: float = 0.0
 # Defenders: max distance from claim center to chase (prevents kiting)
 const DEFENDER_PURSUIT_FACTOR := 1.4  # claim_radius * this = max chase distance (e.g. 560px for 400 radius)
 static var _raid_blocked_logged: bool = false
-# RTS-style: spread attackers around target so they don't stack on one spot
-const COMBAT_SPREAD_RADIUS := 48.0  # px offset per NPC (stable angle from instance_id)
-
-func _combat_spread_offset(npc_node: Node) -> Vector2:
-	var angle: float = fmod(npc_node.get_instance_id() * 0.618033988749, TAU)
-	return Vector2(cos(angle), sin(angle)) * COMBAT_SPREAD_RADIUS
 
 func _clear_combat_target_and_exit() -> void:
 	"""Clear combat target and force FSM re-evaluation (used when target is invalid e.g. player when following)."""
@@ -62,6 +61,7 @@ func enter() -> void:
 	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
 	if combat_comp:
 		combat_comp.set_target(combat_target)
+	_next_flee_check_sec = Time.get_ticks_msec() / 1000.0 + 1.5
 	
 	var target_name: String = "none"
 	var npc_clan: String = ""
@@ -95,7 +95,13 @@ func enter() -> void:
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled():
 			var ff: bool = combat_target != null and is_instance_valid(combat_target) and CombatAllyCheck.is_ally(npc, combat_target)
-			pi.combat_started(npc_name_safe, target_name, npc_clan, target_clan, ff)
+			var extras: Dictionary = {}
+			if pi.has_method("morale_of"):
+				extras = pi.morale_of(npc)
+			pi.combat_started(npc_name_safe, target_name, npc_clan, target_clan, ff, extras)
+		var phi_enter := npc.get_node_or_null("/root/PartyHuntInstrument")
+		if phi_enter and phi_enter.has_method("note_fight_enter"):
+			phi_enter.note_fight_enter(npc, combat_target)
 	
 	if npc.hostile_indicator:
 		npc.hostile_indicator.visible = true
@@ -103,9 +109,31 @@ func enter() -> void:
 	if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
 		npc.steering_agent.restore_original_speed()
 
+func refuses_entry_for_break() -> bool:
+	## A score that is already a break. The state machine sends him to the run instead.
+	## A chaser stays, because a pursuit target clears the break.
+	if not npc:
+		return false
+	var raw: Variant = npc.get("combat_target")
+	if raw is Node2D and is_instance_valid(raw):
+		combat_target = raw as Node2D
+	if _flee_reason() == "":
+		return false
+	if combat_target and is_instance_valid(combat_target):
+		npc.set_meta("flee_from_position", combat_target.global_position)
+	return true
+
+
 func exit() -> void:
 	_cancel_tasks_if_active()
 	if npc:
+		var next_state: String = str(npc.get_meta("fsm_next_state", ""))
+		var leaving_for_flee: bool = next_state == "flee_combat"
+		var fought_person: bool = _is_person_body(combat_target) and is_attack_target_alive(combat_target)
+		if leaving_for_flee and combat_target and is_instance_valid(combat_target):
+			npc.set_meta("flee_from_position", combat_target.global_position)
+		if leaving_for_flee or fought_person:
+			npc.set_meta("hunt_after_combat", false)
 		var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
 		if combat_comp:
 			if combat_comp.state == CombatComponent.CombatState.READY:
@@ -120,6 +148,12 @@ func exit() -> void:
 			npc.combat_target_id = -1
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
+		if npc.has_meta("pursue_logged_id"):
+			npc.remove_meta("pursue_logged_id")
+		if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
+			npc.steering_agent.restore_original_speed()
+		if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+			npc.steering_agent.hold_still()
 		if npc.has_method("reset_agro_after_combat"):
 			npc.reset_agro_after_combat()
 			var pi_ar: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
@@ -131,6 +165,8 @@ func exit() -> void:
 		# Clear combat entry logging meta when exiting
 		if npc.has_meta("last_combat_entry_logged"):
 			npc.remove_meta("last_combat_entry_logged")
+		if npc.has_meta("allow_last_spear_throw"):
+			npc.remove_meta("allow_last_spear_throw")
 		_try_nomad_rejoin_after_combat()
 		# Safe access to npc_name (might be null if NPC is being destroyed)
 		var npc_name_str: String = "unknown"
@@ -142,8 +178,8 @@ func exit() -> void:
 		var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
 		if pi and pi.is_enabled():
 			pi.combat_ended(npc_name_str, "unknown")
-		# Hunt party: resume hunt state for return journey (raid pattern; hunt priority < combat)
-		if npc.get_meta("hunt_after_combat", false) == true:
+		# Hunt party: resume hunt only after the animal fight. A person fight or a run does not.
+		if npc.get_meta("hunt_after_combat", false) == true and str(npc.get_meta("fsm_next_state", "")) != "flee_combat":
 			npc.set_meta("hunt_after_combat", false)
 			if fsm:
 				fsm.change_state("hunt", true)
@@ -163,11 +199,11 @@ func update(_delta: float) -> void:
 	if combat_target and not is_attack_target_alive(combat_target):
 		var corpse_node: Node2D = combat_target
 		var resume_hunt: bool = npc.get_meta("hunt_after_combat", false)
-		clear_npc_combat_target()
+		if npc.has_method("end_fight_target_dead"):
+			npc.end_fight_target_dead(corpse_node)
+		else:
+			clear_npc_combat_target()
 		combat_target = null
-		var combat_comp_dead: CombatComponent = npc.get_node_or_null("CombatComponent")
-		if combat_comp_dead:
-			combat_comp_dead.clear_target()
 		if resume_hunt and fsm:
 			_notify_hunt_prey_dead_loot(corpse_node)
 			fsm.change_state("hunt", true)
@@ -175,15 +211,41 @@ func update(_delta: float) -> void:
 			fsm.force_evaluation()
 		return
 	if not combat_target:
+		if npc.has_method("leave_combat_lost_target"):
+			npc.leave_combat_lost_target()
+		elif fsm and fsm.has_method("force_evaluation"):
+			fsm.force_evaluation()
 		return
 
 	var now_sec_f: float = Time.get_ticks_msec() / 1000.0
-	var flee_iv: float = 0.5
+	var flee_iv: float = 1.5
 	if NPCConfig:
-		flee_iv = NPCConfig.flee_check_interval_sec
-	if now_sec_f >= _next_flee_check_sec:
+		flee_iv = maxf(NPCConfig.flee_check_interval_sec, 1.5)
+	# A swing is 0.45s windup plus 0.8s recovery. Do not pull him out mid-attack.
+	if now_sec_f >= _next_flee_check_sec and not _strike_in_progress():
 		_next_flee_check_sec = now_sec_f + flee_iv
-		if _should_flee():
+		var flee_why: String = _flee_reason()
+		if flee_why != "":
+			var pi_fd = npc.get_node_or_null("/root/PlaytestInstrumentor")
+			if pi_fd and pi_fd.has_method("is_enabled") and pi_fd.is_enabled() and pi_fd.has_method("flee_decide"):
+				if not bool(npc.get_meta("_flee_decide_logged", false)):
+					npc.set_meta("_flee_decide_logged", true)
+					var pay: Dictionary = {}
+					if pi_fd.has_method("morale_of"):
+						pay = pi_fd.morale_of(npc)
+					pay["npc"] = str(npc.get("npc_name"))
+					pay["clan"] = npc.get_clan_name() if npc.has_method("get_clan_name") else ""
+					pay["rule"] = flee_why
+					if npc.has_meta("_flee_counts"):
+						var fc: Variant = npc.get_meta("_flee_counts")
+						if fc is Dictionary:
+							pay["enemies"] = int(fc.get("enemies", 0))
+							pay["allies"] = int(fc.get("allies", 0))
+							pay["routing_allies"] = int(fc.get("routing_allies", 0))
+					pi_fd.flee_decide(pay)
+			var phi_br := npc.get_node_or_null("/root/PartyHuntInstrument")
+			if phi_br and phi_br.has_method("note_fight_break"):
+				phi_br.note_fight_break(npc, flee_why, combat_target)
 			if fsm:
 				fsm.change_state("flee_combat")
 			return
@@ -210,14 +272,37 @@ func update(_delta: float) -> void:
 					fsm.force_evaluation()
 				return
 	
-	# Ordered followers: don't chase beyond mode-specific distance from leader
-	if npc.get("follow_is_ordered") and npc.get("herder") and is_instance_valid(npc.get("herder")):
+	var pursuit_now: Node2D = _find_pursuit_target()
+	if pursuit_now == null and npc.has_meta("pursue_logged_id"):
+		npc.remove_meta("pursue_logged_id")
+		if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
+			npc.steering_agent.restore_original_speed()
+	# Ordered followers: don't chase beyond mode-specific distance from leader.
+	# A routing man is finished, so the short leash does not drop that chase.
+	if pursuit_now == null and npc.has_meta("village_defense") and npc.get("follow_is_ordered") and npc.get("herder") and is_instance_valid(npc.get("herder")):
+		var held_leader: Vector2 = npc.herder.global_position
+		var held_dist: float = npc.global_position.distance_to(held_leader)
+		var held_ctx: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
+		var held_mode: String = str(held_ctx.get("mode", "FOLLOW"))
+		var held_max: float = 150.0
+		if _npc_has_spare_ranged():
+			held_max = _npc_active_throw_range()
+		elif held_mode == "GUARD":
+			held_max = 200.0
+		elif held_mode == "ATTACK":
+			held_max = 400.0
+		if held_dist > held_max and not bool(npc.get_meta("village_leash_logged", false)):
+			npc.set_meta("village_leash_logged", true)
+			print("NPC_VILLAGE_LEASH name=%s dist=%.0f max=%.0f" % [str(npc.get("npc_name")), held_dist, held_max])
+	if pursuit_now == null and not npc.has_meta("village_defense") and npc.get("follow_is_ordered") and npc.get("herder") and is_instance_valid(npc.get("herder")):
 		var leader_pos: Vector2 = npc.herder.global_position
 		var dist_from_leader: float = npc.global_position.distance_to(leader_pos)
 		var ctx_leash: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
 		var mode_leash: String = str(ctx_leash.get("mode", "FOLLOW"))
 		var max_chase: float = 150.0
-		if mode_leash == "GUARD":
+		if _npc_has_spare_ranged():
+			max_chase = _npc_active_throw_range()
+		elif mode_leash == "GUARD":
 			max_chase = 200.0
 		elif mode_leash == "ATTACK":
 			max_chase = 400.0
@@ -226,6 +311,9 @@ func update(_delta: float) -> void:
 			if pi_lb and pi_lb.is_enabled():
 				pi_lb.clansman_leash_break(str(npc.get("npc_name")), mode_leash, dist_from_leader, max_chase)
 			_clear_combat_target_and_exit()
+			var phi_leash := npc.get_node_or_null("/root/PartyHuntInstrument")
+			if phi_leash and phi_leash.has_method("note_leash"):
+				phi_leash.note_leash(npc, mode_leash, dist_from_leader, max_chase)
 			return
 	
 	# CRITICAL: Combat takes priority over following - life over orders
@@ -284,8 +372,9 @@ func update(_delta: float) -> void:
 	
 	# Update targeting (with throttling)
 	_update_targeting()
+	_hold_volley_target()
 	
-	if not combat_target:
+	if not combat_target or not is_instance_valid(combat_target):
 		return
 	
 	# Get combat component for attack range
@@ -294,171 +383,95 @@ func update(_delta: float) -> void:
 	
 	# Calculate distances and direction
 	var distance = npc.global_position.distance_to(combat_target.global_position)
+	if pursuit_now != null:
+		_run_down_router(pursuit_now, combat_comp, distance)
+		return
+	if _npc_has_spare_ranged():
+		_try_ranged_throw(combat_comp, distance, optimal_attack_range)
+		return
+	if _try_ranged_throw(combat_comp, distance, optimal_attack_range):
+		return
+	if _npc_throw_ammo_type() == ResourceData.ResourceType.NONE and is_attack_target_alive(combat_target):
+		_note_melee_step()
 	var direction_to_target = (combat_target.global_position - npc.global_position).normalized()
-	var horizontal_distance = abs(combat_target.global_position.x - npc.global_position.x)
-	var vertical_distance = abs(combat_target.global_position.y - npc.global_position.y)
-	
-	# Calculate optimal attack position (head-on, face-to-face)
-	# ROOT FIX: Simplified logic with position stability to prevent infinite repositioning loop
-	var needs_repositioning = false
-	var target_position = combat_target.global_position
-	
-	# Track last target position to prevent constant recalculation
-	if not npc.has_meta("last_combat_target_position"):
-		npc.set_meta("last_combat_target_position", Vector2.ZERO)
-		npc.set_meta("last_steering_target", Vector2.ZERO)
-	
-	var last_target_pos = npc.get_meta("last_combat_target_position", Vector2.ZERO)
-	var last_steering_target = npc.get_meta("last_steering_target", Vector2.ZERO)
-	var target_moved = combat_target.global_position.distance_to(last_target_pos) > 10.0  # Reduced threshold for more responsive tracking
-	
-	# Per-NPC spread offset (RTS-style: don't stack on same spot)
-	var spread_offset: Vector2 = _combat_spread_offset(npc)
-	# Simplified repositioning logic (more lenient to prevent oscillation)
-	if distance > optimal_attack_range * 1.2:
-		# Too far - move closer (but allow some range flexibility)
-		needs_repositioning = true
-		target_position = combat_target.global_position + spread_offset
-	elif abs(vertical_distance) > 55.0:
-		# Significant vertical misalignment - reposition to same Y level (55px tolerance for defenders)
-		var preferred_y = combat_target.global_position.y
-		var offset_x = sign(npc.global_position.x - combat_target.global_position.x) * optimal_attack_range * 0.7
-		target_position = Vector2(combat_target.global_position.x + offset_x, preferred_y) + spread_offset
-		needs_repositioning = true
+	var stance: String = CombatStance.decide(distance, optimal_attack_range)
+	if stance == "hold":
+		if _stalemate_should_break(combat_target):
+			if CombatTick and CombatTick.has_method("break_contact"):
+				CombatTick.break_contact(npc)
+			return
+		if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+			npc.steering_agent.hold_still()
 	else:
-		# In range - check if we're roughly head-on (more lenient)
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		var facing_direction: Vector2 = Vector2(1, 0)
-		if sprite:
-			facing_direction = Vector2(-1 if sprite.flip_h else 1, 0)
-		
-		var angle_to_target = direction_to_target.angle_to(facing_direction)
-		var is_head_on = abs(angle_to_target) < PI / 2.5  # ~72 degrees tolerance (more lenient)
-		
-		# Only reposition if severely misaligned (prevents oscillation; 50px for defenders)
-		if not is_head_on and abs(vertical_distance) > 50.0:
-			# Severely misaligned - reposition
-			var preferred_y = combat_target.global_position.y
-			var offset_x = sign(npc.global_position.x - combat_target.global_position.x) * optimal_attack_range * 0.7
-			target_position = Vector2(combat_target.global_position.x + offset_x, preferred_y) + spread_offset
-			needs_repositioning = true
-	
-	# CRITICAL: Only update steering target if position changed significantly (prevents infinite loop)
-	if needs_repositioning:
-		# Check if we're already close to the target position (position stability)
-		var distance_to_steering_target = npc.global_position.distance_to(last_steering_target)
-		var steering_target_changed = target_position.distance_to(last_steering_target) > 20.0  # Only update if >20px different
-		
-		# Only update steering if: target moved significantly OR steering target changed significantly
-		# FIX: Reduced threshold from 30.0 to 15.0 to allow more responsive movement
-		if target_moved or steering_target_changed or distance_to_steering_target > 15.0:
-			if npc.steering_agent:
-				npc.steering_agent.set_target_position(target_position)
-				npc.set_meta("last_steering_target", target_position)
-		
-		# Update last target position
-		npc.set_meta("last_combat_target_position", combat_target.global_position)
-	else:
-		# In range and head-on aligned - maintain position but allow tracking of moving target
-		# CRITICAL FIX: Don't set target to current position - this causes NPCs to stop moving
-		# Instead, always track target movement to maintain optimal combat range
-		if npc.steering_agent:
-			# If target moved, update steering to track it (maintains combat range)
-			if target_moved:
-				# Calculate position to maintain optimal range from moving target (RTS spread applied)
-				var direction_to_target_normalized = direction_to_target
-				var maintain_distance = optimal_attack_range * 0.85  # Slightly closer than max range
-				var ideal_position = combat_target.global_position - direction_to_target_normalized * maintain_distance + _combat_spread_offset(npc)
-				npc.steering_agent.set_target_position(ideal_position)
-				npc.set_meta("last_steering_target", ideal_position)
-			# If target hasn't moved much, check if we need small adjustment
-			elif distance < optimal_attack_range * 0.7:
-				# Too close - back up slightly
-				var direction_away = -direction_to_target
-				var back_off_position = npc.global_position + direction_away * 10.0
-				npc.steering_agent.set_target_position(back_off_position)
-				npc.set_meta("last_steering_target", back_off_position)
-			elif distance > optimal_attack_range * 0.95:
-				# Getting too far - move closer (RTS spread applied)
-				var move_closer_position = combat_target.global_position - direction_to_target * optimal_attack_range * 0.85 + _combat_spread_offset(npc)
-				npc.steering_agent.set_target_position(move_closer_position)
-				npc.set_meta("last_steering_target", move_closer_position)
-			# If in good range (70-95% of attack range), don't set steering target
-			# This allows NPC to maintain position naturally without forced movement
-		
-		# In range and head-on aligned - request attack (event-driven system)
-		if combat_comp:
-			if combat_comp.state == CombatComponent.CombatState.READY:
-				if distance <= combat_comp.attack_range:
-					now = Time.get_ticks_msec()
-					if not npc.has_meta("last_attack_request_time"):
-						npc.set_meta("last_attack_request_time", 0)
-					var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
-					var attack_cooldown_ms: int = 220
-					if now - last_attack_time >= attack_cooldown_ms:
-						var strike_aim: Vector2 = direction_to_target.normalized()
-						combat_comp.commit_strike(strike_aim)
-						npc.set_meta("last_attack_request_time", now)
-			elif combat_comp.state == CombatComponent.CombatState.IDLE:
-				if combat_comp._uses_overlay_combat():
-					pass  # WeaponComponent keeps overlay NPCs in READY while hostile
-				elif distance <= combat_comp.attack_range:
-					# Verify we're head-on aligned (legacy sprite-sheet combat)
-					var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-					var facing_dir: Vector2 = Vector2(1, 0)
-					if sprite:
-						facing_dir = Vector2(-1 if sprite.flip_h else 1, 0)
-					var angle_to_target = direction_to_target.angle_to(facing_dir)
-					var is_head_on = abs(angle_to_target) < PI / 1.8
-					if is_head_on and abs(vertical_distance) <= 55.0:
-						now = Time.get_ticks_msec()
-						if not npc.has_meta("last_attack_request_time"):
-							npc.set_meta("last_attack_request_time", 0)
-						var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
-						var attack_cooldown_ms: int = 220
-						if now - last_attack_time >= attack_cooldown_ms:
-							combat_comp.request_attack(combat_target)
-							npc.set_meta("last_attack_request_time", now)
-			# If in WINDUP or RECOVERY, wait for current attack to complete
+		if npc.has_meta("_fight_stale_since"):
+			npc.remove_meta("_fight_stale_since")
+		if npc.steering_agent and npc.steering_agent.has_method("retarget_seek"):
+			var stand_at: Vector2 = CombatStance.approach_point(npc.global_position, combat_target.global_position, optimal_attack_range)
+			npc.steering_agent.retarget_seek(stand_at)
+	if stance == "hold" and combat_comp and distance <= combat_comp.attack_range:
+		if combat_comp.state == CombatComponent.CombatState.READY:
+			now = Time.get_ticks_msec()
+			if not npc.has_meta("last_attack_request_time"):
+				npc.set_meta("last_attack_request_time", 0)
+			var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
+			if now - last_attack_time >= 220:
+				combat_comp.commit_strike(direction_to_target)
+				npc.set_meta("last_attack_request_time", now)
+		elif combat_comp.state == CombatComponent.CombatState.IDLE and not combat_comp._uses_overlay_combat():
+			var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+			var facing_dir: Vector2 = Vector2(1, 0)
+			if sprite:
+				facing_dir = Vector2(-1 if sprite.flip_h else 1, 0)
+			if abs(direction_to_target.angle_to(facing_dir)) < PI / 1.8:
+				now = Time.get_ticks_msec()
+				if not npc.has_meta("last_attack_request_time"):
+					npc.set_meta("last_attack_request_time", 0)
+				var last_attack_time: int = npc.get_meta("last_attack_request_time", 0)
+				if now - last_attack_time >= 220:
+					combat_comp.request_attack(combat_target)
+					npc.set_meta("last_attack_request_time", now)
+
+func _hp_of(body: Node) -> int:
+	if body == null or not is_instance_valid(body):
+		return -1
+	var hc: HealthComponent = body.get_node_or_null("HealthComponent") as HealthComponent
+	if hc == null:
+		return -1
+	return int(hc.current_hp)
+
+
+func _stalemate_should_break(target: Node2D) -> bool:
+	## Close, and nobody's HP has moved. A real hit resets the clock.
+	if npc == null or target == null:
+		return false
+	var stamp: int = _hp_of(npc) * 1000 + _hp_of(target)
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var last: int = int(npc.get_meta("_fight_stale_hp", stamp)) if npc.has_meta("_fight_stale_hp") else stamp
+	if stamp != last or not npc.has_meta("_fight_stale_since"):
+		npc.set_meta("_fight_stale_hp", stamp)
+		npc.set_meta("_fight_stale_since", now)
+		return false
+	var limit: float = 6.0
+	if NPCConfig and NPCConfig.get("agro_stalemate_seconds") != null:
+		limit = float(NPCConfig.agro_stalemate_seconds)
+	return CombatStance.stalemate_break(now - float(npc.get_meta("_fight_stale_since")), limit, false)
+
 
 func _update_targeting() -> void:
-	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
-	var radius: float = combat_comp.attack_range * 1.5 if combat_comp else 300.0
-	
-	# Step 1: When current target is valid but not in attack arc, switch to nearest enemy in arc
-	if combat_target and is_instance_valid(combat_target) and _is_target_still_valid(combat_target) and combat_comp:
-		if not combat_comp.is_target_in_attack_arc(combat_target):
-			var candidates: Array = []
-			if npc.has_method("get_combat_target_candidates"):
-				candidates = npc.get_combat_target_candidates(npc.global_position, radius)
-			var best_in_arc: Node2D = null
-			var best_dist: float = INF
-			for c in candidates:
-				if not is_instance_valid(c) or c == combat_target:
-					continue
-				if not _is_target_still_valid(c):
-					continue
-				if not combat_comp.is_target_in_attack_arc(c):
-					continue
-				var d: float = npc.global_position.distance_squared_to(c.global_position)
-				if d < best_dist:
-					best_dist = d
-					best_in_arc = c as Node2D
-			if best_in_arc and best_in_arc != combat_target:
-				var old_name: String = _target_display_name(combat_target)
-				var new_name: String = _target_display_name(best_in_arc)
-				var tid: int = EntityRegistry.get_id(best_in_arc) if EntityRegistry else -1
-				combat_target = best_in_arc
-				npc.set("combat_target_id", tid)
-				npc.set("combat_target", best_in_arc)
-				if "combat_target_id" in npc:
-					npc.combat_target_id = tid
-				combat_comp.set_target(best_in_arc)
-				var pi = npc.get_node_or_null("/root/PlaytestInstrumentor")
-				if pi and pi.is_enabled():
-					var nn: String = npc.get("npc_name") if npc.get("npc_name") != null else "unknown"
-					pi.combat_target_switch(nn, old_name, new_name, "out_of_arc")
-				return
+	if combat_target and is_instance_valid(combat_target) and CombatStance.keep_target(_is_target_still_valid(combat_target)):
+		var focus: int = CombatTargetPick.count_allies_focusing_on(npc, combat_target)
+		if focus < 2:
+			return
+		var pa: PerceptionArea = npc.get_node_or_null("DetectionArea") as PerceptionArea
+		if pa:
+			var better: Node = CombatTargetPick.pick_from_perception(pa, npc.global_position, npc)
+			if better != null and better != combat_target:
+				var new_focus: int = CombatTargetPick.count_allies_focusing_on(npc, better)
+				if new_focus + 1 < focus:
+					_log_spread_target_swap(combat_target, better, focus)
+					_assign_combat_target(better)
+					return
+		return
 	
 	# Throttle target checks to reduce frequency (2 seconds instead of 1)
 	var now = Time.get_ticks_msec()
@@ -478,6 +491,55 @@ func _update_targeting() -> void:
 	
 	# Target invalid or missing - find new one
 	_find_nearest_enemy()
+
+
+func _assign_combat_target(target: Node2D) -> void:
+	if not npc or target == null or not is_instance_valid(target):
+		return
+	var old: Node2D = combat_target
+	combat_target = target
+	var tid: int = EntityRegistry.get_id(combat_target) if EntityRegistry else -1
+	npc.set("combat_target_id", tid)
+	npc.set("combat_target", combat_target)
+	if "combat_target_id" in npc:
+		npc.combat_target_id = tid
+	if npc.has_method("assign_combat_target_node"):
+		npc.assign_combat_target_node(target)
+	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
+	if combat_comp:
+		combat_comp.set_target(combat_target)
+
+
+func _log_spread_target_swap(old_t: Node2D, new_t: Node2D, allies_on_old: int) -> void:
+	if npc == null or old_t == null or new_t == null:
+		return
+	if not _is_living_enemy_person(old_t) or not _is_living_enemy_person(new_t):
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - float(npc.get_meta("npc_target_log_time", 0.0)) < 1.5:
+		return
+	npc.set_meta("npc_target_log_time", now)
+	var oname: String = str(old_t.get("npc_name")) if old_t.get("npc_name") != null else "?"
+	var nname: String = str(new_t.get("npc_name")) if new_t.get("npc_name") != null else "?"
+	print("NPC_TARGET name=%s old=%s new=%s allies_on_old=%d" % [
+		str(npc.get("npc_name")), oname, nname, allies_on_old
+	])
+
+
+func _is_living_enemy_person(body: Node) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	if CombatAllyCheck.is_ally(npc, body):
+		return false
+	if body.has_method("is_dead") and body.is_dead():
+		return false
+	var hp: Node = body.get_node_or_null("HealthComponent")
+	if hp and bool(hp.get("is_dead")):
+		return false
+	if body.is_in_group("player"):
+		return true
+	var kind: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
+	return kind == "caveman" or kind == "clansman"
 
 func _notify_hunt_prey_dead_loot(corpse: Node) -> void:
 	if not npc or not corpse or not is_instance_valid(corpse):
@@ -544,10 +606,10 @@ func can_enter() -> bool:
 	var nt_combat: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
 	if NPCConfig and NPCConfig.is_passive_hunt_prey(nt_combat):
 		return false
-	
-	# Check if dead
 	var health_comp: HealthComponent = npc.get_node_or_null("HealthComponent")
 	if health_comp and health_comp.is_dead:
+		return false
+	if FightFlight.is_woman(npc):
 		return false
 	# After fleeing, need agro to refill past stance threshold again (avoids combat/flee flip)
 	if npc.has_meta("last_flee_combat_time"):
@@ -560,6 +622,14 @@ func can_enter() -> bool:
 		if Time.get_ticks_msec() / 1000.0 - lf < cd and am_now < thr:
 			return false
 	
+	if npc.has_method("is_fight_over_latched") and npc.is_fight_over_latched():
+		return false
+	if FightFlight.ordered_mode(npc) == "FOLLOW":
+		var held = npc.get("combat_target")
+		if held != null and is_instance_valid(held) and _is_target_still_valid(held):
+			combat_target = held as Node2D
+			return true
+		return false
 	# If combat_target already set (e.g. intrusion → player), validate it first
 	var combat_target_prop = npc.get("combat_target")
 	if combat_target_prop != null and is_instance_valid(combat_target_prop):
@@ -569,8 +639,9 @@ func can_enter() -> bool:
 		if target_valid:
 			return true
 		else:
-			# Invalid target (e.g. player when following, dead enemy, same-clan)
-			clear_npc_combat_target()
+			# Invalid/dead target — do not evaluate here (would recurse).
+			npc.set("combat_target", null)
+			npc.set("combat_target_id", -1)
 			combat_target = null
 	
 	# When combat is disabled (testing), never enter combat
@@ -608,11 +679,15 @@ func can_enter() -> bool:
 			push_warning("Combat: DetectionArea null for %s - no target" % (npc.get("npc_name") if npc else "?"))
 			combat_target = null
 		
-		# if combat_target:
-		# 	print("✅ COMBAT_STATE: %s can enter combat (target: %s)" % [npc_name, combat_target.get("npc_name") if combat_target else "unknown"])
-		# else:
-		# 	print("❌ COMBAT_STATE: %s cannot enter combat - no valid target found" % npc_name)
-		
+		if combat_target != null and not FightOverScript.is_living_attack_target(combat_target):
+			combat_target = null
+		if combat_target != null and npc.has_method("assign_combat_target_node"):
+			npc.assign_combat_target_node(combat_target)
+		if combat_target != null and FightFlight.ordered_mode(npc) == "GUARD":
+			if npc.global_position.distance_to(combat_target.global_position) > FightFlight.GUARD_ACQUIRE_RADIUS:
+				combat_target = null
+				npc.set("combat_target", null)
+				npc.set("combat_target_id", -1)
 		return combat_target != null
 	
 	# Raid path: Followers in Hostile Mode (herder == player, or agro-combat-test with herder == leader) attack enemy in range
@@ -623,6 +698,8 @@ func can_enter() -> bool:
 	if not raid_allow and DebugConfig and DebugConfig.get("enable_agro_combat_test") and DebugConfig.get("test_overrides") is Dictionary:
 		raid_allow = DebugConfig.test_overrides.get("allow_raid_without_player", true)
 	var raid_ok: bool = hostile and h != null and is_instance_valid(h) and ordered and raid_allow
+	if FightFlight.ordered_mode(npc) == "FOLLOW" or FightFlight.ordered_mode(npc) == "GUARD":
+		raid_ok = false
 	if raid_ok and npc.get("follow_is_ordered"):
 		if agro_meter < _stance_combat_agro_threshold():
 			raid_ok = false
@@ -705,14 +782,7 @@ func _find_nearest_enemy() -> void:
 		return
 	
 	if combat_target:
-		var tid: int = EntityRegistry.get_id(combat_target) if EntityRegistry else -1
-		npc.set("combat_target_id", tid)
-		npc.set("combat_target", combat_target)
-		if "combat_target_id" in npc:
-			npc.combat_target_id = tid
-		var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
-		if combat_comp:
-			combat_comp.set_target(combat_target)
+		_assign_combat_target(combat_target)
 
 func _flee_bravery() -> float:
 	var def_b: float = 0.5
@@ -728,49 +798,136 @@ func _flee_bravery() -> float:
 		return def_b
 	return clampf(bf, 0.0, 1.0)
 
+func _is_person_body(body: Node) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	if body.is_in_group("player"):
+		return true
+	var kind: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
+	return kind == "caveman" or kind == "clansman" or kind == "woman"
+
+
+func _is_routing_person(body: Node) -> bool:
+	if not _is_person_body(body) or not is_attack_target_alive(body):
+		return false
+	var body_fsm: Node = body.get("fsm") as Node
+	return body_fsm != null and body_fsm.has_method("get_current_state_name") and str(body_fsm.get_current_state_name()) == "flee_combat"
+
+
+func _party_mates() -> Array:
+	var mates: Array = []
+	if npc == null:
+		return mates
+	var leader: Node = npc
+	if bool(npc.get("follow_is_ordered")):
+		var herder: Variant = npc.get("herder")
+		if herder != null and is_instance_valid(herder):
+			leader = herder
+			mates.append(herder)
+	if HerdManager and leader != null:
+		for follower in HerdManager.get_herd(leader):
+			if follower != npc:
+				mates.append(follower)
+	if not bool(npc.get("follow_is_ordered")) and mates.is_empty():
+		return []
+	return mates
+
+
+func _mate_target(mate: Node) -> Node2D:
+	if mate == null or not is_instance_valid(mate):
+		return null
+	if mate.has_method("resolve_combat_target"):
+		return mate.resolve_combat_target() as Node2D
+	var raw: Variant = mate.get("combat_target")
+	if raw is Node2D and is_instance_valid(raw):
+		return raw as Node2D
+	return null
+
+
+func _find_pursuit_target() -> Node2D:
+	if _is_routing_person(combat_target):
+		return combat_target
+	if combat_target == null or not _is_person_body(combat_target):
+		return null
+	var best: Node2D = null
+	var best_d: float = INF
+	for mate in _party_mates():
+		var ct: Node2D = _mate_target(mate as Node)
+		if not _is_routing_person(ct):
+			continue
+		var d: float = npc.global_position.distance_to(ct.global_position)
+		if d < best_d:
+			best_d = d
+			best = ct
+	return best
+
+
+func _run_down_router(router: Node2D, combat_comp: CombatComponent, distance: float) -> void:
+	if router == null or not is_instance_valid(router):
+		return
+	if combat_target != router:
+		_assign_combat_target(router)
+	distance = npc.global_position.distance_to(router.global_position)
+	var mult: float = 2.2
+	if NPCConfig and NPCConfig.get("pursue_rout_speed_multiplier") != null:
+		mult = float(NPCConfig.pursue_rout_speed_multiplier)
+	if npc.steering_agent and npc.steering_agent.has_method("set_speed_multiplier"):
+		npc.steering_agent.set_speed_multiplier(mult)
+	var rid: int = router.get_instance_id()
+	if int(npc.get_meta("pursue_logged_id", 0)) != rid:
+		npc.set_meta("pursue_logged_id", rid)
+		print("NPC_PURSUE name=%s target=%s" % [str(npc.get("npc_name")), _target_display_name(router)])
+	WeaponOverlayCombat.set_throw_stance(npc, false)
+	var reach: float = combat_comp.attack_range if combat_comp else attack_range
+	if npc.steering_agent and npc.steering_agent.has_method("retarget_seek"):
+		npc.steering_agent.retarget_seek(router.global_position)
+	elif distance > reach and npc.steering_agent and npc.steering_agent.has_method("set_target_position_immediate"):
+		npc.steering_agent.set_target_position_immediate(router.global_position)
+	if distance > reach or combat_comp == null:
+		return
+	var aim: Vector2 = router.global_position - npc.global_position
+	if aim.length_squared() < 0.0001:
+		aim = Vector2.RIGHT
+	aim = aim.normalized()
+	if combat_comp.state == CombatComponent.CombatState.READY:
+		var now_ms: int = Time.get_ticks_msec()
+		var last_attack_time: int = int(npc.get_meta("last_attack_request_time", 0))
+		if now_ms - last_attack_time >= 220:
+			combat_comp.commit_strike(aim)
+			npc.set_meta("last_attack_request_time", now_ms)
+	elif combat_comp.state == CombatComponent.CombatState.IDLE:
+		combat_comp.request_attack(router)
+
+
+func _village_holds_him() -> bool:
+	if fsm == null or not fsm.has_method("_get_state"):
+		return false
+	var flee_st: Node = fsm._get_state("flee_combat")
+	return flee_st != null and flee_st.has_method("village_holds") and bool(flee_st.village_holds())
+
+
 func _should_flee() -> bool:
+	return _flee_reason() != ""
+
+
+func _flee_reason() -> String:
 	if not npc:
-		return false
+		return ""
+	if FightFlight.is_woman(npc):
+		return "shelter"
+	if _find_pursuit_target() != null:
+		return ""
+	if _village_holds_him():
+		return ""
+	if _npc_has_spare_ranged() and combat_target and is_instance_valid(combat_target) and not FightFlight.is_building(combat_target):
+		if not FightFlight.leader_shock_active(npc):
+			return ""
 	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
-	if nt != "caveman" and nt != "clansman":
-		return false
-	var br: float = _flee_bravery()
-	var hp_ratio: float = 1.0
-	var hc: HealthComponent = npc.get_node_or_null("HealthComponent")
-	if hc and hc.max_hp > 0:
-		hp_ratio = float(hc.current_hp) / float(hc.max_hp)
-	var base_hp: float = 0.3
-	var base_ratio: float = 2.0
-	var nc_types: Array[String] = []
-	if NPCConfig:
-		base_hp = NPCConfig.flee_hp_threshold
-		base_ratio = NPCConfig.flee_outnumber_ratio
-		nc_types = NPCConfig.flee_non_combatant_types
-	if nc_types.has(nt):
-		return hp_ratio < 0.92
-	var eff_hp: float = clampf(base_hp * (1.15 + (1.0 - br) * 0.45), 0.08, 0.88)
-	if hp_ratio <= eff_hp:
-		return true
-	var pa: PerceptionArea = npc.get_node_or_null("DetectionArea") as PerceptionArea
-	if not pa:
-		return false
-	var rad: float = 380.0
-	var enemies: Array = pa.get_enemies_in_range(npc.global_position, rad, npc)
-	var en_c: int = enemies.size()
-	var al_c: int = 1
-	for other in npc.get_tree().get_nodes_in_group("npcs"):
-		if other == npc or not is_instance_valid(other):
-			continue
-		if other.has_method("is_dead") and other.is_dead():
-			continue
-		if npc.global_position.distance_to(other.global_position) > rad:
-			continue
-		if CombatAllyCheck.is_ally(npc, other):
-			al_c += 1
-	var eff_ratio: float = base_ratio * (0.55 + 0.45 * br)
-	if float(en_c) >= float(maxi(al_c, 1)) * eff_ratio:
-		return true
-	return false
+	if nt != "caveman" and nt != "clansman" and not npc.is_in_group("player"):
+		return ""
+	if combat_target and FightFlight.should_break(npc, combat_target):
+		return "morale"
+	return ""
 
 
 func _try_nomad_rejoin_after_combat() -> void:
@@ -790,4 +947,227 @@ func _try_nomad_rejoin_after_combat() -> void:
 	var leader: Node = main.get_active_leader() if main.has_method("get_active_leader") else null
 	if leader and main.has_method("_set_nomad_follow"):
 		main._set_nomad_follow(npc, leader, "nomad_rejoin")
+
+
+func _npc_item_count(item_type: ResourceData.ResourceType) -> int:
+	if npc == null:
+		return 0
+	var n: int = 0
+	var inv: Variant = npc.get("inventory")
+	if inv is InventoryData:
+		n += (inv as InventoryData).get_count(item_type)
+	var hb: Variant = npc.get("hotbar")
+	if hb is InventoryData:
+		n += (hb as InventoryData).get_count(item_type)
+	return n
+
+
+func has_spare_ranged() -> bool:
+	return _npc_has_spare_ranged()
+
+
+func ammo_label() -> String:
+	var ammo: ResourceData.ResourceType = _npc_throw_ammo_type()
+	if ammo == ResourceData.ResourceType.SPEAR:
+		return "spear"
+	if ammo == ResourceData.ResourceType.STONE:
+		return "stone"
+	return "none"
+
+
+func pose_label() -> String:
+	if npc == null:
+		return "none"
+	var target: Node2D = combat_target
+	if target == null or not is_instance_valid(target):
+		if npc.has_method("resolve_combat_target"):
+			target = npc.resolve_combat_target() as Node2D
+	if target == null or not is_instance_valid(target):
+		return "none"
+	if _npc_has_spare_ranged():
+		return "throw"
+	var dist: float = npc.global_position.distance_to(target.global_position)
+	var reach: float = 100.0
+	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
+	if combat_comp:
+		reach = combat_comp.attack_range
+	if dist <= reach:
+		return "hold"
+	return "approach"
+
+
+func _npc_has_spare_ranged() -> bool:
+	if _npc_item_count(ResourceData.ResourceType.SPEAR) > 1:
+		return true
+	return _npc_item_count(ResourceData.ResourceType.STONE) > 0
+
+
+func _npc_active_throw_range() -> float:
+	return ThrowHitResolver.throw_range_px_for(_npc_throw_ammo_type())
+
+
+func _npc_throw_ammo_type() -> ResourceData.ResourceType:
+	if _npc_item_count(ResourceData.ResourceType.SPEAR) > 1:
+		return ResourceData.ResourceType.SPEAR
+	if _npc_item_count(ResourceData.ResourceType.STONE) > 0:
+		return ResourceData.ResourceType.STONE
+	return ResourceData.ResourceType.NONE
+
+
+func _npc_stone_count() -> int:
+	if npc == null:
+		return 0
+	var n: int = 0
+	var inv: Variant = npc.get("inventory")
+	if inv is InventoryData:
+		n += (inv as InventoryData).get_count(ResourceData.ResourceType.STONE)
+	var hb: Variant = npc.get("hotbar")
+	if hb is InventoryData:
+		n += (hb as InventoryData).get_count(ResourceData.ResourceType.STONE)
+	return n
+
+
+func _party_ranged_ratio() -> float:
+	if npc == null:
+		return 0.5
+	var herder: Variant = npc.get("herder")
+	if npc.get("follow_is_ordered") and herder != null and is_instance_valid(herder) and (herder as Node).is_in_group("player"):
+		var tree := npc.get_tree()
+		if tree:
+			var main: Node = tree.get_first_node_in_group("main")
+			if main and main.get("player_party_ranged_ratio") != null:
+				return clampf(float(main.get("player_party_ranged_ratio")), 0.0, 1.0)
+	var claim: Variant = npc.get("land_claim")
+	if claim == null:
+		claim = npc.get("defend_target")
+	if claim != null and is_instance_valid(claim as Object) and (claim as Object).get("ranged_ratio") != null:
+		return clampf(float((claim as Object).get("ranged_ratio")), 0.0, 1.0)
+	return 0.5
+
+
+func _try_ranged_throw(combat_comp: CombatComponent, distance: float, melee_range: float) -> bool:
+	if combat_comp == null or combat_target == null or not is_instance_valid(combat_target):
+		return false
+	var ammo: ResourceData.ResourceType = _npc_throw_ammo_type()
+	if ammo == ResourceData.ResourceType.NONE:
+		WeaponOverlayCombat.set_throw_stance(npc, false)
+		return false
+	npc.remove_meta("npc_melee_logged")
+	npc.set_meta("pending_throw_item", ammo)
+	var throw_range: float = ThrowHitResolver.throw_range_px_for(ammo)
+	WeaponOverlayCombat.set_throw_stance(npc, true)
+	var to_t: Vector2 = combat_target.global_position - npc.global_position
+	if to_t.length_squared() < 0.0001:
+		to_t = Vector2.RIGHT
+	var aim: Vector2 = to_t.normalized()
+	if distance > throw_range:
+		npc.remove_meta("ranged_hold_since")
+		if npc.steering_agent and npc.steering_agent.has_method("retarget_seek"):
+			npc.steering_agent.retarget_seek(combat_target.global_position)
+		return true
+	if distance < throw_range * 0.85:
+		npc.remove_meta("ranged_hold_since")
+		if npc.steering_agent and npc.steering_agent.has_method("retarget_seek"):
+			npc.steering_agent.retarget_seek(combat_target.global_position + (-aim) * (throw_range * 0.92))
+		return true
+	if combat_comp.state == CombatComponent.CombatState.WINDUP or combat_comp.state == CombatComponent.CombatState.RECOVERY:
+		return true
+	if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+		npc.steering_agent.hold_still()
+	var now_ms: int = Time.get_ticks_msec()
+	var threw: bool = false
+	if combat_comp.state == CombatComponent.CombatState.READY:
+		var last_attack_time: int = int(npc.get_meta("last_attack_request_time", 0))
+		if now_ms - last_attack_time >= 220:
+			_note_throw_release(ammo)
+			combat_comp.commit_strike(aim)
+			npc.set_meta("last_attack_request_time", now_ms)
+			threw = true
+	elif combat_comp.state == CombatComponent.CombatState.IDLE:
+		if combat_comp._uses_overlay_combat():
+			_note_throw_release(ammo)
+			combat_comp.enter_ready(aim)
+			combat_comp.commit_strike(aim)
+			npc.set_meta("last_attack_request_time", now_ms)
+			threw = true
+		else:
+			combat_comp.request_attack(combat_target)
+			threw = true
+	if threw:
+		npc.remove_meta("ranged_hold_since")
+		return true
+	var now_s: float = now_ms / 1000.0
+	if not npc.has_meta("ranged_hold_since"):
+		npc.set_meta("ranged_hold_since", now_s)
+	elif now_s - float(npc.get_meta("ranged_hold_since")) >= 2.5:
+		npc.remove_meta("ranged_hold_since")
+		if CombatTick and CombatTick.has_method("break_contact"):
+			CombatTick.break_contact(npc)
+	return true
+
+
+func _strike_in_progress() -> bool:
+	if npc == null:
+		return false
+	var combat_comp: CombatComponent = npc.get_node_or_null("CombatComponent")
+	if combat_comp == null:
+		return false
+	return combat_comp.state == CombatComponent.CombatState.WINDUP or combat_comp.state == CombatComponent.CombatState.RECOVERY
+
+
+func _note_throw_release(ammo: ResourceData.ResourceType) -> void:
+	var kind := "stone"
+	if ammo == ResourceData.ResourceType.SPEAR:
+		kind = "spear"
+	var target_name := _target_display_name(combat_target)
+	print("NPC_THROW name=%s ammo=%s target=%s" % [str(npc.get("npc_name")), kind, target_name])
+
+
+func _note_melee_step() -> void:
+	if npc == null or npc.has_meta("npc_melee_logged"):
+		return
+	if _npc_throw_ammo_type() != ResourceData.ResourceType.NONE:
+		return
+	if combat_target == null or not is_instance_valid(combat_target) or not is_attack_target_alive(combat_target):
+		return
+	npc.set_meta("npc_melee_logged", true)
+	print("NPC_MELEE name=%s target=%s" % [str(npc.get("npc_name")), _target_display_name(combat_target)])
+
+
+func _hold_volley_target() -> void:
+	if npc == null:
+		return
+	var attacker: Node = _volley_meta_node("volley_attacker")
+	if attacker != null and _volley_body_alive(attacker):
+		_assign_combat_target(attacker as Node2D)
+		return
+	if npc.has_meta("volley_attacker"):
+		npc.remove_meta("volley_attacker")
+	if not _npc_has_spare_ranged():
+		return
+	var prey: Node = _volley_meta_node("volley_prey")
+	if prey != null and _volley_body_alive(prey):
+		_assign_combat_target(prey as Node2D)
+	elif npc.has_meta("volley_prey"):
+		npc.remove_meta("volley_prey")
+
+
+func _volley_meta_node(key: String) -> Node:
+	if npc == null or not npc.has_meta(key):
+		return null
+	var body: Variant = npc.get_meta(key)
+	if body == null or not is_instance_valid(body):
+		return null
+	if not (body is Node):
+		return null
+	return body as Node
+
+
+func _volley_body_alive(body: Node) -> bool:
+	if body.has_method("is_dead") and body.is_dead():
+		return false
+	var hc: Node = body.get_node_or_null("HealthComponent")
+	if hc and bool(hc.get("is_dead")):
+		return false
+	return true
 

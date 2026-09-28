@@ -43,4 +43,18 @@ func setup_npcs() -> void:
 		await main._seed_party_hunt_debug_deer_near_claims(main.world_objects)
 
 	await main._spawn_rts_playtest_pack_if_requested()
+	if not harness_ran and main.has_method("_spawn_eval_ai_clans_near_player_if_requested"):
+		await main._spawn_eval_ai_clans_near_player_if_requested()
+	if main.has_method("_spawn_eval_wild_women_near_player_if_requested"):
+		await main._spawn_eval_wild_women_near_player_if_requested()
+	if main.has_method("_spawn_eval_hair_gallery_near_player_if_requested"):
+		await main._spawn_eval_hair_gallery_near_player_if_requested()
+	if main.has_method("_spawn_eval_height_pair_near_player_if_requested"):
+		await main._spawn_eval_height_pair_near_player_if_requested()
+	if main.has_method("_spawn_eval_width_pair_near_player_if_requested"):
+		await main._spawn_eval_width_pair_near_player_if_requested()
+	if main.has_method("_spawn_eval_women_build_near_player_if_requested"):
+		await main._spawn_eval_women_build_near_player_if_requested()
+	if main.has_method("_spawn_eval_babies_near_player_if_requested"):
+		await main._spawn_eval_babies_near_player_if_requested()
 	main._log_spawn_flow_summary()

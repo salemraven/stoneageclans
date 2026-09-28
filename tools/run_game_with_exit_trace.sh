@@ -37,8 +37,10 @@ if [[ -z "$GODOT_BIN" ]]; then
 	exit 1
 fi
 
-EXTRA_ARGS=("$@")
-RUN_ARGS=(--path "$ROOT" res://scenes/Main.tscn --skip-single-instance "${EXTRA_ARGS[@]}")
+RUN_ARGS=(--path "$ROOT" res://scenes/Main.tscn --skip-single-instance)
+if (($# > 0)); then
+	RUN_ARGS+=("$@")
+fi
 
 export SKIP_SINGLE_INSTANCE=1
 : >"$LATEST_EXIT" || true

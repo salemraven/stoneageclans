@@ -24,6 +24,11 @@ var _perception_process_ticks: int = 0
 var _herd_influence_physics_ticks: int = 0
 var _npc_physics_usec: int = 0
 var _physics_frames_at_interval_start: int = 0
+var _section_usec: Dictionary = {}
+var _section_calls: Dictionary = {}
+var _interval_gameplay: Dictionary = {}
+var _lifetime_gameplay: Dictionary = {}
+var _claim_circle_redraws: int = 0
 var _chunk_loads: int = 0
 var _chunk_unloads: int = 0
 var _chunk_load_usec_total: int = 0
@@ -108,6 +113,33 @@ func record_npc_physics_process() -> void:
 func record_npc_physics_usec(usec: int) -> void:
 	if _enabled:
 		_npc_physics_usec += usec
+
+
+func record_section(section: String, usec: int) -> void:
+	if not _enabled:
+		return
+	_section_usec[section] = int(_section_usec.get(section, 0)) + usec
+	_section_calls[section] = int(_section_calls.get(section, 0)) + 1
+
+
+func record_gameplay(key: String, n: int = 1) -> void:
+	if not _enabled:
+		return
+	_interval_gameplay[key] = int(_interval_gameplay.get(key, 0)) + n
+	_lifetime_gameplay[key] = int(_lifetime_gameplay.get(key, 0)) + n
+
+
+func record_claim_circle_redraw() -> void:
+	if _enabled:
+		_claim_circle_redraws += 1
+
+
+func get_lifetime_gameplay() -> Dictionary:
+	return _lifetime_gameplay.duplicate()
+
+
+func get_last_file_path() -> String:
+	return _file_path
 
 
 func record_npc_fsm_update() -> void:
@@ -261,6 +293,37 @@ func _emit_interval() -> void:
 		float(steps) / float(maxi(_frame_count, 1)), 0.01
 	)
 	snap["npc_fsm_ticks"] = _npc_fsm_ticks
+	snap["section_fsm_usec"] = int(_section_usec.get("fsm", 0))
+	snap["section_fsm_calls"] = int(_section_calls.get("fsm", 0))
+	snap["section_separation_usec"] = int(_section_usec.get("separation", 0))
+	snap["section_separation_calls"] = int(_section_calls.get("separation", 0))
+	snap["section_sheep_usec"] = int(_section_usec.get("sheep", 0))
+	snap["section_sheep_calls"] = int(_section_calls.get("sheep", 0))
+	snap["section_combat_query_usec"] = int(_section_usec.get("combat_query", 0))
+	snap["section_combat_query_calls"] = int(_section_calls.get("combat_query", 0))
+	snap["section_move_usec"] = int(_section_usec.get("move", 0))
+	snap["section_move_calls"] = int(_section_calls.get("move", 0))
+	snap["section_claim_usec"] = int(_section_usec.get("claim", 0))
+	snap["section_claim_calls"] = int(_section_calls.get("claim", 0))
+	snap["section_usec_sum"] = (
+		int(_section_usec.get("fsm", 0))
+		+ int(_section_usec.get("separation", 0))
+		+ int(_section_usec.get("sheep", 0))
+		+ int(_section_usec.get("combat_query", 0))
+		+ int(_section_usec.get("move", 0))
+		+ int(_section_usec.get("claim", 0))
+	)
+	snap["combat_entries"] = int(_interval_gameplay.get("combat_entries", 0))
+	snap["flee_combat_entries"] = int(_interval_gameplay.get("flee_combat_entries", 0))
+	snap["agro_clears"] = int(_interval_gameplay.get("agro_clears", 0))
+	snap["births"] = int(_interval_gameplay.get("births", 0))
+	snap["decision_ticks"] = int(_interval_gameplay.get("decision_ticks", 0))
+	snap["move_ticks"] = int(_interval_gameplay.get("move_ticks", 0))
+	snap["script_errors"] = int(_interval_gameplay.get("script_errors", 0))
+	snap["claim_circle_redraws"] = _claim_circle_redraws
+	snap["lifetime_combat_entries"] = int(_lifetime_gameplay.get("combat_entries", 0))
+	snap["lifetime_flee_combat_entries"] = int(_lifetime_gameplay.get("flee_combat_entries", 0))
+	snap["lifetime_births"] = int(_lifetime_gameplay.get("births", 0))
 	snap["perception_process_ticks"] = _perception_process_ticks
 	snap["herd_influence_physics_ticks"] = _herd_influence_physics_ticks
 	snap["chunk_loads"] = _chunk_loads
@@ -438,6 +501,10 @@ func _reset_interval() -> void:
 	_npc_physics_usec = 0
 	_physics_frames_at_interval_start = Engine.get_physics_frames()
 	_npc_fsm_ticks = 0
+	_section_usec.clear()
+	_section_calls.clear()
+	_interval_gameplay.clear()
+	_claim_circle_redraws = 0
 	_perception_process_ticks = 0
 	_herd_influence_physics_ticks = 0
 	_chunk_loads = 0

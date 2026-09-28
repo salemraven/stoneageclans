@@ -25,7 +25,7 @@ var _base_modulate: Color = Color.WHITE
 var _highlight_overlay: ColorRect = null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(0, 34)
+	custom_minimum_size = Vector2(0, 46)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_base_modulate = modulate
 	_apply_style(false)
@@ -69,8 +69,8 @@ func _build_children() -> void:
 	_name_label = Label.new()
 	_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_name_label.add_theme_font_size_override("font_size", 14)
-	_name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_name_label.clip_text = true
 	_row.add_child(_name_label)
 
 	_qty_label = Label.new()
@@ -103,19 +103,14 @@ func _refresh_from_item(item: Dictionary) -> void:
 
 
 func _apply_style(hover: bool) -> void:
-	var style := StyleBoxFlat.new()
-	var col := _base_bg
+	var style := UITheme.get_slot_style(false)
 	if hover:
-		col = Color(
-			minf(col.r * 1.15, 1.0),
-			minf(col.g * 1.15, 1.0),
-			minf(col.b * 1.15, 1.0),
-			col.a
+		style.bg_color = Color(
+			minf(style.bg_color.r * 1.15, 1.0),
+			minf(style.bg_color.g * 1.15, 1.0),
+			minf(style.bg_color.b * 1.15, 1.0),
+			style.bg_color.a
 		)
-	style.bg_color = col
-	style.border_color = Color(0x8b / 255.0, 0x45 / 255.0, 0x13 / 255.0, 0.4)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(4)
 	add_theme_stylebox_override("panel", style)
 
 

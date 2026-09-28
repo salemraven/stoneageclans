@@ -5,9 +5,8 @@ class_name NPCInventoryUI
 # Similar to player inventory but simpler layout
 
 const SLOT_COUNT := 10
-const SLOT_SIZE := 32
-const PANEL_WIDTH := 200
-const PANEL_HEIGHT := 380  # 10 slots * 32 + padding + taller name label (40px instead of 24px)
+const PANEL_WIDTH := 300
+const PANEL_HEIGHT := 420
 
 var inventory_panel: Panel = null
 var target_npc: Node = null  # The NPC this inventory belongs to
@@ -27,6 +26,7 @@ func _log(message: String, level: String = "INFO") -> void:
 
 func _ready() -> void:
 	super._ready()
+	window_layout_id = "npc_inventory"
 	
 	# Create inventory data (10 slots, no stacking) - will be replaced by setup()
 	inventory_data = InventoryData.new(SLOT_COUNT, false, 1)
@@ -49,6 +49,7 @@ func _setup_panel() -> void:
 		add_child(inventory_panel)
 	
 	inventory_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
+	inventory_panel.clip_contents = true
 	
 	# Style panel using UITheme with custom purple border for NPCs
 	var style := UITheme.get_panel_style_with_border(Color(0x8b / 255.0, 0x45 / 255.0, 0x9f / 255.0, 0.9))  # Purple-ish for NPCs
@@ -74,25 +75,32 @@ func _setup_panel() -> void:
 		main_vbox.add_theme_constant_override("separation", 4)
 		margin.add_child(main_vbox)
 		
-		# Create name bar label (for caveman NPCs, women with pregnancy timer, babies with age)
 		var name_label: Label = Label.new()
 		name_label.name = "NameLabel"
 		name_label.text = ""
-		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		name_label.add_theme_color_override("font_color", Color.WHITE)
 		name_label.add_theme_font_size_override("font_size", 14)
 		name_label.add_theme_constant_override("outline_size", 4)
 		name_label.add_theme_color_override("font_outline_color", Color.BLACK)
-		name_label.autowrap_mode = TextServer.AUTOWRAP_OFF  # No wrapping, allow multi-line with \n
-		name_label.custom_minimum_size = Vector2(PANEL_WIDTH - 16, 40)  # Taller to fit 2 lines (name + timer/age)
-		name_label.visible = false  # Hidden by default, shown when NPC name is set
+		name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		name_label.custom_minimum_size = Vector2(PANEL_WIDTH - 16, 36)
+		name_label.visible = false
 		main_vbox.add_child(name_label)
+		enable_window_drag(name_label, inventory_panel)
+
+		var scroll := ScrollContainer.new()
+		scroll.name = "SlotScroll"
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		main_vbox.add_child(scroll)
 		
 		slot_container = VBoxContainer.new()
 		slot_container.name = "SlotContainer"
-		slot_container.add_theme_constant_override("separation", 2)  # Minimal spacing
-		main_vbox.add_child(slot_container)
+		slot_container.add_theme_constant_override("separation", 4)
+		slot_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(slot_container)
 	
 	# Set size
 	custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
@@ -122,7 +130,7 @@ func _build_slots() -> void:
 		slot.slot_index = i
 		slot.is_hotbar = false
 		slot.can_stack = false  # NPCs cannot stack - only building inventories allow stacking
-		slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
+		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		slot.name = "Slot%d" % i
 		
 		# Connect signals
@@ -248,7 +256,8 @@ func show_at_npc_position(npc: Node) -> void:
 	print("   - _update_name_label() completed")
 	
 	print("   - Calling _update_position()...")
-	_update_position()
+	if not try_restore_window_position(inventory_panel):
+		_update_position()
 	print("   - _update_position() completed")
 	
 	# Explicitly ensure visibility is set (in case _update_position had issues)

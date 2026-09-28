@@ -1302,6 +1302,8 @@ func _display_to_local(display_px: float) -> float:
 func _sync_overlay_idle_bounce(amplitude_local: float) -> void:
 	if weapon_overlay == null or sprite == null or not weapon_overlay.visible:
 		return
+	if weapon_overlay.get_meta("throw_pose_dragging", false):
+		return
 	var base_offset: Vector2 = weapon_overlay.get_meta("card_overlay_offset", _last_overlay_base)
 	if base_offset != Vector2.ZERO:
 		_last_overlay_base = base_offset
@@ -1322,6 +1324,8 @@ func _tuner_overlay_walk_bounce_y_extra(_moving: bool) -> float:
 
 func _sync_overlay_walk_bounce(moving: bool) -> void:
 	if weapon_overlay == null or sprite == null or not weapon_overlay.visible:
+		return
+	if weapon_overlay.get_meta("throw_pose_dragging", false):
 		return
 	## Spear walk/gather sway is applied in sync_spear_overlay_motion_preview (grip on art).
 	if weapon_type == ResourceData.ResourceType.SPEAR and moving:

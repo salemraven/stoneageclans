@@ -15,6 +15,9 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | **[roadmap_2026.md](roadmap_2026.md)** | **Unified build order** Phases 0–7 |
 | **[game_dictionary.md](game_dictionary.md)** | Terminology (wins over bible table if they conflict) |
+| **[dictionary_your_terms.md](dictionary_your_terms.md)** | **Your** design words, checked against docs (Sep 2026) |
+| **[dictionary_assistant_terms.md](dictionary_assistant_terms.md)** | Sim names added in write-ups (flags, buffers, indexes) |
+| **Wiki** (`mkdocs.yml`, `wiki/`) | Linked pages. Draft until confirmed. `bash tools/serve_wiki.sh` |
 | **[gdd.md](gdd.md)** | Player-facing vision / GDD prose (numbers may lag code) |
 | **[main.md](main.md)** | Living implementation report (loop, controls, what ships) |
 | **[future implementations/](future%20implementations/)** | **Not promised** — ideas only; do not treat as shipped |
@@ -37,7 +40,8 @@ Unimplemented mechanics belong in **§XXII** or `future implementations/` — no
 | [production_economy.md](production_economy.md) | **WorkRequests**, bread/leather chains, passive cooking |
 | [hunting.md](hunting.md) | **Hunting hub** — NPC AoH hunts + player RTS hunt modes |
 | [Phase4/raiding_hunting.md](Phase4/raiding_hunting.md) | RTS PEACE/AGRO/HUNT, stances, deer flee |
-| [rts.md](rts.md) | War Horn, formations, `RTS_CONFIG`, engineering |
+| [rts.md](rts.md) | War Horn, formations — **as implemented today** |
+| **[party_ui.md](party_ui.md)** | **Agreed next** — party dock, pile, short horn, I/X |
 | [wildlife_movement.md](wildlife_movement.md) | Deer, mammoth, herdables, `WildRole` — **current code** |
 | [wildlife_migration.md](wildlife_migration.md) | **Seasonal cross-plane** herd migration (design lock) |
 | [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) | Herd influence, steal, claim join |
@@ -129,7 +133,11 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 | Guide | Topic |
 |-------|--------|
 | [godot_save_scene_help.md](godot_save_scene_help.md) | Editor save conflicts |
-| [UI.md](UI.md) / [UI_IMPLEMENTATION_STATUS.md](UI_IMPLEMENTATION_STATUS.md) | UI standards |
+| **[UI.md](UI.md)** | **Canon** — look, layout, keys, **drag-and-drop**, compact stockpile, **remembered window positions** (Sep 2026) |
+| **[party_ui.md](party_ui.md)** | **Agreed next (not shipped)** — party dock, short horn, pile, I/X, Walk/Hunt/Fight |
+| [rts.md](rts.md) | RTS **as implemented today** + pointer to party_ui |
+| [UI_IMPLEMENTATION_STATUS.md](UI_IMPLEMENTATION_STATUS.md) | **Stale** checklist — do not follow “1 item per drag” |
+| [DragAndDropInventoryGuide.md](DragAndDropInventoryGuide.md) | **Stale** (grid / 1-item drag / “undraggable panels”). Use **UI.md** |
 | [draw_order.md](draw_order.md) | Y-sort |
 | [SPRITE_SHEET_LAYOUT.md](SPRITE_SHEET_LAYOUT.md) | 8-dir sheets |
 

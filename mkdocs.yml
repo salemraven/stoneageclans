@@ -1,0 +1,174 @@
+site_name: Stone Age Clans wiki
+site_description: Draft definitions. A page stays Draft until you confirm the sentence.
+docs_dir: wiki
+site_dir: site
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tracking
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+plugins:
+  - search
+
+extra_javascript:
+  - javascripts/search-nav.js
+
+markdown_extensions:
+  - toc:
+      permalink: true
+
+exclude_docs: |
+  requirements.txt
+
+nav:
+  - Home: index.md
+  - How to read this: how-to-read.md
+  - Systems:
+      - People: systems/people.md
+      - Herd and follow: systems/herd-and-follow.md
+      - Land: systems/land.md
+      - Fight and raid: systems/fight-and-raid.md
+      - Huts and babies: systems/huts-and-babies.md
+      - Genetics: systems/genetics.md
+      - Clan planner: systems/clan-planner.md
+      - Exile: systems/exile.md
+      - Sim names: systems/sim-names.md
+  - Terms:
+      - Caveman: terms/caveman.md
+      - Clansman: terms/clansman.md
+      - Woman: terms/woman.md
+      - Baby: terms/baby.md
+      - Baby pool: terms/baby-pool.md
+      - Worker: terms/worker.md
+      - Defender: terms/defender.md
+      - Searcher: terms/searcher.md
+      - Herder: terms/herder.md
+      - Herdable: terms/herdable.md
+      - Wild NPC: terms/wild-npc.md
+      - Wild: terms/wild.md
+      - Predator: terms/predator.md
+      - Bloodline: terms/bloodline.md
+      - Part of the clan: terms/part-of-the-clan.md
+      - Claimed: terms/claimed.md
+      - Sandbox / domination: terms/sandbox-domination.md
+      - Wilderness: terms/wilderness.md
+      - Wild caveman: terms/wild-caveman.md
+      - Exile: terms/exile.md
+      - Founder candidate: terms/founder-candidate.md
+      - Founder: terms/founder.md
+      - Clan slot: terms/clan-slot.md
+      - Defector: terms/defector.md
+      - Herd: terms/herd.md
+      - Follow: terms/follow.md
+      - Party: terms/party.md
+      - Guard: terms/guard.md
+      - Attack: terms/attack.md
+      - Stance: terms/stance.md
+      - Break: terms/break.md
+      - War Horn: terms/war-horn.md
+      - Direct control: terms/direct-control.md
+      - Primitive command model: terms/primitive-command-model.md
+      - Walk: terms/walk.md
+      - Hunt: terms/hunt.md
+      - Fight: terms/fight.md
+      - Party dock: terms/party-dock.md
+      - Party pile: terms/party-pile.md
+      - Land claim: terms/land-claim.md
+      - Campfire: terms/campfire.md
+      - Flag: terms/flag.md
+      - Tier 1 / Tier 2: terms/tier-1-tier-2.md
+      - Village: terms/village.md
+      - Nomad Mode: terms/nomad-mode.md
+      - Migration: terms/migration.md
+      - Territory wipe: terms/territory-wipe.md
+      - Resource node: terms/resource-node.md
+      - Gatherable: terms/gatherable.md
+      - Wild wheat: terms/wild-wheat.md
+      - Relic: terms/relic.md
+      - Infinite respawn: terms/infinite-respawn.md
+      - Forage: terms/forage.md
+      - Meat: terms/meat.md
+      - Grain / bread: terms/grain-bread.md
+      - AOP: terms/aop.md
+      - AOA: terms/aoa.md
+      - Agro: terms/agro.md
+      - Herd steal: terms/herd-steal.md
+      - Combat: terms/combat.md
+      - Corpse: terms/corpse.md
+      - Raid: terms/raid.md
+      - Leader succession: terms/leader-succession.md
+      - Cordage: terms/cordage.md
+      - STEAL / TAKE HERD: terms/steal-take-herd.md
+      - LOOT / TAKE GOODS: terms/loot-take-goods.md
+      - KILL / ATTACK MEN: terms/kill-attack-men.md
+      - WIPE / BURN FLAG: terms/wipe-burn-flag.md
+      - ClanBrain: terms/clan-brain.md
+      - Morale bar (ClanBrain): terms/morale-bar-clan.md
+      - Morale bar (fighter): terms/morale-bar-fighter.md
+      - Defender quota: terms/defender-quota.md
+      - Searcher quota: terms/searcher-quota.md
+      - Supply / demand: terms/supply-demand.md
+      - Strategic state: terms/strategic-state.md
+      - Living Hut: terms/living-hut.md
+      - Supply Hut: terms/supply-hut.md
+      - Storage Hut: terms/storage-hut.md
+      - Shrine: terms/shrine.md
+      - Farm: terms/farm.md
+      - Dairy: terms/dairy.md
+      - Dairy Farm: terms/dairy-farm.md
+      - Oven: terms/oven.md
+      - Bakery: terms/bakery.md
+      - Field: terms/field.md
+      - Medic Hut: terms/medic-hut.md
+      - Grave Mound: terms/grave-mound.md
+      - Spinner: terms/spinner.md
+      - Armory: terms/armory.md
+      - Tailor: terms/tailor.md
+      - Species: terms/species.md
+      - Trait: terms/trait.md
+      - Gene: terms/gene.md
+      - Hybridization: terms/hybridization.md
+      - Stats: terms/stats.md
+      - Quality tier: terms/quality-tier.md
+      - Genome: terms/genome.md
+      - Ordered follow: terms/ordered-follow.md
+      - follow_is_ordered: terms/follow-is-ordered.md
+      - command_context: terms/command-context.md
+      - formation_slots: terms/formation-slots.md
+      - RTS_CONFIG: terms/rts-config.md
+      - returning_from_break: terms/returning-from-break.md
+      - PerceptionArea: terms/perception-area.md
+      - EnemiesInClaim: terms/enemies-in-claim.md
+      - HerdInfluenceArea: terms/herd-influence-area.md
+      - Fighter activity: terms/fighter-activity.md
+      - Area of Hunt: terms/area-of-hunt.md
+      - Hunt intent: terms/hunt-intent.md
+      - WildRole.PREY: terms/wild-role-prey.md
+      - food_days_buffer: terms/food-days-buffer.md
+      - calories_days_buffer: terms/calories-days-buffer.md
+      - Defend / search / gather pressure: terms/job-pressure.md
+      - Economic weights: terms/economic-weights.md
+      - Survival mode: terms/survival-mode.md
+      - Task: terms/task.md
+      - Job: terms/job.md
+      - Gather job: terms/gather-job.md
+      - Deposit threshold: terms/deposit-threshold.md
+      - Occupation: terms/occupation.md
+      - SimulationManager: terms/simulation-manager.md
+      - ResourceIndex: terms/resource-index.md
+      - HostileEntityIndex: terms/hostile-entity-index.md
+      - ClaimBuildingIndex: terms/claim-building-index.md
+      - pseudo-biome: terms/pseudo-biome.md
+      - MutationStore: terms/mutation-store.md
+      - Chunk exhausted: terms/chunk-exhausted.md
+      - Appearance (2D): terms/appearance-2d.md
+      - DragonBones: terms/dragonbones.md
+      - Stockpile: terms/stockpile.md
+      - Hotbar: terms/hotbar.md
