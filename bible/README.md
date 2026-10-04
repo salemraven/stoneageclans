@@ -11,6 +11,7 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | **[bible.md](bible.md)** | Lore, mechanics, code map, implementation snapshot — **start here** |
 | **[earlygame_vision.md](earlygame_vision.md)** | **Opening 10 min**, tiers, food, raids, horn — design owner (Sep 2026) |
 | **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations, food, containers (Sep 2026 lock) |
+| **[village_and_economy_rundown.md](village_and_economy_rundown.md)** | **Synthesis** — gatherables, buildings I/O, authentic camp reframing (Oct 2026) |
 | **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | **[roadmap_2026.md](roadmap_2026.md)** | **Unified build order** Phases 0–7 |
