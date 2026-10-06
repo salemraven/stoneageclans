@@ -269,6 +269,8 @@ Hands: fiber → cordage; stone → oldowan; …
 
 ## 7. Related documents
 
+**Program:** [systems_canon_master.md](systems_canon_master.md) — full game systems list and lock workflow.
+
 | Doc | Role |
 |-----|------|
 | [economy_catalog.md](economy_catalog.md) | **Design lock** — classes, stations, containers, tiers |
