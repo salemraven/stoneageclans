@@ -58,6 +58,7 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **After campfire (Tier 1)** | **Personal hunger bar** (always — survival game) + **food days** from **land claim inventory** (**clan/NPCs**, not “you included” in that headline) |
 | **Player eating** | Eat from **player inventory** / hotbar; when empty, **manually drag-and-drop** food from **land claim inventory** → player inventory, then eat. **No auto-feed** from claim. |
 | **Clan eating** | **Everyone at the claim** — clansmen, women, babies — drains **land claim inventory** on sim (rates tunable). Player manual pulls reduce the same stock. |
+| **Clan food from land claim inventory** | When the shared stash is **tight**, **feed most hungry first** (same philosophy as deaths). Not role priority (not “warriors eat first”). Player usually eats from **player inventory** / manual drag; sim feeding from claim uses the same **most-hungry** queue for NPCs (and player only if design hooks claim→person feeding later). |
 | **Clan famine deaths** | When stock cannot feed everyone, **who dies first = whoever is most hungry** (highest hunger / lowest calories on that person), **not** fixed role order (not “babies always first”). Same rule for clansmen, women, babies, and the **player** if their personal hunger is worst — player still must **see** hunger (fairness #1). |
 
 ### First claim
@@ -126,7 +127,8 @@ After **campfire + a few deposits** into **land claim inventory**:
 
 Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 
-- **P10–P11** — housing cap vs food cap; **starvation death order** (who dies first)
+- **P10** — housing cap vs food cap ([future food.md](future%20implementations/food.md) brainstorm vs Q28 lock)
+- **P11** — tie-break when two people share **max hunger**; baby feeding sim ([reproduction_guide.md](reproduction_guide.md) — not shipped)
 - **R2–R3** — raid goal scoring vs “low food = gather not raid” ([earlygame_vision.md](earlygame_vision.md) §2 already targets this; code still partial)
 - **P5** — female babies / sex at birth ([female_baby.md](future%20implementations/female_baby.md))
 - **U4** — party dock / pile ([party_ui.md](party_ui.md)) — agreed next UI
@@ -147,3 +149,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 | 2026-10-07 | Q25: clan lost → extinction screen (name, seasons, cause) → main menu |
 | 2026-10-07 | Q26: extinction cause = one line per run-ending case, same layout |
 | 2026-10-07 | Q27: succession — claim stash holds; gear on corpse; loot successor |
+| 2026-10-07 | Q28: famine — die in order of **most hunger** (individual, not role) |
