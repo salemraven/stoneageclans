@@ -78,8 +78,9 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **On death** | **Succession** — play **another clansman**; **clan + land claim inventory** persist |
 | **Who next** | **Automatic: oldest eligible clansman** |
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
+| **No adult clansman alive** | **Youngest just-promoted adult** — among people who **just aged into** adult clansman status, pick the **youngest** (dynasty continues through the next generation, not game over) |
 
-*(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest.)*
+*(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest, then promotion fallback above.)*
 
 ---
 
