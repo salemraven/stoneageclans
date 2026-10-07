@@ -58,6 +58,7 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **After campfire (Tier 1)** | **Personal hunger bar** (always — survival game) + **food days** from **land claim inventory** (**clan/NPCs**, not “you included” in that headline) |
 | **Player eating** | Eat from **player inventory** / hotbar; when empty, **manually drag-and-drop** food from **land claim inventory** → player inventory, then eat. **No auto-feed** from claim. |
 | **Clan eating** | **Everyone at the claim** — clansmen, women, babies — drains **land claim inventory** on sim (rates tunable). Player manual pulls reduce the same stock. |
+| **Clan famine deaths** | When stock cannot feed everyone, **who dies first = whoever is most hungry** (highest hunger / lowest calories on that person), **not** fixed role order (not “babies always first”). Same rule for clansmen, women, babies, and the **player** if their personal hunger is worst — player still must **see** hunger (fairness #1). |
 
 ### First claim
 
@@ -145,3 +146,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 | 2026-10-07 | Q24: successful succession → one-line beat then control |
 | 2026-10-07 | Q25: clan lost → extinction screen (name, seasons, cause) → main menu |
 | 2026-10-07 | Q26: extinction cause = one line per run-ending case, same layout |
+| 2026-10-07 | Q27: succession — claim stash holds; gear on corpse; loot successor |
