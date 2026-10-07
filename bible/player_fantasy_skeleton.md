@@ -95,6 +95,7 @@ After **campfire + a few deposits** into **land claim inventory**:
 |------|--------|
 | **On death** | **Succession** — play **another clansman**; **clan + land claim inventory** persist |
 | **Succession moment** | **Short beat** — one line (e.g. “Elder Korg falls… Tor takes the chief”), then **control** on the new body (not instant snap, not a full pause panel) |
+| **Inventory on succession** | **Land claim inventory** unchanged. Dead chief’s **personal gear stays on the corpse**. Successor plays with **their own** inventory/hotbar — **empty hands** until you **loot the corpse** (no auto-transfer of hotbar/equipment) |
 | **Who next** | **Automatic: oldest eligible clansman** |
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
 | **No adult clansman alive** | **Youngest just-promoted adult** — among people who **just aged into** adult clansman status, pick the **youngest** (dynasty continues through the next generation) |
@@ -120,12 +121,16 @@ After **campfire + a few deposits** into **land claim inventory**:
 
 ---
 
-## Open (not asked yet)
+## Open (from canon index — ask only if docs conflict)
 
-- Numeric “few deposits,” food-days thresholds, adult age rule  
-- MP / domination panel  
-- Island/biome as explorer pressure  
-- War horn / party UI timing in sandbox  
+Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
+
+- **P10–P11** — housing cap vs food cap; **starvation death order** (who dies first)
+- **R2–R3** — raid goal scoring vs “low food = gather not raid” ([earlygame_vision.md](earlygame_vision.md) §2 already targets this; code still partial)
+- **P5** — female babies / sex at birth ([female_baby.md](future%20implementations/female_baby.md))
+- **U4** — party dock / pile ([party_ui.md](party_ui.md)) — agreed next UI
+- **Gather/production math** — pause until [dormancy.md](dormancy.md) settles (owner request Oct 2026)
+- Numeric “few deposits,” adult age for succession promotion  
 
 ---
 
