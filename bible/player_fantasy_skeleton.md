@@ -119,3 +119,4 @@ After **campfire + a few deposits** into **land claim inventory**:
 | 2026-10-07 | Q22: no one to promote → game over / clan lost |
 | 2026-10-07 | Q23: after clan lost → main menu, fresh run |
 | 2026-10-07 | Q24: successful succession → one-line beat then control |
+| 2026-10-07 | Q25: clan lost → extinction screen (name, seasons, cause) → main menu |
