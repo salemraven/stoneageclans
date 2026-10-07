@@ -80,8 +80,9 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
 | **No adult clansman alive** | **Youngest just-promoted adult** — among people who **just aged into** adult clansman status, pick the **youngest** (dynasty continues through the next generation) |
 | **No successor at all** | **Game over / clan lost** — e.g. only women and babies, no child eligible to promote to adult clansman; the run ends (claim and roster do not continue under player control) |
+| **After clan lost** | **Main menu only** — start a **fresh run** (no same-world respawn, spectator, or inherit rivals) |
 
-*(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest → promotion fallback → game over.)*
+*(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest → promotion fallback → game over → main menu.)*
 
 ---
 
@@ -101,7 +102,6 @@ After **campfire + a few deposits** into **land claim inventory**:
 ## Open (not asked yet)
 
 - Numeric “few deposits,” food-days thresholds, adult age rule  
-- Succession when **no** adult clansman **and** no one eligible to promote (only women/babies?)  
 - MP / domination panel  
 - Island/biome as explorer pressure  
 - War horn / party UI timing in sandbox  
@@ -114,3 +114,4 @@ After **campfire + a few deposits** into **land claim inventory**:
 |------|--------|
 | 2026-10-07 | Initial skeleton from owner Q&A (Q1–Q20) |
 | 2026-10-07 | Q21: no adult clansmen → youngest just-promoted adult |
+| 2026-10-07 | Q22: no one to promote → game over / clan lost |
