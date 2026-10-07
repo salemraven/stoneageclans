@@ -76,11 +76,13 @@ After **campfire + a few deposits** into **land claim inventory**:
 | Lock | Detail |
 |------|--------|
 | **On death** | **Succession** — play **another clansman**; **clan + land claim inventory** persist |
+| **Succession moment** | **Short beat** — one line (e.g. “Elder Korg falls… Tor takes the chief”), then **control** on the new body (not instant snap, not a full pause panel) |
 | **Who next** | **Automatic: oldest eligible clansman** |
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
 | **No adult clansman alive** | **Youngest just-promoted adult** — among people who **just aged into** adult clansman status, pick the **youngest** (dynasty continues through the next generation) |
 | **No successor at all** | **Game over / clan lost** — e.g. only women and babies, no child eligible to promote to adult clansman; the run ends (claim and roster do not continue under player control) |
 | **After clan lost** | **Main menu only** — start a **fresh run** (no same-world respawn, spectator, or inherit rivals) |
+| **Clan lost moment** | **Short extinction screen** — **clan name**, **seasons survived**, **cause of extinction**, then **main menu** (richer than a one-liner; not instant skip) |
 
 *(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest → promotion fallback → game over → main menu.)*
 
@@ -116,3 +118,4 @@ After **campfire + a few deposits** into **land claim inventory**:
 | 2026-10-07 | Q21: no adult clansmen → youngest just-promoted adult |
 | 2026-10-07 | Q22: no one to promote → game over / clan lost |
 | 2026-10-07 | Q23: after clan lost → main menu, fresh run |
+| 2026-10-07 | Q24: successful succession → one-line beat then control |
