@@ -115,3 +115,4 @@ After **campfire + a few deposits** into **land claim inventory**:
 | 2026-10-07 | Initial skeleton from owner Q&A (Q1–Q20) |
 | 2026-10-07 | Q21: no adult clansmen → youngest just-promoted adult |
 | 2026-10-07 | Q22: no one to promote → game over / clan lost |
+| 2026-10-07 | Q23: after clan lost → main menu, fresh run |
