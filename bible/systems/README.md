@@ -4,4 +4,9 @@ One **`*_canon.md`** per major system, filled from [templates/system_canon_templ
 
 **Index & status:** [systems_canon_master.md](../systems_canon_master.md)
 
-Files appear here as each system is locked (Wave 1 starts with territory, gather, production, clan_brain, fsm).
+| File | Status |
+|------|--------|
+| [gather_canon.md](gather_canon.md) | Partial (2026-10-07) |
+| [production_canon.md](production_canon.md) | Partial (2026-10-07) |
+
+More systems: see [systems_canon_master.md](../systems_canon_master.md).

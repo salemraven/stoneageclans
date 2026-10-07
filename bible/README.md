@@ -14,6 +14,8 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | **[village_and_economy_rundown.md](village_and_economy_rundown.md)** | **Synthesis** — gatherables, buildings I/O, authentic camp reframing (Oct 2026) |
 | **[systems_canon_master.md](systems_canon_master.md)** | **All systems inventory** — lock status, owner docs, wave order, canon workflow (Oct 2026) |
 | **[templates/system_canon_template.md](templates/system_canon_template.md)** | **Template** for per-system locked canon (`bible/systems/*_canon.md`) |
+| **[systems/gather_canon.md](systems/gather_canon.md)** | **Gather** — jobs, deposit, tools, v1 nodes (partial lock) |
+| **[systems/production_canon.md](systems/production_canon.md)** | **Production** — WorkRequests, bread/leather, campfire (partial lock) |
 | **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | **[roadmap_2026.md](roadmap_2026.md)** | **Unified build order** Phases 0–7 |

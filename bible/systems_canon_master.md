@@ -94,10 +94,10 @@ A system is **Locked** when:
 |----|--------|--------|------------------|-----|
 | E1 | **Item classes, tags, containers** | 🔒 | [economy_catalog.md](economy_catalog.md) §2–4 | — |
 | E2 | **Gatherables & world resources** | 🟡 | [environment_goal.md](environment_goal.md) §5, [village_and_economy_rundown.md](village_and_economy_rundown.md) §2 | P0 |
-| E3 | **Gather & deposit (NPC)** | 💻 | [GatherGuide.md](GatherGuide.md) | P0 |
+| E3 | **Gather & deposit (NPC)** | 🟡 | **[systems/gather_canon.md](systems/gather_canon.md)** (+ GatherGuide code detail) | P0 |
 | E4 | **Player gather & tools** | 💻 | bible §XIX, gatherable_resource | P1 |
 | E5 | **Craft registry (hands)** | 💻 | `craft_registry.gd`, economy_catalog §12 | P1 |
-| E6 | **Production buildings & stations** | 🟡 | economy_catalog §11, [production_economy.md](production_economy.md) | P0 |
+| E6 | **Production buildings & stations** | 🟡 | **[systems/production_canon.md](systems/production_canon.md)** (+ economy_catalog §11) | P0 |
 | E7 | **Food states (raw/cooked/preserved)** | 🔒 | economy_catalog §6 | — |
 | E8 | **Food buffer & calories** | 🟡 | [earlygame_vision.md](earlygame_vision.md) §2, `BalanceConfig` | P0 |
 | E9 | **Container loops (milk, stew, potions)** | 🔒 | economy_catalog §7 | — |
@@ -106,7 +106,7 @@ A system is **Locked** when:
 | E12 | **Proto farming (Field / crops)** | ⬜ | [proto_farming.md](future%20implementations/proto_farming.md) | P1 |
 | E13 | **Trade & caravans** | ⬜ | environment_goal, lategame | P3 |
 
-**Target canon files:** `economy_canon.md` (optional rename/split from economy_catalog), `gather_canon.md`, `production_canon.md`.
+**Canon files:** [systems/gather_canon.md](systems/gather_canon.md), [systems/production_canon.md](systems/production_canon.md). Optional later: `economy_canon.md` rename from economy_catalog.
 
 ---
 
@@ -301,3 +301,4 @@ Before starting a roadmap phase task, check: is the relevant system **Locked** o
 | Date | Change |
 |------|--------|
 | 2026-10-06 | Initial master index + template + lock workflow |
+| 2026-10-07 | gather_canon + production_canon (partial) |
