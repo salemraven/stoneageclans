@@ -2,7 +2,25 @@
 
 **Status:** Design lock from owner Q&A. Flesh on the big-picture skeleton; not a implementation spec.  
 **Supersedes nothing** — extends [earlygame_vision.md](earlygame_vision.md), [nomad.md](nomad.md), [dormancy.md](dormancy.md).  
-**Terminology:** Use **land claim inventory** (campfire or flag). **Do not use “pantry.”**
+**Terminology:** Use **land claim inventory** (campfire or flag). **Do not use “pantry.”** (Older docs may still say pantry / `food_days_buffer` — player-facing copy should match [game_dictionary.md](game_dictionary.md) and your terms.)
+
+### Read these before more Q&A (already answered elsewhere)
+
+| Topic | Owner doc | You should not re-ask |
+|-------|-----------|------------------------|
+| First 10 min, campfire vs flag, forage/meat/bread | [earlygame_vision.md](earlygame_vision.md) §1–2 | Tier 1/2, three foods, **Food: N days** target |
+| Wild women, babies, genetics, Living Hut | [earlygame_vision.md](earlygame_vision.md) §3, [reproduction_guide.md](reproduction_guide.md) | Women ≠ clansmen; herd wild vs hut |
+| Raid verbs, cordage STEAL, loot before wipe | [earlygame_vision.md](earlygame_vision.md) §4, [herdable_raiding.md](future%20implementations/herdable_raiding.md) | TAKE HERD / GOODS / MEN / BURN |
+| War Horn vs searchers/herd | [earlygame_vision.md](earlygame_vision.md) §5, [rts.md](rts.md) | Horn drops herd today; target fix documented |
+| Combat outcomes, corpse loot, **player death → succession** | [earlygame_vision.md](earlygame_vision.md) §6 | Baseline: succession on clansman, flag wipe |
+| Island / MP / domination panel | [earlygame_vision.md](earlygame_vision.md) §7, [multiplayer.md](multiplayer.md) | Authored island target; overlap claims |
+| AI camp when off-screen | [dormancy.md](dormancy.md) | Player claim awake; AI on record tick |
+| Camp layout, stations, gatherables brainstorm | [village_and_economy_rundown.md](village_and_economy_rundown.md) | Hearth-centric village, not RPG one-building-one-resource |
+| What still needs locking (inventory) | [systems_canon_master.md](systems_canon_master.md) §2–3 | Use ⬜/🟡 rows — not generic “pick A–E” menus |
+
+**This file’s job:** Capture **player-experience choices** from Oct 2026 chat that **refine or extend** the docs above (HUD split, manual eat from land claim inventory, ClanBrain food vs player hunt/raid, sandbox + extinction UX). If a question is already in the table, **read the doc** instead of asking again.
+
+**Tension to resolve later (docs vs Q&A):** [leader_hut.md](leader_hut.md) plans **selectable succession law** (primogeniture vs seniority). Q&A locked **automatic oldest adult clansman** (and promotion fallback) until Leader’s Hut law ships.
 
 ---
 
@@ -83,6 +101,7 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **No successor at all** | **Game over / clan lost** — e.g. only women and babies, no child eligible to promote to adult clansman; the run ends (claim and roster do not continue under player control) |
 | **After clan lost** | **Main menu only** — start a **fresh run** (no same-world respawn, spectator, or inherit rivals) |
 | **Clan lost moment** | **Short extinction screen** — **clan name**, **seasons survived**, **cause of extinction**, then **main menu** (richer than a one-liner; not instant skip) |
+| **Extinction causes** | **Any run-ending failure** gets the **same screen layout**; **cause** is **one line tuned to the case** (e.g. no successor, starvation wipe, last clansman fell in a raid, beast/disaster when those exist — not a single fixed reason) |
 
 *(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest → promotion fallback → game over → main menu.)*
 
@@ -120,3 +139,4 @@ After **campfire + a few deposits** into **land claim inventory**:
 | 2026-10-07 | Q23: after clan lost → main menu, fresh run |
 | 2026-10-07 | Q24: successful succession → one-line beat then control |
 | 2026-10-07 | Q25: clan lost → extinction screen (name, seasons, cause) → main menu |
+| 2026-10-07 | Q26: extinction cause = one line per run-ending case, same layout |
