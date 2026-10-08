@@ -138,8 +138,6 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **Succession law** | [leader_hut.md](leader_hut.md): future primogeniture vs seniority UI | **Automatic oldest adult clansman** (+ youngest promoted) | Until Leader’s Hut law ships |
 | **Leader role type** | Code: promotes clansman → **`caveman`** + claim `owner_npc` | Player **plays clansman** body after death | Naming / who is “chief” type |
 
-**Big picture (systems):** [big_picture_systems_map.md](big_picture_systems_map.md) — macro workshop; this file is **micro UX Q&A** only.
-
 ## Open (from canon index — read doc first; ask only if silent or conflicting)
 
 Pull from [systems_canon_master.md](systems_canon_master.md):

@@ -15,8 +15,6 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | **[systems_canon_master.md](systems_canon_master.md)** | **All systems inventory** — lock status, owner docs, wave order, canon workflow (Oct 2026) |
 | **[templates/system_canon_template.md](templates/system_canon_template.md)** | **Template** for per-system locked canon (`bible/systems/*_canon.md`) |
 | **[player_fantasy_skeleton.md](player_fantasy_skeleton.md)** | **Player fantasy Q&A lock** — survival spine, HUD, campfire, sandbox, succession (Oct 2026) |
-| **[big_picture_systems_map.md](big_picture_systems_map.md)** | **Macro systems workshop** — pillars, journey, what to flesh (Oct 2026) |
-| **[big_picture_gaps.md](big_picture_gaps.md)** | Pointer → systems map + skeleton |
 | **[systems/gather_canon.md](systems/gather_canon.md)** | **Gather** — jobs, deposit, tools, v1 nodes (partial lock) |
 | **[systems/production_canon.md](systems/production_canon.md)** | **Production** — WorkRequests, bread/leather, campfire (partial lock) |
 | **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
