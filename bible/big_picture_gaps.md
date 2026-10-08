@@ -33,7 +33,7 @@
 | C2 | **Leader’s Hut:** future **primogeniture vs seniority** UI | **Q&A:** automatic **oldest adult clansman** until law ships | [leader_hut.md](leader_hut.md) vs skeleton |
 | C3 | **Code succession:** promote clansman → **`caveman`** + `owner_npc` | **Q&A:** player plays **clansman** body; story “chief” | `health_component.gd` vs skeleton |
 | C4 | **Dictionary / code:** **oldest clansman** (no “adult only” filter) | **Q&A:** **adult clansmen only**; youngest **just-promoted** fallback | [game_dictionary.md](game_dictionary.md) vs skeleton |
-| C5 | **Bible §I:** win = **bloodline dominates map**; **no victory screen** | **Q23:** extinction → **main menu fresh run** (session ends) | [bible.md](bible.md) vs skeleton — *what is a “run”?* |
+| ~~C5~~ | **Resolved:** **Win** = genetic / bloodline **domination** (canon below). **Lose** = run-ending extinction → main menu (skeleton). Not the same axis. | | |
 | C6 | **Flag destroyed:** [clan_founding_and_exile.md](clan_founding_and_exile.md) — males may become **wild cavemen / founders** | **Q&A extinction:** no successor → **game over** (not play exile) | founding doc vs skeleton — *player vs AI* |
 
 ---

@@ -33,6 +33,8 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **Spine (0–45 min)** | Survival band — **fed, no stupid deaths** |
 | **Layers** | Hunt, settle, raid, huts, succession, island — after spine reads fair |
 | **Mid-game** | **Sandbox** — no scripted “chapter 2”; player chooses; world **reacts** |
+| **End goal (win)** | **Genetic / bloodline domination** — your lineage wins the hominid competition on the map (owner analogy: like **AMH** as the last hominin standing). Canon: [bible.md](bible.md) § Win, [genetics.md](genetics.md), [gdd.md](gdd.md) §1. Track progress via domination / trait mix ([earlygame_vision.md](earlygame_vision.md) §7–8). **No mandatory win screen** in GDD — domination is the goal while you play. |
+| **End (lose)** | **Extinction** — run-ending failure (no successor, etc.) → summary → main menu fresh run (below). Losing is **not** the design endpoint; domination is. |
 
 ---
 
