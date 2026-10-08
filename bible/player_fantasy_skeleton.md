@@ -58,8 +58,8 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **After campfire (Tier 1)** | **Personal hunger bar** (always — survival game) + **food days** from **land claim inventory** (**clan/NPCs**, not “you included” in that headline) |
 | **Player eating** | Eat from **player inventory** / hotbar; when empty, **manually drag-and-drop** food from **land claim inventory** → player inventory, then eat. **No auto-feed** from claim. |
 | **Clan eating** | **Everyone at the claim** — clansmen, women, babies — drains **land claim inventory** on sim (rates tunable). Player manual pulls reduce the same stock. |
-| **Clan food from land claim inventory** | When the shared stash is **tight**, **feed most hungry first** (same philosophy as deaths). Not role priority (not “warriors eat first”). Player usually eats from **player inventory** / manual drag; sim feeding from claim uses the same **most-hungry** queue for NPCs (and player only if design hooks claim→person feeding later). |
-| **Clan famine deaths** | When stock cannot feed everyone, **who dies first = whoever is most hungry** (highest hunger / lowest calories on that person), **not** fixed role order (not “babies always first”). Same rule for clansmen, women, babies, and the **player** if their personal hunger is worst — player still must **see** hunger (fairness #1). |
+| **Clan food from land claim inventory** | When the shared stash is **tight**, **feed most hungry first** (same philosophy as deaths). Not role priority (not “warriors eat first”). **Tie on hunger:** **oldest** among tied people gets priority (feed or die first). Player usually eats from **player inventory** / manual drag; sim feeding from claim uses the same **most-hungry** queue for NPCs (and player only if design hooks claim→person feeding later). |
+| **Clan famine deaths** | When stock cannot feed everyone, **who dies first = whoever is most hungry** (highest hunger / lowest calories on that person), **not** fixed role order (not “babies always first”). **Tie on hunger:** **oldest** dies / loses the ration first. Same rule for clansmen, women, babies, and the **player** if their personal hunger is worst — player still must **see** hunger (fairness #1). |
 
 ### First claim
 
@@ -150,3 +150,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 | 2026-10-07 | Q26: extinction cause = one line per run-ending case, same layout |
 | 2026-10-07 | Q27: succession — claim stash holds; gear on corpse; loot successor |
 | 2026-10-07 | Q28: famine — die in order of **most hunger** (individual, not role) |
+| 2026-10-07 | Q29: ration claim food — **most hungry fed first** |
