@@ -155,3 +155,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 | 2026-10-07 | Q29: ration claim food — **most hungry fed first** |
 | 2026-10-08 | Q30: hunger tie → **oldest** first (feed + death) |
 | 2026-10-08 | Q31: clansmen = food-limited; **Living Hut = baby cap** |
+| 2026-10-08 | Q32: at baby cap → **no birth** (block) |
