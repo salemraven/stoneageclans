@@ -14,7 +14,7 @@
 | War Horn vs searchers/herd | [earlygame_vision.md](earlygame_vision.md) §5, [rts.md](rts.md) | Horn drops herd today; target fix documented |
 | Combat outcomes, corpse loot, **player death → succession** | [earlygame_vision.md](earlygame_vision.md) §6 | Baseline: succession on clansman, flag wipe |
 | Island / MP / domination panel | [earlygame_vision.md](earlygame_vision.md) §7, [multiplayer.md](multiplayer.md) | Authored island target; overlap claims |
-| **Win goal (genetic domination)** | [bible.md](bible.md) § Win, [gdd.md](gdd.md) §1, [genetics.md](genetics.md) | Bloodline dominates map; evolution / species mix; not “sandbox with no point” |
+| **Win goal + persistent world** | [bible.md](bible.md) § Win, [gdd.md](gdd.md) §1, [genetics.md](genetics.md), [multiplayer.md](multiplayer.md) | Domination fantasy; **no global end** — persistent server, new players join; GDD “win” = direction not shutdown |
 | AI camp when off-screen | [dormancy.md](dormancy.md) | Player claim awake; AI on record tick |
 | Camp layout, stations, gatherables brainstorm | [village_and_economy_rundown.md](village_and_economy_rundown.md) | Hearth-centric village, not RPG one-building-one-resource |
 | What still needs locking (inventory) | [systems_canon_master.md](systems_canon_master.md) §2–3 | Use ⬜/🟡 rows — not generic “pick A–E” menus |
@@ -34,8 +34,9 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **Spine (0–45 min)** | Survival band — **fed, no stupid deaths** |
 | **Layers** | Hunt, settle, raid, huts, succession, island — after spine reads fair |
 | **Mid-game** | **Sandbox** — no scripted “chapter 2”; player chooses; world **reacts** |
-| **End goal (win)** | **Genetic / bloodline domination** — your lineage wins the hominid competition on the map (owner analogy: like **AMH** as the last hominin standing). Canon: [bible.md](bible.md) § Win, [genetics.md](genetics.md), [gdd.md](gdd.md) §1. Track progress via domination / trait mix ([earlygame_vision.md](earlygame_vision.md) §7–8). **No mandatory win screen** in GDD — domination is the goal while you play. |
-| **End (lose)** | **Extinction** — run-ending failure (no successor, etc.) → summary → main menu fresh run (below). Losing is **not** the design endpoint; domination is. |
+| **North-star fantasy (no world end)** | **Persistent server** — the world **keeps running**; **new players can join** an ongoing sim. There is **no global “the game is over”** that shuts down the world. **Genetic / bloodline domination** ([bible.md](bible.md) § Win, [genetics.md](genetics.md)) is the **long-horizon player goal** (AMH-style replacement on the map), not a single-player campaign finale. |
+| **Your run ends (lose)** | **Extinction** — *your* clan line ends (no successor, etc.) → summary → **main menu** (below). The **server/world** continues; you may start a **new run** (e.g. rejoin as a new founder). Distinct from “winning the whole world.” |
+| **Domination UI** | Progress readouts (trait mix, claims, rivals) — [earlygame_vision.md](earlygame_vision.md) §7–8 — not a server-stop victory. GDD: **no hard victory screen**; still true in a persistent MP reading. |
 
 ---
 
@@ -137,7 +138,7 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **Succession law** | [leader_hut.md](leader_hut.md): future primogeniture vs seniority UI | **Automatic oldest adult clansman** (+ youngest promoted) | Until Leader’s Hut law ships |
 | **Leader role type** | Code: promotes clansman → **`caveman`** + claim `owner_npc` | Player **plays clansman** body after death | Naming / who is “chief” type |
 
-**Big picture queue:** [big_picture_gaps.md](big_picture_gaps.md) — conflicts + true gaps; settle in order §4 there.
+**Big picture (systems):** [big_picture_systems_map.md](big_picture_systems_map.md) — macro workshop; this file is **micro UX Q&A** only.
 
 ## Open (from canon index — read doc first; ask only if silent or conflicting)
 
