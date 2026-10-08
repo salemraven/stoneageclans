@@ -130,9 +130,11 @@ After **campfire + a few deposits** into **land claim inventory**:
 
 | Topic | Doc / code says | Q&A skeleton says | Notes |
 |-------|-----------------|-------------------|--------|
-| **Clan wipe, no clansmen** | `health_component.gd`: clan death; comment **babies persist** until claim destroyed | **Game over** when no adult successor (women + babies only) | Align wipe vs persistence |
+| **Clan wipe, no clansmen** | `health_component.gd`: clan death; comment **babies persist** until claim destroyed | **Game over** when no adult successor (Q22, **A locked**) | **Design wins:** extinction → main menu; code should catch up |
 | **Succession law** | [leader_hut.md](leader_hut.md): future primogeniture vs seniority UI | **Automatic oldest adult clansman** (+ youngest promoted) | Until Leader’s Hut law ships |
 | **Leader role type** | Code: promotes clansman → **`caveman`** + claim `owner_npc` | Player **plays clansman** body after death | Naming / who is “chief” type |
+
+**Big picture queue:** [big_picture_gaps.md](big_picture_gaps.md) — conflicts + true gaps; settle in order §4 there.
 
 ## Open (from canon index — read doc first; ask only if silent or conflicting)
 
@@ -165,3 +167,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md):
 | 2026-10-08 | Q30: hunger tie → **oldest** first (feed + death) |
 | 2026-10-08 | Q31: clansmen = food-limited; **Living Hut = baby cap** |
 | 2026-10-08 | Q32: at baby cap → block **new** pregnancy (matches repro guide) |
+| 2026-10-08 | Conflict: no successor → game over (A), not babies-persist limp |
