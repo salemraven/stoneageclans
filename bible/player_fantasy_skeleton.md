@@ -9,7 +9,7 @@
 | Topic | Owner doc | You should not re-ask |
 |-------|-----------|------------------------|
 | First 10 min, campfire vs flag, forage/meat/bread | [earlygame_vision.md](earlygame_vision.md) §1–2 | Tier 1/2, three foods, **Food: N days** target |
-| Wild women, babies, genetics, Living Hut | [earlygame_vision.md](earlygame_vision.md) §3, [reproduction_guide.md](reproduction_guide.md) | Women ≠ clansmen; herd wild vs hut |
+| Wild women, babies, genetics, Living Hut | [earlygame_vision.md](earlygame_vision.md) §3, [reproduction_guide.md](reproduction_guide.md) | Women ≠ clansmen; herd wild vs hut; **baby cap** blocks **starting** pregnancy; **min food buffer** to conceive; cancel in utero on starvation |
 | Raid verbs, cordage STEAL, loot before wipe | [earlygame_vision.md](earlygame_vision.md) §4, [herdable_raiding.md](future%20implementations/herdable_raiding.md) | TAKE HERD / GOODS / MEN / BURN |
 | War Horn vs searchers/herd | [earlygame_vision.md](earlygame_vision.md) §5, [rts.md](rts.md) | Horn drops herd today; target fix documented |
 | Combat outcomes, corpse loot, **player death → succession** | [earlygame_vision.md](earlygame_vision.md) §6 | Baseline: succession on clansman, flag wipe |
@@ -60,8 +60,9 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | **Clan eating** | **Everyone at the claim** — clansmen, women, babies — drains **land claim inventory** on sim (rates tunable). Player manual pulls reduce the same stock. |
 | **Clan food from land claim inventory** | When the shared stash is **tight**, **feed most hungry first** (same philosophy as deaths). Not role priority (not “warriors eat first”). **Tie on hunger:** **oldest** among tied people gets priority (feed or die first). Player usually eats from **player inventory** / manual drag; sim feeding from claim uses the same **most-hungry** queue for NPCs (and player only if design hooks claim→person feeding later). |
 | **Clan famine deaths** | When stock cannot feed everyone, **who dies first = whoever is most hungry** (highest hunger / lowest calories on that person), **not** fixed role order (not “babies always first”). **Tie on hunger:** **oldest** dies / loses the ration first. Same rule for clansmen, women, babies, and the **player** if their personal hunger is worst — player still must **see** hunger (fairness #1). |
-| **Population caps** | **Clansmen:** no hard hut cap — **food / starvation** is the limiter (grow fighters until calories break you). **Living Huts:** cap **babies** (baby pool / births), **not** clansmen headcount. Leader’s Hut = chief household / future law, not “more clansmen slots.” |
-| **Baby cap full** | **No new birth** — pregnancy does **not** start (or does not complete into a new baby) while at cap; build more Living Hut capacity or free slots before births resume. |
+| **Population caps** | **Clansmen:** no hard hut cap — **food / starvation** is the limiter (Q31; overrides draft [food.md](future%20implementations/food.md) “huts = clansmen cap”). **Living Huts:** **baby pool cap** only — see [reproduction_guide.md](reproduction_guide.md) § Baby cap. Leader’s Hut = chief household / future law, not clansmen slots. |
+| **Baby cap full (Q32)** | Same as repro guide: **no new pregnancy starts** at cap (`enforce_baby_cap` ON). **In-progress pregnancy still births** when timer finishes (cap does not abort delivery). |
+| **Food vs new pregnancy** | **Already in repro guide + code** — do not re-ask: need `reproduction_min_food_buffer_days` to **start**; cancel existing pregnancy below `pregnancy_cancel_food_buffer_days`. |
 
 ### First claim
 
@@ -103,7 +104,7 @@ After **campfire + a few deposits** into **land claim inventory**:
 | **Who next** | **Automatic: oldest eligible clansman** |
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
 | **No adult clansman alive** | **Youngest just-promoted adult** — among people who **just aged into** adult clansman status, pick the **youngest** (dynasty continues through the next generation) |
-| **No successor at all** | **Game over / clan lost** — e.g. only women and babies, no child eligible to promote to adult clansman; the run ends (claim and roster do not continue under player control) |
+| **No successor at all** | **Game over / clan lost** — e.g. only women and babies, no child eligible to promote to adult clansman; the run ends (claim and roster do not continue under player control). **Overrides** legacy code note that babies “persist until claim destroyed” — extinction + main menu even if women/babies still exist in the world sim. |
 | **After clan lost** | **Main menu only** — start a **fresh run** (no same-world respawn, spectator, or inherit rivals) |
 | **Clan lost moment** | **Short extinction screen** — **clan name**, **seasons survived**, **cause of extinction**, then **main menu** (richer than a one-liner; not instant skip) |
 | **Extinction causes** | **Any run-ending failure** gets the **same screen layout**; **cause** is **one line tuned to the case** (e.g. no successor, starvation wipe, last clansman fell in a raid, beast/disaster when those exist — not a single fixed reason) |
@@ -125,12 +126,20 @@ After **campfire + a few deposits** into **land claim inventory**:
 
 ---
 
-## Open (from canon index — ask only if docs conflict)
+## Conflicts worth one owner answer (not in Q&A yet)
 
-Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
+| Topic | Doc / code says | Q&A skeleton says | Notes |
+|-------|-----------------|-------------------|--------|
+| **Clan wipe, no clansmen** | `health_component.gd`: clan death; comment **babies persist** until claim destroyed | **Game over** when no adult successor (women + babies only) | Align wipe vs persistence |
+| **Succession law** | [leader_hut.md](leader_hut.md): future primogeniture vs seniority UI | **Automatic oldest adult clansman** (+ youngest promoted) | Until Leader’s Hut law ships |
+| **Leader role type** | Code: promotes clansman → **`caveman`** + claim `owner_npc` | Player **plays clansman** body after death | Naming / who is “chief” type |
 
-- **P10** — birth throttle when food low (beyond baby hut cap); see [reproduction_guide.md](reproduction_guide.md) `enforce_baby_cap`
-- **P11** — baby feeding sim ([reproduction_guide.md](reproduction_guide.md) — not shipped); hunger tie-break locked Q30 (**oldest**)
+## Open (from canon index — read doc first; ask only if silent or conflicting)
+
+Pull from [systems_canon_master.md](systems_canon_master.md):
+
+- **P11** — born **baby feeding** / starvation ([reproduction_guide.md](reproduction_guide.md) § planned — not shipped)
+- **Q28–Q30** — **most-hungry-first** ration + death: **player fantasy lock**; not yet in repro guide or `ClanFoodBuffer` (implementation gap)
 - **R2–R3** — raid goal scoring vs “low food = gather not raid” ([earlygame_vision.md](earlygame_vision.md) §2 already targets this; code still partial)
 - **P5** — female babies / sex at birth ([female_baby.md](future%20implementations/female_baby.md))
 - **U4** — party dock / pile ([party_ui.md](party_ui.md)) — agreed next UI
@@ -155,4 +164,4 @@ Pull from [systems_canon_master.md](systems_canon_master.md), not from scratch:
 | 2026-10-07 | Q29: ration claim food — **most hungry fed first** |
 | 2026-10-08 | Q30: hunger tie → **oldest** first (feed + death) |
 | 2026-10-08 | Q31: clansmen = food-limited; **Living Hut = baby cap** |
-| 2026-10-08 | Q32: at baby cap → **no birth** (block) |
+| 2026-10-08 | Q32: at baby cap → block **new** pregnancy (matches repro guide) |
