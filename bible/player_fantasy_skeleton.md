@@ -14,6 +14,7 @@
 | War Horn vs searchers/herd | [earlygame_vision.md](earlygame_vision.md) §5, [rts.md](rts.md) | Horn drops herd today; target fix documented |
 | Combat outcomes, corpse loot, **player death → succession** | [earlygame_vision.md](earlygame_vision.md) §6 | Baseline: succession on clansman, flag wipe |
 | Island / MP / domination panel | [earlygame_vision.md](earlygame_vision.md) §7, [multiplayer.md](multiplayer.md) | Authored island target; overlap claims |
+| **Win goal (genetic domination)** | [bible.md](bible.md) § Win, [gdd.md](gdd.md) §1, [genetics.md](genetics.md) | Bloodline dominates map; evolution / species mix; not “sandbox with no point” |
 | AI camp when off-screen | [dormancy.md](dormancy.md) | Player claim awake; AI on record tick |
 | Camp layout, stations, gatherables brainstorm | [village_and_economy_rundown.md](village_and_economy_rundown.md) | Hearth-centric village, not RPG one-building-one-resource |
 | What still needs locking (inventory) | [systems_canon_master.md](systems_canon_master.md) §2–3 | Use ⬜/🟡 rows — not generic “pick A–E” menus |
