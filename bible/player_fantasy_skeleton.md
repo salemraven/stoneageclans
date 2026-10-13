@@ -76,7 +76,7 @@ After **campfire + a few deposits** into **land claim inventory**:
 | Lock | Detail |
 |------|--------|
 | **On death** | **Succession** — play **another clansman**; **clan + land claim inventory** persist |
-| **Who next** | **Automatic: oldest eligible clansman** |
+| **Who next** | **Automatic: oldest eligible clansman** *(Updated 2026-10-13: default is now the **oldest living adult son**, else the oldest adult clansman. See [director_locks_2026_10.md](director_locks_2026_10.md) §1.)* |
 | **Eligible** | **Adult clansmen only** (not babies/children until grown) |
 
 *(Heir designation, sons-only, pick-from-list — future UI; default is automatic adult oldest.)*
