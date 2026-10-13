@@ -2,9 +2,9 @@
 
 **Purpose:** Canonical design for how **clans keep living** (babies, buildings, gathering, crafting, genetics) while **individual NPC nodes sleep** for performance. Required for an **open-world evolutionary sandbox** at scale.
 
-**Status:** **Framework / partial implementation** — land claims persist, `ClanBrain.dormant_update()` exists (food drain only), actor sleep/wake exists; **full settlement tick is not built**.
+**Status:** Superseded for current intent by [dormancy.md](dormancy.md). This file keeps the continuous-plane lock and the actor-versus-settlement split. Its "food drain only" status is no longer true: the settlement slice gathers, feeds, hunts, and births. Read [dormancy.md](dormancy.md) before changing sleep, wake, or off-screen camps.
 
-**Last updated:** August 2026
+**Last updated:** August 2026. Pointer added October 2026.
 
 **World model (settled):** **One continuous 2D plane** — the player walks from their settlement to any other on the same map. We do **not** use instanced colony maps (RimWorld tiles, Dwarf Fortress site layers). See [Continuous plane (design lock)](#continuous-plane-design-lock).
 

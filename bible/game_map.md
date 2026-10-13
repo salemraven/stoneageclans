@@ -224,7 +224,7 @@ Inside **`update_streaming`**:
 
 **Gatherables** — scene `res://scenes/GatherableResource.tscn`; amounts match legacy **`Main._spawn_resource`** style per type; **`chunk_coords`** and optional **`stable_id`** meta.
 
-**Trees** — `Node2D` wrapper in group **`decorative_trees`**; child **`GatherableResource`** WOOD with **`tree_sheet_index`**; positions use **`YSortUtils.tree_sort_offset_y`** like legacy forest spawn.
+**Trees** — `Node2D` wrapper in group **`decorative_trees`** at the generator **`position`** (trunk base); child **`GatherableResource`** WOOD with **`tree_sheet_index`**; depth via **`YSortUtils.update_tree_draw_order`** (`tree_foot_offset_y` + `tree_sort_offset_y`).
 
 **Tall grass** — `Node2D` + `Sprite2D`; textures from `res://assets/sprites/tallgrass1.png` … `tallgrass6.png`; group **`tallgrass`**; **`YSortUtils.update_draw_order`**; optional **`has_bugs` / `bugs_remaining`** meta (subset of blades also roll extra bug placement at **spawn** time — not fully deterministic vs generator’s `has_bugs` flag).
 

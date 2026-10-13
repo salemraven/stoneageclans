@@ -1,23 +1,27 @@
 ---
 search:
-  keywords: cordage
+  keywords: cordage steal bond herd
 ---
 
 # Cordage
 
-**Status:** Draft
+**Status:** Draft — **planned** item for player STEAL raids
 
 **Whose word:** Yours
 
 ## Definition
 
-Item you use on an enemy’s claimed herdable to bond and lead them out. Without it, a peace walk cannot take claimed herdables. Mostly planned.
+A **tool** you equip to **bond** an enemy’s **claimed** herdable (woman, sheep, goat), then lead them out with the same herd walk as wild attach. Without cordage, a peaceful walk cannot steal **claimed** targets (wild influence only).
+
+## From the bible
+
+**Bible (repo):** `bible/earlygame_vision.md` §4 · `bible/future implementations/herdable_raiding.md`
 
 ## Related
 
 - [STEAL / TAKE HERD](steal-take-herd.md)
-- [Claimed](claimed.md)
 - [Herd](herd.md)
+- [Claimed](claimed.md)
 
 ## Systems
 

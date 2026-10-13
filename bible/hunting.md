@@ -35,6 +35,21 @@ This is the **hub guide** for hunting. Deep dives live in linked docs.
 4. **NPC `hunt_state`** — `FORMING` → `CHASING` → `KILLING` → `LOOTING` → `RETURNING`.
 5. **Player-owned territory** — brain does not start hunt parties.
 
+### Loot handoff
+
+Looting is a one-way step into gather. Butcher work must not be cancelled by hopping back into the hunt.
+
+- `ClanBrain.is_hunt_looting()` is the only check.
+- `FSM.change_state("hunt")` honors `hunt.can_enter()`. A forced entry cannot skip it.
+- A man already in the hunt leaves once into gather.
+- A man still in combat when the prey dies goes to gather, not back through hunt.
+- Opening the corpse releases the hunt party even if the kill already registered the site. Followers are not left ordered, so they can butcher.
+- While the carcass is open, an idle fighter is sent back to it. The hunt ends when the yield is gone (`loot_complete`).
+- If no slice is taken for 45 seconds, the hunt ends (`loot_stalled`) and the carcass stays a gather job. The clan is not stuck in a hunt for a body nobody is cutting.
+- `HUNT_LOOT_REJOIN` means that gate failed.
+
+**Proof:** `tools/hunt_loot_verify.gd` checks the brain rule with no world, including the stall: a slice resets the wait, an empty carcass is not a stall, and `loot_stalled` leaves the site open. `--hunt-loot-proof` is a headless observe with no forced raid: it starts one hunt on a seeded deer. That log must print `loot_complete`, must not print `joined hunt` or `HUNT_LOOT_REJOIN` while that clan is looting, and must not leave followers ordered in `ARC` during `hunt=LOOTING`.
+
 **Edge cases:** `docs/hunting_system_edge_cases.md`  
 **Tuning:** `bash tools/run_clanbrain_report_5min.sh` → [clanbrain_report.md](clanbrain_report.md)
 

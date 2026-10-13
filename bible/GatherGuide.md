@@ -12,7 +12,7 @@
 
 The Gather & Deposit system is the core resource collection and management loop for **cavemen and clansmen**. NPCs gather resources from the environment and automatically deposit them into their land claim's inventory.
 
-**Core Principle**: NPCs must always be productive. They gather resources until their inventory reaches the deposit threshold (40% of slots, min 3), then move to their land claim to deposit items automatically (keeping 1 food item total for personal use).
+**Core Principle**: NPCs must always be productive. They gather resources until their inventory reaches the deposit threshold (40% of slots, min 3), then move to their land claim to deposit items automatically (keeping 1 food item total for personal use). **Clansmen and cavemen have no idle state.** Women, sheep, goats, and babies may still idle.
 
 **Architecture**: **Job-only, event-driven**. Land claim (authority) issues gather jobs when workers request them. NPCs execute leases only—no resource scanning. ResourceIndex provides centralized, spatially-indexed resource lookup.
 
@@ -33,7 +33,7 @@ The Gather & Deposit system is the core resource collection and management loop 
 ### Flow
 
 ```
-NPC idle → Request job (throttled 0.5s) → Land claim queries ResourceIndex → Issues job (lease) →
+NPC needs work → Request job (throttled 0.5s) → Land claim queries ResourceIndex → Issues job (lease) →
   MoveTo(resource) → GatherTask (same-node 80%) → MoveTo(claim) → Auto-deposit on arrival →
   Job complete → Release resource → Request next job
 ```
@@ -285,7 +285,7 @@ Effective range: ~1600px (capped for performance)
 - **Exit**: Defend/combat/follow take precedence; or no job (after 3s retry cooldown) → Wander
 - **Stay**: When TaskRunner has active job
 
-**Job-only flow**: `_try_pull_gather_job()` → TaskRunner runs job; no job → `_no_job_retry_time` (3s), FSM eval (wander/idle/eat)
+**Job-only flow**: `_try_pull_gather_job()` → TaskRunner runs job; no job → next job (deliver, node, herd, chunk, or hunt). Clansmen do not fall through to the idle state.
 
 **Code Location**: `scripts/npc/states/gather_state.gd`
 
@@ -479,7 +479,7 @@ func can_enter() -> bool:
 ## Edge Cases Handled
 
 ### Edge Case 1: No Resources Found
-- **Handling**: `generate_gather_job` returns null → set `_no_job_retry_time` (3s) → FSM eval (wander/idle/eat)
+- **Handling**: no node in the loaded disk → `next_job` still returns a destination (herd, next chunk, or hunt). Clansmen are not sent to idle.
 - **Recovery**: `can_enter()` blocks gather for 3s; then NPC can retry. Resources respawn after cooldown.
 
 ### Edge Case 2: Resource Enters Cooldown During Gather
@@ -517,7 +517,7 @@ func can_enter() -> bool:
 
 ### Always Productive - Indefinite Operation
 
-**Core Rule**: Cavemen must always be productive. Not doing anything is not an option. Standing in one spot or wandering for more than 1 second is not an option. They must be doing something.
+**Core Rule**: Cavemen and clansmen must always be productive. Not doing anything is not an option. Standing in one spot or wandering for more than 1 second is not an option. They must be doing something. The idle FSM state is disabled for both `caveman` and `clansman`.
 
 **How Indefinite Operation is Guaranteed**:
 
@@ -629,7 +629,7 @@ scripts/
 - Efficient movement
 
 **Time Wasted**: < 1 second (0.5% of test duration)
-- No idle states
+- No idle state for clansmen or cavemen
 - No unproductive wandering
 - Immediate productive actions
 

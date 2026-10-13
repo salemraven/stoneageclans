@@ -45,9 +45,19 @@ Only if two docs disagree. Otherwise leave this section out.
 - **Yours** — a word for the game (caveman, herd, flag).
 - **Sim name** — a name the write-ups added (`follow_is_ordered`, food-days buffer). You can later keep it, rename it, or hide it.
 
+## Filling pages from the bible
+
+You **should** use the bible to write wiki pages:
+
+1. Keep **one short definition** on the term page (what it is / what it is not).
+2. Add a **From the bible** section with a few bullets — not a full copy of `raid.md` or `ai_clan_brain.md`.
+3. End with **Bible (repo):** `bible/some_file.md` — open that path in Cursor. The local wiki site does not host the bible folder as pages (yet).
+
+When you are happy with the wording, set **Status** to **Confirmed** and sync the one-liner into `game_dictionary.md` if you want.
+
 ## What this site does not do
 
-It does not read the code. It does not edit `bible.md`, the GDD, or `game_dictionary.md` while pages are still drafts.
+It does not read the code. It does not auto-sync every bible edit into the wiki — you refresh summaries when the bible changes.
 
 ## Open it
 

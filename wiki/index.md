@@ -4,6 +4,8 @@ Every word here is a **Draft**. A draft is the sentence already written in the t
 
 Nothing on this site replaces `bible/game_dictionary.md` until you confirm that page.
 
+Term pages are **filled from the bible** as short summaries plus links. Deep rules stay in `bible/` (see [how to read this](how-to-read.md)).
+
 ## How a page is marked
 
 | Status | Meaning |

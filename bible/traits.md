@@ -20,7 +20,7 @@ Displayed in Character Menu, used by Stats component.
 | Carry Capacity | `carry_capacity` | Inventory/load limits |
 | Bravery | `bravery` | 0.0–1.0, attack vs flee in combat |
 
-**Source:** `character_menu_ui.gd` → `_get_traits_list()`. Stats component must expose matching property names.
+**Character menu:** All nine stats — eight under **Born with**; **Bravery** only as the live bar under **Now**. No hominid species line in the popup. Inherited perks (Learning, Robust, …) list under **Traits** from `NPCBase.traits`. **Source:** `character_menu_ui.gd` → `_get_base_stats_list()`.
 
 ---
 

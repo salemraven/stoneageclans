@@ -1,6 +1,6 @@
 # Stone Age Clans – Buildings
 
-**Design lock for stations, labor, and new buildings:** [economy_catalog.md](economy_catalog.md). This page is **what the menu does in code today**.
+**Design lock for stations, labor, and new buildings:** [economy_catalog.md](economy_catalog.md) — **target UX:** place **Living Hut only**, then **specialize** → Workshop (T2) → Master compound (T3); specialized hut **keeps** home + baby cap ([economy_catalog.md](economy_catalog.md) §8.5). This page is **what the menu does in code today** (still separate Oven/Farm/Dairy cards).
 
 All buildings have a building inventory where materials can be placed to be turned into refined items.
 

@@ -24,6 +24,21 @@ Combat today: health → 0 → **corpse** (lootable). **Living clansmen** do not
 
 ---
 
+## Body tab UI (agreed)
+
+Character sheet **Body** tab (see [UI.md](../UI.md)):
+
+| Section | Look | Behavior |
+|---------|------|----------|
+| **Wounds now** | Red left stripe + **healing bar** (starts **full** red; drains **toward the left** as time passes) | When the bar is **empty**, row leaves this list |
+| **Scars** | Same row shape, **grey** border (no bar) | Permanent; same body part as the healed wound |
+
+Only two lists — no separate body map. Each row title: **`{Body part} - {Cause}`** (e.g. `Left Arm - Spear`) from `injury_records.weapon` (club, spear, stone, …). Scars keep the same title after heal.
+
+**Prototype:** `injury_records` meta + `scar_records` meta; heal time `CharacterBodyTabData.HEAL_DURATION_SEC` (120s) until server `active_wounds` exists. **MP:** server owns heal progress and scar promotion.
+
+---
+
 ## Open questions (before F1)
 
 1. Wound **stacks** vs single **severity** tier?

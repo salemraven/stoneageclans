@@ -1,218 +1,251 @@
-# Draw Order (Y-Sorting) – Complete Guide
+# Draw Order — Locked Spec (Y-Sort on a Flat Plane)
 
-**Last updated:** April 2026 — matches `scripts/systems/y_sort_utils.gd`.
-
-## TL;DR
-
-- **WorldObjects** uses **`y_sort_enabled = true`** so siblings sort by node Y.
-- **Every sortable sprite** also gets **manual `z_index`** from **`YSortUtils`**, with **`z_as_relative = false`**, so depth stays correct **across different parent branches** (player vs building vs resource).
-- **WorldLayer** (floor TileMap) is a **separate** branch so the ground never draws on top of entities.
-
-> **Rule:** The lower something is on the screen (**higher Y**), the more “in front” it renders.
-
-> **Hook:** **Always sort by the feet, not the node origin** — use `YSortUtils`; don’t invent new `z_index` formulas.
+**Source of truth:** `scripts/systems/y_sort_utils.gd` (Autoload **YSortUtils**).  
+**Art alignment:** `assets/sprites/art_sprite.md`.  
+**Last locked:** October 2026 (plane Y-sort + **timer overlay band** above sprites, below CanvasLayer UI).
 
 ---
 
-## Goals
+## Philosophy: 3/4 top-down on one flat plane
 
-- Objects lower on screen (higher Y) appear in front; higher on screen (lower Y) appear behind.
-- Works for: Player, NPCs, Buildings, Land claims, Campfires, Trees, Resources, Grass/decor, Ground items.
-- Natural depth when walking behind / in front of tall objects.
-- Floor never covers entities when moving north.
-- UI stays above the world (`CanvasLayer`).
+Stone Age Clans is drawn as **¾ top-down** on a **single horizontal ground plane**. There is no real camera height, no separate “layer” for roofs, and **no per-pixel depth** inside one sprite.
+
+| What the player sees | What the engine does |
+|----------------------|----------------------|
+| Walking “up” on screen (toward the top edge) | Moving **north** → **lower world Y** |
+| Walking “down” on screen (toward the bottom edge) | Moving **south** → **higher world Y** |
+| Something **south** of you on screen | **In front** (drawn later, higher `z_index`) |
+| Something **north** of you on screen | **Behind** (drawn earlier, lower `z_index`) |
+| Tall art (trees, huts, pawn cards) | **One** sort line per object; the whole sprite uses that depth |
+
+**Design intent**
+
+- Depth is **fake but consistent**: one **sort Y** (world pixels) per drawable decides order vs every other object on the plane.
+- **Ambush / tuck:** move **north** of a trunk or building midpoint to draw **behind** it; approach from the **south** to draw **in front** of the base.
+- **Tall objects are not split** (no separate trunk vs canopy `z_index`). Canopy and trunk share one line — tune **where** that line sits, not `Z_ABOVE_WORLD` hacks.
+
+**Do not**
+
+- Put **gameplay sprites** (bodies, trees, huts) at `Z_ABOVE_WORLD` (4095) — that breaks the plane.
+- Y-sort **progress timers** with pawn feet — use **`update_world_timer_draw_order`** (fixed overlay band).
+- Add **large** positive `tree_sort_offset_y` (old ~240 values) — player never gets **in front** of the trunk from the south.
+- Sort buildings at the **ground footprint only** with huge negative offsets (old ~-220) — wrong flip vs midpoint art.
+- Use one `z_index` for an entire **grass MultiMesh** chunk (use **16 px foot buckets** in `grass_batch.gd`).
+- Set raw `z_index` on world sprites outside **YSortUtils** (overflow + z-fighting).
 
 ---
 
-## Scene structure (`Main.tscn`)
+## Screen ↔ world (memorize this)
+
+```
+        NORTH  (lower Y, “up” on screen)
+              ↑
+              │
+    behind    │    behind
+              │
+  ←───────────┼───────────→  EAST / WEST (X)
+              │
+   in front   │   in front
+              │
+              ↓
+        SOUTH  (higher Y, “down” on screen)
+```
+
+**Comparison rule:** for two objects A and B, if `sort_y(A) > sort_y(B)` then **A draws in front of B**.
+
+**Pawns (player/NPC cards):** `sort_y = global_position.y + _card_foot_y` (foot anchor, not walk bounce on `sprite.position.y`).
+
+---
+
+## Engine setup (`Main.tscn`)
 
 ```
 Main
-├── WorldLayer              ← draws first (floor always behind)
-│   └── World (TileMap)
-├── WorldObjects            ← y_sort_enabled = true (sibling Y sort)
+├── WorldLayer                 ← floor TileMap; never competes with entities
+│   └── World
+├── WorldObjects               ← y_sort_enabled = true (sibling hint only)
 │   ├── Player
-│   ├── Resources           ← container / grouping as needed
-│   ├── LandClaims          ← buildings parented under claims at runtime
-│   └── … NPCs, ground items, grass nodes, etc. added at runtime
-└── UI (CanvasLayer)
+│   ├── LandClaims → buildings parented here at runtime
+│   ├── NPCs, gatherables, ground items, …
+└── UI (CanvasLayer)           ← real HUD; not Y-sorted with world
 ```
 
-**Why both YSort and manual z?**  
-`y_sort_enabled` only affects **siblings under WorldObjects**. Buildings live under land claims; the player is a direct child. **`z_as_relative = false`** + **`z_index` from foot Y** makes all those sprites participate in one global depth ordering.
+**Why manual `z_index` + `z_as_relative = false`?**  
+`y_sort_enabled` only sorts **siblings**. Buildings under land claims and the player under `WorldObjects` are **different branches**. Global `z_index` from **sort Y** unifies depth.
 
----
-
-## Rules (keep draw order consistent)
-
-1. **Use `YSortUtils` only** for world sprites — `update_draw_order`, `update_building_draw_order`, or `update_tree_draw_order` (or aliases below).
-2. **Sort by visual foot:** `parent.global_position.y + sprite.position.y` (buildings/trees add their documented offsets).
-3. **Set sprite offset first** where helpers exist (`get_sprite_position_for_texture`, `get_building_sprite_position_for_texture`, `get_tree_sprite_position_for_*`, `get_grass_sprite_position_for_texture`) so “feet” match art.
-4. **Moving entities:** update draw order **every `_physics_process`** (or whenever `global_position` changes).
-5. **Static entities:** update in **`_ready()`** and again if the node **moves** or **sprite/texture changes** (see `building_base.gd`).
-6. **Overlays** (bars, indicators, hitmarkers): **`z_index = YSortUtils.Z_ABOVE_WORLD`**, **`z_as_relative = false`**.
-7. **Lines behind characters** (follow line, party line): **`YSortUtils.Z_BEHIND_ENTITIES`**.
-8. **Never** set raw `z_index` on world sprites for “sorting” except via YSortUtils (avoids z-fighting and overflow).
-
----
-
-## API reference (`YSortUtils` autoload)
-
-### Sorting functions
-
-| Function | Use when |
-|----------|----------|
-| `update_draw_order(sprite, parent_node)` | Default: player, NPCs, boulders, berries, most flat sprites. |
-| `update_object_y_sort(sprite, parent)` | **Alias** of `update_draw_order` — NPCs use this name in code. |
-| `update_building_draw_order(sprite, parent)` | Land claims, `building_base`, **campfire** — applies `building_sort_offset_y`. |
-| `update_tree_draw_order(sprite, parent, texture)` | **Wood trees** in `gatherable_resource.gd` — trunk-base math + `tree_sort_offset_y`. |
-| `update_decal_y_sort` / `update_effect_y_sort` | Aliases of `update_draw_order`. |
-
-All set **`sprite.z_as_relative = false`** and **`z_index = clampi(Z_BASE + int(sort_y * Y_SORT_SCALE), 0, CANVAS_Z_MAX - 1)`**.
-
-### Sprite position helpers (feet alignment)
-
-| Function | Purpose |
-|----------|---------|
-| `get_sprite_position_for_texture(texture)` | Character-sized sprites: 64×64 base offset; +extra for **height ≥ 128**. |
-| `get_building_sprite_position_for_texture(texture)` | Building anchor: 64×64 vs 128×128 bottom alignment; multiplied by **`BUILDING_SCALE`** (2.0). |
-| `get_tree_sprite_position_for_texture(texture, scale_y)` | Tree centering so trunk base sits on node. |
-| `get_tree_sprite_position_for_cell_height(cell_height, scale_y)` | Trees from tile cell height (region sprites). |
-| `get_grass_sprite_position_for_texture(texture)` | Decor / tall grass: bottom of sprite at node (`-h/2`). |
-
----
-
-## The core formula (flat sprites)
-
-Sort by the **sprite’s visual foot**, not the parent’s origin alone:
+**Formula (Y-sorted plane sprites only):**
 
 ```gdscript
-foot_y = parent_node.global_position.y + sprite.position.y
-sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+sprite.z_index = world_sort_z_from_y(sort_y)
+# clamp(Z_BASE + int(sort_y), 0, Z_WORLD_SORT_CAP)  — cap leaves room for overlays
 ```
 
-**Buildings:** same, plus `building_sort_offset_y` (see `update_building_draw_order`).  
-**Trees:** sort by **trunk base** (sprite center minus half visual height) plus `tree_sort_offset_y` — see `update_tree_draw_order` in `y_sort_utils.gd`.
+### Render stack (bottom → top)
+
+| Layer | What | `z_index` / node |
+|-------|------|------------------|
+| 1 | Floor / TileMap | `WorldLayer`, low z |
+| 2 | **Game plane** — pawns, props, trees, huts, grass | `world_sort_z_from_y` → **≤ `Z_WORLD_SORT_CAP` (3840)** |
+| 3 | **World timers** — gather, eat, craft rings, floating hit numbers | **`Z_WORLD_PROGRESS_OVERLAY` (3880)** via `update_world_timer_draw_order` |
+| 4 | Optional world HUD (clan name on claim, etc.) | `Z_HUD_WORLD_FLOAT` (3920) or `Z_ABOVE_WORLD` sparingly |
+| 5 | **Menus / inventory / info cards** | **`UI` `CanvasLayer`** in `Main.tscn` — always above world branch |
+
+Timers are **viewer-adjacent**: they float over the whole plane so you always read them, but they stay on the **world scene tree** (follow pawn position). **CanvasLayer UI** draws after the world, so menus still win.
+
+**Pawn combat/rout chevrons** still use `update_overlay_draw_order` (Y-sort with body) — not the timer band.
 
 ---
 
-## Where it’s applied (code map)
+## Sort line per entity type (LOCKED)
 
-| Entity | When | Function | File(s) |
-|--------|------|----------|---------|
-| Player | `_physics_process` | `update_draw_order` | `player.gd` |
-| NPCs | `_physics_process` | `update_object_y_sort` | `npc_base.gd` |
-| Buildings | `_ready` + sprite updates | `update_building_draw_order` | `building_base.gd` |
+Each type picks **one world Y** for its main sprite. That is the “flip line” vs pawn feet.
+
+| Type | Sort line (world Y) | Flip vs pawn foot |
+|------|---------------------|-------------------|
+| **Pawn** (player/NPC card) | `node.y + _card_foot_y` | Reference (~`-28` for 56px display height) |
+| **Flat prop** (boulder, bush, pile) | `node.y + sprite.position.y` (foot at bottom of art) | Standard foot compare |
+| **Tree (WOOD)** | `node.y + tree_foot_offset_y + tree_sort_offset_y` | South of line → in front; north → behind trunk |
+| **Building / claim / campfire** | Vertical **midpoint** of building sprite + `building_sort_offset_y` | South of midpoint → in front; north → behind hut |
+| **Tall grass** | Per-blade foot Y (bucketed 16px in `grass_batch.gd`) | Same as flat prop |
+| **World timer / ring** | Fixed **`Z_WORLD_PROGRESS_OVERLAY`** | Always above plane sprites; **not** behind huts/trees |
+
+### Trees (`update_tree_draw_order`)
+
+- **Node** = gather point at trunk on the plane.
+- **Art:** `get_tree_sprite_position_for_cell_height` — bottom of scaled region at `node.y + tree_foot_offset_y`.
+- **Sort:** `get_tree_trunk_sort_y()` — **not** canopy top, **not** sprite center.
+- **Tuning (Inspector → YSortUtils):**
+  - `tree_foot_offset_y` default **`-24`** — art vs ground.
+  - `tree_sort_offset_y` default **`-20`** — negative = must walk **farther north** before hiding; small band only (±20), **never ~240**.
+
+### Buildings (`update_building_draw_order`)
+
+- **Art:** bottom on ground via `get_building_sprite_position_for_texture` × `BUILDING_SCALE` (2.0).
+- **Sort:** **halfway up** the scaled sprite (`get_building_midpoint_sort_y`) — flip at mid-height, not at foundation only.
+- **Tuning:** `building_sort_offset_y` default **`0`** (nudge midpoint line; negative = flip behind farther north).
+
+### Pawns (`update_card_draw_order`)
+
+- Sort uses **`_card_foot_y`** from `PlaceholderCardService` / registry — stable foot, not procedural bounce.
+- Refresh every **`_physics_process`** while moving.
+
+### World progress rings (`update_world_timer_draw_order`)
+
+- **Fixed `z_index = Z_WORLD_PROGRESS_OVERLAY` (3880)** — above all Y-sorted sprites (cap 3840).
+- Child of pawn / gatherable / ground item — **position** still tracks world (above head / resource).
+- **Does not** tuck behind huts when the pawn does; that is intentional (readable feedback layer).
+- **Below** inventory, build menus, and other **`UI` CanvasLayer** controls.
+- Use for: `CollectionProgress` (gather, eat, hut craft), eat bar on player, floating hitmarkers on NPCs.
+
+### Plane-tied pawn indicators (`update_overlay_draw_order`)
+
+- Rout / hostile markers — still **Y-sort** with `_card_foot_y` + small **`OVERLAY_Z_BIAS`**.
+
+---
+
+## API quick reference
+
+| Function | Use |
+|----------|-----|
+| `update_card_draw_order(sprite, parent, card_anchor_foot_y)` | Player, NPC card bodies |
+| `update_draw_order` / `update_object_y_sort` | Flat sprites, grass decor nodes |
+| `update_tree_draw_order(sprite, parent, texture)` | WOOD gatherables |
+| `update_building_draw_order(sprite, parent)` | Huts, land claim, campfire |
+| `update_world_timer_draw_order(overlay)` | **All progress rings / timed feedback** (fixed overlay band) |
+| `update_overlay_draw_order(overlay, owner, local_y, body_sort_local_y?)` | Rout / hostile (plane depth) |
+| `world_sort_z_from_y(sort_y)` | Clamp plane sprites to `Z_WORLD_SORT_CAP` |
+| `get_tree_trunk_sort_y(parent)` | Trunk line (world Y) |
+| `get_building_midpoint_sort_y(sprite, parent)` | Hut midline (world Y) |
+
+**Position helpers (set before sort):**  
+`get_sprite_position_for_texture`, `get_building_sprite_position_for_texture`, `get_tree_sprite_position_for_*`, `get_grass_sprite_position_for_texture`.
+
+---
+
+## Where it runs (code map)
+
+| Entity | When | Function | File |
+|--------|------|----------|------|
+| Player | `_physics_process` | `update_card_draw_order` | `player.gd` |
+| NPC | `_physics_process` | `update_card_draw_order` | `npc_base.gd` |
+| Building | `_process` + art change | `update_building_draw_order` | `building_base.gd` |
 | Land claim | `_ready` | `update_building_draw_order` | `land_claim.gd` |
 | Campfire | `_ready` | `update_building_draw_order` | `campfire.gd` |
-| Gatherable (tree WOOD) | `_ready` | `update_tree_draw_order` | `gatherable_resource.gd` |
-| Gatherable (other) | `_ready` | `update_object_y_sort` | `gatherable_resource.gd` |
+| Tree WOOD | `_setup_tree_from_sheet` | `update_tree_draw_order` | `gatherable_resource.gd` |
+| Other gatherables | `_ready` | `update_object_y_sort` | `gatherable_resource.gd` |
 | Ground item | `_ready` | `update_draw_order` | `ground_item.gd` |
-| Grass / decor (main) | spawn | `get_grass_sprite_position_for_texture` + `update_draw_order` | `main.gd` |
-| Character (legacy) | `_physics_process` | `update_draw_order` | `character.gd` |
+| Tall grass | spawn | foot buckets + per-bucket `z_index` | `grass_batch.gd` |
+| Pawn timers | visible + each frame | `update_world_timer_draw_order` | `npc_base.gd`, `placeholder_card_service.gd`, `player.gd` |
+| Gather timer | visible + `_process` | `update_world_timer_draw_order` | `gatherable_resource.gd`, `ground_item.gd` |
 
-### Overlays using `Z_ABOVE_WORLD` / `Z_BEHIND_ENTITIES`
+### Lines & HUD (exceptions)
 
-- `npc_base.gd` — progress ring, hostile indicator; follow line → `Z_BEHIND_ENTITIES`.
-- `player.gd` — eat progress → `Z_ABOVE_WORLD`; herd line → `Z_BEHIND_ENTITIES`.
-- `ground_item.gd` / `gatherable_resource.gd` — collection progress → `Z_ABOVE_WORLD`.
-- `health_component.gd` — hitmarker → `Z_ABOVE_WORLD`.
-- `main.gd` — some world UI markers → `Z_ABOVE_WORLD`.
-
----
-
-## Constants (`y_sort_utils.gd`)
-
-Godot **4.5** limits `z_index` to **0..4095** (12-bit). Values outside cause `p_z > CANVAS_ITEM_Z_MAX` errors — **always use `clampi`**.
-
-| Constant | Value | Role |
-|----------|-------|------|
-| `Z_BASE` | 2048 | Center of Y-sort range |
-| `Y_SORT_SCALE` | 1 | Multiply foot Y before converting to z |
-| `CANVAS_Z_MIN` / `CANVAS_Z_MAX` | 0 / 4095 | Clamp range |
-| `Z_ABOVE_WORLD` | 4095 | Progress bars, indicators (max) |
-| `Z_BEHIND_ENTITIES` | 0 | Follow / leader lines under characters |
-| `BUILDING_SCALE` | 2.0 | Global building visual scale (affects building sprite Y offset) |
+| Item | `z_index` | Notes |
+|------|-----------|--------|
+| Follow / party / herd lines | `Z_BEHIND_ENTITIES` (0) | Under pawn feet |
+| Clan name on claim (world label) | `Z_ABOVE_WORLD` | HUD-style readability |
+| Building health bar (UI control) | `Z_ABOVE_WORLD` | Not plane-sorted |
+| Thrown projectile (legacy) | `Z_ABOVE_WORLD` | Review if moved to world sort |
 
 ---
 
-## Editable exports (Inspector: Autoload → YSortUtils)
+## Inspector defaults (lock these unless playtesting)
 
-| Variable | Default (code) | Effect |
-|----------|------------------|--------|
-| `building_sort_offset_y` | `-220` | More **negative** → player stays **in front** of buildings longer when moving north; positive → slips behind sooner |
-| `tree_foot_offset_y` | `-24` | Intended for tree sprite foot tweak (see `assets/sprites/art_sprite.md`); **export exists** — wire into tree placement if you need runtime tuning |
-| `tree_sort_offset_y` | **`240`** | More **positive** → tree draws **in front** over a wider band → easier to hide behind trunk |
+| Export | Default | Meaning |
+|--------|---------|---------|
+| `tree_foot_offset_y` | `-24` | Trunk bottom vs gather node |
+| `tree_sort_offset_y` | `-20` | Northward hide delay (small!) |
+| `building_sort_offset_y` | `0` | Midpoint nudge |
+| `world_prop_scale` | `1.15` | Trees, grass, small props (not buildings/pawns) |
 
-*If your doc or older notes say `80` for `tree_sort_offset_y`, trust **`y_sort_utils.gd`** as source of truth.*
-
----
-
-## Godot details
-
-### `z_index` only sorts siblings
-
-Without `z_as_relative = false`, nested sprites wouldn’t sort correctly against the player. **YSortUtils always sets `z_as_relative = false`** on sorted sprites.
-
-### Why not *only* YSort on the root?
-
-Nested hierarchies (buildings under claims) and mixed branches need **global z** from foot Y. **YSort on WorldObjects** still helps sibling ordering; **manual z** unifies depth across the tree.
+If playtest feels wrong, **tweak exports in YSortUtils** — do not add new magic numbers in entity scripts.
 
 ---
 
-## Edge cases
+## Adding a new world object (checklist)
 
-| Case | Handling |
-|------|----------|
-| Same Y | Scene tree order tie-break; usually acceptable |
-| Very north/south | `clampi` prevents z overflow |
-| Region-enabled tree sprites | `update_tree_draw_order` uses `region_rect.size.y` for height |
-| Moving vs static | Moving: every physics frame; static: `_ready` + when position/sprite changes |
-| New 128×128 art | Use `get_*_for_texture` helpers so feet stay aligned |
-
----
-
-## New entity checklist
-
-When adding a **new visible world object**:
-
-- [ ] Parent under **WorldObjects** (or a node that’s under it), unless it’s purely UI.
-- [ ] Set **sprite.position** with the right helper if size is 64 vs 128.
-- [ ] Call **`YSortUtils.update_draw_order`** or **building** / **tree** variant in `_ready`.
-- [ ] If it **moves**, refresh draw order **every frame** (or on position change).
-- [ ] Any child UI (bar, icon) → **`Z_ABOVE_WORLD`** + `z_as_relative = false`.
-- [ ] Lines that should sit under feet → **`Z_BEHIND_ENTITIES`**.
-- [ ] Playtest: pass **north and south** of buildings and trees.
+1. Parent under **WorldObjects** (or descendant), not UI layer.
+2. Place **node on the ground plane** (feet / trunk / building anchor).
+3. Set `sprite.position` with the correct **helper** for art size.
+4. Call the correct **`update_*_draw_order`** once (static) or every frame (moving).
+5. Child **progress timer** → `update_world_timer_draw_order` (not plane Y-sort).
+6. Playtest: pass **north and south** of tree trunk and **building midpoint**.
+7. No raw `z_index` on the sprite.
 
 ---
 
-## Testing checklist
+## Player crouch (tall grass)
 
-- [ ] Player **behind** buildings when **north** of them (higher on screen)
-- [ ] Player **in front** when **south** of them
-- [ ] NPCs vs player vs buildings — no systematic wrong layering
-- [ ] Resources, ground items, grass — sensible depth
-- [ ] **Floor never** covers player/NPCs moving north
-- [ ] Progress bars, indicators, hitmarkers **above** sprites
-- [ ] Follow / party lines **behind** characters where intended
-- [ ] No z spam errors in console; no visible z-fighting
+- **`C`** toggles crouch (input action `crouch`). Slower movement, low body/head pose on card mannequins.
+- **Hide** when crouching **inside** registered tall-grass blades (`TallGrassCover`, filled by `grass_batch.gd`): sets `is_hidden` + `hide_has_cover`, softer alpha, quieter footsteps (no footstep sounds while hidden).
+- Crouch blocked while weapon-ready (Shift), gathering, or in combat windup.
+
+---
+
+## Playtest checklist
+
+- [ ] South of tree trunk → **in front**; north → **behind** (ambush).
+- [ ] South of hut **midpoint** → **in front**; north → **behind**.
+- [ ] Craft/gather/eat ring **visible over** huts/trees/pawns (timer band), menus still on top.
+- [ ] Grass / bushes **not** drawn over tree tops unless their foot Y is south of tree sort line.
+- [ ] Floor never covers pawns moving north.
+- [ ] No `p_z > CANVAS_ITEM_Z_MAX` errors.
 
 ---
 
 ## Performance
 
-- Setting `z_index` is cheap (one int per update).
-- Per-frame updates only for **moving** entities.
-- Static objects: once in `_ready()`, plus rare updates when art or position changes.
+- `z_index` update is cheap; only **moving** pawns/buildings need per-frame refresh.
+- Static props: sort in `_ready` / when texture changes.
 
 ---
 
 ## Archive
 
-Older planning notes: `bible/archives/draw_order_y_sorting_plan.md`.
+`bible/archives/draw_order_y_sorting_plan.md` — historical; **this file wins** on conflict.
 
 ---
 
-## One-sentence memory hook
+## One-line hook
 
-> **“Feet set the depth; YSortUtils sets the z; floor lives on its own layer.”**
+> **¾ top-down flat plane: higher screen Y = in front; one sort line per thing; YSortUtils only; feet (or trunk / hut mid) set the depth.**

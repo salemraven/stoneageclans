@@ -1,0 +1,33 @@
+---
+description: When to use Context7 vs the Godot editor MCP vs the terminal
+alwaysApply: true
+---
+
+# Context7 and Godot MCP
+
+Two helpers are installed. Use the right one. Do not install a second Godot MCP.
+
+## Context7
+
+Use it for **Godot 4 and library API questions** (how a class or method works in the current docs). Do not guess an old GDScript call when Context7 can look it up.
+
+## Godot MCP (`godot-editor-mcp`)
+
+Use it only when the **Godot editor is open** on this project:
+
+- Read the open scene tree
+- Screenshot or inspect a running editor session
+- Check that a scene actually loaded
+
+The Godot editor must be running. The addon is `addons/godot_mcp`. Only `inspection` tools are on by default. Turn on another toolset only when the task needs it.
+
+## Terminal (still the default for checks)
+
+Headless playtests and scene smokes stay on the shell:
+
+- `bash tools/run_instrumented_playtest.sh`
+- `godot --path <project> --headless --quit-after <N> res://...`
+
+## Bible wins
+
+If a bible doc and the editor disagree about game design, the bible lock wins. The MCP shows what is in the editor right now. It does not change design.

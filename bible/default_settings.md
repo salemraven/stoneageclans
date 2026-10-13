@@ -71,7 +71,7 @@ Rough order highest → lowest: agro (15) &gt; deposit (11) = herd (11) &gt; her
 | priority_gather_berries | 4.0 | Berries (hunger &lt; 90%) |
 | priority_gather_other | 3.0 | Other resources (cavemen can get 6.0 when productivity_test ≥ 1) |
 | priority_wander | 1.0 | Fallback (0.5 when productivity_test ≥ 1 for cavemen) |
-| priority_idle | 0.0 | Lowest |
+| priority_idle | 0.0 | Lowest. **Not used by clansmen or cavemen** — that state is disabled for them. |
 | caveman_productivity_test | 1.0 (testing) / 0.0 (default) | ≥ 1: gather 6, wander 0.5, re-eval 0.5s |
 
 ---

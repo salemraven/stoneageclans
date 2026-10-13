@@ -2,7 +2,7 @@
 
 **Status:** Living synthesis doc (conversation + existing canon).  
 **Last updated:** October 2026  
-**When this fights locked design:** [economy_catalog.md](economy_catalog.md) wins on classes, stations, and clothing pipeline; [environment_goal.md](environment_goal.md) wins on biome kits.
+**When this fights locked design:** [economy_catalog.md](economy_catalog.md) wins on classes, stations, **hut placement → specialize → workshop (§8.5)**, and clothing pipeline; [environment_goal.md](environment_goal.md) wins on biome kits.
 
 **Purpose:** One place to read what we have **talked about** for filling out the clan village, world resources, and a more **authentic Stone Age camp** feel — without opening ten other files.
 
@@ -14,7 +14,7 @@
 |---------------------------|------------------------------|
 | One building per output (Oven, Dairy, Farm, Cheese hut…) | **One fire**, **few shelters**, **outdoor work**, **piles of stuff** |
 | Walk to “the bread building” | Cook, knap, dry, sew **at the hearth or a small station** |
-| Many `ResourceType` buildings | **ClanBrain need** → assign skilled worker → use **nearest station tag** |
+| Many `ResourceType` buildings | **Living hut** → **specialize** → **Workshop / Master**; ClanBrain assigns woman to **her hut’s** station |
 
 See also: [future implementations/village.md](future%20implementations/village.md) (supply/demand, experience by task, homes for male+female pairs).
 
@@ -145,16 +145,32 @@ Superseded for clothing by economy catalog. Kept for reference:
 | Armory | 20 wood, 10 stone | Spear / club from wood+stone |
 | Tailor | 20 wood, 5 stone, 5 hide | Wool→thread; thread+hide→armor |
 
-### 3.6 Other mentions
+### 3.6 Hut line (design lock — [economy_catalog.md](economy_catalog.md) §8.5)
+
+**Build menu:** **Living Hut kit only** (no direct Tailor/Oven cards).
+
+```text
+Living Hut  →  Specialize (pick craft)  →  Workshop (T2)  →  Master compound (T3)
+```
+
+- Specialized hut **keeps** home + **+5 baby cap** (no extra cap on T2/T3). **Dismantle** → back to empty living hut.  
+- Raid: building **destroyed = total loss**; T2/T3 get **+25% HP** per upgrade step.  
+- **Test costs:** specialize 1w+1s; T2 2w+1s; T3 2w+2s+1 hide — [economy_catalog.md](economy_catalog.md) §8.5.  
+- Leave some huts **unspecialized** for extra housing (+5 cap each).  
+- **Exceptions:** leader hut, shrine, supply, corral, garden/field — place without specialize.
+
+### 3.7 Other mentions
 
 - **Land claim upgrades:** Flag → Tower → Keep → Castle (costs not locked).  
 - **Proto farming Field:** crop ring on flag only — [future implementations/proto_farming.md](future%20implementations/proto_farming.md).  
 - **Defense drums:** occupy for defense buff — [future implementations/future_buildings.md](future%20implementations/future_buildings.md).  
-- **Production tiers:** 1/2/3 hut modules, 1/2/3 workers, quality common/good/master — [future implementations/production_tiers.md](future%20implementations/production_tiers.md).
+- **Quality / gates:** common/good/master + population/food — [future implementations/production_tiers.md](future%20implementations/production_tiers.md).
 
 ---
 
 ## 4. Authentic village — reframed building set
+
+**Settlement production (locked):** Huts on the claim use **§3.6 / economy_catalog §8.5** — living hut → specialize → workshop. Section 4 below still describes **camp feel** (hearth, outdoor frames, corral) and **future props**; those can attach to the same specialize list (e.g. Rack = drying frame) or stay as claim infrastructure.
 
 ### 4.1 Real camp vs game layers
 
@@ -169,13 +185,14 @@ Superseded for clothing by economy catalog. Kept for reference:
 | Midden | Optional scrap / bone pile (later) |
 | Elders / trophies | **Leader hut**, **relic post** |
 
-### 4.2 Proposed categories (build menu UX)
+### 4.2 Build menu UX (locked + aspirational)
 
 | Category | Examples |
 |----------|----------|
-| **Shelter** | Dwelling, lean-to, leader hut, storage platform |
-| **Camp infrastructure** | Central hearth upgrade, corral, garden ring |
-| **Stations** (small props) | Drying frame, knap spot, weaving stake, pottery pit, butcher mat |
+| **Huts (locked)** | **Living hut only** → specialize into Tailor, Weaver, Rack, Oven, … |
+| **Shelter / identity** | Leader hut, unspecialized living huts (extra beds) |
+| **Camp infrastructure** | Central hearth upgrade, corral, garden ring, supply platform |
+| **Outdoor props (later)** | Knap spot, butcher mat — or fold into specialize choices |
 | **Identity / defense** | Relic post, signal/drum post, travois depot |
 
 ### 4.3 Stations worth adding (fantasy)
@@ -203,8 +220,8 @@ Wood, stone/flint, clay, fiber, hide/fat/bone, grain/roots, meat, resin (later),
 ### 4.5 How play should feel
 
 1. **Nomad:** fire + 1–3 lean-tos + travois + ground piles; brain assigns gather/hunt/craft at fire.  
-2. **Settled:** fire + ring of huts + corral + drying frames + garden; **no row of specialty shops**.  
-3. **ClanBrain:** tracks deficits (food days, empties, hides) → assigns best worker → job uses **station tag** (hearth, rack, corral).
+2. **Settled:** fire + ring of **living huts** (some specialized, some pure housing) + corral + garden; workshops **grow on the same huts**, not a separate shop row.  
+3. **ClanBrain:** deficits → assign woman → work at **her specialized hut** (or haul to corral/hearth).
 
 ### 4.6 Migration from current code
 
@@ -214,8 +231,9 @@ Wood, stone/flint, clay, fiber, hide/fat/bone, grain/roots, meat, resin (later),
 | Farm + Dairy | One **corral** |
 | Drying rack | Keep; rename **drying frame** |
 | Shrine | **Relic post** |
-| Living hut | **Dwelling** |
-| Catalog Mortar/Cheese/Weaver huts | Stations or hearth/rack recipes first |
+| Living hut | **Only hut kit**; specialize → production line |
+| Separate Oven/Farm/Dairy menu cards | **Remove** when specialize ships; corral = pen exception |
+| Catalog Mortar/Cheese/Weaver | **Specialize** options on living hut |
 
 ### 4.7 Minimum authentic village (MVP target)
 

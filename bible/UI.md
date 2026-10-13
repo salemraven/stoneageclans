@@ -72,7 +72,7 @@ Not a Minecraft grid. Last UI pass locked the list.
 
 **Corpse** — same panel as a building stockpile. Title: “Corpse of [name]”.
 
-**Character menu** — right-click → Info. NPC freezes while open.
+**Character menu** — right-click → Info. NPC freezes while open. **Tabs:** Info \| Body \| Kin \| Story. **Info — split hide:** left = Now + Carrying; right = Born with (8 stats; bravery bar only on left) + **Traits** (`traits[]`). **No species line** — lineage only when known. **Body:** **Wounds now** (red row + heal bar starts full, drains left; empty = healed) and **Scars** (grey rows, permanent). **Line tab (layout C):** Two scroll panes — **↑ Ancestors** on top, **this person** in the center, **↓ Descendants** below. Generation subtitles inside each scroll (Parents, Children, …). **Lineage only** — no siblings/peers. **Clickable** gold names when on map; grey *not here* for name-only. More gens when `person_id` lands. Mock: `soc planning/character-kin-layout-options.html` option C. **Story** = chronicle.
 
 **Context menu** — right-click target, hover highlight, left-click confirms. See `bible/phase2/dropdownmenu.md`.
 

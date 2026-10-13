@@ -67,7 +67,7 @@ So “highest number in the table” does not always win if combat/defend short-
 | State | Config keys | Notes |
 |-------|-------------|-------|
 | **Wander** | `priority_wander`, `priority_wander_caveman_fallback` | |
-| **Idle** | `priority_idle_*` | Tiered by NPC type |
+| **Idle** | `priority_idle_*` | Women, sheep, goats, and babies only. **Disabled for `clansman` and `caveman`.** They cannot enter it, and a man already in it leaves on the next decision. |
 | **Seek** | `priority_seek` | |
 
 ## Priority Rules

@@ -2,9 +2,9 @@
 
 **Status:** Draft
 
-Sensing, agro, combat, and the raid verbs.
+Sensing, agro, combat, and raid verbs. Summaries on term pages come from the **bible**; full rules stay in repo markdown.
 
-This page does not add rules. It only links the words.
+**Bible hub (repo):** `bible/raid.md` · `bible/AgroGuide.md` · `bible/earlygame_vision.md` §4
 
 ## Your words
 
