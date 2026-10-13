@@ -9,8 +9,10 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | Doc | Use for |
 |-----|---------|
 | **[bible.md](bible.md)** | Lore, mechanics, code map, implementation snapshot — **start here** |
+| **[director_locks_2026_10.md](director_locks_2026_10.md)** | **Newest locks (Oct 13 2026)** — heirs, huts and daughters, raids with no size rule, bravery, multiplayer shape, build order. **Wins over older docs.** |
+| **[story_data.md](story_data.md)** | **What the game remembers** about each person and clan (next build phase) |
 | **[earlygame_vision.md](earlygame_vision.md)** | **Opening 10 min**, tiers, food, raids, horn — design owner (Sep 2026) |
-| **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations, food, containers (Sep 2026 lock) |
+| **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations; **Living hut → specialize → workshop** (§8.5) |
 | **[village_and_economy_rundown.md](village_and_economy_rundown.md)** | **Synthesis** — gatherables, buildings I/O, authentic camp reframing (Oct 2026) |
 | **[systems_canon_master.md](systems_canon_master.md)** | **All systems inventory** — lock status, owner docs, wave order, canon workflow (Oct 2026) |
 | **[templates/system_canon_template.md](templates/system_canon_template.md)** | **Template** for per-system locked canon (`bible/systems/*_canon.md`) |
@@ -54,7 +56,7 @@ Unimplemented mechanics belong in **§XXII** or `future implementations/` — no
 | [movement.md](movement.md) | Speed, formation debuffs, steering |
 | [GatherGuide.md](GatherGuide.md) | Gather jobs, deposit, ResourceIndex |
 | [tasks_guide.md](tasks_guide.md) | Tasks, jobs, TaskRunner |
-| [raid.md](raid.md) | Raiding flow (player + AI) |
+| [raid.md](raid.md) | Raiding flow (player + AI). **Next raid** (motives, goals, destroy-to-take) is design only |
 | [AgroGuide.md](AgroGuide.md) | Agro meter, combat entry |
 | [reproduction_guide.md](reproduction_guide.md) | Huts, pregnancy, babies, **baby feeding gap (planned)** |
 | [genetics.md](genetics.md) | **Genetics vision** — inheritance, metabolism, evolution (planned) |
@@ -64,7 +66,8 @@ Unimplemented mechanics belong in **§XXII** or `future implementations/` — no
 | [traits.md](traits.md) | Species, traits, stats |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
 | [clan_founding_and_exile.md](clan_founding_and_exile.md) | **Planned (major):** wild cavemen, exile, clan slots, founder spawn |
-| [settlement_sim.md](settlement_sim.md) | **Off-screen villages** — actor sleep vs settlement tick (babies, build, craft) |
+| [dormancy.md](dormancy.md) | **Dormancy canon** — why camps sleep, what the record keeps alive, what the player character sees |
+| [settlement_sim.md](settlement_sim.md) | Older off-screen note. Plane lock still useful. Intent lives in dormancy.md |
 | [future implementations/off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md) | **Environment-first survival** — dormant gather/hunt/regen/slaughter; placeholder pseudo-biomes; long test tooling |
 | [visual_vs_sim_layers.md](visual_vs_sim_layers.md) | Chunk visual/sim/data layers + NPC tier A/B/C |
 | **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
@@ -122,7 +125,7 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 
 **Hut husband assignment (planned):** [future implementations/hut_assignment.md](future%20implementations/hut_assignment.md) — drag-drop male to Living Hut, designated father UI; **not shipped**.
 
-**Herdable raiding (planned):** [future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md) — cordage capture, STEAL/LOOT/KILL/WIPE raid goals, ClanBrain payoff pick; **not shipped**.
+**Herdable raiding (older note, not the next raid):** [future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md) — cordage capture and KILL / LOOT / STEAL / WIPE. The raid we will build is [raid.md](raid.md) § Next raid.
 
 **Proto farming (planned):** [future implementations/proto_farming.md](future%20implementations/proto_farming.md) — Field building, crop ring inside claim, grain → Oven; **not shipped** (today: wild wheat + existing Farm = sheep/wool).
 
@@ -130,7 +133,7 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 
 **Lineage (planned):** [future implementations/lineage.md](future%20implementations/lineage.md) — Person ids for genetics + female babies.
 
-**ClanBrain raid scoring (planned):** [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md) — food buffer vs raid goals.
+**Next raid (design, not built):** [raid.md](raid.md) § Next raid — motives, goals, temper hook, destroy a hut or pen before the prize can be herded. Older scoring note: [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md).
 
 ---
 

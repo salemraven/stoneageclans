@@ -71,7 +71,7 @@ These are **planned** extensions; the first implementation can be **placement + 
 
 | System | Intent |
 |--------|--------|
-| **Succession mode** | Set **primogeniture (sons)** vs **seniority (oldest clansman)**; stored per clan; preview **heir** under current law. |
+| **Succession mode** | Set **primogeniture (sons)** vs **seniority (oldest clansman)**; stored per clan; preview **heir** under current law. **Locked 2026-10-13:** the default law is **oldest living son first, else oldest clansman**; this building switches the law later. See [director_locks_2026_10.md](director_locks_2026_10.md) §1. |
 | **Relics / trophies** | Deposit items for **display** and **buffs** (narrow modifiers, data-driven). |
 | **Clan info** | Read-only roster, lineage summary, optional alerts. |
 

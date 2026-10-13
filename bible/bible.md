@@ -5,6 +5,8 @@ Compiled from guides, GDD, and implementation docs. Covers both design intent an
 
 **Scope:** §I–§XXI describe **implemented or agreed-in-code** behavior (with *planned* callouts where noted). Ideas without implementation live in **§XXII Future implementations** and linked docs — not as shipped systems.
 
+**Newest design locks (Oct 2026 director interview):** [director_locks_2026_10.md](director_locks_2026_10.md) · [story_data.md](story_data.md). Where they disagree with a section below, they win.
+
 **Opening loop & tiers (design owner):** [earlygame_vision.md](earlygame_vision.md) · **Tier 1 = Campfire** land claim · **Tier 2 = Flag** (settled).
 
 ---
@@ -70,7 +72,7 @@ All major systems in one place. Each row links to the section where that system 
 | **NPCs** | Types: women, sheep, goats, clansmen, cavemen; spawn sources; purpose (reproduction, herd, combat, work). | §VIII NPCs |
 | **Hominid species & genetics** | 5 species; traits; 50/50 hybridization; species/trait/stat inheritance at birth. (Visuals = 2D art, not morph genomes.) | §IX Hominid classes |
 | **Combat & healing** | Agro meter (70/60); CombatComponent (windup → hit → recovery); attack arc; stagger; death/corpse; Medic Hut planned. | §X Combat & healing |
-| **Raiding** | Loot before wipe; `raid_intent` today. **Multi-goal + cordage STEAL** planned. | §XI, [raid.md](raid.md), [herdable_raiding.md](future%20implementations/herdable_raiding.md) |
+| **Raiding** | `raid_intent` today (score). **Next:** one motive, one goal, neighbor list. Sheltered women and penned animals require the building to fall. | §XI, [raid.md](raid.md) |
 | **Food & production** | Forage / meat / grain-bread; `food_days_buffer`; Oven + Farm/Dairy; wild wheat outside claims. | §XII, [earlygame_vision.md](earlygame_vision.md) |
 | **Items & resources** | Wood, stone, wheat, fiber, leather; tools (axe, pick, club); equipment slots (hotbar 1–0). | §XIII Items & resources |
 | **Relics & shrine** | Rare items; place in Shrine → clan-wide buff; flag upgrades may require relics. | §XIV Relics & shrine |
@@ -282,6 +284,8 @@ Detail: [farms.md](farms.md). **Field** (crop ring, proto farming) — **flag on
 | **Predators** | Wilderness | Wolves etc. — hostile wildlife (mostly planned; see §XXII) |
 | **Cavemen** | Spawn | Wild humans; can place claims, become clan leaders |
 
+**Clansmen and cavemen have no idle state.** They stay on a job: gather, deposit, herd, hunt, defend, or the next loaded chunk. A baby who grows up while idle leaves idle on the next decision. Women, sheep, goats, and babies may still idle. A later flavor pause is only a short animation between two points on a job he already has, not this state.
+
 Detail: **`bible/wildlife_movement.md`**.
 
 ---
@@ -370,10 +374,10 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 
 ### Mechanics
 - **CombatComponent**: Windup → hit frame → recovery.
-- **Attack arc**: 90° cone (positioning matters).
+- **Attack arc**: 210° cone (positioning matters). Code: `attack_arc` in `combat_component.gd`.
 - **Stagger**: hits interrupt enemy windup.
 - **Weapon profiles**: Axe, Pick, Unarmed (different timings).
-- **Death**: Health → 0 → corpse (lootable); leader succession (oldest clansman).
+- **Death**: Health → 0 → corpse (lootable); leader succession (**today:** oldest clansman or caveman; **locked:** oldest living son first, else oldest clansman — [director_locks_2026_10.md](director_locks_2026_10.md) §1).
 
 ### Healing (Planned)
 - **Living wounds** — not in code today. Target: hurt fighters fight worse until heal ([wounds.md](future%20implementations/wounds.md)); Medic Hut + berries (aspirational).
@@ -382,11 +386,14 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 
 ## XI. Raiding
 
-- **Loot** every building + flag inventory first (drag-and-drop) — **smash deletes what you left behind**.
-- **Destroy enemy flag** → **territory wipe** (herdables scatter wild; **wild cavemen** / founder — planned — [clan_founding_and_exile.md](clan_founding_and_exile.md)).
-- **Today:** ClanBrain sets `raid_intent`; NPCs self-assign **Raid** state (march → engage at flag center).
-- **Planned:** four goals — **KILL / LOOT / STEAL / WIPE**; **cordage bond** for STEAL; STEAL never attacks flag ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
-- Player clans: manual hostile parties + context verbs (no auto ClanBrain raids).
+- **Built:** ClanBrain sets `raid_intent` from one **motive** and one **goal** (`raid_motive_picker.gd`). The old score-based start is removed. NPCs self-assign **Raid** state and march. Motives, in order: `blood`, `theft`, `food`, `thin`, `restless`. The first one that is fully true wins. Hard stops print `too_few`, `outnumbered`, `alert`, `hunting`, `cooldown`, or `trade`. Target is a camp on `get_neighbor_claims()`. Full rules: [raid.md](raid.md).
+- **Locked, code pending (Oct 2026):** the "never attack a larger camp" rule is removed, so any clan may raid any neighbor. How often a clan raids comes from the bravery and aggression of its fighters, not from a separate temper number. See [director_locks_2026_10.md](director_locks_2026_10.md) §3–§4.
+- **Goals:** take food, take one or two women, take penned animals, or kill two fighters and leave. The party does not switch goals. Morale under 30 still calls the raid off.
+- **Sheltered prizes:** a woman in a building, sheep in a Farm, and goats in a Dairy are not raidable until that building is destroyed. Then they are on the claim and can be herded. People and animals already loose need no building.
+- **Temper (today):** `raid_temper` from -1 peaceful to +1 warlike, stuck at 0. It only changes how often `thin` and `restless` fire. **Locked:** bravery and the aggression bar replace it (see the lock doc §4).
+- **Flag wipe** (destroy the enemy claim) is a different end state — [clan_founding_and_exile.md](clan_founding_and_exile.md). It is not one of these raid goals. **Locked:** if the player's flag falls and the player survives, the player keeps playing but loses all clansmen.
+- Player clans: manual hostile parties. No automatic ClanBrain raids.
+- Older cordage / four-goal notes are not this plan: [herdable_raiding.md](future%20implementations/herdable_raiding.md).
 
 ---
 
@@ -929,9 +936,10 @@ Use a fixed **`--playtest-world-seed`** when comparing patches.
 | Herding | Production-ready |
 | Gather/Deposit | Production-ready |
 | Chunk grid (`ChunkUtils`) | Implemented — **player-facing biomes not shipped**; pseudo-biome labels drive off-screen gather only |
-| Off-screen settlement sim | **In progress** — gather/regen/slaughter shipped; baseline balance blocked on placeholder `rocky` = no food |
+| Off-screen settlement sim | **In progress** — gather, feed, birth, hunt, and raid-on-the-record shipped. Places, field bodies, and milk are specified in [dormancy.md](dormancy.md). Placeholder `rocky` can still block edible gather |
 | GDD alignment | ~40% |
-| Generational permadeath | Not wired |
+| Generational permadeath | Partial — `player_succession.gd` hands the player to the oldest clansman; sons-first law, lineage ids and the extinction/recap flow are not done ([director_locks_2026_10.md](director_locks_2026_10.md)) |
+| Story data (per-person record, clan chronicle) | Planned, next phase — [story_data.md](story_data.md) |
 | Hominid species | Not implemented |
 | War Horn (RTS rally + formations) | Implemented — see §XVIII, `bible/rts.md` |
 | ClanBrain on campfire | Implemented |
@@ -1011,7 +1019,7 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **island_mp.md** | Island MP: four quadrant spawns, claim non-overlap, disconnect → ClanBrain, domination panel, server herd/raid authority. | **Not implemented.** See [future implementations/island_mp.md](future%20implementations/island_mp.md). |
 | **lineage.md** | **Person** records (`person_id`, `mother_id`, `father_id`); prerequisite for female babies, genetics UI, inbreeding. | **Not implemented.** See [future implementations/lineage.md](future%20implementations/lineage.md). |
 | **clanbrain_raid_scoring.md** | **food_days_buffer** drives hunt/forage vs raid goal pick; removes hunger-boosts-raid; STEAL/LOOT/KILL/WIPE scoring sketch. | **Not implemented.** See [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md). |
-| **production_tiers.md** | **No tech tree:** Tiered buildings (1/2/3) for crafts; Tier 1 = Common, Tier 2 = Good (+25%), Tier 3 = Master (+50%); Legendary (1%) = truly rare; requires population + food security, not research unlocks. | **Not implemented.** Design concept: [future implementations/production_tiers.md](future%20implementations/production_tiers.md). Dev blog: `devblog/2026-09-13_no_tech_tree.md`. |
+| **production_tiers.md** | **No tech tree:** **Living hut** → **specialize** → **Workshop (T2)** → **Master compound (T3)**; housing+baby cap kept on specialized huts; Common/Good/Master; Legendary rare. See [economy_catalog.md](economy_catalog.md) §8.5. | **Not implemented.** [future implementations/production_tiers.md](future%20implementations/production_tiers.md). Dev blog: `devblog/2026-09-13_no_tech_tree.md`. |
 | **roadmap_2026.md** | **Unified build order** Phases 0–7: nomad → lineage → raiding → farming → island → MP → wounds. | Hub: [roadmap_2026.md](roadmap_2026.md). |
 
 **Also see (not in `future implementations/` folder):** `bible/README.md` (guide index), **[environment_goal.md](environment_goal.md)** (canonical island environment), [island_map.md](island_map.md), [roadmap_2026.md](roadmap_2026.md), `bible/hunting.md` (hunt hub), `bible/Phase4/raiding_hunting.md` (RTS hunt stances), `bible/multiplayer.md` (MP roadmap), `bible/game_map.md` (chunks + streaming).

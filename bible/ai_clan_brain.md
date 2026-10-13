@@ -2,7 +2,7 @@
 
 **Status:** Implemented. Defense, searcher, raid, **NPC-clan hunting** (Area of Hunt), and **production economy** (WorkRequests) active; strategic pressures drive quotas.  
 **Last Updated:** 2026-06-13 (production economy + Living Hut home binding)  
-**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md` · **Off-screen villages:** `bible/settlement_sim.md` · **Off-screen balance & modifiers:** `bible/future implementations/off_screen_clan_balance.md`
+**Hub:** `bible/hunting.md` · **Canon:** `bible.md` §XVI, §XV-A · **Production:** `bible/production_economy.md` · **Dormancy:** `bible/dormancy.md` · **Older off-screen note:** `bible/settlement_sim.md` · **Off-screen balance & modifiers:** `bible/future implementations/off_screen_clan_balance.md`
 
 ## Overview
 
@@ -113,8 +113,9 @@ When **`_start_raid`** succeeds, **`_form_raid_party`** picks the first availabl
 
 ### When raids are considered
 
-- Only when **strategic_state** is PEACEFUL or AGGRESSIVE.
-- Not during **alert_level ≥ SKIRMISH** (we’re under attack).
+**Built:** [raid.md](raid.md) is the current raid design: motives `blood`, `theft`, `food`, `thin`, `restless`, one goal each, neighbor list, and a building must fall before a sheltered woman or penned animal can be taken (`raid_motive_picker.gd`). **The score-based list under "Score-based raid evaluation" below is the old system. It no longer decides when a raid starts (`raid_aggression`, `raid_population_pressure` and `raid_opportunity_weight` are leftover variables in `clan_brain.gd`).** It is kept only as history. **Locked change pending:** the "not larger" rule is dropped, and clan aggression comes from fighters' bravery ([director_locks_2026_10.md](director_locks_2026_10.md)).
+
+- Raid evaluation runs for NPC clans that are not in survival mode, including while **DEFENSIVE**. A known neighbor is not the same as being under attack. **alert_level ≥ SKIRMISH** still refuses.
 - **RAID_COOLDOWN** (60s) must have passed since last raid start.
 - Need at least **MIN_RAID_PARTY_SIZE + 1** cavemen (so at least one can stay to defend).
 - **available_for_raid** = cavemen.size() - defender_quota must be ≥ MIN_RAID_PARTY_SIZE (2).

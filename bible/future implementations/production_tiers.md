@@ -2,9 +2,11 @@
 
 **Status:** **Design concept — not implemented.**  
 **Core principle:** Mastery comes from **infrastructure and specialization**, not unlocking recipes.  
-**Last updated:** September 2026
+**Last updated:** October 2026
 
-**See also:** [economy_catalog.md](../economy_catalog.md) (classes, sheet+cordage, two sliders: **tier + mastery**) · [production_economy.md](../production_economy.md) · [Buildings.md](../Buildings.md) · [settlement_sim.md](../settlement_sim.md) · [earlygame_vision.md](../earlygame_vision.md)
+**See also:** [economy_catalog.md](../economy_catalog.md) §8.5 (placement → specialize) · [village_and_economy_rundown.md](../village_and_economy_rundown.md) · [production_economy.md](../production_economy.md) · [Buildings.md](../Buildings.md) · [settlement_sim.md](../settlement_sim.md) · [earlygame_vision.md](../earlygame_vision.md)
+
+**Superseded 2026-10-13 ([director_locks_2026_10.md](../director_locks_2026_10.md) wins):** **claim tier is the only gate** for hut tier. The population and food-day thresholds below (10+, 15–20+ clanspeople, food-day buffers) are **retired as gates**. Staffing (women in slots) and food decide what actually runs, and an empty slot drops the operating tier. Output quality comes only from input quality, not from tier. Keep the numbers below only as tuning hints for how many people a workshop needs to feel staffed.
 
 **Recipe note (Sep 2026):** Examples below that say `2 hide → cloak` are **old**. Canonical clothes path: hide → Rack/Tannery/Workshop (**1 sheet + 4 strips**) → Tailor (**sheet + cordage**). Same material **cost** at T1 and T3; tier/mastery change **work grade**, not the bill.
 
@@ -20,21 +22,36 @@ A main pillar of this game is the understanding of humanity **The problem with t
 - **Space** — workshop, tools, storage
 - **Support** — a community large enough to feed specialists
 
-**Our solution:** **Tiered production buildings** that require progressively larger, more stable communities to sustain specialist craftspeople.
+**Our solution:** **Living huts** that **specialize** into a craft, then **upgrade** into larger workshops — gated by population and food security, not a tech tree.
 
 ---
 
-## Core design — building tiers
+## Hut lifecycle (design lock — matches economy catalog §8.5)
 
-Each production building type (Tailor, Forge, Kiln, Tannery, etc.) has **three tiers** representing mastery levels.
+| Step | Player-facing name | What happens |
+|------|-------------------|--------------|
+| **Place** | **Living hut** | Only hut kit in the build menu. Housing + baby cap; no production yet. |
+| **Specialize** (once) | **Specialty hut (T1)** | Pick **one** craft (Tailor, Weaver, Rack, Oven, …). **Still home** for 1 woman + baby cap. |
+| **Upgrade** | **Workshop (T2)** | +1 hut module, +1 woman. **Good** baseline quality; more recipes. |
+| **Upgrade** | **Master compound (T3)** | +1 hut module, +1 woman. **Master** baseline; full recipe set for that specialty. |
+
+**Not in menu:** direct “Tailor” / “Oven” placement cards — those are **specialize** outcomes.
+
+**Exceptions (place without living-hut specialize):** Leader’s hut, shrine/relic post, supply hut, animal pen/corral, garden/field. See [economy_catalog.md](../economy_catalog.md) §8.5.
+
+---
+
+## Core design — building tiers (on one specialty line)
+
+Each **specialty** (Tailor, Rack, Weaver, …) uses the **same three-step footprint** on the hut you specialized.
 
 ### Structure growth (physical)
 
-| Tier | Huts | Workers | Represents |
-|------|------|---------|------------|
-| **Tier 1** | 1 small hut | 1 worker | **Generalist** — basic survival craft |
-| **Tier 2** | 2 connected huts | 2 workers | **Apprentice system** — refined techniques |
-| **Tier 3** | 3-hut compound | 3 workers | **Master workshop** — dedicated artisans |
+| Tier | Name | Huts | Workers | Represents |
+|------|------|------|---------|------------|
+| **T1** | **Specialty hut** | 1 | 1 | First craft station; part-time hunt when idle |
+| **T2** | **Workshop** | 2 connected | 2 | Apprentice scale; rarely hunts |
+| **T3** | **Master compound** | 3-hut compound | 3 | Dedicated artisans |
 
 **Visual:** Each tier **adds** a hut module to the building footprint. Tier 3 looks like a small compound, not a single shack.
 
@@ -84,7 +101,7 @@ Higher-tier buildings require **more people doing less survival work**.
 - Clan food buffer: **~2 days** (still nomadic or early settlement)
 - **Output quality:** Common
 
-**Gameplay:** You can build Tier 1 buildings immediately after settling. They support your clan but don't dominate your economy. Common gear gets the job done.
+**Gameplay:** After settling, place **living huts**, **specialize** some into T1 stations when you have materials + a woman to assign. Unspecialized huts stay pure housing. Common gear gets the job done.
 
 ### Tier 2 — Specialists emerge
 
@@ -122,7 +139,7 @@ Higher-tier buildings require **more people doing less survival work**.
 - When no cloak orders: **searches** for hides, **hunts** small game, or **idles** near claim
 - **Not** a dedicated artisan — helps the clan survive
 
-**Unlock:** Place immediately after Tier 2 flag (settled claim)
+**Unlock:** **Specialize** a placed living hut (settled claim). **Test costs:** [economy_catalog.md](../economy_catalog.md) §8.5 (1w+1s specialize; 2w+1s → T2; 2w+2s+1 hide → T3).
 
 ---
 
@@ -196,16 +213,21 @@ Same tier structure applies to all crafts:
 
 ### How to upgrade a building
 
-1. **Build Tier 1** — standard placement (wood, stone, hide)
-2. **Accumulate resources + population** — feed your clan, grow your roster
-3. **Unlock Tier 2 upgrade** when:
+1. **Place Living Hut** — from build menu (wood, stone, …)
+2. **Specialize** → **Specialty hut (T1)** — pick Tailor / Weaver / Rack / …; assign 1 woman (home + work)
+3. **Accumulate resources + population** — feed your clan, grow your roster
+4. **Unlock Workshop (T2)** when:
    - Population threshold (e.g. 10 clanspeople)
    - Food buffer threshold (5+ days)
    - Upgrade materials gathered (varies per building type)
-4. **Place upgrade** — consumes materials; building visually expands (2nd hut)
-5. **Assign 2nd worker** — drag clanswoman to building (future: auto-assign if ClanBrain enabled)
+5. **Place T2 upgrade** — consumes materials; building visually expands (2nd hut)
+6. **Assign 2nd worker** — drag clanswoman to building (future: auto-assign if ClanBrain enabled)
 
-Same flow for **Tier 2 → Tier 3**.
+Same flow for **Workshop (T2) → Master compound (T3)**.
+
+**Dismantle production:** Revert to **unspecialized Living Hut** (lose specialty + tier; 1-hut footprint; base HP; +5 baby cap only). Optional UI on any specialized hut — [economy_catalog.md](../economy_catalog.md) §8.5.
+
+**Raid:** Building destroyed = **total loss** (no T3→T2). Each production upgrade adds **+25% max HP** from living-hut base (T2 125%, T3 150%). **Baby cap does not increase** with Workshop/Master.
 
 ### Why not auto-upgrade?
 
@@ -242,7 +264,7 @@ You might **not want** Tier 3 buildings early — they're expensive and tie up w
 |--------|----------------|
 | **ClanBrain work queue** | Now checks building tier to pick recipes; issues work orders per tier |
 | **Women FSM** | Workers at Tier 2+ stay near buildings (lower hunt/search priority) |
-| **Baby cap / Living Huts** | More huts = larger clan = can sustain specialists |
+| **Baby cap / Living Huts** | **+5 per hut footprint** (place living hut); **not** increased by specialize/T2/T3 — more **huts** = more cap |
 | **Raid economy** | High-tier buildings are valuable loot/destruction targets |
 | **Genetics / traits** | Future: NPCs with "Crafting" trait → better rolls at Tier 2/3 |
 
@@ -261,20 +283,23 @@ You might **not want** Tier 3 buildings early — they're expensive and tie up w
 ## Open questions
 
 1. **Skill XP** — do workers improve over time (e.g. 100 cloaks → +5% Legendary chance)?
-2. **Building destruction** — if raiders destroy Tier 3, does it drop to Tier 2 or fully destroy?
-3. **Worker death** — if a Tier 3 artisan dies, do you lose the slot or just need a replacement?
-4. **Multi-building tiers** — can you have 2 Tier 2 Tailors, or only 1 per type per claim?
+2. **Worker death** — if a Tier 3 artisan dies, do you lose the slot or just need a replacement?
+3. **Multi-building tiers** — can you have 2 Workshop Tailors, or only 1 per type per claim?
+4. **Dismantle refund** — partial materials back when reverting to living hut?
+
+**Locked:** Raid destroy = **total loss**. HP **+25%** per T2/T3 upgrade step. Dismantle **allowed**. Baby cap **+5 only** on hut place, not on production upgrades.
 
 ---
 
 ## Implementation sketch (when this ships)
 
-1. **BuildingTier** enum on building node (`TIER_1`, `TIER_2`, `TIER_3`)
-2. **Upgrade UI** — new panel when clicking Tier 1/2 building; shows cost, thresholds, preview
-3. **Worker slots** — extend `building_base.gd` to track 1–3 worker node paths
-4. **Recipe filtering** — `ProductionChainRegistry` checks `building.tier` and outputs appropriate quality
-5. **Quality enum** — `COMMON`, `GOOD`, `MASTER`, `LEGENDARY` (1% rare roll)
-6. **ClanBrain upgrade logic** — suggest upgrades when population + food hit thresholds
+1. **Building state** — `LIVING_UNSPECIALIZED` · `specialty_id` · `BuildingTier` (`T1`/`T2`/`T3`)
+2. **Specialize UI** — pick craft once from placed living hut
+3. **Upgrade UI** — Workshop / Master compound; cost, thresholds, preview
+4. **Worker slots** — extend `building_base.gd` to track 1–3 worker/home bindings on one footprint
+5. **Recipe filtering** — `ProductionChainRegistry` checks `specialty_id` + `building.tier` and outputs appropriate quality
+6. **Quality enum** — `COMMON`, `GOOD`, `MASTER`, `LEGENDARY` (1% rare roll)
+7. **ClanBrain upgrade logic** — suggest specialize / T2 / T3 when population + food hit thresholds
 
 ---
 

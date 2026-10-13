@@ -7,6 +7,14 @@
 
 ---
 
+## 0. Player flag wipe (locked 2026-10-13)
+
+If the **player's** flag falls and the player is still alive, the player **keeps playing but loses all clansmen** (a solo restart). This is the player rule and it overrides §3.1 for the player. The rest of this file (exile, founder roll, slots) still describes **AI clans**.
+
+**Open:** whether the player's lost clansmen die or scatter as wild exiles, and whether AI clans keep the exile and founder rule as written. See [director_locks_2026_10.md](director_locks_2026_10.md) §8. Famine deserters (men who leave a starving clan) follow the pipeline below and can found clans later.
+
+---
+
 ## 1. Fantasy (tribal sim)
 
 When a clan’s **flag (land claim) is destroyed**, the territory is gone — but **some fighting-age males may survive**. Most die or fade in the wilderness; a **lucky few** can become **founders** of a new clan if the world has **room** for another AI tribe.

@@ -1,12 +1,14 @@
 # Economy catalog — crafting, resources, buildings, gatherables
 
-**Status:** Design lock from Q&A (13 Sep 2026). **Most of this is not in code.**  
-**Owner:** This file wins on *classification, stations, clothing pipeline, containers, food states, and building tier/mastery.*  
+**Status:** Design lock from Q&A (13 Sep 2026); **hut specialize flow** locked Oct 2026 (§8.5). **Most of this is not in code.**  
+**Owner:** This file wins on *classification, stations, clothing pipeline, containers, food states, building placement/specialize, and tier/mastery.*  
 **Code snapshot** still lives in `scripts/resource_data.gd`, `craft_registry.gd`, `building_registry.gd`, `production_config.gd`.  
 **Island kits (what grows where):** [environment_goal.md](environment_goal.md) §5–6 — names to add later; do not invent new `ResourceType`s until a recipe needs a unique ID.  
 **Building tiers / community gates:** [future implementations/production_tiers.md](future%20implementations/production_tiers.md) — **except** tailor recipes that say `2 hide → cloak` (superseded; see §8).
 
 If this fights [items_guide.md](items_guide.md) or [Buildings.md](Buildings.md), **this file wins** until those are rewritten.
+
+**Superseded 2026-10-13 ([director_locks_2026_10.md](director_locks_2026_10.md) wins over this file):** baby room is **+5 per woman** in the hut (not once per hut footprint); **claim tier is the only gate** for hut tier; output quality comes **only from input quality**; poultices and bandages move from the Shaman to the **Medic**; the campfire also makes **tar** from resin; **knapping hut** and **hafting hut** join the tool chain; grown daughters get an auto-built, auto-specialized hut. Sections below that still say otherwise are history.
 
 ---
 
@@ -39,7 +41,8 @@ One place for:
 | **State** | **Food only.** Exactly one: `raw` · `cooked` · `preserved`. | Not stacked (no cooked + smoked jerky). |
 | **Size / job** | **Container:** `small` or `large`, and **liquid** vs **items**. | Hearth cauldron is part of the building. Travois = largest **item** hauler, no liquids. |
 | **Work grade** | How well it was made: **common / good / master**. | **Legendary** = rare extra, any building tier. |
-| **Building tier** | T1 / T2 / T3 = extra huts, extra women, extra *recipes*. | Does **not** raise the material bill for the same item. |
+| **Building tier** | On one hut line: **Specialty hut (T1)** → **Workshop (T2)** → **Master compound (T3)** — extra hut modules, extra women, extra *recipes*. | Does **not** raise the material bill for the same item. |
+| **Living hut** | Only **hut kit** from the build menu. Place first; **specialize** once into a production station, or leave as **housing-only**. | Not a separate “Tailor kit” in the menu. |
 | **Building mastery** | XP from doing the work. Raises chance of better work grade + legendary. | A mastered T1 Tailor still only makes **cloaks**. |
 | **Imbue** (later) | Diablo-like: extra items on a garment add **stat lines only**. No new cloak art. | Not a new clothing class. |
 
@@ -148,6 +151,8 @@ Shaman-made drinks / doses. Many kinds. Always stored in a **small Container**. 
 
 ### 3.8 Medicine
 
+**Superseded 2026-10-13:** salves, poultices and bandages for field wound care now belong to the **Medic**. The Shaman keeps potions, body paints and relic rites ([director_locks_2026_10.md](director_locks_2026_10.md) §2). The text below is the old split.
+
 Salves, smeared herbs, poultices — not bottled spells. **T1 Shaman** output is Medicine only. **Starter recipe:** 1 Food with tag `dye` **or** a later herb Resource → 1 poultice. **Berries work on day 1.** No container. T2+ can still make Medicine and also Potion.
 
 ### 3.9 Tool / Weapon
@@ -241,6 +246,8 @@ No “cooked then smoked” combo.
 
 Salt / ash: no extra building; a craft action.
 
+**Tar (locked):** the campfire also turns tree **resin** into **tar**. Tar goes into the hafting hut (wood + points + blades + cordage + tar → arrows, axes and so on). Recipes and times are not written yet.
+
 ### 6.4 What is food today in code
 
 `ResourceData.EDIBLE_FOOD_TYPES`: berries, grain, meat, cooked meat, bread, milk, mushroom, bugs, nuts.
@@ -302,7 +309,84 @@ Mastery can still roll **legendary** leather even at T1 (rare).
 
 ---
 
+## 8.5 Hut placement → specialize → workshop (design lock)
+
+**Player flow (settled land claim):**
+
+```text
+Place Living Hut  →  (optional: leave as housing-only)
+                 →  Specialize once → Specialty hut (T1)  →  Workshop (T2)  →  Master compound (T3)
+```
+
+| Step | Name | Footprint | Women | Role |
+|------|------|-----------|-------|------|
+| **0** | **Living hut** (unspecialized) | 1 hut | 0–1 (housing) | Sleep, baby cap (+5), pregnancy home. **No production** until specialized. |
+| **1** | **Specialty hut (T1)** | 1 hut | 1 | Player **picks one specialty** (Tailor, Weaver, Rack, …). **Still that woman’s home** + baby room (+5). T1 recipes. *(Old "Common" grade retired: quality comes from inputs.)* |
+| **2** | **Workshop (T2)** | 2 huts | 2 | +1 hut module, +1 woman, more recipes, **+25% max HP**. **Baby room +10 total** (+5 per woman). *(Old "Good" baseline retired.)* |
+| **3** | **Master compound (T3)** | 3 huts | 3 | +1 hut module, +1 woman, full recipes, **+25% max HP** ( **+50% total** vs T1 specialty base). **Baby room +15 total**. *(Old "Master" baseline retired.)* |
+
+**Build menu (design lock):** **Living Hut kit only** for huts that can become production. **No** direct “place Tailor” card — you specialize a placed living hut.
+
+**Baby cap (SUPERSEDED 2026-10-13):** now **+5 per woman in the hut**, so T1 = +5, T2 = +10, T3 = +15. The old rule was "+5 once per hut footprint, upgrades add nothing". Every "+5 unchanged" below is history.
+
+**Daughters (locked 2026-10-13):** when a daughter grows up, the clan builds a plain Living Hut from the claim stockpile and specializes it to the industry with the **biggest surplus**, if the stockpile can pay. If it can't, she waits in her family's hut. Applies to every clan, the player's too. The player can convert any hut afterward (same swap rule: tier and materials stay, craft in progress is cancelled).
+
+**Housing rule (locked):** A **specialized** hut **keeps** living-hut duties for assigned women: **home binding**, walk-loop start, **same +5 baby cap**, reproduction gates.
+
+**Building HP (locked):** Use one **base max HP** for unspecialized living hut and **Specialty (T1)**. Each **production upgrade** (T2, then T3) adds **+25% max HP** from that base (T2 = 125%, T3 = 150%). Bigger workshops are harder to burn down.
+
+**Raid destruction (locked):** If a hut is **destroyed** in a raid, it is **total loss** — **no** downgrade (T3 does not become T2). Rebuild from a new Living Hut kit.
+
+**Dismantle production (locked):** Player can **revert** a specialized hut to an **unspecialized Living Hut** (clears specialty + workshop tier, footprint back to 1 hut, HP back to base, women unassigned from production). **Baby cap stays +5.** Materials are **not** refunded in v1 (tune later).
+
+**Upgrade & specialize costs (test placeholders — tune for real balance later):**
+
+| Action | Pay from claim stash (test) |
+|--------|----------------------------|
+| Place **Living Hut** | 1 wood + 1 stone (matches today’s test menu) |
+| **Specialize** → T1 specialty | 1 wood + 1 stone |
+| **Upgrade** → Workshop (T2) | 2 wood + 1 stone |
+| **Upgrade** → Master compound (T3) | 2 wood + 2 stone + 1 hide |
+| **Dismantle production** | Free (no refund) |
+
+Implement in `BuildingRegistry` / upgrade UI when the flow ships; numbers are for **playtests only**.
+
+**Specialty choices (first upgrade — same tier names as §11):**
+
+| Specialty | T1 role (summary) |
+|-----------|-------------------|
+| **Rack** | Hide → leather sheet + cordage strips |
+| **Tailor** | Sheet + cordage → cloak (T1); tunics/robes at T2/T3 |
+| **Weaver** | Fiber/wool → sheet; bulk rope; crude basket |
+| **Oven** | Flour + fuel → bread |
+| **Mortar** | Grain/root → flour |
+| **Pit fire** | Clay + fuel → small pot (T2 → storage jar) |
+| **Hearth** | Stew bowls; large pot is building scenery |
+| **Cheese hut** | Milk in container → cheese + empty |
+| **Butter hut** | Milk → butter + empty |
+| **Shaman hut** | Poultices (T1); potions T2+ |
+| **Cultivation hut** | Seed slots → tended crops |
+
+**Not from Living Hut specialize** (separate placeables / systems):
+
+| Placeable | Why separate |
+|-----------|----------------|
+| **Leader’s hut** | Government + breeding slots — [leader_hut.md](leader_hut.md) |
+| **Shrine / relic post** | Relics in → buff; no women production loop |
+| **Supply hut** | Storage only |
+| **Animal pen / corral** | Animals + feed; not a woman’s home |
+| **Garden ring / Field** | Flag-only crops — [proto_farming.md](future%20implementations/proto_farming.md) |
+| **Campfire / land claim** | Nomad anchor / territory — not from build menu like huts |
+
+**Code today:** build menu still lists Oven, Farm, Dairy, etc. separately — **migrate** to living-hut → specialize when implemented.
+
+Population / food gates for T2/T3: [production_tiers.md](future%20implementations/production_tiers.md).
+
+---
+
 ## 9. Building tier + mastery (all production stations)
+
+After **§8.5**, “T1 / T2 / T3” on a production line means **Specialty hut → Workshop → Master compound** on **one** specialized living hut.
 
 Copied in spirit from [production_tiers.md](future%20implementations/production_tiers.md), with the **two sliders** we locked:
 
@@ -322,20 +406,22 @@ Population / food-day gates: use the numbers in `production_tiers.md` until we r
 
 **Upgrade:** not automatic. Extra hut modules, extra woman slots. A raid clan may stay T1 on purpose.
 
-**Open (from that doc, still open):** worker XP vs building mastery (we treat **building** mastery as the lock); destroy T3 → drop to T2 or wipe?; dead artisan = empty slot; two T2 Tailors on one claim?
+**Locked (Oct 2026):** Raid **destroys** the building (**total loss**, no tier downgrade). **HP +25%** per production upgrade step (T2/T3). **Baby cap** does not scale with tier (§8.5).
+
+**Still open:** worker XP vs building mastery (we treat **building** mastery as the lock); dead artisan = empty slot; two T2 Tailors on one claim?
 
 ---
 
 ## 10. Women labor (all stations)
 
 ```
-Living hut (home)
+Living hut or Specialty hut (home — same binding after specialize)
   → Land claim (pick up materials / empties)
-    → Production building (walk, short craft animation)
+    → Same hut’s production station (walk, short craft animation)
       → Land claim (drop products / filled containers)
 ```
 
-Applies to: Oven, Pit fire, Hearth, Mortar, Cheese, Butter, Animal pen, Rack/Tannery/Workshop, Weaver, Tailor, Shaman, Cultivation — and future stations.
+Applies to all **specialized** huts (§8.5). **Animal pen** uses the corral loop, not “woman’s home.”
 
 One job at a time. No “bread and pottery in the same oven tick.”
 
@@ -357,11 +443,22 @@ Costs in **code today** are test numbers (1 wood + 1 stone). **Do not treat thos
 - Not from the build menu (start item / campfire upgrade).  
 - Exact craft bill (old docs: wood+stone+berries+leather) **not locked**.
 
-### 11.3 Living hut
+### 11.3 Living hut → specialty line
 
-- **T1:** +5 baby cap. **1 woman** lives/sleeps here (start of the walk loop).  
-- **Code today:** +5 exists but is **off** — turn it on when we implement this lock.  
-- T2/T3 hut (more beds / more cap): not locked.
+**Placement:** Only **Living Hut** in the build menu for huts (§8.5).
+
+| State | Baby cap | Women | Production |
+|-------|----------|-------|------------|
+| **Unspecialized living hut** | +5 (design) | 1 home slot | None — housing only; base HP |
+| **Specialty hut (T1)** | **+5** (1 woman) | 1 home + 1 worker | T1 recipes; base HP |
+| **Workshop (T2)** | **+10** (2 women) | 2 women | T2 recipes, HP **125%** |
+| **Master compound (T3)** | **+15** (3 women) | 3 women | T3 recipes, HP **150%** |
+
+*Updated 2026-10-13: baby room is +5 per woman. The old "Good" and "Master" baseline grades are retired. Output quality now comes only from input quality.*
+
+**Code today:** +5 baby cap exists but is **off**; menu still has separate Oven/Farm/Dairy cards — not this flow yet.
+
+**Pure housing:** Player may **never** specialize some huts — extra living huts for more women / babies while others become workshops.
 
 ### 11.4 Supply hut
 
@@ -557,18 +654,18 @@ Sheet + cordage at Tailor. T1 or T3: **same cost**. T3 more likely **master** wo
 
 ## 16. Decisions we explicitly did **not** lock
 
-- Exact calories, craft seconds, starve timers, hearth / pit-fire / upgrade material counts  
+- Exact calories, craft seconds, starve timers, hearth / pit-fire counts (specialize/upgrade **test** costs locked in §8.5)  
 - Tunic/robe sheet counts  
 - Imbue slot rules  
 - Water gathering (skins, gourds, rivers)  
 - Axe / pick / blade / spear recipes  
-- Living hut T2/T3  
+- Dismantle **material refund** %  
 - Cultivation grow time; seed-drop %  
 - Weaver UI: sheet vs rope in the same building  
 - Pit fire T2 storage-jar clay/wood counts  
 - Whether farm/dairy animals graze for free (locked: dumped feed required; no-feed → die)  
 - Full biome item IDs  
-- Destroyed T3 building remnant  
+- Loot from destroyed workshop (inventory only vs building kit)  
 - One vs many Tailors per claim  
 
 ---

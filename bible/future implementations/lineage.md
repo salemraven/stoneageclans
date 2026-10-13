@@ -1,6 +1,6 @@
 # Lineage records (future)
 
-**Status:** Design draft — **not implemented.**  
+**Status:** Design draft — **not implemented.** **Promoted 2026-10-13:** this is now the first half of the story-data phase. The extra fields (tallies, scars, bravery, timeline) are in [../story_data.md](../story_data.md).  
 **Prerequisite for:** [female_baby.md](female_baby.md) (inbreeding), [genetics.md](../genetics.md), domination panel trait mix  
 **Drafted:** September 2026
 
