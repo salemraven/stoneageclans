@@ -1,0 +1,17 @@
+---
+description: >-
+  Stone Age Clans director design interview (grill-me). Apply when the user asks
+  to grill design, lock bible decisions, director Q&A, resume director_locks,
+  or run design interview on a Cloud Agent remotely.
+alwaysApply: false
+---
+
+# Grill-me director
+
+When the user wants a **design lock interview** (grill-me, director session, bulletproof bible):
+
+1. Read and follow **`.cursor/skills/grill-me-director/SKILL.md`** in full.
+2. Treat **`bible/director_locks_2026_10.md`** as the live checkpoint; resume open items in §8 unless told to restart.
+3. Prefer **AskQuestion** batches; plain language; no reopening pre-locked decisions without explicit director override.
+
+This workflow is intended to work on **Cloud Agents** (skill lives in the repo; no local Mac required).

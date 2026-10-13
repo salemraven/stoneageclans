@@ -19,10 +19,12 @@ game_*.txt
 # Playtest reporter handoff (run_playtest.ps1)
 Tests/.playtest_reporter_path.txt
 
-# Cursor / local IDE — ignore cache; keep `.cursor/rules/*.mdc` in repo
+# Cursor / local IDE — ignore cache; keep project rules and skills in repo (Cloud Agents)
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
+!.cursor/skills/
+!.cursor/skills/**
 
 # Generated playtest sessions (large JSONL)
 Tests/playtest_*/

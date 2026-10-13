@@ -10,6 +10,7 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 |-----|---------|
 | **[bible.md](bible.md)** | Lore, mechanics, code map, implementation snapshot — **start here** |
 | **[director_locks_2026_10.md](director_locks_2026_10.md)** | **Newest locks (Oct 13 2026)** — heirs, huts and daughters, raids with no size rule, bravery, multiplayer shape, build order. **Wins over older docs.** |
+| **Director interview (remote)** | In Cursor: **“Use grill-me-director”** or Cloud Agent on this repo — skill at `.cursor/skills/grill-me-director/SKILL.md` (resume §8 open items). |
 | **[story_data.md](story_data.md)** | **What the game remembers** about each person and clan (next build phase) |
 | **[earlygame_vision.md](earlygame_vision.md)** | **Opening 10 min**, tiers, food, raids, horn — design owner (Sep 2026) |
 | **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations; **Living hut → specialize → workshop** (§8.5) |
