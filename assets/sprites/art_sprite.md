@@ -49,9 +49,14 @@
 
 ## Draw Order ("Foot" for Y-Sort)
 
-- **Formula:** `foot_y = parent_node.global_position.y + sprite.position.y`
-- **Rule:** Lower `foot_y` → drawn first (behind). Higher `foot_y` → drawn later (in front).
-- Characters: offsets so sort line is at feet. Buildings: so sort line is at ground. Resources/ground items: center.
+**Full spec:** `bible/draw_order.md` (locked). Flat ¾ top-down plane; south = in front.
+
+- **Flat props:** `foot_y = parent_node.global_position.y + sprite.position.y`
+- **Pawn cards:** `node.y + _card_foot_y` (see `update_card_draw_order`)
+- **Trees:** trunk ground + `tree_foot_offset_y` / `tree_sort_offset_y` (not canopy-top sort)
+- **Buildings:** vertical **midpoint** of scaled sprite (not ground-only)
+- Lower sort Y → behind; higher → in front.
+- **Progress timers:** fixed overlay band (`update_world_timer_draw_order`) — above plane sprites, below `UI` CanvasLayer.
 
 ---
 
