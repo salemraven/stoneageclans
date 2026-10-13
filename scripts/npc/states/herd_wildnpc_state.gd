@@ -237,6 +237,14 @@ func can_enter() -> bool:
 		if pi_o and pi_o.is_enabled():
 			pi_o.herd_wildnpc_can_enter(npc.npc_name, false, "follow_is_ordered")
 		return false
+	# A woman, sheep, or goat already in hand is a delivery. The herder cap only blocks a new search.
+	if int(npc.get("herded_count") if npc.get("herded_count") != null else 0) > 0:
+		var pi_lead = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_lead and pi_lead.is_enabled():
+			pi_lead.herd_wildnpc_can_enter(npc.npc_name, true, "delivery_in_hand")
+		return true
+	if npc.has_meta("raid_joined") and bool(npc.get_meta("raid_joined")):
+		return false
 	# Clansmen in ATTACK or GUARD mode never herd — only FOLLOW mode allows herding
 	var ctx_wn: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
 	var mode_wn: String = ctx_wn.get("mode", "FOLLOW") as String

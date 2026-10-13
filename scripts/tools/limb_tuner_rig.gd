@@ -1012,6 +1012,53 @@ func has_hair_layer() -> bool:
 	return body_visual != null and body_visual.has_method("has_hair_layer") and body_visual.call("has_hair_layer")
 
 
+func set_clothing_center_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_clothing_center_from_global"):
+		body_visual.call("set_clothing_center_from_global", global_pos)
+
+
+func set_clothing_scale_mul(mul: float) -> void:
+	if body_visual and body_visual.has_method("set_clothing_scale_mul"):
+		body_visual.call("set_clothing_scale_mul", mul)
+
+
+func set_clothing_style(index: int) -> void:
+	if body_visual and body_visual.has_method("set_clothing_style"):
+		body_visual.call("set_clothing_style", index)
+
+
+func clothing_style() -> int:
+	if body_visual and body_visual.has_method("clothing_style"):
+		return int(body_visual.call("clothing_style"))
+	return 0
+
+
+func clothing_receipt_fields() -> Dictionary:
+	if body_visual and body_visual.has_method("clothing_receipt_fields"):
+		return body_visual.call("clothing_receipt_fields")
+	return {}
+
+
+func clothing_scale_mul() -> float:
+	if body_visual and body_visual.has_method("clothing_scale_mul"):
+		return float(body_visual.call("clothing_scale_mul"))
+	var layout := get_layer_layout()
+	if layout == null:
+		return 1.0
+	return layout.clothing_scale_mul
+
+
+func set_head_and_hair_visible(show: bool) -> void:
+	if body_visual and body_visual.has_method("set_head_and_hair_visible"):
+		body_visual.call("set_head_and_hair_visible", show)
+
+
+func clothing_hit_rect_global() -> Rect2:
+	if body_visual and body_visual.has_method("clothing_hit_rect_global"):
+		return body_visual.call("clothing_hit_rect_global")
+	return Rect2()
+
+
 func torso_pin_global_for_shoulder(shoulder_global: Vector2) -> Vector2:
 	if body_visual and body_visual.has_method("torso_surface_global_for"):
 		return body_visual.call("torso_surface_global_for", shoulder_global)

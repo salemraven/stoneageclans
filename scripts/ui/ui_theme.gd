@@ -204,6 +204,35 @@ static func apply_slot_style(control: Control, hotbar: bool = false) -> void:
 	control.add_theme_stylebox_override("panel", get_slot_style(hotbar))
 
 
+## Kin tab — obvious tappable name (not flat/theme-default button).
+static func apply_kin_link_button(btn: Button) -> void:
+	if btn == null:
+		return
+	_ensure_tokens_loaded()
+	btn.flat = false
+	btn.custom_minimum_size = Vector2(0, 30)
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0x3c / 255.0, 0x27 / 255.0, 0x23 / 255.0, 0.95)
+	normal.border_color = COLOR_TEXT_SELECTED
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(6)
+	normal.content_margin_left = 10
+	normal.content_margin_right = 10
+	btn.add_theme_stylebox_override("normal", normal)
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0x4a / 255.0, 0x32 / 255.0, 0x28 / 255.0, 1.0)
+	hover.border_color = COLOR_TEXT_PRIMARY
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0x2a / 255.0, 0x1a / 255.0, 0x16 / 255.0, 1.0)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_color_override("font_color", COLOR_TEXT_SELECTED)
+	btn.add_theme_color_override("font_hover_color", COLOR_TEXT_PRIMARY)
+	btn.add_theme_color_override("font_pressed_color", COLOR_TEXT_PRIMARY)
+
+
 static func apply_panel_style(panel: Panel) -> void:
 	if not panel:
 		return

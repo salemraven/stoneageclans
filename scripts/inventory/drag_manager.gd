@@ -4,6 +4,8 @@ class_name DragManager
 # Global singleton for managing drag-and-drop operations
 # Tracks the currently dragged item and provides drag preview
 
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
+
 signal drag_started(item_data: Dictionary, from_slot: InventorySlot)
 signal drag_ended()
 signal drop_completed(item_data: Dictionary, to_slot: InventorySlot)
@@ -232,7 +234,7 @@ func _create_drag_preview(item: Dictionary) -> void:
 				texture_path = "res://assets/sprites/landclaim.png"
 				building_preview_size = Vector2(128, 128)  # Land claim is 128px
 			ResourceData.ResourceType.LIVING_HUT:
-				texture_path = "res://assets/sprites/hut.png"
+				texture_path = "res://assets/buildings/living hut1.png"
 				building_preview_size = Vector2(64, 64)
 			ResourceData.ResourceType.SUPPLY_HUT:
 				texture_path = "res://assets/sprites/supply.png"
@@ -254,7 +256,7 @@ func _create_drag_preview(item: Dictionary) -> void:
 		texture_path = ResourceData.get_resource_icon_path(item_type)
 	
 	if texture_path != "":
-		var loaded_texture: Texture2D = load(texture_path) as Texture2D
+		var loaded_texture: Texture2D = HutSpecialtyScript.load_texture(texture_path) if not ResourceLoader.exists(texture_path) else load(texture_path) as Texture2D
 		if loaded_texture:
 			drag_preview.texture = loaded_texture
 		else:

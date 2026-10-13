@@ -47,12 +47,15 @@ EntityRegistry="*res://scripts/systems/entity_registry.gd"
 HostileEntityIndex="*res://scripts/systems/hostile_entity_index.gd"
 YSortUtils="*res://scripts/systems/y_sort_utils.gd"
 ClaimBuildingIndex="*res://scripts/systems/claim_building_index.gd"
+OffscreenCamps="*res://scripts/systems/offscreen_camps.gd"
 ResourceIndex="*res://scripts/systems/resource_index.gd"
 DecorIndex="*res://scripts/systems/decor_index.gd"
+TallGrassCover="*res://scripts/systems/tall_grass_cover.gd"
 NPCSleepManager="*res://scripts/systems/npc_sleep_manager.gd"
 WorldInterestManager="*res://scripts/systems/world_interest_manager.gd"
 SimDormancyController="*res://scripts/systems/sim_dormancy_controller.gd"
 OccupationSystem="*res://scripts/systems/occupation_system.gd"
+HutWomanWorkPresence="*res://scripts/npc/hut_woman_work_presence.gd"
 HerdManager="*res://scripts/systems/herd_manager.gd"
 BalanceConfig="*res://scripts/config/balance_config.gd"
 ClanBrainTuningConfig="*res://scripts/config/clan_brain_tuning_config.gd"
@@ -81,7 +84,7 @@ window/stretch/filter=false
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/external_edit_sync/plugin.cfg")
+enabled=PackedStringArray("res://addons/external_edit_sync/plugin.cfg", "res://addons/godot_mcp/plugin.cfg")
 
 [input]
 
@@ -117,6 +120,11 @@ toggle_inventory={
 gather={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":32,"location":0,"echo":false,"script":null)
+]
+}
+crouch={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":67,"key_label":0,"unicode":99,"location":0,"echo":false,"script":null)
 ]
 }
 

@@ -28,6 +28,9 @@ func _run() -> void:
 	_test_biome_query()
 	_test_swamp_no_grain()
 	_test_gather_depletes_pool()
+	_test_one_regen_per_slice()
+	_test_rocky_home_gathers_neighbor_food()
+	_test_away_adult_does_not_gather()
 	_test_oven_requires_building()
 	_test_mutation_store_roundtrip()
 	_test_brain_gather_instrumentation()
@@ -133,6 +136,165 @@ func _test_gather_depletes_pool() -> void:
 	claim.queue_free()
 
 
+func _force_pool(ms: Node, chunk: Vector2i, berries: int, cap: int) -> void:
+	var rec: Dictionary = ms.call("get_chunk_record", chunk)
+	rec["abstract_resources"] = {"berries": berries, "stone": 5, "fiber": 5}
+	rec["abstract_resource_caps"] = {"berries": cap, "stone": cap, "fiber": cap}
+	rec.erase("abstract_regen_slice")
+
+
+func _edible_count(inv: InventoryData) -> int:
+	return inv.get_count(ResourceData.ResourceType.BERRIES) \
+		+ inv.get_count(ResourceData.ResourceType.GRAIN) \
+		+ inv.get_count(ResourceData.ResourceType.NUTS) \
+		+ inv.get_count(ResourceData.ResourceType.BUGS)
+
+
+func _test_one_regen_per_slice() -> void:
+	var ms: Node = root.get_node_or_null("/root/MutationStore")
+	var wgc: Node = root.get_node_or_null("/root/WorldGenConfig")
+	if ms == null or wgc == null:
+		_fail("one regen per slice autoloads")
+		return
+	wgc.set("world_seed", 424242)
+	var chunk := Vector2i(12, 12)
+	ms.call("reset_chunk", chunk)
+	ms.call("ensure_abstract_resource_pool", chunk, 424242, wgc)
+	_force_pool(ms, chunk, 1, 80)
+	var roster = SettlementRosterScript.new()
+	roster.clan_name = "REGEN"
+	roster.members = [{"id": 1, "name": "Baby", "type": "baby", "alive": true, "hunger": 50.0, "is_player": false}]
+	var make_claim := func(label: String) -> LandClaim:
+		var inv := InventoryData.new(16, true, 999)
+		var claim := LandClaim.new()
+		claim.clan_name = label
+		claim.inventory = inv
+		claim.global_position = _chunk_claim_position(chunk)
+		root.add_child(claim)
+		return claim
+	var first: LandClaim = make_claim.call("REGEN_A")
+	AbstractGatherScript.gather_for_claim(first, roster, chunk, 150.0, false, 42)
+	var after_first: int = int(ms.call("get_abstract_resource_remaining", chunk, "berries"))
+	var second: LandClaim = make_claim.call("REGEN_B")
+	AbstractGatherScript.gather_for_claim(second, roster, chunk, 150.0, false, 42)
+	var after_second: int = int(ms.call("get_abstract_resource_remaining", chunk, "berries"))
+	if after_first > 1 and after_second == after_first:
+		_pass("two camps regen one chunk once", "%d -> %d" % [after_first, after_second])
+	else:
+		_fail("two camps regen one chunk once", "first=%d second=%d" % [after_first, after_second])
+	first.queue_free()
+	second.queue_free()
+
+
+func _test_rocky_home_gathers_neighbor_food() -> void:
+	var ms: Node = root.get_node_or_null("/root/MutationStore")
+	var wgc: Node = root.get_node_or_null("/root/WorldGenConfig")
+	if ms == null or wgc == null:
+		_fail("rocky ring autoloads")
+		return
+	wgc.set("world_seed", 424242)
+	var gen := ChunkGeneratorScript.new()
+	var home := Vector2i.ZERO
+	var found := false
+	for cx in range(-6, 7):
+		for cy in range(-6, 7):
+			var chunk := Vector2i(cx, cy)
+			if str(gen.call("get_chunk_biome", 424242, chunk, null)) != "rocky":
+				continue
+			for n in AbstractGatherScript.ring_chunks(chunk):
+				var keys: Array = gen.call("get_biome_available_resources", 424242, n, null) as Array
+				if "berries" in keys or "grain" in keys or "nuts" in keys or "bugs" in keys:
+					home = chunk
+					found = true
+					break
+			if found:
+				break
+		if found:
+			break
+	if not found:
+		_fail("rocky home has a food neighbor", "no rocky chunk in scan")
+		return
+	for n in AbstractGatherScript.ring_chunks(home):
+		ms.call("reset_chunk", n)
+	var roster = SettlementRosterScript.new()
+	roster.clan_name = "ROCK"
+	roster.members = [
+		{"id": 1, "name": "A", "type": "clansman", "alive": true, "hunger": 40.0, "is_player": false},
+		{"id": 2, "name": "B", "type": "woman", "alive": true, "hunger": 40.0, "is_player": false},
+	]
+	var inv := InventoryData.new(16, true, 999)
+	var claim := LandClaim.new()
+	claim.clan_name = "ROCK"
+	claim.inventory = inv
+	claim.global_position = _chunk_claim_position(home)
+	root.add_child(claim)
+	var events: Dictionary = AbstractGatherScript.gather_for_claim(claim, roster, home, 30.0, false, 7)
+	if _edible_count(inv) > 0:
+		_pass("rocky home gathers food from the ring", "food=%d biome=%s" % [_edible_count(inv), str(events.get("biome", ""))])
+	else:
+		_fail("rocky home gathers food from the ring", "food=0 biome=%s gathered=%s" % [str(events.get("biome", "")), str(events.get("gathered", []))])
+	claim.queue_free()
+
+
+func _test_away_adult_does_not_gather() -> void:
+	var ms: Node = root.get_node_or_null("/root/MutationStore")
+	var wgc: Node = root.get_node_or_null("/root/WorldGenConfig")
+	if ms == null or wgc == null:
+		_fail("away gather autoloads")
+		return
+	wgc.set("world_seed", 424242)
+	var gen := ChunkGeneratorScript.new()
+	var food_chunks: Array[Vector2i] = []
+	for cx in range(-8, 9):
+		for cy in range(-8, 9):
+			var chunk := Vector2i(cx, cy)
+			var keys: Array = gen.call("get_biome_available_resources", 424242, chunk, null) as Array
+			if "berries" in keys:
+				food_chunks.append(chunk)
+	var home_only := Vector2i(24, 24)
+	var with_away := Vector2i(30, 30)
+	if food_chunks.size() >= 2:
+		home_only = food_chunks[0]
+		for other in food_chunks:
+			if absi(other.x - home_only.x) + absi(other.y - home_only.y) >= 6:
+				with_away = other
+				break
+	for chunk in [home_only, with_away]:
+		for n in AbstractGatherScript.ring_chunks(chunk):
+			ms.call("reset_chunk", n)
+			ms.call("ensure_abstract_resource_pool", n, 424242, wgc)
+			_force_pool(ms, n, 40, 80)
+	var one = SettlementRosterScript.new()
+	one.clan_name = "HOME"
+	one.members = [{"id": 1, "name": "Home", "type": "clansman", "alive": true, "hunger": 40.0, "is_player": false}]
+	var two = SettlementRosterScript.new()
+	two.clan_name = "AWAY"
+	two.members = [
+		{"id": 1, "name": "Home", "type": "clansman", "alive": true, "hunger": 40.0, "is_player": false},
+		{"id": 2, "name": "Gone", "type": "clansman", "alive": true, "hunger": 40.0, "is_player": false, "away": true},
+	]
+	var inv_a := InventoryData.new(16, true, 999)
+	var inv_b := InventoryData.new(16, true, 999)
+	var claim_a := LandClaim.new()
+	claim_a.clan_name = "HOME"
+	claim_a.inventory = inv_a
+	claim_a.global_position = _chunk_claim_position(home_only)
+	root.add_child(claim_a)
+	var claim_b := LandClaim.new()
+	claim_b.clan_name = "AWAY"
+	claim_b.inventory = inv_b
+	claim_b.global_position = _chunk_claim_position(with_away)
+	root.add_child(claim_b)
+	AbstractGatherScript.gather_for_claim(claim_a, one, home_only, 30.0, false, 8)
+	AbstractGatherScript.gather_for_claim(claim_b, two, with_away, 30.0, false, 9)
+	if inv_b.get_count(ResourceData.ResourceType.BERRIES) == inv_a.get_count(ResourceData.ResourceType.BERRIES) and inv_a.get_count(ResourceData.ResourceType.BERRIES) > 0:
+		_pass("away adult does not increase the take", "berries=%d" % inv_a.get_count(ResourceData.ResourceType.BERRIES))
+	else:
+		_fail("away adult does not increase the take", "home=%d away=%d" % [inv_a.get_count(ResourceData.ResourceType.BERRIES), inv_b.get_count(ResourceData.ResourceType.BERRIES)])
+	claim_a.queue_free()
+	claim_b.queue_free()
+
+
 func _test_oven_requires_building() -> void:
 	var roster = SettlementRosterScript.new()
 	roster.clan_name = "BAKE"
@@ -215,7 +377,7 @@ func _test_brain_gather_instrumentation() -> void:
 	claim.clan_brain = brain
 	brain.roster = roster
 	brain.is_dormant = true
-	brain._dormant_eval_timer = 999.0
+	brain._settlement_accum = 30.0
 	var before_items := _inventory_total(inv)
 	brain.dormant_update(0.0)
 	var after_items := _inventory_total(inv)

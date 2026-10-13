@@ -585,8 +585,9 @@ func _evaluate_states() -> void:
 	if current_state_name == "flee_combat":
 		return
 	
-	# If currently in idle, check if idle duration has passed
-	if current_state_name == "idle":
+	# If currently in idle, check if idle duration has passed.
+	# Clansmen and cavemen are never allowed to stay: a baby can grow up still in idle.
+	if current_state_name == "idle" and npc_type_str != "clansman" and npc_type_str != "caveman":
 		var idle_state: Node = _get_state("idle")
 		if idle_state:
 			# Check if properties exist by trying to access them
@@ -768,6 +769,9 @@ func _evaluate_states() -> void:
 	# Priority caching: get current state priority, build sorted candidate list, evaluate in order with early exit
 	var current_priority: float = _get_cached_priority(current_state_name, current_state_node)
 	best_priority = current_priority  # So we don't fall back to wander when already in high-priority state
+	if current_state_name == "idle" and (npc_type_str == "caveman" or npc_type_str == "clansman"):
+		current_priority = -1.0
+		best_priority = -1.0
 	
 	# Build candidate state names (pass npc_type skips)
 	var candidates: Array[String] = []
@@ -799,6 +803,8 @@ func _evaluate_states() -> void:
 				continue
 			if state_name == "defend":
 				continue  # Handled by directive above, not work priority
+			if state_name == "idle" and (npc_type_str == "caveman" or npc_type_str == "clansman"):
+				continue
 			if state_name == "hunt" and npc_type_str != "caveman" and npc_type_str != "clansman":
 				continue
 			if state_name == "search" and npc_type_str != "caveman" and npc_type_str != "clansman":
@@ -913,8 +919,8 @@ func _evaluate_states() -> void:
 	if in_craft_and_busy and best_state != "combat":
 		best_state = current_state_name
 
-	# Production work lock: only defend/combat may interrupt an active delivery/pickup job
-	if in_production_work_and_busy and best_state != "combat" and best_state != "defend":
+	# Production work lock: only combat and flee may interrupt a specialty-hut carry.
+	if in_production_work_and_busy and best_state != "combat" and best_state != "flee_combat":
 		best_state = current_state_name
 
 	# Gather lock: only defend/combat may interrupt an active gather job (herd_wildnpc must wait)
@@ -1099,6 +1105,12 @@ func change_state(new_state_name: String, bypass_reenter_check: bool = false) ->
 	if not bypass_reenter_check and new_state_name != "flee_combat":
 		var nb_until: float = float(_state_reenter_not_before.get(new_state_name, 0.0))
 		if nb_until > now_clock:
+			return
+
+	# Direct change_state bypasses _evaluate_states; hunt must still honor can_enter (loot is gather, not hunt).
+	if new_state_name == "hunt":
+		var hunt_chk: Node = _get_state("hunt")
+		if hunt_chk and hunt_chk.has_method("can_enter") and not hunt_chk.can_enter():
 			return
 
 	# Direct change_state (e.g. npc_base._start_herd) bypasses _evaluate_states; must still honor can_enter.

@@ -1,5 +1,5 @@
 class_name WalkAnimation
-# walk.png / clubwalk / spearwalk: frame 0 = idle with that gear; slice cells by COLS×ROWS below.
+# walk.png / clubwalk: frame 0 = idle with that gear; slice cells by COLS×ROWS below.
 # walk.png: 11 frames (0 = idle, 1–10 = walk). clubwalk.png: 11 frames (0 = idle, 1–10 = walk).
 
 const WALK_SHEET_PATH := "res://assets/sprites/walk.png"
@@ -290,22 +290,15 @@ static func apply_goat_walk_frame_by_index(sprite: Sprite2D, walk_index: int) ->
 		var frame_index := 1 + (walk_index % GOAT_WALK_FRAMES)
 		apply_goat_frame(sprite, sheet, frame_index)
 
-# --- Spear (spearwalk.png): 9 tiles, 3 cols x 3 rows (sheet e.g. 1500×1500 → 500×500/cell).
-# Frame 0 = spear idle; walk loop uses sheet frames 1–8. ---
-
-const SPEAR_WALK_SHEET_PATH := "res://assets/sprites/spearwalk.png"
+# Old spearwalk.png sheet is gone. These helpers stay so old call sites no-op.
 const SPEAR_COLS := 3
 const SPEAR_ROWS := 3
 const SPEAR_TOTAL_FRAMES := 9   # 0 = idle, 1–8 = walk
 const SPEAR_WALK_FRAMES := 8
 const SPEAR_WALK_FPS := 7.0
 
-static var _cached_spear_sheet: Texture2D = null
-
 static func get_spear_walk_sheet() -> Texture2D:
-	if _cached_spear_sheet == null:
-		_cached_spear_sheet = load(SPEAR_WALK_SHEET_PATH) as Texture2D
-	return _cached_spear_sheet
+	return null
 
 static func get_spear_frame_size(sheet: Texture2D) -> Vector2:
 	if not sheet:

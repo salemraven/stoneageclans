@@ -4,6 +4,7 @@ extends "res://scripts/npc/states/base_state.gd"
 # For cavemen: Also handles automatic land claim placement
 
 const _RTS_FORM_CFG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
+const _TerritoryJobService = preload("res://scripts/systems/territory_job_service.gd")
 
 var wander_radius: float = 300.0  # Increased wander radius
 
@@ -425,7 +426,18 @@ func update(delta: float) -> void:
 						npc.remove_meta("is_depositing")
 					if npc.steering_agent and npc.steering_agent.has_method("restore_original_speed"):
 						npc.steering_agent.restore_original_speed()
+					var arrived: Dictionary = _TerritoryJobService.next_job(land_claim, npc)
+					_TerritoryJobService.apply_assignment(npc, arrived)
 					return
+		var walk_kind: String = str(npc.get_meta("next_job_kind", ""))
+		if walk_kind == "chunk" or walk_kind == "deliver":
+			var walk_pos: Variant = npc.get_meta("next_job_pos", null)
+			if walk_pos is Vector2 and npc.steering_agent and npc.steering_agent.has_method("set_arrive_target"):
+				npc.steering_agent.set_arrive_target(walk_pos)
+				if walk_kind == "chunk" and npc.global_position.distance_to(walk_pos) <= 160.0:
+					var arrived_chunk: Dictionary = _TerritoryJobService.next_job(land_claim, npc)
+					_TerritoryJobService.apply_assignment(npc, arrived_chunk)
+				return
 		
 		# PRODUCTIVITY RULE: Force re-evaluate quickly when NOT moving to deposit - cavemen must exit wander ASAP
 		if not npc.has_meta("moving_to_deposit"):

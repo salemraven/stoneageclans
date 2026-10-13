@@ -191,6 +191,9 @@ func _setup_tree_from_sheet() -> void:
 	var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
 	sprite.scale = Vector2(1.15, 1.15) * wps
 	sprite.position = YSortUtils.get_tree_sprite_position_for_cell_height(cell_h, sprite.scale.y)
+	if YSortUtils:
+		sprite.z_as_relative = false
+		YSortUtils.update_tree_draw_order(sprite, self, tex)
 
 func _setup_visuals() -> void:
 	# Use sprite files for each resource type
@@ -461,6 +464,24 @@ func _enter_cooldown_state() -> void:
 	cooldown_start_time = Time.get_ticks_msec() / 1000.0
 	_update_cooldown_visual()
 	_schedule_cooldown_expiry()
+	if MutationStore and MutationStore.has_method("note_visible_harvest"):
+		MutationStore.note_visible_harvest(self, _pool_key_for_type())
+
+
+func _pool_key_for_type() -> String:
+	match resource_type:
+		ResourceData.ResourceType.WOOD:
+			return "wood"
+		ResourceData.ResourceType.STONE:
+			return "stone"
+		ResourceData.ResourceType.BERRIES:
+			return "berries"
+		ResourceData.ResourceType.WHEAT:
+			return "grain"
+		ResourceData.ResourceType.FIBER:
+			return "fiber"
+		_:
+			return ""
 
 
 func _schedule_cooldown_expiry() -> void:
@@ -530,13 +551,14 @@ func _setup_collection_progress() -> void:
 			offset_y = -sprite.texture.get_height() / 2.0 - 40.0
 		collection_progress.position = Vector2(0, offset_y)
 		collection_progress.z_as_relative = false
-		collection_progress.z_index = YSortUtils.Z_ABOVE_WORLD  # Above Y-sorted sprite
 		add_child(collection_progress)
 		collection_progress.visible = false
 
 func _process(_delta: float) -> void:
 	if LagProfiler and LagProfiler.is_enabled():
 		LagProfiler.record_gatherable_process()
+	if collection_progress and collection_progress.visible and YSortUtils:
+		YSortUtils.update_world_timer_draw_order(collection_progress)
 	if gathered:
 		return
 	var main: Node = get_tree().get_first_node_in_group("main")

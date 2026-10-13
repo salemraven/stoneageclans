@@ -30,7 +30,7 @@ static func _initialize_buildings() -> void:
 		ResourceData.ResourceType.LIVING_HUT,
 		"Living Hut",
 		"Provides +5 Baby Pool.",
-		"res://assets/sprites/hut.png",
+		"res://assets/buildings/living hut1.png",
 		{"wood": 1, "stone": 1}  # Testing cost: 1 wood, 1 stone
 	))
 	
@@ -88,10 +88,29 @@ static func _initialize_buildings() -> void:
 		{"wood": 1, "stone": 1}
 	))
 
-# Get all building definitions
+const MENU_HIDDEN: Array[int] = [
+	ResourceData.ResourceType.OVEN,
+	ResourceData.ResourceType.FARM,
+	ResourceData.ResourceType.DAIRY_FARM,
+	ResourceData.ResourceType.DRYING_RACK,
+]
+
+
+# Get all building definitions, including ones no longer offered in the menu.
 static func get_all_buildings() -> Array[BuildingData]:
 	_initialize_buildings()
 	return _buildings
+
+
+# Player build menu. Old oven, farm, dairy, and drying rack stay in get_all_buildings.
+static func get_menu_buildings() -> Array[BuildingData]:
+	_initialize_buildings()
+	var out: Array[BuildingData] = []
+	for building in _buildings:
+		if int(building.building_type) in MENU_HIDDEN:
+			continue
+		out.append(building)
+	return out
 
 # Get building data by type
 static func get_building(type: ResourceData.ResourceType) -> BuildingData:

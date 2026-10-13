@@ -41,6 +41,12 @@ func enter() -> void:
 		return
 	_cancel_tasks_if_active()
 	_find_clan_brain()
+	if clan_brain and clan_brain.has_method("is_hunt_looting") and clan_brain.is_hunt_looting():
+		var rej_name: String = str(npc.get("npc_name")) if npc.get("npc_name") != null else str(npc.name)
+		print("HUNT_LOOT_REJOIN clan=%s name=%s" % [str(clan_brain.get("clan_name")), rej_name])
+		if fsm:
+			fsm.change_state("gather", true)
+		return
 	if not clan_brain:
 		if fsm:
 			fsm.change_state("wander")
@@ -401,6 +407,8 @@ func can_enter() -> bool:
 	if not clan_brain or not clan_brain.has_method("is_hunting"):
 		return false
 	if not clan_brain.is_hunting():
+		return false
+	if clan_brain.has_method("is_hunt_looting") and clan_brain.is_hunt_looting():
 		return false
 	if clan_brain.has_method("should_npc_hunt") and not clan_brain.should_npc_hunt(npc):
 		return false

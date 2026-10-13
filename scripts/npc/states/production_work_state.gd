@@ -4,6 +4,9 @@ extends "res://scripts/npc/states/base_state.gd"
 ## Pulls WorkRequests from territory ClanBrain; uses TaskRunner for multi-step jobs.
 
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
+const HutCarryScript = preload("res://scripts/buildings/hut_carry.gd")
+const HutCarryTaskScript = preload("res://scripts/ai/tasks/hut_carry_task.gd")
+const HutSpecialtyCarryScript = preload("res://scripts/buildings/hut_specialty.gd")
 
 var work_request: Dictionary = {}
 var _brain: RefCounted = null
@@ -17,6 +20,10 @@ const START_RETRY_SEC: float = 0.75
 
 
 func enter() -> void:
+	if npc:
+		var shown := npc.get_node_or_null("Sprite")
+		if shown:
+			shown.visible = true
 	_brain = _get_clan_brain()
 	_job_started = false
 	_start_attempts = 0
@@ -34,8 +41,16 @@ func enter() -> void:
 func exit() -> void:
 	if npc and npc.get_node_or_null("Sprite"):
 		npc.get_node("Sprite").visible = true
+	var nxt := ""
+	if npc and npc.has_meta("fsm_next_state"):
+		nxt = str(npc.get_meta("fsm_next_state"))
+	if npc and (nxt == "combat" or nxt == "flee_combat"):
+		npc.set_meta("hut_carry_destroy", true)
+		HutCarryScript.destroy_hands(npc)
 	if npc and npc.task_runner and npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
 		npc.task_runner.cancel_current_job("production_work_exit")
+	if npc and npc.has_meta("hut_carry_destroy"):
+		npc.remove_meta("hut_carry_destroy")
 	if _brain and not work_request.is_empty():
 		var state: String = work_request.get("state", "")
 		if state != "COMPLETED" and (_job_started or _has_active_job()):
@@ -50,9 +65,6 @@ func exit() -> void:
 
 func update(_delta: float) -> void:
 	if not npc or npc.is_dead():
-		return
-	if npc.should_abort_work():
-		_release_and_wander("abort_work")
 		return
 	if _has_active_job():
 		_job_started = true
@@ -129,6 +141,13 @@ func _try_start_job() -> bool:
 	var claim := _get_territory()
 	if not claim:
 		return false
+	if _is_hut_carry(building):
+		var carry := HutCarryTaskScript.new(building, claim)
+		var carry_job := Job.new([carry])
+		carry_job.building = building
+		npc.task_runner.assign_job(carry_job)
+		_job_started = true
+		return true
 	var chain_id: String = work_request.get("chain_id", "")
 	var chain: Resource = ProductionChainRegistry.get_chain(chain_id) if ProductionChainRegistry else null
 	if chain == null:
@@ -144,6 +163,14 @@ func _try_start_job() -> bool:
 		_job_started = true
 		return true
 	return false
+
+
+func _is_hut_carry(building: Node) -> bool:
+	if building == null or not is_instance_valid(building):
+		return false
+	if int(building.get("building_type")) != int(ResourceData.ResourceType.LIVING_HUT):
+		return false
+	return HutSpecialtyCarryScript.is_known(str(building.get("hut_specialty")))
 
 
 func _release_and_wander(reason: String) -> void:

@@ -226,6 +226,13 @@ static func apply_stone_overlay_scale(body_sprite: Sprite2D, overlay: Sprite2D) 
 	overlay.scale = Vector2(local_s, local_s)
 
 
+## Woman hut-carry icon in hand: same rules as stone, then 2× visual size.
+static func apply_carry_hold_overlay_scale(body_sprite: Sprite2D, overlay: Sprite2D) -> void:
+	apply_stone_overlay_scale(body_sprite, overlay)
+	if overlay != null:
+		overlay.scale *= 2.0
+
+
 static func _store_overlay_local(body_sprite: Sprite2D, overlay: Sprite2D) -> void:
 	var stored: Vector2 = overlay.position
 	if body_sprite.flip_h:

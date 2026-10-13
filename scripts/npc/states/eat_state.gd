@@ -197,9 +197,12 @@ func update(delta: float) -> void:
 						food_types_to_check = ResourceData.EDIBLE_FOOD_TYPES
 					
 					for food_type in food_types_to_check:
-						if ResourceData.is_food(food_type):
-							var count: int = claim_inventory.get_count(food_type)
-							if count > 0:
+						var sheep_food: bool = npc_type_check == "sheep" or npc_type_check == "goat"
+						if not sheep_food and not ResourceData.is_food(food_type):
+							continue
+						var reserved_eat: int = int(my_claim.get_reserved_count(food_type)) if my_claim.has_method("get_reserved_count") else 0
+						var count: int = claim_inventory.get_count(food_type) - reserved_eat
+						if count > 0:
 								var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
 								if nutrient > best_nutrient:
 									best_nutrient = nutrient
@@ -457,7 +460,8 @@ func can_enter() -> bool:
 						if npc_type_check == "sheep" or npc_type_check == "goat":
 							# Check for grain or berries (prioritize by nutrients: grain > berries)
 							for food_type in [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]:
-								if ResourceData.is_food(food_type) and claim_inventory.get_count(food_type) > 0:
+								var reserved_enter: int = int(claim.get_reserved_count(food_type)) if claim.has_method("get_reserved_count") else 0
+								if claim_inventory.get_count(food_type) - reserved_enter > 0:
 									var food_name: String = ResourceData.get_resource_name(food_type)
 									UnifiedLogger.log_npc("Can enter check: %s can enter eat (food_in_storage)" % npc_name, {
 										"npc": npc_name,

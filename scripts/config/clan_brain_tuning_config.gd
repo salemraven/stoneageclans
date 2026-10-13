@@ -42,6 +42,21 @@ var food_critical_block_luxury_milestones: bool = true
 # --- FSM bias when STARVING (gather beats far-target herd search) ---
 var starving_gather_priority_boost: float = 0.4
 
+# --- Raid motives (overridable per clan via ClanBrain._raid_tuning_override) ---
+var raid_hunger_days: float = 1.0
+var raid_grudge_sec: float = 600.0
+var raid_restless_quiet_sec: float = 300.0
+var raid_restless_quiet_warlike_sec: float = 120.0
+var raid_restless_morale: float = 70.0
+var raid_restless_morale_warlike: float = 50.0
+var raid_restless_pantry_days: float = 3.0
+var raid_thin_morale_min: float = 50.0
+var raid_thin_enemy_max_fraction: float = 0.5
+var raid_motive_min_morale: float = 30.0
+var raid_take_women_count: int = 1
+var raid_weaken_kills: int = 2
+var raid_defender_interrupt_radius: float = 200.0
+
 
 func _ready() -> void:
 	sync_defaults_from_balance_config()
@@ -108,6 +123,40 @@ func get_hunt_allow_solo_when_food_critical() -> bool:
 
 func get_hunt_solo_food_buffer_days() -> float:
 	return maxf(hunt_solo_food_buffer_days, 0.05)
+
+
+func get_raid_hunger_days() -> float:
+	return maxf(raid_hunger_days, 0.05)
+
+
+func get_raid_grudge_sec() -> float:
+	return maxf(raid_grudge_sec, 1.0)
+
+
+func get_raid_weaken_kills() -> int:
+	return maxi(raid_weaken_kills, 1)
+
+
+func get_raid_take_women_count() -> int:
+	return maxi(raid_take_women_count, 1)
+
+
+func get_raid_tune_snapshot() -> Dictionary:
+	return {
+		"raid_hunger_days": get_raid_hunger_days(),
+		"raid_grudge_sec": get_raid_grudge_sec(),
+		"raid_restless_quiet_sec": maxf(raid_restless_quiet_sec, 1.0),
+		"raid_restless_quiet_warlike_sec": maxf(raid_restless_quiet_warlike_sec, 1.0),
+		"raid_restless_morale": raid_restless_morale,
+		"raid_restless_morale_warlike": raid_restless_morale_warlike,
+		"raid_restless_pantry_days": maxf(raid_restless_pantry_days, 0.5),
+		"raid_thin_morale_min": raid_thin_morale_min,
+		"raid_thin_enemy_max_fraction": clampf(raid_thin_enemy_max_fraction, 0.1, 1.0),
+		"raid_motive_min_morale": raid_motive_min_morale,
+		"raid_take_women_count": get_raid_take_women_count(),
+		"raid_weaken_kills": get_raid_weaken_kills(),
+		"raid_defender_interrupt_radius": maxf(raid_defender_interrupt_radius, 40.0),
+	}
 
 
 ## Schema for DevBalanceMenu code generation (label, property, type, min, max, step).

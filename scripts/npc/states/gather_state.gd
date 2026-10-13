@@ -2,6 +2,7 @@ extends "res://scripts/npc/states/base_state.gd"
 
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
+const _TerritoryJobService = preload("res://scripts/systems/territory_job_service.gd")
 
 # SIMPLIFIED GATHER STATE - Clean flow: Gather → Check → Exit if needed → Repeat
 # Flow: Find target → Move to target → Gather → Check inventory → Exit if 80%+ full → Repeat
@@ -86,35 +87,21 @@ func update(_delta: float) -> void:
 				fsm.change_state("herd")
 		return
 	
-	# Job-only: require job; TaskRunner handles execution
+	# No task runner still gets a destination. Standing is not a gather result.
 	if not npc.task_runner or not npc.task_runner.has_method("has_job"):
-		if fsm and fsm.has_method("force_evaluation"):
-			fsm.force_evaluation()
+		_assign_next_job()
 		return
 	if not npc.task_runner.has_job():
-		var now: float = Time.get_ticks_msec() / 1000.0
-		# Job ended/cancelled while still in gather state — clear frozen gather visuals
 		if npc.get("is_gathering") == true or (npc.progress_display and npc.progress_display.is_collecting()):
 			npc.set("is_gathering", false)
 			if npc.progress_display:
 				npc.progress_display.stop_collection(false)
-		if now < _no_gather_job_backoff_until:
-			return
-		if now - _last_target_search_time < SEARCH_THROTTLE:
-			return
-		_last_target_search_time = now
 		if is_complete():
 			if fsm and fsm.has_method("change_state"):
 				fsm.change_state("wander")
 			return
-		if _try_pull_gather_job():
-			return
-		_no_job_retry_time = now + NO_JOB_RETRY_SEC
-		# No work available — leave gather instead of force_eval spam (GUAT/YUUP loop in console.md)
-		if fsm and fsm.has_method("change_state"):
-			fsm.change_state("wander")
-		elif fsm and fsm.has_method("force_evaluation"):
-			fsm.force_evaluation()
+		_assign_next_job()
+		return
 
 func can_enter() -> bool:
 	# Dead NPCs can't gather
@@ -291,13 +278,8 @@ func _try_pull_gather_job() -> bool:
 	if is_complete():
 		return false
 	
-	# Check if NPC has TaskRunner
-	if not npc.task_runner:
+	if npc.task_runner and npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
 		return false
-	
-	# Check if TaskRunner is idle (no current job)
-	if npc.task_runner.has_method("has_job") and npc.task_runner.has_job():
-		return false  # Already has a job
 	if npc.has_method("should_abort_work") and npc.should_abort_work():
 		return false
 	
@@ -316,27 +298,43 @@ func _try_pull_gather_job() -> bool:
 			_no_gather_job_backoff_until = -999.0
 			return true
 	
-	# Try to generate gather job
-	if not land_claim.has_method("generate_gather_job"):
-		return false
-	
-	var job: Job = land_claim.generate_gather_job(npc)
-	if not job:
-		_no_gather_job_backoff_until = Time.get_ticks_msec() / 1000.0 + NO_GATHER_JOB_BACKOFF_SEC
-		return false  # No job available
-	
-	_no_gather_job_backoff_until = -999.0
-	# Assign job to TaskRunner
-	if npc.task_runner.has_method("assign_job"):
-		npc.task_runner.assign_job(job)
+	var assignment: Dictionary = _TerritoryJobService.next_job(land_claim, npc)
+	_TerritoryJobService.apply_assignment(npc, assignment)
+	var kind: String = str(assignment.get("kind", "none"))
+	if kind == "gather":
 		UnifiedLogger.log_npc("GATHER_JOB: %s pulled gather job from land claim" % npc.npc_name, {
 			"npc": npc.npc_name,
 			"task": "gather_job_pulled",
 			"clan": npc.get_clan_name()
 		})
-		return true
-	
-	return false
+	return kind != "" and kind != "none"
+
+
+func _assign_next_job() -> void:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - _last_target_search_time < SEARCH_THROTTLE:
+		_hold_next_job_steer()
+		return
+	_last_target_search_time = now
+	if not npc:
+		return
+	var claim: Node2D = npc.get_my_land_claim() as Node2D if npc.has_method("get_my_land_claim") else null
+	if claim == null:
+		_hold_next_job_steer()
+		return
+	var assignment: Dictionary = _TerritoryJobService.next_job(claim, npc)
+	_TerritoryJobService.apply_assignment(npc, assignment)
+
+
+func _hold_next_job_steer() -> void:
+	if not npc:
+		return
+	var kind: String = str(npc.get_meta("next_job_kind", ""))
+	if kind != "chunk" and kind != "deliver":
+		return
+	var pos: Variant = npc.get_meta("next_job_pos", null)
+	if pos is Vector2 and npc.steering_agent and npc.steering_agent.has_method("set_arrive_target"):
+		npc.steering_agent.set_arrive_target(pos)
 
 func get_data() -> Dictionary:
 	var data: Dictionary = {"has_target": false}

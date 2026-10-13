@@ -169,6 +169,21 @@ static func _build_morphology(preset: WeaponLimbPreset, rig: LimbTunerRig) -> Di
 			out["body_neck_socket_px"] = _vec2_array(layout.body_neck_socket_px)
 			out["head_pivot_px"] = _vec2_array(layout.head_pivot_px)
 			out["body_offset_px"] = _vec2_array(layout.body_offset_px)
+			var clothing := {}
+			if rig.has_method("clothing_receipt_fields"):
+				clothing = rig.clothing_receipt_fields()
+			if clothing.is_empty():
+				clothing = {
+					"clothing_style": 0,
+					"clothing_texture": "res://assets/character_cards/clothing/hide.png",
+					"clothing_offset_px": layout.clothing_offset_px,
+					"clothing_scale_mul": layout.clothing_scale_mul,
+				}
+			var clothing_offset: Vector2 = clothing.get("clothing_offset_px", Vector2.ZERO)
+			out["clothing_style"] = int(clothing.get("clothing_style", 0))
+			out["clothing_texture"] = str(clothing.get("clothing_texture", ""))
+			out["clothing_offset_px"] = _vec2_array(clothing_offset)
+			out["clothing_scale_mul"] = float(clothing.get("clothing_scale_mul", 1.0))
 		if rig.has_method("get_mannequin_layout"):
 			var mannequin = rig.get("_mannequin_layout")
 			if mannequin != null:

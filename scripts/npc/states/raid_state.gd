@@ -164,29 +164,51 @@ func _update_moving(_delta: float) -> void:
 		print("⚔️ RAID_STATE: %s arrived at target, engaging" % npc.npc_name)
 
 func _update_engaging(_delta: float) -> void:
-	"""Engage enemies at the target. Combat state will take over if we find targets."""
-	# Look for enemies to fight
+	"""Work the raid goal at the camp. Nearby defenders interrupt; do not wipe the camp."""
 	var raid_target = clan_brain.raid_intent.get("target") if clan_brain else null
 	if not raid_target or not is_instance_valid(raid_target):
 		_emit_raid_abort_if_needed("raid_target_invalid")
 		raid_phase = RaidPhase.RETREATING
 		return
-	
+
+	var intent: Dictionary = clan_brain.get_raid_intent() if clan_brain.has_method("get_raid_intent") else {}
+	var goal: String = str(intent.get("goal", ""))
 	var enemy_clan: String = raid_target.get("clan_name") if "clan_name" in raid_target else ""
-	
-	# Find nearest enemy
-	var nearest_enemy: Node = _find_nearest_enemy(enemy_clan, raid_target.global_position, raid_target.radius * 1.5)
-	
+
+	var interrupt_radius: float = 200.0
+	if clan_brain.has_method("_raid_tune"):
+		interrupt_radius = float(clan_brain._raid_tune("raid_defender_interrupt_radius"))
+	elif ClanBrainTuningConfig:
+		interrupt_radius = float(ClanBrainTuningConfig.raid_defender_interrupt_radius)
+
+	var nearest_enemy: Node = _find_nearest_enemy(enemy_clan, npc.global_position, interrupt_radius)
 	if nearest_enemy:
-		# Set combat target - FSM will transition to combat state
 		npc.set("combat_target", nearest_enemy)
 		npc.set("agro_meter", 100.0)
-		# Combat state has higher priority (9.0 > 8.5), will take over
-	else:
-		# No enemies - stay at target or retreat
-		var target_pos: Vector2 = raid_target.global_position
+		return
+
+	var building_target: Variant = intent.get("building_target")
+	if building_target != null and is_instance_valid(building_target):
+		if goal == "take_women" or goal == "take_animals":
+			npc.set("combat_target", building_target)
+			npc.set("agro_meter", 100.0)
+			return
+
+	if goal == "weaken":
+		var hunt: Node = _find_nearest_enemy(enemy_clan, npc.global_position, interrupt_radius * 1.5)
+		if hunt:
+			npc.set("combat_target", hunt)
+			npc.set("agro_meter", 100.0)
+			return
+
+	if goal == "food":
 		if npc.steering_agent:
-			npc.steering_agent.set_target_position(target_pos)
+			npc.steering_agent.set_target_position(raid_target.global_position)
+		return
+
+	var target_pos: Vector2 = raid_target.global_position
+	if npc.steering_agent:
+		npc.steering_agent.set_target_position(target_pos)
 
 func _update_retreating(_delta: float) -> void:
 	"""Return home."""

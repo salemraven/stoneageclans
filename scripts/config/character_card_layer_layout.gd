@@ -25,3 +25,24 @@ class_name CharacterCardLayerLayout
 ## Attach point on HeadPivot (head-local) where `hair_pivot_px` is pinned — drag R pin in tuner.
 ## Stored east-facing; X mirrors automatically when travel facing is left.
 @export var hair_attach_local_px: Vector2 = Vector2(0.0, -265.0)
+
+## Spotted tunic. Receipt 2026-10-11T13:13:27. Slide from the neck pin.
+@export var clothing_offset_px: Vector2 = Vector2(61.2, 39.17)
+
+## 1 = the measured fit on the body. The tuner size slider changes this.
+@export var clothing_scale_mul: float = 1.35
+
+## Fur cloak (hide2). Receipt 2026-10-11T14:51:08. Slide from the neck pin.
+@export var clothing2_offset_px: Vector2 = Vector2(-14.29, -36.46)
+
+@export var clothing2_scale_mul: float = 1.2
+
+## Tooth harness (hide3). Receipt 2026-10-11T15:30:53. Slide from the neck pin.
+@export var clothing3_offset_px: Vector2 = Vector2(-7.34, -46.51)
+
+@export var clothing3_scale_mul: float = 1.1
+
+## Woven fiber vest (fiber1). Receipt 2026-10-11T16:11:56. Slide from the neck pin.
+@export var clothing4_offset_px: Vector2 = Vector2(-9.79, -34.27)
+
+@export var clothing4_scale_mul: float = 1.2

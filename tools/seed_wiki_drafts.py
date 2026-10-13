@@ -580,7 +580,18 @@ def render_system(slug: str, title: str, blurb: str, keys: list) -> str:
 
 
 # Pages edited by hand (extended sections). Seed skips these so `python tools/seed_wiki_drafts.py` does not wipe them.
-HAND_MAINTAINED = frozenset({"clan-brain", "morale-bar-clan", "morale-bar-fighter"})
+HAND_MAINTAINED = frozenset({
+    "clan-brain",
+    "morale-bar-clan",
+    "morale-bar-fighter",
+    "raid",
+    "steal-take-herd",
+    "loot-take-goods",
+    "kill-attack-men",
+    "wipe-burn-flag",
+    "territory-wipe",
+    "cordage",
+})
 
 
 def main() -> None:

@@ -9,6 +9,24 @@ const PartsRegistry = preload("res://scripts/config/character_card_parts_registr
 const BODY_DRAW_Z_INDEX := 1
 const HEAD_DRAW_Z_INDEX := 2
 const WEAPON_DRAW_Z_INDEX := 3
+## Style 0 hide tunic, 1 fur cloak, 2 tooth harness, 3 fiber vest.
+## Notch is the pin on the garment (image pixels). Width is the opaque span.
+const HIDE_STYLE_PATHS := [
+	"res://assets/character_cards/clothing/hide.png",
+	"res://assets/character_cards/clothing/hide2.png",
+	"res://assets/character_cards/clothing/hide3.png",
+	"res://assets/character_cards/clothing/fiber1.png",
+]
+const HIDE_STYLE_NOTCH := [
+	Vector2(1524.0, 1049.0),
+	Vector2(1173.0, 784.0),
+	Vector2(1209.0, 749.0),
+	Vector2(1191.0, 727.0),
+]
+const HIDE_STYLE_OPAQUE_W := [2291.0, 1892.0, 1826.0, 1885.0]
+const HIDE3_CLOTHING_STYLE := 2
+const BODY_OPAQUE_WIDTH := 343.0
+const HIDE_CLOTHING_PATH := "res://assets/character_cards/clothing/hide.png"
 ## Hair front on HeadPivot — above HeadSprite (0), below future hat layer.
 const HAIR_FRONT_Z_INDEX := 1
 const HAT_DRAW_Z_INDEX := 2
@@ -19,6 +37,8 @@ const HAT_DRAW_Z_INDEX := 2
 var _layout
 var _layer_layout: CharacterCardLayerLayout
 var _body_sprite: Sprite2D
+var _clothing_sprite: Sprite2D
+var _clothing_style: int = 0
 var _head_pivot: Node2D
 var _head_sprite: Sprite2D
 var _hair_sprite: Sprite2D
@@ -29,6 +49,7 @@ var _body_tex: Texture2D
 var _death_active := false
 var _body_build_scale := Vector2.ONE
 var _head_build_scale := Vector2.ONE
+var _crouch_active := false
 
 
 func _ready() -> void:
@@ -82,6 +103,9 @@ func apply_tuner_draw_layers() -> void:
 	if _body_sprite:
 		_body_sprite.z_as_relative = false
 		_body_sprite.z_index = BODY_DRAW_Z_INDEX
+	if _clothing_sprite:
+		_clothing_sprite.z_as_relative = false
+		_clothing_sprite.z_index = BODY_DRAW_Z_INDEX
 	if _head_pivot:
 		_head_pivot.z_as_relative = false
 		_head_pivot.z_index = HEAD_DRAW_Z_INDEX
@@ -100,6 +124,9 @@ func apply_runtime_draw_layers() -> void:
 	if _body_sprite:
 		_body_sprite.z_as_relative = true
 		_body_sprite.z_index = BODY_DRAW_Z_INDEX
+	if _clothing_sprite:
+		_clothing_sprite.z_as_relative = true
+		_clothing_sprite.z_index = BODY_DRAW_Z_INDEX
 	if _head_pivot:
 		_head_pivot.z_as_relative = true
 		_head_pivot.z_index = HEAD_DRAW_Z_INDEX
@@ -197,6 +224,7 @@ func _apply_layer_facing_flips() -> void:
 	var facing_left := _facing_left()
 	if _body_sprite:
 		_body_sprite.flip_h = facing_left
+	_apply_clothing_transform()
 	if _head_sprite:
 		_head_sprite.flip_h = _resolve_head_sprite_flip_h()
 	if _hair_sprite:
@@ -292,19 +320,20 @@ func is_facing_right() -> bool:
 	return not _facing_left()
 
 
-func set_walk_state(moving: bool, bounce_time: float, direction: int) -> void:
+func set_walk_state(moving: bool, bounce_time: float, direction: int, motion_scale: float = 1.0) -> void:
 	if _death_active:
 		return
 	_apply_facing(direction > 0)
 	var tilt_sign := -1.0 if direction < 0 else 1.0
 	var bob: float = _layout.head_bob_local() if _layout else 2.5
+	var m: float = clampf(motion_scale, 0.15, 1.0)
 	if moving:
 		var hop := CardVisualController.walk_bounce_hop_factor(bounce_time)
 		var hop_dir := signf(sin(bounce_time))
 		if hop_dir == 0.0:
 			hop_dir = tilt_sign
-		_apply_torso_sway(hop * hop_dir * 0.11 * tilt_sign)
-		_head_bob_y = -CardVisualController.walk_bounce_hop_factor(bounce_time - 0.28) * bob
+		_apply_torso_sway(hop * hop_dir * 0.11 * tilt_sign * m)
+		_head_bob_y = -CardVisualController.walk_bounce_hop_factor(bounce_time - 0.28) * bob * m
 		sync_head_draw_transform()
 	else:
 		clear_motion_state()
@@ -323,11 +352,47 @@ func set_gather_state(bend_rad: float, head_forward_local: float) -> void:
 	sync_head_draw_transform()
 
 
+## Low crouch — torso bent, head tucked (tall-grass hide).
+func set_crouch_state(active: bool, moving: bool = false, bounce_time: float = 0.0, direction: int = 1) -> void:
+	if _death_active:
+		return
+	if not active:
+		if _crouch_active:
+			_crouch_active = false
+			clear_motion_state()
+		return
+	_crouch_active = true
+	var tilt_sign := -1.0 if direction < 0 else 1.0
+	_apply_facing(direction > 0)
+	var bend: float = 0.48 if moving else 0.42
+	_apply_torso_sway(bend * tilt_sign)
+	var tuck: float = 14.0
+	var sink: float = 10.0
+	if _layout:
+		tuck = _layout.display_to_local(20.0)
+		sink = _layout.display_to_local(12.0)
+	if moving:
+		var hop := CardVisualController.walk_bounce_hop_factor(bounce_time) * 0.35
+		sink += hop * 2.0
+		_head_bob_y = tuck + hop * 3.0
+	else:
+		_head_bob_y = tuck
+	position.y = sink
+	scale = Vector2(0.94, 0.86)
+	sync_head_draw_transform()
+
+
+func is_crouch_active() -> bool:
+	return _crouch_active
+
+
 func clear_motion_state() -> void:
 	if _death_active:
 		return
+	_crouch_active = false
 	rotation = 0.0
 	position = Vector2.ZERO
+	scale = Vector2.ONE
 	_head_bob_y = 0.0
 	var sprite_root := _card_sprite_root()
 	_look_right = not sprite_root.flip_h if sprite_root else true
@@ -360,8 +425,9 @@ func _apply_body_build_to_sprites() -> void:
 	var sy: float = _body_build_scale.y
 	_body_sprite.scale = _body_build_scale
 	_body_sprite.position = _layer_layout.body_offset_px + Vector2(0.0, -(sy - 1.0) * half_h)
-	## Hair / future hats live on HeadPivot — they follow head_scale, not body_scale.
-	## Future body clothes should be children of BodySprite so they stretch with the torso.
+	## Hair / hats live on HeadPivot — they follow head_scale, not body_scale.
+	## Hide is a sibling so skin tint on the body does not dye the tunic, but it copies body scale.
+	_apply_clothing_transform()
 	if _head_pivot:
 		_head_pivot.scale = _head_build_scale
 	if _head_sprite:
@@ -394,6 +460,7 @@ func _build_layers() -> void:
 		remove_child(old)
 		old.free()
 	_body_sprite = null
+	_clothing_sprite = null
 
 	if _layer_layout == null:
 		_layer_layout = PartsRegistry.get_layout()
@@ -414,9 +481,11 @@ func _build_layers() -> void:
 	_body_sprite.centered = true
 	_body_sprite.position = _layer_layout.body_offset_px
 	add_child(_body_sprite)
+	_build_clothing_layer()
 
 	if head_tex == null:
 		push_warning("TunerBodyVisual: missing head texture at %s" % head_texture_path)
+		_apply_clothing_transform()
 		_apply_draw_layers()
 		return
 
@@ -437,6 +506,177 @@ func _build_layers() -> void:
 	_apply_body_build_to_sprites()
 	_apply_head_attachment()
 	_apply_draw_layers()
+
+
+func _build_clothing_layer() -> void:
+	_clothing_sprite = null
+	var tex := _load_texture(HIDE_CLOTHING_PATH)
+	if tex == null:
+		return
+	_clothing_sprite = Sprite2D.new()
+	_clothing_sprite.name = "HideClothing"
+	_clothing_sprite.texture = tex
+	_clothing_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_clothing_sprite.centered = true
+	_clothing_sprite.modulate = Color.WHITE
+	add_child(_clothing_sprite)
+
+
+## Pin the tunic's neck opening to the body neck, then add clothing_offset_px.
+func _apply_clothing_transform() -> void:
+	if _clothing_sprite == null or _body_sprite == null or _body_tex == null or _layer_layout == null:
+		return
+	var hide_tex := _clothing_sprite.texture
+	if hide_tex == null:
+		return
+	var offset := _clothing_pin_offset_px() + _active_clothing_offset()
+	if _facing_left():
+		offset.x = -offset.x
+	var body_scale := _body_sprite.scale
+	var fit := _clothing_fit_scale()
+	_clothing_sprite.scale = body_scale * fit
+	_clothing_sprite.position = _body_sprite.position + Vector2(offset.x * body_scale.x, offset.y * body_scale.y)
+	_clothing_sprite.flip_h = _body_sprite.flip_h
+
+
+func _clothing_fit_scale() -> float:
+	var mul := 1.0
+	if _layer_layout != null:
+		mul = _active_clothing_scale_mul()
+	var width := float(HIDE_STYLE_OPAQUE_W[_clothing_style])
+	if width < 1.0:
+		width = 2291.0
+	return (BODY_OPAQUE_WIDTH / width) * mul
+
+
+func set_clothing_style(index: int) -> void:
+	var n := HIDE_STYLE_PATHS.size()
+	if n <= 0:
+		return
+	var style := posmod(index, n)
+	_clothing_style = style
+	if _clothing_sprite == null:
+		return
+	var tex := _load_texture(str(HIDE_STYLE_PATHS[style]))
+	if tex:
+		_clothing_sprite.texture = tex
+	if style != HIDE3_CLOTHING_STYLE:
+		_clothing_sprite.material = null
+	_apply_clothing_transform()
+
+
+func set_clothing_scale_mul(mul: float) -> void:
+	if _layer_layout == null:
+		return
+	var clamped := maxf(0.05, mul)
+	match _clothing_style:
+		3:
+			_layer_layout.clothing4_scale_mul = clamped
+		2:
+			_layer_layout.clothing3_scale_mul = clamped
+		1:
+			_layer_layout.clothing2_scale_mul = clamped
+		_:
+			_layer_layout.clothing_scale_mul = clamped
+	_apply_clothing_transform()
+
+
+func clothing_scale_mul() -> float:
+	return _active_clothing_scale_mul()
+
+
+func clothing_style() -> int:
+	return _clothing_style
+
+
+func clothing_receipt_fields() -> Dictionary:
+	var style := _clothing_style
+	var path := str(HIDE_STYLE_PATHS[style]) if style >= 0 and style < HIDE_STYLE_PATHS.size() else ""
+	return {
+		"clothing_style": style,
+		"clothing_texture": path,
+		"clothing_offset_px": _active_clothing_offset(),
+		"clothing_scale_mul": _active_clothing_scale_mul(),
+	}
+
+
+func _active_clothing_offset() -> Vector2:
+	if _layer_layout == null:
+		return Vector2.ZERO
+	match _clothing_style:
+		3:
+			return _layer_layout.clothing4_offset_px
+		2:
+			return _layer_layout.clothing3_offset_px
+		1:
+			return _layer_layout.clothing2_offset_px
+		_:
+			return _layer_layout.clothing_offset_px
+
+
+func _active_clothing_scale_mul() -> float:
+	if _layer_layout == null:
+		return 1.0
+	match _clothing_style:
+		3:
+			return maxf(0.05, _layer_layout.clothing4_scale_mul)
+		2:
+			return maxf(0.05, _layer_layout.clothing3_scale_mul)
+		1:
+			return maxf(0.05, _layer_layout.clothing2_scale_mul)
+		_:
+			return maxf(0.05, _layer_layout.clothing_scale_mul)
+
+
+func set_head_and_hair_visible(show: bool) -> void:
+	if _head_pivot:
+		_head_pivot.visible = show
+
+
+func _clothing_pin_offset_px() -> Vector2:
+	var hide_tex := _clothing_sprite.texture if _clothing_sprite else null
+	if hide_tex == null or _body_tex == null or _layer_layout == null:
+		return Vector2.ZERO
+	var hide_center := Vector2(float(hide_tex.get_width()), float(hide_tex.get_height())) * 0.5
+	var notch: Vector2 = HIDE_STYLE_NOTCH[_clothing_style]
+	var notch_local := (notch - hide_center) * _clothing_fit_scale()
+	var body_center := Vector2(float(_body_tex.get_width()), float(_body_tex.get_height())) * 0.5
+	return _layer_layout.body_neck_socket_px - body_center - notch_local
+
+
+func set_clothing_center_from_global(global_pos: Vector2) -> void:
+	if _clothing_sprite == null or _body_sprite == null or _layer_layout == null:
+		return
+	var parent := _clothing_sprite.get_parent() as Node2D
+	if parent == null:
+		return
+	var desired := parent.to_local(global_pos)
+	var body_scale := _body_sprite.scale
+	if absf(body_scale.x) < 0.0001 or absf(body_scale.y) < 0.0001:
+		return
+	var unscaled := Vector2(
+		(desired.x - _body_sprite.position.x) / body_scale.x,
+		(desired.y - _body_sprite.position.y) / body_scale.y
+	)
+	if _facing_left():
+		unscaled.x = -unscaled.x
+	var slide := unscaled - _clothing_pin_offset_px()
+	match _clothing_style:
+		3:
+			_layer_layout.clothing4_offset_px = slide
+		2:
+			_layer_layout.clothing3_offset_px = slide
+		1:
+			_layer_layout.clothing2_offset_px = slide
+		_:
+			_layer_layout.clothing_offset_px = slide
+	_apply_clothing_transform()
+
+
+func clothing_hit_rect_global() -> Rect2:
+	if _clothing_sprite == null or _clothing_sprite.texture == null:
+		return Rect2()
+	return _clothing_sprite.get_global_transform() * _clothing_sprite.get_rect()
 
 
 func _build_hair_layer() -> void:

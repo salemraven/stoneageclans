@@ -236,7 +236,7 @@ enum WildRole { PREY, PREDATOR, NONE }
 @export var priority_idle_caveman: float = 0.0
 @export var priority_idle_wild_no_herd: float = 0.0
 @export var priority_idle_woman_clan: float = 0.1
-@export var priority_idle_clan_other: float = 0.3
+@export var priority_idle_clan_other: float = 0.3  # Not used by clansmen or cavemen. Idle is disabled for them.
 @export var priority_idle_random_break: float = 0.5
 @export var priority_party_herd_inactive: float = 0.0
 @export var priority_herd_wildnpc_no_target: float = 5.2

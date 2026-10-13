@@ -7,12 +7,13 @@ const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
 const AbstractHuntScript = preload("res://scripts/systems/abstract_hunt.gd")
 const AbstractSlaughterScript = preload("res://scripts/systems/abstract_slaughter.gd")
 const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
+const HutCarryScript = preload("res://scripts/buildings/hut_carry.gd")
 
 const FOOD_FEED_PRIORITY: Array = [
 	ResourceData.ResourceType.COOKED_MEAT,
 	ResourceData.ResourceType.BREAD,
 	ResourceData.ResourceType.MEAT,
-	ResourceData.ResourceType.GRAIN,
 	ResourceData.ResourceType.BERRIES,
 	ResourceData.ResourceType.MILK,
 	ResourceData.ResourceType.MUSHROOM,
@@ -27,7 +28,11 @@ static func tick(
 	elapsed_sec: float,
 	chunk_coords: Vector2i = Vector2i.ZERO,
 	clan_starving: bool = false,
-	hunt_intent_state: int = AbstractHuntScript.HUNT_INTENT_NONE
+	hunt_intent_state: int = AbstractHuntScript.HUNT_INTENT_NONE,
+	include_hunt_and_slaughter: bool = true,
+	skip_member_ids: Dictionary = {},
+	player_father_alive: bool = false,
+	slice_id: int = -1
 ) -> Dictionary:
 	var events: Dictionary = {
 		"fed": [],
@@ -56,45 +61,55 @@ static func tick(
 		return events
 	var clan: String = str(claim.get("clan_name") if claim.get("clan_name") != null else roster.clan_name)
 	var passive_state := _get_passive_state(claim)
+	var skip := skip_member_ids.duplicate()
+	for m in roster.members:
+		if m is Dictionary and bool((m as Dictionary).get("away", false)):
+			skip[int((m as Dictionary).get("id", 0))] = true
 
 	for m in roster.members:
-		if bool(m.get("alive", false)):
+		if bool(m.get("alive", false)) and not skip.has(int(m.get("id", 0))):
 			roster.drain_hunger(m, elapsed_sec)
 
 	var coords: Vector2i = chunk_coords
 	if coords == Vector2i.ZERO and ChunkUtils and claim is Node2D:
 		coords = ChunkUtils.get_chunk_coords((claim as Node2D).global_position)
 	var gather_events: Dictionary = AbstractGatherScript.gather_for_claim(
-		claim, roster, coords, elapsed_sec, clan_starving
+		claim, roster, coords, elapsed_sec, clan_starving, slice_id
 	)
 	events["gathered"] = gather_events.get("gathered", [])
 	events["depleted"] = gather_events.get("depleted", [])
 	events["biome"] = str(gather_events.get("biome", ""))
 	events["regen"] = gather_events.get("regen", [])
 
-	var hunt_events: Dictionary = AbstractHuntScript.hunt_for_claim(
-		claim, roster, coords, clan_starving, hunt_intent_state
-	)
-	events["hunt"] = hunt_events
+	var hunt_events: Dictionary = {}
+	if include_hunt_and_slaughter:
+		hunt_events = AbstractHuntScript.hunt_for_claim(
+			claim, roster, coords, clan_starving, hunt_intent_state
+		)
+		events["hunt"] = hunt_events
+		var slaughter_events: Dictionary = AbstractSlaughterScript.slaughter_for_claim(
+			claim, clan_starving, hunt_events, inventory
+		)
+		events["slaughter"] = slaughter_events
 
-	var slaughter_events: Dictionary = AbstractSlaughterScript.slaughter_for_claim(
-		claim, clan_starving, hunt_events, inventory
-	)
-	events["slaughter"] = slaughter_events
-
-	# Tick order (Phase 7+): pregnancies → aging → baby growth → conceptions.
-	# Growth before conceptions so new clansmen can father same tick; aging before growth so
-	# freshly promoted adults stay at promotion age until the next tick.
-	_tick_pregnancies(claim, roster, elapsed_sec, events, clan_starving)
-	_tick_aging(roster, elapsed_sec)
-	_tick_baby_growth(roster, elapsed_sec, events)
-	_tick_new_conceptions(claim, roster, events)
+	# One second at a time so a birth only grows for the time after it happens,
+	# and a cooldown can start another pregnancy inside the same interval.
+	var people_left: float = elapsed_sec
+	while people_left > 0.0001:
+		var step: float = minf(1.0, people_left)
+		roster.sim_clock += step
+		_tick_baby_growth(roster, step, events, skip)
+		_tick_pregnancies(claim, roster, step, events, clan_starving, skip, player_father_alive)
+		_tick_new_conceptions(claim, roster, events, skip, player_father_alive)
+		_tick_aging(roster, step, skip)
+		people_left -= step
 
 	_run_passive_production(claim, inventory, passive_state, elapsed_sec, events)
 	_burn_wood(claim, inventory, passive_state, elapsed_sec, events)
 
-	_feed_roster(inventory, roster, events)
-	_resolve_starvation(clan, roster, events)
+	_feed_roster(inventory, roster, events, skip)
+	_haul_asleep_specialty_huts(claim, inventory)
+	_resolve_starvation(clan, roster, events, skip)
 
 	claim.set_meta("settlement_passive_state", passive_state)
 	return events
@@ -116,8 +131,6 @@ static func _run_passive_production(
 	events: Dictionary
 ) -> void:
 	var cook_interval: float = BalanceConfig.campfire_cooking_interval if BalanceConfig else 30.0
-	var rack_interval: float = BalanceConfig.drying_rack_process_time if BalanceConfig else 120.0
-	var oven_interval: float = BalanceConfig.bread_craft_time if BalanceConfig else 90.0
 	passive_state["cook"] = float(passive_state.get("cook", 0.0)) + elapsed_sec
 	passive_state["rack"] = float(passive_state.get("rack", 0.0)) + elapsed_sec
 	passive_state["oven"] = float(passive_state.get("oven", 0.0)) + elapsed_sec
@@ -137,56 +150,67 @@ static func _run_passive_production(
 			"count": 1,
 		})
 
-	if _claim_has_drying_rack(claim):
-		while float(passive_state.get("rack", 0.0)) >= rack_interval:
-			passive_state["rack"] = float(passive_state.get("rack", 0.0)) - rack_interval
-			if not _process_one_drying_rack(claim, events):
-				break
+	_advance_asleep_specialty_huts(claim, elapsed_sec, events)
 
-	if _claim_has_oven(claim):
-		while float(passive_state.get("oven", 0.0)) >= oven_interval:
-			passive_state["oven"] = float(passive_state.get("oven", 0.0)) - oven_interval
-			if inventory.get_count(ResourceData.ResourceType.GRAIN) <= 0:
-				break
-			if inventory.get_count(ResourceData.ResourceType.WOOD) <= 0:
-				break
-			if not inventory.has_space() and inventory.get_count(ResourceData.ResourceType.BREAD) >= inventory.max_stack:
-				break
-			inventory.remove_item(ResourceData.ResourceType.GRAIN, 1)
-			inventory.remove_item(ResourceData.ResourceType.WOOD, 1)
-			inventory.add_item(ResourceData.ResourceType.BREAD, 1)
+
+static func _haul_asleep_specialty_huts(claim: Node, inventory: InventoryData) -> void:
+	if ClaimBuildingIndex == null or not (claim is LandClaim) or inventory == null:
+		return
+	for building in ClaimBuildingIndex.get_buildings_in_claim(claim):
+		if building == null or not is_instance_valid(building):
+			continue
+		if int(building.get("building_type")) != int(ResourceData.ResourceType.LIVING_HUT):
+			continue
+		var kind := str(building.get("hut_specialty"))
+		if not HutSpecialtyScript.is_known(kind):
+			continue
+		if HutSpecialtyScript.live_is_ticking(building) or _hut_carry_in_progress(claim, building):
+			continue
+		if building.inventory == null:
+			continue
+		var moved: Dictionary = HutCarryScript.apply_move(building.inventory, inventory, kind, _claim_reserved(claim))
+		if int(moved.get("qty", 0)) > 0:
+			HutSpecialtyScript.publish_stock(building)
+
+
+static func _hut_carry_in_progress(claim: Node, building: Node) -> bool:
+	var brain: Variant = claim.get("clan_brain")
+	if brain == null:
+		return false
+	var rows: Variant = brain.get("work_requests")
+	if not (rows is Array):
+		return false
+	for req in rows:
+		if req is Dictionary and req.get("building") == building and str(req.get("state", "")) in ["CLAIMED", "IN_PROGRESS"]:
+			return true
+	return false
+
+
+static func _claim_reserved(claim: Node) -> Dictionary:
+	var out: Dictionary = {}
+	if not claim.has_method("get_reserved_count"):
+		return out
+	for type in [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.WOOD, ResourceData.ResourceType.HIDE, ResourceData.ResourceType.FIBER, ResourceData.ResourceType.WOOL]:
+		var held: int = int(claim.get_reserved_count(type))
+		if held > 0:
+			out[int(type)] = held
+	return out
+
+
+static func _advance_asleep_specialty_huts(claim: Node, elapsed_sec: float, events: Dictionary) -> void:
+	if ClaimBuildingIndex == null or not (claim is LandClaim):
+		return
+	for building in ClaimBuildingIndex.get_buildings_in_claim(claim):
+		if building == null or not is_instance_valid(building):
+			continue
+		if int(building.get("building_type")) != int(ResourceData.ResourceType.LIVING_HUT):
+			continue
+		if HutSpecialtyScript.advance_if_asleep(building, elapsed_sec):
 			events["produced"].append({
-				"building_type": "oven",
-				"item_type": ResourceData.ResourceType.BREAD,
+				"building_type": "hut_specialty",
+				"item_type": str(building.get("hut_specialty")),
 				"count": 1,
 			})
-
-
-static func _process_one_drying_rack(claim: Node, events: Dictionary) -> bool:
-	if not ClaimBuildingIndex or not (claim is LandClaim):
-		return false
-	var buildings: Array = ClaimBuildingIndex.get_buildings_in_claim(claim)
-	for b in buildings:
-		if not is_instance_valid(b):
-			continue
-		if b.building_type != ResourceData.ResourceType.DRYING_RACK:
-			continue
-		if not b.inventory:
-			continue
-		if b.inventory.get_count(ResourceData.ResourceType.HIDE) <= 0:
-			continue
-		if not b.inventory.has_space():
-			if b.inventory.get_count(ResourceData.ResourceType.LEATHER) >= b.inventory.max_stack:
-				continue
-		b.inventory.remove_item(ResourceData.ResourceType.HIDE, 1)
-		b.inventory.add_item(ResourceData.ResourceType.LEATHER, 1)
-		events["produced"].append({
-			"building_type": "drying_rack",
-			"item_type": ResourceData.ResourceType.LEATHER,
-			"count": 1,
-		})
-		return true
-	return false
 
 
 static func _burn_wood(
@@ -208,8 +232,10 @@ static func _burn_wood(
 		events["burned_wood"] = int(events.get("burned_wood", 0)) + 1
 
 
-static func _feed_roster(inventory: InventoryData, roster: RefCounted, events: Dictionary) -> void:
+static func _feed_roster(inventory: InventoryData, roster: RefCounted, events: Dictionary, skip_member_ids: Dictionary = {}) -> void:
 	var fed_ids: Dictionary = {}
+	for skip_id in skip_member_ids.keys():
+		fed_ids[int(skip_id)] = true
 	var leader: Dictionary = roster.get_leader()
 	if not leader.is_empty():
 		_try_feed_member(inventory, roster, leader, events, fed_ids)
@@ -263,8 +289,8 @@ static func _take_best_food(inventory: InventoryData) -> ResourceData.ResourceTy
 	return ResourceData.ResourceType.NONE
 
 
-static func _resolve_starvation(_clan: String, roster: RefCounted, events: Dictionary) -> void:
-	var victim: Dictionary = roster.call("get_next_to_die") as Dictionary
+static func _resolve_starvation(_clan: String, roster: RefCounted, events: Dictionary, skip_member_ids: Dictionary = {}) -> void:
+	var victim: Dictionary = roster.call("get_next_to_die", skip_member_ids) as Dictionary
 	if victim.is_empty():
 		return
 	var killed: Dictionary = roster.call("kill_member", int(victim.get("id", -1))) as Dictionary
@@ -313,7 +339,9 @@ static func _tick_pregnancies(
 	roster: RefCounted,
 	elapsed_sec: float,
 	events: Dictionary,
-	clan_starving: bool
+	clan_starving: bool,
+	skip_member_ids: Dictionary = {},
+	player_father_alive: bool = false
 ) -> void:
 	if WorldGenConfig == null or not bool(WorldGenConfig.abstract_pregnancy_enabled):
 		return
@@ -324,6 +352,8 @@ static func _tick_pregnancies(
 			if not (woman is Dictionary):
 				continue
 			var w: Dictionary = woman as Dictionary
+			if skip_member_ids.has(int(w.get("id", 0))):
+				continue
 			var cancelled: Dictionary = roster.call("cancel_pregnancy", int(w.get("id", -1))) as Dictionary
 			if cancelled.is_empty():
 				continue
@@ -334,13 +364,15 @@ static func _tick_pregnancies(
 			})
 		return
 
-	var now_sec: float = Time.get_ticks_msec() / 1000.0
+	var now_sec: float = float(roster.sim_clock)
 	var fallback_pos: Vector2 = claim.global_position if claim is Node2D else Vector2.ZERO
 	var pregnant: Array = roster.call("get_pregnant_women") as Array
 	for woman in pregnant:
 		if not (woman is Dictionary):
 			continue
 		var w: Dictionary = woman as Dictionary
+		if skip_member_ids.has(int(w.get("id", 0))):
+			continue
 		var timer: float = float(w.get("pregnancy_timer", 0.0)) - elapsed_sec
 		w["pregnancy_timer"] = timer
 		if timer > 0.0:
@@ -354,9 +386,10 @@ static func _tick_pregnancies(
 			})
 			continue
 		var father_id: int = int(w.get("designated_father_id", -1))
-		if father_id < 1:
-			father_id = _pick_father_id(roster, w, events)
-		var baby_name: String = str(roster.call("generate_baby_name", int(w.get("id", 0))))
+		if father_id < 1 or bool(w.get("father_is_player", false)):
+			father_id = _pick_father_id(roster, w, events, player_father_alive)
+		var baby_salt: int = int(w.get("id", 0)) ^ int(roster.members.size()) ^ int(now_sec * 1000.0)
+		var baby_name: String = str(roster.call("generate_baby_name", baby_salt))
 		var baby: Dictionary = roster.call(
 			"add_baby_member",
 			int(w.get("id", -1)),
@@ -375,7 +408,13 @@ static func _tick_pregnancies(
 		})
 
 
-static func _tick_new_conceptions(claim: Node, roster: RefCounted, events: Dictionary) -> void:
+static func _tick_new_conceptions(
+	claim: Node,
+	roster: RefCounted,
+	events: Dictionary,
+	skip_member_ids: Dictionary = {},
+	player_father_alive: bool = false
+) -> void:
 	if WorldGenConfig == null or not bool(WorldGenConfig.abstract_pregnancy_enabled):
 		return
 	if not _claim_has_living_hut(claim):
@@ -388,13 +427,15 @@ static func _tick_new_conceptions(claim: Node, roster: RefCounted, events: Dicti
 		return
 	var birth_cooldown: float = BalanceConfig.birth_cooldown_seconds if BalanceConfig else 10.0
 	var pregnancy_seconds: float = BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0
-	var now_sec: float = Time.get_ticks_msec() / 1000.0
+	var now_sec: float = float(roster.sim_clock)
 	var fertile: Array = roster.call("get_fertile_women", now_sec, birth_cooldown) as Array
 	for woman in fertile:
 		if not (woman is Dictionary):
 			continue
 		var w: Dictionary = woman as Dictionary
-		var father_id: int = _pick_father_id(roster, w, events)
+		if skip_member_ids.has(int(w.get("id", 0))):
+			continue
+		var father_id: int = _pick_father_id(roster, w, events, player_father_alive)
 		if father_id < 1:
 			continue
 		if not bool(roster.call("start_pregnancy", int(w.get("id", -1)), father_id, pregnancy_seconds, now_sec)):
@@ -407,7 +448,7 @@ static func _tick_new_conceptions(claim: Node, roster: RefCounted, events: Dicti
 		})
 
 
-static func _tick_baby_growth(roster: RefCounted, elapsed_sec: float, events: Dictionary) -> void:
+static func _tick_baby_growth(roster: RefCounted, elapsed_sec: float, events: Dictionary, skip_member_ids: Dictionary = {}) -> void:
 	if WorldGenConfig == null or not bool(WorldGenConfig.abstract_baby_growth_enabled):
 		return
 	var growth_time: float = BalanceConfig.baby_growth_seconds if BalanceConfig else 17.5
@@ -415,6 +456,8 @@ static func _tick_baby_growth(roster: RefCounted, elapsed_sec: float, events: Di
 		if not (baby is Dictionary):
 			continue
 		var b: Dictionary = baby as Dictionary
+		if skip_member_ids.has(int(b.get("id", 0))):
+			continue
 		var gt: float = float(b.get("growth_timer", 0.0))
 		if gt < 0.0:
 			gt = 0.0
@@ -433,7 +476,7 @@ static func _tick_baby_growth(roster: RefCounted, elapsed_sec: float, events: Di
 		})
 
 
-static func _tick_aging(roster: RefCounted, elapsed_sec: float) -> void:
+static func _tick_aging(roster: RefCounted, elapsed_sec: float, skip_member_ids: Dictionary = {}) -> void:
 	if WorldGenConfig == null or not bool(WorldGenConfig.abstract_aging_enabled):
 		return
 	var sim_day_sec: float = 600.0
@@ -446,11 +489,20 @@ static func _tick_aging(roster: RefCounted, elapsed_sec: float) -> void:
 			continue
 		if str(m.get("type", "")) == "baby":
 			continue
+		if skip_member_ids.has(int(m.get("id", 0))):
+			continue
 		var age_years_per_sim_day: float = 13.0 / maxf(growth_time / sim_day_sec, 0.001)
 		m["age"] = float(m.get("age", 13.0)) + sim_days * age_years_per_sim_day
 
 
-static func _pick_father_id(roster: RefCounted, woman: Dictionary, events: Dictionary) -> int:
+static func _pick_father_id(roster: RefCounted, woman: Dictionary, events: Dictionary, player_father_alive: bool = false) -> int:
+	if bool(woman.get("father_is_player", false)) and player_father_alive:
+		var player_id: int = int(woman.get("designated_father_id", -1))
+		if player_id < 1:
+			player_id = SettlementRosterScript.PLAYER_FATHER_ID
+			woman["designated_father_id"] = player_id
+		woman["father_absent_ticks"] = 0
+		return player_id
 	var designated: int = int(woman.get("designated_father_id", -1))
 	if designated > 0:
 		var df: Dictionary = roster.find_member(designated)

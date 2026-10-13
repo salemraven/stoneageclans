@@ -1,6 +1,6 @@
 extends Node2D
 class_name GrassBatch
-## Batched tallgrass visuals — one MultiMeshInstance2D per texture variant.
+## Batched tallgrass visuals — MultiMesh per texture variant and Y-sort bucket.
 
 const TEXTURE_PATHS: Array[String] = [
 	"res://assets/sprites/tallgrass1.png",
@@ -10,14 +10,27 @@ const TEXTURE_PATHS: Array[String] = [
 	"res://assets/sprites/tallgrass5.png",
 	"res://assets/sprites/tallgrass6.png",
 ]
+## One mesh per bucket so each blade sorts by foot Y (avg bucket z was drawing grass over tree tops).
+const FOOT_Y_BUCKET_PX: int = 16
 
 
 static func build(parent: Node2D, points: Array, chunk: Vector2i) -> GrassBatch:
 	var batch := GrassBatch.new()
 	batch.name = "GrassBatch"
+	batch._chunk_coords = chunk
 	parent.add_child(batch)
 	batch._build_meshes(points, chunk)
+	if TallGrassCover:
+		TallGrassCover.register_chunk_blades(chunk, points)
 	return batch
+
+
+func _exit_tree() -> void:
+	if TallGrassCover:
+		TallGrassCover.clear_chunk(_chunk_coords)
+
+
+var _chunk_coords: Vector2i = Vector2i.ZERO
 
 
 func _build_meshes(points: Array, _chunk: Vector2i) -> void:
@@ -39,12 +52,10 @@ func _build_meshes(points: Array, _chunk: Vector2i) -> void:
 		var tex := load(TEXTURE_PATHS[tidx]) as Texture2D
 		if tex == null:
 			continue
-		var mm_node := _make_mesh_for_texture(tex, list)
-		if mm_node:
-			add_child(mm_node)
+		_add_meshes_for_texture(tex, list)
 
 
-func _make_mesh_for_texture(tex: Texture2D, points: Array) -> MultiMeshInstance2D:
+func _add_meshes_for_texture(tex: Texture2D, points: Array) -> void:
 	var w: float = float(tex.get_width())
 	var h: float = float(tex.get_height())
 	var wps: float = YSortUtils.get_world_prop_scale() if YSortUtils else 1.15
@@ -53,6 +64,31 @@ func _make_mesh_for_texture(tex: Texture2D, points: Array) -> MultiMeshInstance2
 		if YSortUtils
 		else Vector2(0, -h * wps * 0.5)
 	)
+	var by_bucket: Dictionary = {}
+	for pt in points:
+		var pos: Vector2 = (pt as Dictionary).get("position", Vector2.ZERO) as Vector2
+		var foot_y: float = pos.y + foot_off.y
+		var bucket_key: int = int(floor(foot_y / float(FOOT_Y_BUCKET_PX)))
+		if not by_bucket.has(bucket_key):
+			by_bucket[bucket_key] = [] as Array
+		(by_bucket[bucket_key] as Array).append(pt)
+	for bucket_key: int in by_bucket.keys():
+		var bucket_pts: Array = by_bucket[bucket_key] as Array
+		var sort_foot_y: float = (float(bucket_key) + 0.5) * float(FOOT_Y_BUCKET_PX)
+		var mm_node := _make_mesh_for_texture(tex, bucket_pts, w, h, wps, foot_off, sort_foot_y)
+		if mm_node:
+			add_child(mm_node)
+
+
+func _make_mesh_for_texture(
+	tex: Texture2D,
+	points: Array,
+	w: float,
+	h: float,
+	wps: float,
+	foot_off: Vector2,
+	sort_foot_y: float,
+) -> MultiMeshInstance2D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_2D
 	mm.use_colors = false
@@ -61,20 +97,19 @@ func _make_mesh_for_texture(tex: Texture2D, points: Array) -> MultiMeshInstance2
 	quad.size = Vector2(w, h)
 	mm.mesh = quad
 	var mmi := MultiMeshInstance2D.new()
-	mmi.name = "GrassTex_%d" % points.size()
+	mmi.name = "GrassTex_%d_%d" % [points.size(), int(sort_foot_y)]
 	mmi.multimesh = mm
 	mmi.texture = tex
-	var avg_foot_y: float = 0.0
 	for i in points.size():
 		var pt: Dictionary = points[i] as Dictionary
 		var pos: Vector2 = pt.get("position", Vector2.ZERO) as Vector2
-		avg_foot_y += pos.y + foot_off.y
 		# MultiMesh Y axis is flipped vs Sprite2D — match TreeBatch + legacy tallgrass Sprite2D.
 		var center := pos + foot_off
 		var xform := Transform2D(Vector2(wps, 0.0), Vector2(0.0, -wps), center)
 		mm.set_instance_transform_2d(i, xform)
-	if points.size() > 0:
-		avg_foot_y /= float(points.size())
-		mmi.z_as_relative = false
-		mmi.z_index = clampi(YSortUtils.Z_BASE + int(avg_foot_y), YSortUtils.CANVAS_Z_MIN, YSortUtils.CANVAS_Z_MAX - 1) if YSortUtils else 2048
+	mmi.z_as_relative = false
+	if YSortUtils:
+		mmi.z_index = YSortUtils.world_sort_z_from_y(sort_foot_y)
+	else:
+		mmi.z_index = 2048
 	return mmi

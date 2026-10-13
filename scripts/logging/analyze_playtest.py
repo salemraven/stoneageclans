@@ -790,10 +790,10 @@ def analyze(
             violations.append(msg)
 
     if not herd_count_bad:
-        if not count_changes:
+    if not count_changes:
             print("  (no herd_count_change events — session may be too short or no herding)")
         else:
-            print("  ✓ Count changes look consistent")
+        print("  ✓ Count changes look consistent")
 
     print("\n--- Snapshots ---")
     snapshots = [e for e in events if e.get("evt") == "snapshot"]

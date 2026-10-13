@@ -175,6 +175,7 @@ var daily_need_wood_per_capita: float = 2.0
 var daily_need_hide_per_capita: float = 0.5
 var campfire_cooking_interval: float = 30.0
 var drying_rack_process_time: float = 120.0
+var crop_hut_grain_interval: float = 60.0
 
 # Oldowan slower than specialized tools (multiplier on collection time)
 var oldowan_gather_multiplier: float = 1.5

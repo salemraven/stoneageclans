@@ -27,6 +27,9 @@ var last_facing: Vector2 = Vector2(0, 1)  # For formation when stationary (follo
 var aim_dir: Vector2 = Vector2(1, 0)  # Cursor aim while weapon ready
 
 const WEAPON_READY_SPEED_MULT := 0.6
+const CROUCH_SPEED_MULT := 0.4
+const CROUCH_TALL_GRASS_RADIUS := 34.0
+const CROUCH_HIDE_ALPHA := 0.55
 
 # Player food meter (calories — hunger is derived 0-100% for UI/debuffs)
 var calories: float = 2000.0
@@ -54,6 +57,8 @@ var genetics_profile: Dictionary = {}
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light — same as clan NPCs
 var _card_foot_y: float = -28.0
 var _card_bounce_time: float = 0.0
+var _is_crouching: bool = false
+var _crouch_visual_base_modulate: Color = Color.WHITE
 
 func _ready() -> void:
 	add_to_group("player")
@@ -74,6 +79,8 @@ func _ready() -> void:
 	
 	_sprite_base_position = sprite.position
 	sprite.visible = true
+	if sprite:
+		_crouch_visual_base_modulate = sprite.modulate
 	_setup_texture()
 	if EntityRegistry:
 		EntityRegistry.register(self)
@@ -113,8 +120,6 @@ func _ready() -> void:
 	eat_progress_display.position = Vector2(0, -88)
 	eat_progress_display.visible = false
 	eat_progress_display.z_as_relative = false
-	if YSortUtils:
-		eat_progress_display.z_index = YSortUtils.Z_ABOVE_WORLD
 	add_child(eat_progress_display)
 	var progress_script := load("res://scripts/collection_progress.gd")
 	if progress_script:
@@ -196,6 +201,9 @@ func _setup_health_component() -> void:
 func on_vitals_death(cause: String) -> void:
 	_can_move = false
 	velocity = Vector2.ZERO
+	_is_crouching = false
+	set_meta("is_crouching", false)
+	_stand_from_crouch()
 	print("💀 Player died (%s)" % cause)
 
 
@@ -287,6 +295,7 @@ func _physics_process(_delta: float) -> void:
 		if sprite:
 			_apply_player_equipment_sprite_scale()
 		return
+	_handle_crouch_input()
 	# Gathering: player may move; gatherable_resource / main cancel the timer and flash red
 	# get_vector: consistent combined-axis handling (keyboard + gamepad) vs manual action_strength diffs.
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -335,6 +344,8 @@ func _physics_process(_delta: float) -> void:
 			PlaceholderCardService.update_weapon_overlay_combat(self, get_equipped_weapon_type(), throw_aim)
 	if in_weapon_ready:
 		speed_mult *= WEAPON_READY_SPEED_MULT
+	if _is_crouching:
+		speed_mult *= CROUCH_SPEED_MULT
 	velocity = input_vector * (move_speed * speed_mult)
 	# Broadcast actual pixel velocity so ordered followers can match movement (RTS formation)
 	set_meta("formation_velocity", velocity)
@@ -343,6 +354,10 @@ func _physics_process(_delta: float) -> void:
 	_prevent_entering_npc_land_claims(_delta)
 	
 	move_and_slide()
+	if _is_crouching:
+		_update_crouch_stealth()
+	else:
+		_clear_crouch_stealth_meta()
 	SoundDetection.maybe_emit_footstep(self)
 	
 	# Manual z_index by sprite foot (draw_order.md)
@@ -492,6 +507,8 @@ func _update_entity_draw_order() -> void:
 		YSortUtils.update_card_draw_order(sprite, self, _card_foot_y)
 	else:
 		YSortUtils.update_draw_order(sprite, self)
+	if eat_progress_display and eat_progress_display.visible:
+		YSortUtils.update_world_timer_draw_order(eat_progress_display)
 
 
 func _sync_card_weapon_overlay() -> void:
@@ -533,6 +550,63 @@ func _sync_card_weapon_overlay() -> void:
 		else:
 			combat_component.update_ready_aim(aim_dir)
 			PlaceholderCardService.update_weapon_overlay_combat(self, weapon_type, aim_dir)
+
+
+func _handle_crouch_input() -> void:
+	if not InputMap.has_action("crouch") or not Input.is_action_just_pressed("crouch"):
+		return
+	if combat_component and combat_component.state != CombatComponent.CombatState.IDLE:
+		return
+	if InputMap.has_action("weapon_ready") and Input.is_action_pressed("weapon_ready"):
+		return
+	if get("is_gathering") == true:
+		return
+	_is_crouching = not _is_crouching
+	set_meta("is_crouching", _is_crouching)
+	if not _is_crouching:
+		_stand_from_crouch()
+
+
+func _stand_from_crouch() -> void:
+	_clear_crouch_stealth_meta()
+	if sprite:
+		sprite.modulate = _crouch_visual_base_modulate
+		var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+		if body_visual and body_visual.has_method("set_crouch_state"):
+			body_visual.call("set_crouch_state", false)
+	_sync_card_weapon_overlay()
+
+
+func _update_crouch_stealth() -> void:
+	var in_grass: bool = (
+		TallGrassCover != null
+		and TallGrassCover.covers_position(global_position, CROUCH_TALL_GRASS_RADIUS)
+	)
+	set_meta("in_tall_grass", in_grass)
+	var hidden: bool = in_grass
+	if hidden:
+		set_meta("is_hidden", true)
+		set_meta("hide_has_cover", true)
+	else:
+		remove_meta("is_hidden")
+		remove_meta("hide_has_cover")
+	if sprite:
+		var a: float = CROUCH_HIDE_ALPHA if hidden else 1.0
+		sprite.modulate = Color(
+			_crouch_visual_base_modulate.r,
+			_crouch_visual_base_modulate.g,
+			_crouch_visual_base_modulate.b,
+			a,
+		)
+
+
+func _clear_crouch_stealth_meta() -> void:
+	remove_meta("in_tall_grass")
+	if not _is_crouching:
+		remove_meta("is_hidden")
+		remove_meta("hide_has_cover")
+		if sprite:
+			sprite.modulate = _crouch_visual_base_modulate
 
 
 func _uses_spear_keyframed_strike() -> bool:

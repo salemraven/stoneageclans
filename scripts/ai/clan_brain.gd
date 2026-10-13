@@ -16,7 +16,7 @@
 # - BASE/MIN/MAX_DEFENSE_RATIO: Scales defender count under INTRUDER+ (with 3:1 baseline = n/4)
 # - MIN_RAID_PARTY_SIZE: Minimum raiders needed to start raid (2 default)
 # - RAID_COOLDOWN: Time between raids (60s default)
-# - RAID_DISTANCE_MAX: Max distance to consider raid targets (1500px default)
+# - NEIGHBOR_MIN / NEIGHBOR_MAX: Always track the 3 closest camps. Slots 4–10 fill only when that camp is near.
 
 class_name ClanBrain
 extends RefCounted
@@ -24,10 +24,14 @@ extends RefCounted
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const CorpseHarvestScript = preload("res://scripts/systems/corpse_harvest.gd")
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
+const HutCarryScript = preload("res://scripts/buildings/hut_carry.gd")
+const HutSpecialtyBrainScript = preload("res://scripts/buildings/hut_specialty.gd")
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
+const SettlementPartyScript = preload("res://scripts/systems/settlement_party.gd")
 const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
 const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
+const RaidMotivePickerScript = preload("res://scripts/ai/raid_motive_picker.gd")
 
 # === Signals for UI/Visual Feedback ===
 # Note: RefCounted doesn't support signals directly, but territory can emit them
@@ -36,7 +40,10 @@ const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd"
 # === Configuration ===
 const EVALUATION_INTERVAL: float = 5.0  # Seconds between state evaluations
 const THREAT_CACHE_INTERVAL: float = 30.0  # Seconds between enemy threat re-evaluation
-const THREAT_DISTANCE_MAX: float = 2000.0  # Distance at which threats are ignored
+## Always the closest camps, even if far. Extra slots only when a camp is near the nearest neighbor.
+const NEIGHBOR_MIN: int = 3
+const NEIGHBOR_MAX: int = 10
+const NEIGHBOR_NEAR_FACTOR: float = 3.0
 
 # Defense ratio bounds
 const BASE_DEFENSE_RATIO: float = 0.2  # 20% default defense
@@ -60,6 +67,16 @@ var territory: Node2D = null  # LandClaim or Campfire (group land_claims)
 var is_dormant: bool = false
 var _dormant_eval_timer: float = 0.0
 var roster: RefCounted = null  # SettlementRoster while warm/dormant
+var _settlement_accum: float = 0.0
+var _record_births: int = 0
+var _session_edible_gathered: int = 0
+var _session_hunts: int = 0
+var _session_raids: int = 0
+var _record_party: Dictionary = {}
+var _settlement_tick_count: int = 0
+var _clock_was_awake: Dictionary = {}
+var _dead_member_ids: Dictionary = {}
+var _preg_timer_seen: Dictionary = {}
 ## "settled" = full Land Claim AI; "nomadic" = higher herd/search/gather, lower defense (player nomad phase)
 var brain_mode: String = "settled"
 ## When true (AI clans): prioritize herd/gather — scale defender quota down until population reaches PRODUCTIVITY_DEFEND_CAP_POPULATION.
@@ -69,7 +86,8 @@ const PRODUCTIVITY_DEFEND_CAP_POPULATION: int = 8
 # === Cached References ===
 var clan_members: Array = []  # All NPCs in this clan (cavemen, clansmen, women, animals)
 var cavemen: Array = []  # Cavemen and clansmen only (fighters/workers)
-var nearby_enemy_claims: Array = []  # Enemy land claims within threat range
+var nearby_enemy_claims: Array = []  # Neighbor camps. See get_neighbor_claims().
+var _neighbor_log_sig: String = ""
 ## One snapshot of `get_nodes_in_group("npcs")` per evaluation cycle (avoid repeated full scans).
 var _npc_snapshot: Array = []
 
@@ -229,6 +247,12 @@ func update(delta: float) -> void:
 	
 	var is_player_clan: bool = territory.get("player_owned") == true
 	
+	# One record clock for every member whose physics is off, near or far.
+	# Bodies are created only when the player character is in sim-wake range or clansmen enter the claim.
+	if _camp_needs_materialize():
+		materialize_clan_for_combat()
+	_tick_settlement_clock(delta)
+
 	# Update alert decay
 	_update_alert_decay(delta)
 	
@@ -236,7 +260,7 @@ func update(delta: float) -> void:
 	if not is_player_clan and not _is_survival_mode:
 		_update_hunt()
 	if not is_player_clan and not _is_survival_mode:
-		_update_raid()
+		_update_raid(delta)
 	
 	# Periodic state evaluation
 	_evaluation_timer += delta
@@ -260,15 +284,19 @@ func set_dormant(value: bool) -> void:
 		work_requests.clear()
 		_refresh_clan_members()
 		AbstractGatherScript.snapshot_gather_carryover(territory, clan_members)
-		_snapshot_roster_for_dormant()
+		if roster == null:
+			_snapshot_roster_for_dormant()
+			_remember_clock_edges()
+		else:
+			_copy_awake_bodies_onto_record()
 		var pi_d := _get_playtest_instrumentor()
 		if pi_d and pi_d.is_enabled():
 			var pop_d: int = roster.call("get_population") if roster else 0
 			if pi_d.has_method("settlement_claim_dormant"):
 				pi_d.settlement_claim_dormant(clan_name, pop_d, _get_dormant_eval_interval())
+		_park_outside_trips()
 	elif not value and was_dormant:
 		_dormant_eval_timer = 0.0
-		_reconcile_roster_on_wake()
 		var pi_w := _get_playtest_instrumentor()
 		if pi_w and pi_w.is_enabled() and pi_w.has_method("settlement_claim_wake"):
 			var pop_w: int = roster.call("get_population") if roster else 0
@@ -286,6 +314,7 @@ func _get_dormant_eval_interval() -> float:
 func _snapshot_roster_for_dormant() -> void:
 	if not territory or not is_instance_valid(territory):
 		return
+	_begin_evaluation_snapshot()
 	_refresh_clan_members()
 	if roster == null:
 		roster = SettlementRosterScript.new()
@@ -331,52 +360,141 @@ func _roster_member_summaries() -> Array:
 	return out
 
 
-func _reconcile_roster_on_wake() -> void:
-	if roster == null or not territory or not is_instance_valid(territory):
-		return
-	if NPCSleepManager and NPCSleepManager.has_method("clear_sleeping_for_clan"):
-		NPCSleepManager.call("clear_sleeping_for_clan", clan_name)
-	_refresh_clan_members()
-	if int(roster.call("get_population")) == 0 and not clan_members.is_empty():
-		var leader_npc: Node = territory.get("owner_npc") if territory.get("owner_npc") != null else null
-		var sleep_records: Array = []
-		if NPCSleepManager and NPCSleepManager.has_method("get_sleeping_for_clan"):
-			sleep_records = NPCSleepManager.call("get_sleeping_for_clan", clan_name) as Array
-		(roster as RefCounted).snapshot_from_live_npcs(clan_members, clan_name, leader_npc, sleep_records)
-		if territory:
-			territory.set_meta("settlement_roster_pop", roster.call("get_population"))
-	var tree: SceneTree = territory.get_tree()
-	if tree == null:
-		return
-	var main: Node = tree.current_scene
-	if main and main.has_method("spawn_npcs_from_roster"):
-		main.call("spawn_npcs_from_roster", roster, territory)
-	var pi = _get_playtest_instrumentor()
-	if pi and pi.is_enabled() and pi.has_method("settlement_roster_snapshot"):
-		pi.settlement_roster_snapshot(clan_name, roster.get("members").size(), roster.call("get_population"), false)
-
-
 func dormant_update(delta: float) -> void:
-	"""Warm settlement tick when claim is off-player interest."""
+	"""Record tick while this claim is outside player interest. Same clock as the asleep branch of update."""
 	if not is_dormant:
 		return
 	if not territory or not is_instance_valid(territory):
 		return
 	if not _is_server_authoritative():
 		return
-	var interval: float = _get_dormant_eval_interval()
-	_dormant_eval_timer += delta
-	if _dormant_eval_timer < interval:
+	if not _player_in_sim_wake():
+		_resolve_parked_trips()
+	_update_alert_decay(delta)
+	if _camp_needs_materialize():
+		materialize_clan_for_combat()
+	_tick_settlement_clock(delta)
+
+
+func capture_record_after_productive_start() -> void:
+	## Women and pregnancies exist. Replace any one-man snapshot. Do not wake the camp.
+	_dead_member_ids.clear()
+	_clock_was_awake.clear()
+	_preg_timer_seen.clear()
+	_settlement_accum = 0.0
+	_snapshot_roster_for_dormant()
+	_remember_clock_edges()
+	_emit_record_log("spawn", 0.0)
+
+
+func note_body_sleeping(npc: Node) -> void:
+	## Chunk unload must not keep a second copy of a clan person. The record already has them.
+	if npc == null or not is_instance_valid(npc):
 		return
-	_dormant_eval_timer = 0.0
-	_update_alert_decay(interval)
 	if roster == null:
+		roster = SettlementRosterScript.new()
+		roster.clan_name = clan_name
+	var mid: int = SettlementRosterScript.read_member_id(npc)
+	if mid != 0 and _dead_member_ids.has(mid):
+		return
+	var asleep: bool = npc.has_method("is_sim_dormant") and bool(npc.call("is_sim_dormant"))
+	var known: bool = mid != 0 and not (roster as RefCounted).find_member(mid).is_empty()
+	if asleep and known:
+		return
+	var leader_npc: Node = territory.get("owner_npc") if territory and territory.get("owner_npc") != null else null
+	(roster as RefCounted).upsert_from_live_npc(npc, leader_npc, _dead_member_ids)
+
+
+func forget_dead_member(npc: Node) -> void:
+	if npc == null or not is_instance_valid(npc):
+		return
+	var mid: int = SettlementRosterScript.read_member_id(npc)
+	if mid == 0:
+		return
+	_dead_member_ids[mid] = true
+	_clock_was_awake.erase(mid)
+	if roster:
+		roster.call("kill_member", mid)
+
+
+func settlement_clock_is_paused() -> bool:
+	return _nomad_pauses_record()
+
+
+func record_counts() -> Dictionary:
+	var women := 0
+	var pregnant := 0
+	var babies := 0
+	var clansmen := 0
+	var away_people := 0
+	var ids: PackedStringArray = PackedStringArray()
+	if roster:
+		for m in roster.get("members"):
+			if not (m is Dictionary):
+				continue
+			var rec: Dictionary = m as Dictionary
+			if not bool(rec.get("alive", false)):
+				continue
+			if not SettlementRosterScript.is_person_type(str(rec.get("type", ""))):
+				continue
+			if bool(rec.get("away", false)):
+				away_people += 1
+			ids.append(str(int(rec.get("id", 0))))
+			match str(rec.get("type", "")):
+				"woman":
+					women += 1
+					if float(rec.get("pregnancy_timer", -1.0)) > 0.0:
+						pregnant += 1
+				"baby":
+					babies += 1
+				"clansman":
+					clansmen += 1
+	return {
+		"women": women,
+		"pregnant": pregnant,
+		"babies": babies,
+		"clansmen": clansmen,
+		"births": _record_births,
+		"away": away_people,
+		"member_ids": ",".join(ids),
+		"tick_count": _settlement_tick_count,
+	}
+
+
+func _tick_settlement_clock(delta: float) -> void:
+	if not territory or not is_instance_valid(territory):
+		return
+	if not _is_server_authoritative():
+		return
+	if _nomad_pauses_record():
+		return
+	if roster == null and (is_dormant or _clan_actors_all_sim_dormant()):
 		_snapshot_roster_for_dormant()
+		_remember_clock_edges()
 	if roster == null or not territory.inventory:
 		return
 	var settlement_roster: RefCounted = roster
-	if settlement_roster.call("get_population") <= 0:
+	if int(settlement_roster.call("get_population")) <= 0:
 		return
+	var awake: Dictionary = _sim_awake_member_ids()
+	_handoff_member_clocks(awake)
+	var asleep: int = _asleep_living_count(awake)
+	if asleep <= 0:
+		return
+	_settlement_accum += delta
+	var interval: float = _get_dormant_eval_interval()
+	var steps := 0
+	while _settlement_accum >= interval and steps < 4:
+		_settlement_accum -= interval
+		_run_settlement_slice(interval, awake, asleep)
+		steps += 1
+
+
+func _run_settlement_slice(elapsed: float, awake: Dictionary, asleep: int) -> void:
+	if roster == null or territory == null or not territory.inventory:
+		return
+	var settlement_roster: RefCounted = roster
+	var timers_before: Dictionary = _pregnancy_timers()
 	_refresh_dormant_food_metrics(settlement_roster)
 	var pop_before: int = settlement_roster.call("get_population")
 	var food_before: int = _count_claim_food(territory.inventory)
@@ -389,10 +507,25 @@ func dormant_update(delta: float) -> void:
 		chunk_coords = ChunkUtils.get_chunk_coords((territory as Node2D).global_position)
 	var clan_starving: bool = workforce_mode == WorkforceMode.STARVING
 	var hunt_state: int = int(hunt_intent.get("state", HuntIntentState.NONE))
+	var slice_id := int(floor(Time.get_ticks_msec() / 1000.0 / maxf(elapsed, 1.0)))
 	var events: Dictionary = SettlementSimTickScript.tick(
-		territory, settlement_roster, interval, chunk_coords, clan_starving, hunt_state
+		territory,
+		settlement_roster,
+		elapsed,
+		chunk_coords,
+		clan_starving,
+		hunt_state,
+		true,
+		awake,
+		_player_father_is_alive(),
+		slice_id
 	)
+	_record_births += int(events.get("births", []).size())
+	_note_session_edible(events)
+	_advance_record_party(elapsed)
+	_settlement_tick_count += 1
 	_log_settlement_events(events, pop_before, food_before)
+	_audit_tick_clean(events, timers_before, awake)
 	var pop_after: int = settlement_roster.call("get_population")
 	var food_after: int = _count_claim_food(territory.inventory)
 	_refresh_dormant_food_metrics(settlement_roster)
@@ -411,8 +544,681 @@ func dormant_update(delta: float) -> void:
 		)
 	if territory:
 		territory.set_meta("settlement_roster_pop", pop_after)
+	_emit_tick_log(elapsed, asleep, awake.size(), true)
+	_emit_record_log("tick", elapsed)
 
 
+func _record_home_fighters() -> int:
+	if roster == null:
+		return cavemen.size()
+	return SettlementPartyScript.home_fighter_count(roster)
+
+
+func _advance_record_party(elapsed: float) -> void:
+	if territory != null and territory.get("player_owned") == true:
+		return
+	if _record_home_fighters() < 2 and _record_party.is_empty():
+		return
+	var watching := _player_in_sim_wake() or _claim_has_intruder()
+	if not _record_party.is_empty() and str(_record_party.get("phase", "")) != "done":
+		if str(_record_party.get("kind", "")) == "raid":
+			_advance_record_raid(elapsed, watching)
+		else:
+			SettlementPartyScript.advance(_record_party, roster, territory.inventory if territory else null, elapsed, watching)
+			if bool(_record_party.get("resolved", false)):
+				_session_hunts = maxi(_session_hunts, 1)
+		if str(_record_party.get("phase", "")) == "done":
+			_record_party = {}
+		return
+	if watching:
+		return
+	var chunk := Vector2i.ZERO
+	if ChunkUtils and territory is Node2D:
+		chunk = ChunkUtils.get_chunk_coords((territory as Node2D).global_position)
+	var meat := 0
+	if territory and territory.inventory:
+		meat = territory.inventory.get_count(ResourceData.ResourceType.MEAT)
+		meat += territory.inventory.get_count(ResourceData.ResourceType.COOKED_MEAT)
+	var thresh := 2
+	if WorldGenConfig:
+		thresh = int(WorldGenConfig.abstract_hunt_meat_threshold)
+	if meat < thresh:
+		var hunt := SettlementPartyScript.begin_hunt(roster, chunk, territory.inventory if territory else null, _record_party)
+		if not hunt.is_empty():
+			_record_party = hunt
+			_session_hunts += 1
+			SettlementPartyScript.advance(_record_party, roster, territory.inventory, elapsed, false)
+			if str(_record_party.get("phase", "")) == "done":
+				_record_party = {}
+			return
+	if _record_home_fighters() < 6:
+		return
+	_try_begin_record_raid()
+
+
+func _try_begin_record_raid() -> void:
+	if not is_dormant and _asleep_living_count(_sim_awake_member_ids()) <= 0:
+		return
+	_refresh_nearby_enemies()
+	var neighbors: Array = []
+	for claim in nearby_enemy_claims:
+		if not is_instance_valid(claim):
+			continue
+		var their := 0
+		var brain = claim.get("clan_brain") if claim.get("clan_brain") != null else null
+		if brain and brain.has_method("_record_home_fighters"):
+			their = int(brain.call("_record_home_fighters"))
+		var food := 0
+		if claim.get("inventory"):
+			food = _count_claim_food(claim.inventory)
+		neighbors.append({
+			"claim": claim,
+			"their_fighters": their,
+			"has_food": food > 0,
+			"distance": territory.global_position.distance_to(claim.global_position) if territory is Node2D else 0.0,
+			"name": str(claim.get("clan_name")),
+		})
+	var picked: Dictionary = RaidMotivePickerScript.pick({
+		"living_fighters": _record_home_fighters(),
+		"cooldown_ok": true,
+		"hunting": false,
+		"neighbors": neighbors,
+		"food_days": float(clan_metrics.get("food_days_buffer", 0.0)),
+		"morale": float(clan_metrics.get("morale", 50.0)),
+	})
+	if not bool(picked.get("ok", false)):
+		return
+	if str(picked.get("why", "")) != "food":
+		return
+	var target: Node = picked.get("target", null)
+	if target == null or not is_instance_valid(target):
+		return
+	var sent: Array = []
+	if roster:
+		var guard := mini(2, SettlementPartyScript.home_fighter_count(roster))
+		var used := 0
+		for m in roster.get("members"):
+			if not (m is Dictionary):
+				continue
+			var rec: Dictionary = m as Dictionary
+			if not bool(rec.get("alive", false)) or bool(rec.get("away", false)):
+				continue
+			if str(rec.get("type", "")) not in ["clansman", "caveman", "leader"]:
+				continue
+			if used < guard:
+				used += 1
+				continue
+			sent.append(int(rec.get("id", 0)))
+			if sent.size() >= 4:
+				break
+	if sent.size() < 2:
+		return
+	SettlementPartyScript.mark_away(roster, sent, true)
+	var distance := 0.0
+	if territory is Node2D and target is Node2D:
+		distance = (territory as Node2D).global_position.distance_to((target as Node2D).global_position)
+	_record_party = {
+		"kind": "raid",
+		"phase": "out",
+		"why": "food",
+		"member_ids": sent,
+		"target": target,
+		"travel_left": distance / SettlementPartyScript.MARCH_PX_PER_SEC,
+		"travel_total": distance / SettlementPartyScript.MARCH_PX_PER_SEC,
+		"resolved": false,
+		"materialized": false,
+		"bundle": 0,
+		"bundle_start": 0,
+	}
+	_session_raids += 1
+
+
+func _advance_record_raid(elapsed: float, watching: bool) -> void:
+	if watching:
+		_record_party["materialized"] = true
+		return
+	if bool(_record_party.get("materialized", false)):
+		return
+	_record_party["travel_left"] = float(_record_party.get("travel_left", 0.0)) - elapsed
+	if float(_record_party.get("travel_left", 0.0)) > 0.0 or bool(_record_party.get("resolved", false)):
+		if bool(_record_party.get("resolved", false)) and float(_record_party.get("travel_left", 0.0)) <= 0.0:
+			SettlementPartyScript.mark_away(roster, _record_party.get("member_ids", []), false)
+			_record_party["phase"] = "done"
+		return
+	var target: Node = _record_party.get("target", null)
+	if target and is_instance_valid(target) and territory and territory.inventory and target.get("inventory"):
+		var moved: int = SettlementPartyScript.resolve_food_once(territory.inventory, target.inventory, _record_party)
+		if moved > 0:
+			target.set_meta("settlement_raid_loss", moved)
+	else:
+		_record_party["resolved"] = true
+	_record_party["phase"] = "back"
+	_record_party["travel_left"] = float(_record_party.get("travel_total", 0.0))
+
+
+func _nomad_pauses_record() -> bool:
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if npc.has_meta("nomad_pregnancy_frozen"):
+			return true
+	if territory == null or not is_instance_valid(territory):
+		return false
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return false
+	var clan_key: String = str(clan_name).strip_edges().to_lower()
+	for node in tree.get_nodes_in_group("campfires"):
+		if node == null or not is_instance_valid(node):
+			continue
+		if str(node.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		if int(node.get("nomad_state")) != 0:
+			return true
+	return false
+
+
+func _player_father_is_alive() -> bool:
+	if territory == null or territory.get("player_owned") != true:
+		return false
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return false
+	var main: Node = tree.get_first_node_in_group("main")
+	var player: Node = main.get("player") if main else null
+	if player == null or not is_instance_valid(player):
+		return false
+	var hc: Node = player.get_node_or_null("HealthComponent")
+	if hc and hc.get("is_dead") == true:
+		return false
+	return true
+
+
+func _park_outside_trips() -> void:
+	if roster == null or territory == null or not is_instance_valid(territory):
+		return
+	var chunks: Array = []
+	if territory.has_meta("away_trip_chunks"):
+		var stored_chunks: Variant = territory.get_meta("away_trip_chunks")
+		if stored_chunks is Array:
+			chunks = stored_chunks
+	var trips: Array = []
+	if territory.has_meta("away_trips"):
+		var stored_trips: Variant = territory.get_meta("away_trips")
+		if stored_trips is Array:
+			trips = stored_trips
+	var home: Vector2i = ChunkUtils.get_chunk_coords((territory as Node2D).global_position)
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if npc.has_method("is_dead") and npc.is_dead():
+			continue
+		var kind: String = str(npc.get_meta("next_job_kind", ""))
+		if kind != "chunk" and kind != "hunt":
+			continue
+		var here: Vector2i = ChunkUtils.get_chunk_coords(npc.global_position)
+		if here == home and kind != "chunk":
+			continue
+		var trip_chunk: Vector2i = here
+		var key: String = str(npc.get_meta("next_job_chunk", ""))
+		if not key.is_empty():
+			var parts: PackedStringArray = key.split(",")
+			if parts.size() == 2:
+				trip_chunk = Vector2i(int(parts[0]), int(parts[1]))
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid == 0:
+			continue
+		SettlementPartyScript.mark_away(roster, [mid], true)
+		if trip_chunk not in chunks:
+			chunks.append(trip_chunk)
+		trips.append({"id": mid, "chunk": trip_chunk, "resolved": false})
+	territory.set_meta("away_trip_chunks", chunks)
+	territory.set_meta("away_trips", trips)
+
+
+func _resolve_parked_trips() -> void:
+	if roster == null or territory == null or not is_instance_valid(territory):
+		return
+	if not territory.has_meta("away_trips"):
+		return
+	var stored: Variant = territory.get_meta("away_trips")
+	if not (stored is Array):
+		return
+	var trips: Array = stored
+	var blocked: Array = []
+	for trip_v in trips:
+		if not (trip_v is Dictionary):
+			continue
+		var trip: Dictionary = trip_v
+		if bool(trip.get("resolved", false)):
+			continue
+		var mid: int = int(trip.get("id", 0))
+		var chunk: Vector2i = trip.get("chunk", Vector2i.ZERO) as Vector2i
+		var body: Node = null
+		for npc in clan_members:
+			if npc and is_instance_valid(npc) and SettlementRosterScript.read_member_id(npc) == mid:
+				body = npc
+				break
+		SettlementPartyScript.resolve_unwatched_trip(territory, roster, mid, chunk, body)
+		trip["resolved"] = true
+	for trip_v in trips:
+		if trip_v is Dictionary and not bool((trip_v as Dictionary).get("resolved", false)):
+			blocked.append((trip_v as Dictionary).get("chunk", Vector2i.ZERO))
+	territory.set_meta("away_trips", trips)
+	territory.set_meta("away_trip_chunks", blocked)
+
+
+func _player_in_sim_wake() -> bool:
+	if territory == null or not (territory is Node2D):
+		return false
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return false
+	var main: Node = tree.get_first_node_in_group("main")
+	var player: Node2D = main.get("player") as Node2D if main and main.get("player") != null else null
+	if player == null or not is_instance_valid(player):
+		return false
+	var radius: float = 1200.0
+	if WorldGenConfig:
+		radius = float(WorldGenConfig.sim_wake_player_radius_px)
+	return player.global_position.distance_to((territory as Node2D).global_position) <= radius
+
+
+func _claim_has_intruder() -> bool:
+	return territory != null and territory.has_method("has_village_intruder") and bool(territory.call("has_village_intruder"))
+
+
+func _camp_needs_materialize() -> bool:
+	## Bodies are only created when someone is actually here and the people are still asleep.
+	if _claim_has_intruder():
+		return true
+	if not _player_in_sim_wake():
+		return false
+	if is_dormant:
+		return true
+	if roster == null:
+		return _clan_actors_all_sim_dormant()
+	return _asleep_living_count(_sim_awake_member_ids()) > 0
+
+
+func _sim_awake_member_ids() -> Dictionary:
+	var out: Dictionary = {}
+	_refresh_clan_members()
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		if npc.has_method("is_sim_dormant") and bool(npc.call("is_sim_dormant")):
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid != 0:
+			out[mid] = true
+	return out
+
+
+func _asleep_living_count(awake: Dictionary) -> int:
+	if roster == null:
+		return 0
+	var count := 0
+	for mid in (roster as RefCounted).call("living_person_ids"):
+		if not awake.has(int(mid)):
+			count += 1
+	return count
+
+
+func _remember_clock_edges() -> void:
+	_refresh_clan_members()
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid == 0:
+			continue
+		var awake: bool = not (npc.has_method("is_sim_dormant") and bool(npc.call("is_sim_dormant")))
+		_clock_was_awake[mid] = awake
+
+
+func _copy_awake_bodies_onto_record() -> void:
+	if roster == null:
+		return
+	var leader_npc: Node = territory.get("owner_npc") if territory and territory.get("owner_npc") != null else null
+	_refresh_clan_members()
+	var copied: PackedStringArray = PackedStringArray()
+	var kept: PackedStringArray = PackedStringArray()
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid != 0 and _dead_member_ids.has(mid):
+			continue
+		var awake: bool = not (npc.has_method("is_sim_dormant") and bool(npc.call("is_sim_dormant")))
+		if awake:
+			(roster as RefCounted).upsert_from_live_npc(npc, leader_npc, _dead_member_ids)
+			if mid != 0:
+				copied.append(str(mid))
+		elif mid != 0:
+			kept.append(str(mid))
+	if copied.size() > 0:
+		_emit_handoff_log(",".join(copied), ",".join(kept))
+	_remember_clock_edges()
+
+
+func _handoff_member_clocks(awake: Dictionary) -> void:
+	if roster == null:
+		return
+	var leader_npc: Node = territory.get("owner_npc") if territory and territory.get("owner_npc") != null else null
+	_refresh_clan_members()
+	var copied: PackedStringArray = PackedStringArray()
+	var kept: PackedStringArray = PackedStringArray()
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid == 0 or _dead_member_ids.has(mid):
+			continue
+		var now_awake: bool = awake.has(mid)
+		var seen: bool = _clock_was_awake.has(mid)
+		var was_awake: bool = bool(_clock_was_awake.get(mid, false))
+		if now_awake and not was_awake and seen:
+			_apply_record_member_to_npc(npc)
+		elif not now_awake and was_awake:
+			(roster as RefCounted).upsert_from_live_npc(npc, leader_npc, _dead_member_ids)
+			copied.append(str(mid))
+		elif not now_awake and seen:
+			kept.append(str(mid))
+		_clock_was_awake[mid] = now_awake
+	if copied.size() > 0:
+		_emit_handoff_log(",".join(copied), ",".join(kept))
+
+
+func _apply_record_member_to_npc(npc: Node) -> void:
+	if roster == null or npc == null or not is_instance_valid(npc):
+		return
+	var mid: int = SettlementRosterScript.read_member_id(npc)
+	var rec: Dictionary = (roster as RefCounted).find_member(mid)
+	if rec.is_empty() or not bool(rec.get("alive", false)):
+		return
+	var fallback: Vector2 = territory.global_position if territory is Node2D else Vector2.ZERO
+	var spawn_data: Dictionary = roster.call("to_spawn_data", rec, fallback) as Dictionary
+	if npc.has_method("apply_sleep_data"):
+		npc.call("apply_sleep_data", spawn_data)
+
+
+func _pregnancy_timers() -> Dictionary:
+	var out: Dictionary = {}
+	if roster == null:
+		return out
+	for m in roster.get("members"):
+		if m is Dictionary:
+			out[int((m as Dictionary).get("id", 0))] = float((m as Dictionary).get("pregnancy_timer", -1.0))
+	return out
+
+
+func _audit_tick_clean(events: Dictionary, timers_before: Dictionary, awake: Dictionary) -> void:
+	var seen: Dictionary = {}
+	if roster:
+		for m in roster.get("members"):
+			if not (m is Dictionary):
+				continue
+			var rec: Dictionary = m as Dictionary
+			if not bool(rec.get("alive", false)):
+				continue
+			var mid: int = int(rec.get("id", 0))
+			if seen.has(mid):
+				_emit_dirty("duplicate_member_id", str(mid))
+			seen[mid] = true
+			if awake.has(mid):
+				var before_awake: float = float(timers_before.get(mid, -1.0))
+				var after_awake: float = float(rec.get("pregnancy_timer", -1.0))
+				if before_awake > 0.0 and absf(after_awake - before_awake) > 0.05:
+					_emit_dirty("awake_member_ticked", str(mid))
+			var before: float = float(_preg_timer_seen.get(mid, -1.0))
+			var after: float = float(rec.get("pregnancy_timer", -1.0))
+			if before > 0.0 and after > before + 0.05:
+				_emit_dirty("pregnancy_timer_backward", str(mid))
+			_preg_timer_seen[mid] = after
+	for birth_evt in events.get("births", []):
+		if birth_evt is Dictionary:
+			var baby_id: int = int((birth_evt as Dictionary).get("baby_id", 0))
+			if baby_id != 0 and not seen.has(baby_id):
+				_emit_dirty("birth_missing_on_record", str(baby_id))
+
+
+var _combat_materialize_at: float = -1.0
+
+
+func materialize_clan_for_combat() -> void:
+	## Player character in sim-wake range, or hostile clansmen inside the claim.
+	if not territory or not is_instance_valid(territory):
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if _combat_materialize_at >= 0.0 and now - _combat_materialize_at < 0.5:
+		_wake_clan_actors()
+		return
+	_combat_materialize_at = now
+	_discard_clan_people_from_sleep_list()
+	if roster == null:
+		_snapshot_roster_for_dormant()
+		_remember_clock_edges()
+	_materialize_people_from_record()
+	_wake_clan_actors()
+	_remember_clock_edges()
+
+
+func _discard_clan_people_from_sleep_list() -> void:
+	if NPCSleepManager and NPCSleepManager.has_method("discard_people_for_clan"):
+		NPCSleepManager.call("discard_people_for_clan", clan_name)
+
+
+func _materialize_people_from_record() -> void:
+	if roster == null or not territory or not is_instance_valid(territory):
+		return
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return
+	var main: Node = tree.get_first_node_in_group("main")
+	var parent: Node = main.get("npcs_container") if main and main.get("npcs_container") != null else territory.get_parent()
+	var fallback: Vector2 = territory.global_position if territory is Node2D else Vector2.ZERO
+	var herd_before: int = _herd_count()
+	var living: Dictionary = {}
+	for mid in (roster as RefCounted).call("living_person_ids"):
+		living[int(mid)] = (roster as RefCounted).find_member(int(mid))
+	var live_by_id: Dictionary = {}
+	var duplicate_ids: PackedStringArray = PackedStringArray()
+	var removed := 0
+	var clan_key: String = str(clan_name).strip_edges().to_lower()
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid == 0 or not living.has(mid):
+			if not living.is_empty():
+				removed += 1
+				npc.queue_free()
+			continue
+		var listed: Dictionary = living[mid] as Dictionary
+		if bool(listed.get("away", false)):
+			live_by_id[mid] = npc
+			continue
+		if live_by_id.has(mid):
+			duplicate_ids.append(str(mid))
+			removed += 1
+			npc.queue_free()
+			continue
+		live_by_id[mid] = npc
+	var spawned := 0
+	var missing: PackedStringArray = PackedStringArray()
+	for mid in living.keys():
+		var rec: Dictionary = living[mid] as Dictionary
+		if not SettlementPartyScript.should_spawn_at_claim(rec):
+			continue
+		var spawn_data: Dictionary = roster.call("to_spawn_data", rec, fallback) as Dictionary
+		var body: Node = live_by_id.get(mid, null) as Node
+		if body and is_instance_valid(body):
+			if body.has_method("apply_sleep_data"):
+				body.call("apply_sleep_data", spawn_data)
+			_emit_materialize_member(int(mid), rec, true)
+			continue
+		if main and parent is Node2D and main.has_method("spawn_npc_from_sleep_data"):
+			main.call("spawn_npc_from_sleep_data", spawn_data, parent)
+			spawned += 1
+			_emit_materialize_member(int(mid), rec, true)
+		else:
+			missing.append(str(int(mid)))
+	var herd_after: int = _herd_count()
+	_emit_materialize_log(spawned, removed, ",".join(missing), ",".join(duplicate_ids), herd_before, herd_after)
+	if not missing.is_empty() or not duplicate_ids.is_empty() or herd_after != herd_before:
+		if herd_after != herd_before:
+			_emit_dirty("herd_changed", "%d->%d" % [herd_before, herd_after])
+
+
+func _herd_count() -> int:
+	if territory == null or not is_instance_valid(territory):
+		return 0
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return 0
+	var clan_key: String = str(clan_name).strip_edges().to_lower()
+	var count := 0
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		var ntype: String = str(npc.get("npc_type"))
+		if ntype == "sheep" or ntype == "goat":
+			count += 1
+	return count
+
+
+func _wake_clan_actors() -> void:
+	if not territory or not is_instance_valid(territory):
+		return
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return
+	var clan_key: String = str(clan_name).strip_edges().to_lower()
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		if npc.has_method("set_sim_dormant"):
+			npc.call("set_sim_dormant", false)
+		if HostileEntityIndex:
+			HostileEntityIndex.register(npc)
+
+
+func _clan_actors_all_sim_dormant() -> bool:
+	_refresh_clan_members()
+	if clan_members.is_empty():
+		return false
+	var saw_actor := false
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		if npc.is_in_group("player"):
+			return false
+		if not npc.has_method("is_sim_dormant"):
+			return false
+		saw_actor = true
+		if not bool(npc.call("is_sim_dormant")):
+			return false
+	return saw_actor
+
+
+func _session_log_enabled() -> bool:
+	if territory == null or not is_instance_valid(territory):
+		return false
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return false
+	var main: Node = tree.get_first_node_in_group("main")
+	return main != null and main.has_method("_session_ai_clan_instrument_active") and bool(main.call("_session_ai_clan_instrument_active"))
+
+
+func _emit_record_log(tag: String, elapsed: float) -> void:
+	if not _session_log_enabled():
+		return
+	var counts: Dictionary = record_counts()
+	var food_total := 0
+	if territory and territory.inventory:
+		food_total = _count_claim_food(territory.inventory)
+	print(
+		"AI_CLAN_RECORD tag=%s clan=%s brain_dormant=%d elapsed=%.2f women=%d pregnant=%d babies=%d clansmen=%d births=%d food_total=%d member_ids=%s"
+		% [
+			tag,
+			clan_name,
+			1 if is_dormant else 0,
+			elapsed,
+			int(counts.get("women", 0)),
+			int(counts.get("pregnant", 0)),
+			int(counts.get("babies", 0)),
+			int(counts.get("clansmen", 0)),
+			int(counts.get("births", 0)),
+			food_total,
+			str(counts.get("member_ids", "")),
+		]
+	)
+
+
+func _emit_tick_log(elapsed: float, asleep: int, awake: int, hunt: bool) -> void:
+	if not _session_log_enabled():
+		return
+	print(
+		"AI_CLAN_TICK clan=%s elapsed=%.2f asleep=%d awake=%d hunt=%d"
+		% [clan_name, elapsed, asleep, awake, 1 if hunt else 0]
+	)
+
+
+func _emit_materialize_log(spawned: int, removed: int, missing_ids: String, duplicate_ids: String, herd_before: int, herd_after: int) -> void:
+	if not _session_log_enabled():
+		return
+	print(
+		"AI_CLAN_MATERIALIZE clan=%s spawned=%d removed=%d missing_ids=%s duplicate_ids=%s herd_before=%d herd_after=%d"
+		% [clan_name, spawned, removed, missing_ids, duplicate_ids, herd_before, herd_after]
+	)
+
+
+func _emit_materialize_member(member_id: int, rec: Dictionary, copied: bool) -> void:
+	if not _session_log_enabled():
+		return
+	print(
+		"AI_CLAN_MATERIALIZE_MEMBER clan=%s member_id=%d age=%.1f hunger=%.1f pregnancy_timer=%.1f copied=%d"
+		% [
+			clan_name,
+			member_id,
+			float(rec.get("age", 0.0)),
+			float(rec.get("hunger", 0.0)),
+			float(rec.get("pregnancy_timer", -1.0)),
+			1 if copied else 0,
+		]
+	)
+
+
+func _emit_handoff_log(copied_ids: String, kept_ids: String) -> void:
+	if not _session_log_enabled():
+		return
+	print("AI_CLAN_HANDOFF clan=%s copied_ids=%s kept_ids=%s" % [clan_name, copied_ids, kept_ids])
+
+
+func _emit_dirty(reason: String, detail: String) -> void:
+	print("AI_CLAN_DIRTY clan=%s reason=%s detail=%s" % [clan_name, reason, detail])
 func _refresh_dormant_food_metrics(settlement_roster: RefCounted) -> void:
 	if not territory or not territory.inventory or settlement_roster == null:
 		return
@@ -425,6 +1231,31 @@ func _refresh_dormant_food_metrics(settlement_roster: RefCounted) -> void:
 	clan_metrics["calories_days_buffer"] = clan_metrics["food_days_buffer"]
 	ClanFoodBufferScript.publish_to_claim(territory, pantry)
 	_publish_workforce_mode()
+
+
+func _note_session_edible(events: Dictionary) -> void:
+	const EDIBLE: Array[String] = ["berries", "grain", "nuts", "bugs"]
+	for gathered in events.get("gathered", []):
+		if not (gathered is Dictionary):
+			continue
+		var key: String = str((gathered as Dictionary).get("resource_key", ""))
+		if key in EDIBLE:
+			_session_edible_gathered += int((gathered as Dictionary).get("count", 0))
+
+
+func session_activity() -> Dictionary:
+	var away := 0
+	if roster:
+		for m in roster.get("members"):
+			if m is Dictionary and bool((m as Dictionary).get("alive", false)) and bool((m as Dictionary).get("away", false)):
+				away += 1
+	return {
+		"edible": _session_edible_gathered,
+		"hunts": _session_hunts,
+		"raids": _session_raids,
+		"away": away,
+		"party": str(_record_party.get("kind", "")),
+	}
 
 
 func _count_settlement_food_gathered(events: Dictionary) -> int:
@@ -456,6 +1287,17 @@ func _count_claim_food(inventory: InventoryData) -> int:
 
 
 func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: int) -> void:
+	if territory and is_instance_valid(territory):
+		var main_b: Node = territory.get_tree().get_first_node_in_group("main") if territory.get_tree() else null
+		if main_b and main_b.has_method("register_session_ai_clan_repro"):
+			for birth_evt in events.get("births", []):
+				if birth_evt is Dictionary:
+					var born: Dictionary = birth_evt as Dictionary
+					main_b.register_session_ai_clan_repro(clan_name, "birth", str(born.get("mother_name", "?")), {
+						"baby": str(born.get("baby_name", "?")),
+						"baby_id": int(born.get("baby_id", 0)),
+						"source": "settlement",
+					})
 	var pi = _get_playtest_instrumentor()
 	if not pi or not pi.is_enabled():
 		return
@@ -546,8 +1388,10 @@ func _log_settlement_events(events: Dictionary, _pop_before: int, _food_before: 
 				int(r.get("cap", 0))
 			)
 	for birth in events.get("births", []):
-		if birth is Dictionary and pi.has_method("settlement_birth"):
-			var b: Dictionary = birth as Dictionary
+		if not (birth is Dictionary):
+			continue
+		var b: Dictionary = birth as Dictionary
+		if pi and pi.has_method("settlement_birth"):
 			pi.settlement_birth(
 				clan_name,
 				str(b.get("mother_name", "?")),
@@ -682,7 +1526,7 @@ func _update_survival_mode() -> void:
 			territory.remove_meta("survival_mode")
 		_is_survival_mode = false
 		return
-	var pop: int = cavemen.size()
+	var pop: int = _record_home_fighters() if roster != null else cavemen.size()
 	var want: bool = pop > 0 and pop < SURVIVAL_MODE_THRESHOLD
 	if want == _is_survival_mode:
 		territory.set_meta("survival_mode", want)
@@ -1126,8 +1970,29 @@ func _update_economic_weights() -> void:
 	if territory:
 		territory.set_meta("economic_priority_weights", economic_priority_weights.duplicate())
 
-func _refresh_nearby_enemies() -> void:
-	"""Refresh list of nearby enemy land claims."""
+func get_neighbor_claims() -> Array:
+	## Camps this clan knows for raid, defense, and later trade. Same list, one reader.
+	return nearby_enemy_claims
+
+
+static func neighbor_keep_count(sorted_distances: Array) -> int:
+	## First NEIGHBOR_MIN are always kept. Further camps count only inside NEIGHBOR_NEAR_FACTOR times the nearest, and never past NEIGHBOR_MAX.
+	if sorted_distances.is_empty():
+		return 0
+	var nearest: float = maxf(float(sorted_distances[0]), 1.0)
+	var near_limit: float = nearest * NEIGHBOR_NEAR_FACTOR
+	var kept: int = 0
+	for dist in sorted_distances:
+		if kept >= NEIGHBOR_MAX:
+			break
+		if kept >= NEIGHBOR_MIN and float(dist) > near_limit:
+			break
+		kept += 1
+	return kept
+
+
+func _refresh_nearby_enemies(skip: Node = null) -> void:
+	"""Rebuild the neighbor list. A camp that is leaving the tree is skipped."""
 	nearby_enemy_claims.clear()
 	
 	if not territory:
@@ -1138,6 +2003,7 @@ func _refresh_nearby_enemies() -> void:
 	# Use cached land claims from main if available
 	var main = territory.get_tree().get_first_node_in_group("main") if territory.get_tree() else null
 	var all_claims: Array = []
+	var ranked: Array[Dictionary] = []
 	
 	if main and main.has_method("get_cached_land_claims"):
 		all_claims = main.get_cached_land_claims()
@@ -1145,18 +2011,35 @@ func _refresh_nearby_enemies() -> void:
 		all_claims = territory.get_tree().get_nodes_in_group("land_claims") if territory.get_tree() else []
 	
 	for claim in all_claims:
-		if not is_instance_valid(claim) or claim == territory:
+		if not is_instance_valid(claim) or claim == territory or claim == skip:
+			continue
+		if claim.is_queued_for_deletion():
 			continue
 		# Enemy territory: any node in land_claims with clan_name + radius (flags and campfires)
-		# Check if enemy (different clan)
 		var claim_clan: String = claim.get("clan_name") if "clan_name" in claim else ""
 		if claim_clan == clan_name or claim_clan == "":
 			continue
 		
-		# Check distance
 		var distance: float = claim_pos.distance_to(claim.global_position)
-		if distance <= THREAT_DISTANCE_MAX:
-			nearby_enemy_claims.append(claim)
+		ranked.append({"claim": claim, "distance": distance})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["distance"]) < float(b["distance"])
+	)
+	var distances: Array = []
+	for row in ranked:
+		distances.append(float(row["distance"]))
+	var keep: int = neighbor_keep_count(distances)
+	for i in keep:
+		nearby_enemy_claims.append(ranked[i]["claim"])
+	var names: PackedStringArray = PackedStringArray()
+	for neighbor in nearby_enemy_claims:
+		names.append(str(neighbor.get("clan_name")))
+	var sig: String = ",".join(names)
+	if sig == _neighbor_log_sig:
+		return
+	_neighbor_log_sig = sig
+	var nearest: float = distances[0] if not distances.is_empty() else 0.0
+	print("NEIGHBOR clan=%s count=%d nearest=%.0f names=%s" % [clan_name, names.size(), nearest, sig])
 
 func _refresh_threat_cache() -> void:
 	"""Refresh cached threat scores for enemy claims (expensive, done less often)."""
@@ -1182,9 +2065,10 @@ func _evaluate_enemy_threat(enemy_claim: Node2D) -> float:
 	var claim_pos: Vector2 = territory.global_position
 	var enemy_pos: Vector2 = enemy_claim.global_position
 	
-	# Distance factor (closer = more threatening)
+	# Closest neighbor is the full distance threat. Farther neighbors in the same short list matter less, but they are not ignored.
 	var distance: float = claim_pos.distance_to(enemy_pos)
-	var distance_factor: float = 1.0 - clampf(distance / THREAT_DISTANCE_MAX, 0.0, 1.0)
+	var nearest: float = _nearest_neighbor_distance()
+	var distance_factor: float = clampf(nearest / maxf(distance, 1.0), 0.35, 1.0)
 	threat += distance_factor * 0.4
 	
 	# Enemy strength factor (count their cavemen)
@@ -1402,11 +2286,12 @@ func _make_strategic_decisions() -> void:
 			StrategicState.keys()[strategic_state]
 		])
 	
-	# Phase 3: Evaluate hunt / raid when stable enough to project force (skipped in survival mode).
+	# Hunt only when the clan is willing to leave home. A raid is still decided while defensive:
+	# knowing a neighbor is not the same as being under attack, and a no must be printed.
 	var can_project: bool = strategic_state == StrategicState.AGGRESSIVE or strategic_state == StrategicState.PEACEFUL
 	if can_project and (not _is_survival_mode or _allow_starving_hunt_in_survival()):
 		_evaluate_hunt_opportunity()
-	if can_project and not _is_survival_mode:
+	if not _is_survival_mode:
 		_evaluate_raid_opportunity()
 
 func _allow_starving_hunt_in_survival() -> bool:
@@ -2057,7 +2942,6 @@ const LEADER_SHOCK_SEC: float = 8.0
 const LEADER_SHOCK_SCORE_PENALTY: float = -1.5
 const MIN_DEFENDERS_DURING_RAID: float = 0.3  # Keep 30% defending during raids
 const RAID_COOLDOWN: float = 60.0  # Seconds between raids
-const RAID_DISTANCE_MAX: float = 1500.0  # Max distance to consider for raid targets
 
 # Raid intent (NPCs read this to decide if they should join)
 enum RaidState { NONE, RECRUITING, ACTIVE, RETREATING }
@@ -2068,17 +2952,45 @@ var raid_intent: Dictionary = {
 	"rally_point": Vector2.ZERO,
 	"raider_quota": 0,  # How many raiders we want
 	"start_time": 0.0,
-	"phase_start_time": 0.0  # Time current phase started (for phase-specific timeouts)
+	"phase_start_time": 0.0,  # Time current phase started (for phase-specific timeouts)
+	"why": "",
+	"goal": "",
+	"enemy_kills": 0,
+	"building_target": null,
+	"captures_done": 0,
+	"building_down_logged": false,
+	"raid_prizes": [],
+	"food_arrived": false,
 }
 var _last_raid_time: float = -RAID_COOLDOWN  # Allow immediate first raid
-var _raid_pressure: float = 0.0  # How much we want to raid (0.0 - 1.0)
+var _raid_pressure: float = 0.0  # Legacy debug scalar; motive picker replaces score.
+## -1 peaceful … +1 warlike; traits write later.
+var raid_temper: float = 0.0
+var _raid_tuning_override: Dictionary = {}
+var _raid_wrongs: Array = []  # {enemy, kind, at, stole_goal?}
+var _last_raid_quiet_at: float = 0.0
 
-# Raid population / logistics gates (plan: 6+ fighters, food buffer). Target clan size is scored below.
+## Tribe raid memory (0–100). Not recomputed from living fighters; moves on raid events only.
+const CLAN_MORALE_DEFAULT: float = 50.0
+const CLAN_MORALE_RAID_APPETITE: float = 50.0
+const CLAN_MORALE_RAID_CALLOFF: float = 30.0
+const CLAN_MORALE_DRIFT_PER_SEC: float = 0.5  # ~1 point every 2s toward default
+const CLAN_MORALE_RAIDER_DEATH: float = -10.0
+const CLAN_MORALE_RAIDER_BREAK: float = -4.0
+const CLAN_MORALE_RAIDER_KILL: float = 6.0
+const CLAN_MORALE_RAID_LEADER_DEATH: float = -18.0
+var clan_morale: float = CLAN_MORALE_DEFAULT
+var _clan_morale_drift_log_acc: float = 0.0
+var _raid_too_few_logged: bool = false
+var _raid_decision_skip: String = ""
+
+# Raid population gate (6+ living fighters).
 const RAID_POPULATION_THRESHOLD: int = 6
-const RAID_MIN_FOOD_DAYS_FOR_RAID: float = 3.0
 
 # Hunting party (Area of Hunt)
 const HUNT_COOLDOWN_SEC: float = 45.0
+## No slice for this long: end the hunt. The carcass stays a gather job.
+const LOOT_STALL_SEC: float = 45.0
 const HUNT_CHASE_SPEED_MULT: float = 1.85
 const HUNT_CHASE_MIN_SPEED: float = 170.0
 enum HuntIntentState { NONE, RECRUITING, ACTIVE, LOOTING, RETREATING }
@@ -2097,115 +3009,252 @@ var hunt_intent: Dictionary = {
 var _last_hunt_time: float = -120.0
 ## Emit at most one `hunt_prey_escaped` per hunt when target node is lost (despawn) while ACTIVE.
 var _hunt_prey_lost_logged: bool = false
+var _loot_butcher_nudge_at: float = 0.0
+var _loot_yield_seen: int = -1
+var _loot_yield_changed_at: float = 0.0
 
 func _evaluate_raid_opportunity() -> void:
-	"""Evaluate if we should organize a raid using score-based multi-signal approach."""
-	# Don't raid if already raiding
+	if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+		return
+	if not _record_party.is_empty():
+		return
+	if roster != null and _asleep_living_count(_sim_awake_member_ids()) > 0:
+		return
 	if raid_intent["state"] != RaidState.NONE:
 		return
 	if is_hunting():
+		_log_raid_decision_skip("hunting", "")
 		return
-	
-	# Don't raid during high alert (we're being attacked)
 	if alert_level >= AlertLevel.SKIRMISH:
 		_raid_pressure = 0.0
+		_log_raid_decision_skip("alert", "level=%d" % int(alert_level))
 		return
-	
-	# Population gate: need enough fighters before offensive raids
-	if cavemen.size() < RAID_POPULATION_THRESHOLD:
+
+	var living_fighters: int = _living_clan_fighters()
+	if living_fighters < RAID_POPULATION_THRESHOLD:
+		_note_raid_too_few(living_fighters)
 		return
-	
-	# Logistics: don't raid when starving (food buffer proxy)
-	if clan_metrics.get("food_days_buffer", 0.0) < RAID_MIN_FOOD_DAYS_FOR_RAID:
-		return
-	
-	# Check cooldown
+	_raid_too_few_logged = false
+
 	var current_time: float = Time.get_ticks_msec() / 1000.0
-	if current_time - _last_raid_time < RAID_COOLDOWN:
+	var cooldown_ok: bool = current_time - _last_raid_time >= RAID_COOLDOWN
+	if not cooldown_ok:
+		_log_raid_decision_skip("cooldown", "sec=%.0f" % (RAID_COOLDOWN - (current_time - _last_raid_time)))
 		return
-	
-	# Don't raid with too few fighters
-	if cavemen.size() < MIN_RAID_PARTY_SIZE + 1:  # Need at least 1 defender
+
+	if living_fighters < MIN_RAID_PARTY_SIZE + 1:
+		_log_raid_decision_skip("short_handed", "living=%d need=%d" % [living_fighters, MIN_RAID_PARTY_SIZE + 1])
 		return
-	
-	# Safety gate: ensure defense quota is satisfied AFTER raid party leaves
+
 	var defender_quota: int = get_defender_quota()
-	var available_for_raid: int = cavemen.size() - defender_quota
+	var available_for_raid: int = living_fighters - defender_quota
 	if available_for_raid < MIN_RAID_PARTY_SIZE:
+		_log_raid_decision_skip("short_handed", "free=%d need=%d" % [available_for_raid, MIN_RAID_PARTY_SIZE])
 		return
-	
-	# === Score-based multi-signal raid evaluation ===
-	# Multiple weak signals compose into a raid decision
-	var score: float = 0.0
-	
-	# 1. Food pressure (starving clans raid)
-	var food_ratio: float = _calculate_food_ratio()
-	if food_ratio < raid_hunger_threshold:
-		score += clampf(1.0 - food_ratio, 0.0, 1.0) * 0.4
-	
-	# 2. Population pressure (too many mouths)
-	var population_ratio: float = float(clan_members.size()) / 10.0  # Normalize to ~10 members
-	score += clampf(population_ratio, 0.0, 1.0) * raid_population_pressure * 0.3
-	
-	# 3. Aggression personality (hostile clans raid even when stable)
-	score += raid_aggression * 0.3
-	
-	# 4. Opportunity (a clan we are not smaller than)
-	var weak_enemy: Node = _find_weak_enemy()
-	var numbers_contrib: float = 0.0
-	if weak_enemy:
-		var our_n: int = _living_clan_fighters()
-		var their_n: int = _count_enemy_fighters(weak_enemy)
-		var edge: float = float(our_n - their_n) / maxf(1.0, float(our_n))
-		numbers_contrib = clampf(edge, 0.0, 1.0) * 0.35
-		score += raid_opportunity_weight
-		score += numbers_contrib
-	
-	# 5. Strategic state modifier (applied once)
-	var state_contrib: float = 0.0
-	if strategic_state == StrategicState.AGGRESSIVE:
-		state_contrib = 0.2
-		score += 0.2
-	elif strategic_state == StrategicState.DEFENSIVE:
-		state_contrib = -0.3
-		score -= 0.3
-	
-	# Breakdown for instrumentation (computed after scoring to match actual values)
-	var food_contrib: float = 0.0
-	if food_ratio < raid_hunger_threshold:
-		food_contrib = clampf(1.0 - food_ratio, 0.0, 1.0) * 0.4
-	var population_contrib: float = clampf(population_ratio, 0.0, 1.0) * raid_population_pressure * 0.3
-	var aggression_contrib: float = raid_aggression * 0.3
-	var weak_enemy_contrib: float = raid_opportunity_weight if weak_enemy else 0.0
-	
-	# Store for debugging
-	_raid_pressure = clampf(score, 0.0, 2.0)
-	
-	# Playtest instrumentation: emit raid_evaluated when capture enabled (raid test or normal play)
+
+	var pick_ctx: Dictionary = _build_raid_pick_context(current_time)
+	var picked: Dictionary = RaidMotivePickerScript.pick(pick_ctx)
+	if not picked.get("ok", false):
+		var skip: String = str(picked.get("skip", "no_motive"))
+		var detail: String = str(picked.get("detail", ""))
+		_log_raid_decision_skip(skip, detail)
+		_raid_pressure = 0.0
+		var tree = territory.get_tree() if territory else null
+		if tree:
+			var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+			if pi and pi.is_enabled() and pi.has_method("raid_motive_skip"):
+				pi.raid_motive_skip(clan_name, skip, detail)
+		return
+
+	_raid_decision_skip = ""
+	_raid_pressure = 1.0
+	var target: Node = picked.get("target") as Node
+	if target == null or not is_instance_valid(target):
+		_log_raid_decision_skip("no_target", "")
+		return
+	_start_raid(
+		target,
+		str(picked.get("why", "")),
+		str(picked.get("goal", ""))
+	)
+
+
+func _raid_tune(key: String) -> Variant:
+	if _raid_tuning_override.has(key):
+		return _raid_tuning_override[key]
+	if ClanBrainTuningConfig and ClanBrainTuningConfig.has_method("get_raid_tune_snapshot"):
+		var snap: Dictionary = ClanBrainTuningConfig.get_raid_tune_snapshot()
+		if snap.has(key):
+			return snap[key]
+	return RaidMotivePickerScript.tune_value({}, key)
+
+
+func _raid_tune_snapshot() -> Dictionary:
+	var snap: Dictionary = RaidMotivePickerScript.DEFAULT_TUNE.duplicate()
+	if ClanBrainTuningConfig and ClanBrainTuningConfig.has_method("get_raid_tune_snapshot"):
+		snap = ClanBrainTuningConfig.get_raid_tune_snapshot()
+	for k in _raid_tuning_override:
+		snap[k] = _raid_tuning_override[k]
+	return snap
+
+
+func _build_raid_pick_context(now: float) -> Dictionary:
+	var rows: Array = []
+	if territory:
+		for enemy_claim in get_neighbor_claims():
+			if not is_instance_valid(enemy_claim):
+				continue
+			var enemy_clan: String = str(enemy_claim.get("clan_name")) if enemy_claim.get("clan_name") != null else ""
+			var dist: float = territory.global_position.distance_to(enemy_claim.global_position)
+			var prizes: Dictionary = _enemy_claim_prize_flags(enemy_claim)
+			rows.append({
+				"claim": enemy_claim,
+				"clan": enemy_clan,
+				"distance": dist,
+				"their_fighters": _count_enemy_fighters(enemy_claim),
+				"has_food": bool(prizes.get("has_food", false)),
+				"has_woman": bool(prizes.get("has_woman", false)),
+				"has_animal": bool(prizes.get("has_animal", false)),
+				"need": prizes,
+			})
+	return {
+		"living_fighters": _living_clan_fighters(),
+		"food_days": float(clan_metrics.get("food_days_buffer", 0.0)),
+		"morale": clan_morale,
+		"temper": raid_temper,
+		"neighbors": rows,
+		"wrongs": _raid_wrongs,
+		"last_quiet_at": _last_raid_quiet_at,
+		"now": now,
+		"tune": _raid_tune_snapshot(),
+		"our_need": _compute_our_raid_need(),
+		"alert": alert_level >= AlertLevel.SKIRMISH,
+		"alert_detail": "level=%d" % int(alert_level),
+		"hunting": is_hunting(),
+		"cooldown_ok": true,
+		"trade_blocked": false,
+	}
+
+
+func _compute_our_raid_need() -> String:
+	var women: int = 0
+	var animals: int = 0
+	var woman_slots: int = 0
+	var animal_slots: int = 0
+	for npc in clan_members:
+		if not is_instance_valid(npc):
+			continue
+		var tp: String = str(npc.get("npc_type"))
+		if tp == "woman":
+			women += 1
+		elif tp == "sheep" or tp == "goat":
+			animals += 1
+	if territory and territory.get_tree():
+		var our_clan: String = clan_name
+		for b in territory.get_tree().get_nodes_in_group("buildings"):
+			if not is_instance_valid(b):
+				continue
+			if str(b.get("clan_name")) != our_clan:
+				continue
+			if b.global_position.distance_to(territory.global_position) > float(territory.get("radius") if territory.get("radius") != null else 400.0):
+				continue
+			var btype: int = int(b.get("building_type")) if b.get("building_type") != null else -1
+			if btype == ResourceData.ResourceType.LIVING_HUT and b.has_method("get_woman_slot_count"):
+				woman_slots += int(b.get_woman_slot_count())
+			elif btype == ResourceData.ResourceType.FARM or btype == ResourceData.ResourceType.DAIRY_FARM:
+				var slots: Variant = b.get("animal_slots")
+				if slots is Array:
+					animal_slots += slots.size()
+	if women < maxi(1, woman_slots) and woman_slots > 0:
+		return "women"
+	if woman_slots == 0 and women == 0:
+		return "women"
+	if animals < animal_slots and animal_slots > 0:
+		return "animals"
+	if animals == 0 and animal_slots > 0:
+		return "animals"
+	return "food"
+
+
+func _enemy_claim_prize_flags(enemy_claim: Node) -> Dictionary:
+	var flags := {"women": false, "animals": false, "food": false, "has_food": false, "has_woman": false, "has_animal": false}
+	if enemy_claim == null:
+		return flags
+	var inv: Variant = enemy_claim.get("inventory")
+	if inv and _claim_inventory_has_food(inv):
+		flags["food"] = true
+		flags["has_food"] = true
+	var enemy_clan: String = str(enemy_claim.get("clan_name")) if enemy_claim.get("clan_name") != null else ""
+	if enemy_clan == "" or territory == null or not territory.get_tree():
+		return flags
+	for npc in _npc_snapshot if not _npc_snapshot.is_empty() else territory.get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc):
+			continue
+		var nc: String = str(npc.get("clan_name")) if npc.get("clan_name") != null else ""
+		if nc != enemy_clan:
+			continue
+		var tp: String = str(npc.get("npc_type"))
+		if tp == "woman":
+			flags["has_woman"] = true
+			if not RaidMotivePickerScript.npc_is_sheltered(npc):
+				flags["women"] = true
+		elif tp == "sheep" or tp == "goat":
+			flags["has_animal"] = true
+			if not RaidMotivePickerScript.npc_is_sheltered(npc):
+				flags["animals"] = true
+	# Sheltered prizes in buildings count for has_woman/has_animal via building scan
+	var claim_pos: Vector2 = enemy_claim.global_position
+	var claim_rad: float = float(enemy_claim.get("radius")) if enemy_claim.get("radius") != null else 400.0
+	for b in territory.get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		if str(b.get("clan_name")) != enemy_clan:
+			continue
+		if b.global_position.distance_to(claim_pos) > claim_rad:
+			continue
+		if _building_has_woman(b):
+			flags["has_woman"] = true
+		if _building_has_animals(b):
+			flags["has_animal"] = true
+	return flags
+
+
+func _enemy_claim_need_flags(enemy_claim: Node) -> Dictionary:
+	return _enemy_claim_prize_flags(enemy_claim)
+
+
+func _notify_main_capture_proof(line: String) -> void:
+	if territory == null or not territory.get_tree():
+		return
+	var main = territory.get_tree().get_first_node_in_group("main")
+	if main and main.has_method("register_raid_capture_proof_line"):
+		main.register_raid_capture_proof_line(line)
+
+
+func record_raid_wrong(enemy_clan: String, kind: String, extra: Dictionary = {}) -> void:
+	if enemy_clan == "" or kind == "":
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var entry: Dictionary = {"enemy": enemy_clan, "kind": kind, "at": now}
+	for k in extra:
+		entry[k] = extra[k]
+	_raid_wrongs.append(entry)
+	print("RAID_WRONG clan=%s enemy=%s kind=%s" % [clan_name, enemy_clan, kind])
+	_notify_main_capture_proof("RAID_WRONG clan=%s enemy=%s kind=%s" % [clan_name, enemy_clan, kind])
 	var tree = territory.get_tree() if territory else null
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("raid_evaluated"):
-			var breakdown: Dictionary = {
-				"food_contrib": food_contrib,
-				"population_contrib": population_contrib,
-				"aggression_contrib": aggression_contrib,
-				"weak_enemy_contrib": weak_enemy_contrib,
-				"numbers_contrib": numbers_contrib,
-				"state_contrib": state_contrib
-			}
-			pi.raid_evaluated(clan_name, score, breakdown)
-	
-	# Decide to raid if score is high enough (threshold = 1.0)
-	if score >= 1.0:
-		var target: Node = weak_enemy if weak_enemy else _find_best_raid_target()
-		if target:
-			print("⚔️ ClanBrain %s: Raid score %.2f >= 1.0, starting raid" % [clan_name, score])
-			_start_raid(target)
-		else:
-			print("⚔️ ClanBrain %s: Raid score >= 1.0 but no valid target — block: no_weak_enemy" % clan_name)
+		if pi and pi.is_enabled() and pi.has_method("raid_wrong"):
+			pi.raid_wrong(clan_name, enemy_clan, kind)
+
+
+func _touch_raid_quiet() -> void:
+	_last_raid_quiet_at = Time.get_ticks_msec() / 1000.0
+
 
 func _living_clan_fighters() -> int:
+	if roster != null and SettlementPartyScript.home_fighter_count(roster) > 0:
+		return SettlementPartyScript.home_fighter_count(roster)
 	var n: int = 0
 	for body in cavemen:
 		if body == null or not is_instance_valid(body):
@@ -2216,14 +3265,29 @@ func _living_clan_fighters() -> int:
 	return n
 
 
+func _nearest_neighbor_distance() -> float:
+	var nearest: float = INF
+	if territory == null:
+		return 1.0
+	for enemy_claim in nearby_enemy_claims:
+		if not is_instance_valid(enemy_claim):
+			continue
+		nearest = minf(nearest, territory.global_position.distance_to(enemy_claim.global_position))
+	if nearest == INF:
+		return 1.0
+	return maxf(nearest, 1.0)
+
+
 func _find_weak_enemy() -> Node:
-	"""Pick a raid target by clan size, then distance. A larger clan is not a target."""
+	"""Pick a raid target from the closest known neighbors. A larger clan is not a target. Distance prefers the nearer one."""
 	var best_target: Node = null
 	var best_score: float = -INF
 	var our_strength: int = _living_clan_fighters()
 	if our_strength <= 0 or territory == null:
 		return null
 
+	var eligible: Array = []
+	var nearest: float = INF
 	for enemy_claim in nearby_enemy_claims:
 		if not is_instance_valid(enemy_claim):
 			continue
@@ -2231,10 +3295,14 @@ func _find_weak_enemy() -> Node:
 		if enemy_strength > our_strength:
 			continue
 		var distance: float = territory.global_position.distance_to(enemy_claim.global_position)
-		if distance > RAID_DISTANCE_MAX:
-			continue
+		eligible.append(enemy_claim)
+		nearest = minf(nearest, distance)
+	nearest = maxf(nearest, 1.0)
+	for enemy_claim in eligible:
+		var distance: float = territory.global_position.distance_to(enemy_claim.global_position)
+		var enemy_strength: int = _count_enemy_fighters(enemy_claim)
 		var size_score: float = float(our_strength - enemy_strength) / float(our_strength)
-		var distance_score: float = 1.0 - (distance / RAID_DISTANCE_MAX)
+		var distance_score: float = clampf(nearest / maxf(distance, 1.0), 0.0, 1.0)
 		var score: float = size_score * 0.7 + distance_score * 0.3
 		if score > best_score:
 			best_score = score
@@ -2246,12 +3314,16 @@ func _find_best_raid_target() -> Node:
 	"""Find the best raid target based on multiple factors."""
 	return _find_weak_enemy()  # For now, same logic
 
-func _start_raid(target: Node) -> void:
+func _start_raid(target: Node, why: String = "", goal: String = "") -> void:
 	"""Set raid intent - NPCs will discover this and self-organize."""
 	if not target or not is_instance_valid(target):
 		return
 	if is_hunting():
 		_cancel_hunt("raid_started")
+	var motive_min: float = float(_raid_tune("raid_motive_min_morale"))
+	if clan_morale < motive_min:
+		print("RAID_SKIP clan=%s reason=shaken bar=%.1f need=%.1f" % [clan_name, clan_morale, motive_min])
+		return
 	
 	var target_clan: String = target.get("clan_name") if "clan_name" in target else "enemy"
 	var our_fighters: int = _living_clan_fighters()
@@ -2264,9 +3336,9 @@ func _start_raid(target: Node) -> void:
 
 	print("⚔️ ClanBrain %s: Setting raid intent against %s" % [clan_name, target_clan])
 	
-	# Calculate raider quota (fighters not needed for defense)
+	# Calculate raider quota from living fighters, not corpses still listed in cavemen.
 	var defender_quota: int = get_defender_quota()
-	var raider_quota: int = mini(MAX_RAID_PARTY_SIZE, cavemen.size() - defender_quota)
+	var raider_quota: int = mini(MAX_RAID_PARTY_SIZE, _living_clan_fighters() - defender_quota)
 	
 	if raider_quota < MIN_RAID_PARTY_SIZE:
 		print("⚔️ ClanBrain %s: Not enough fighters for raid (need %d, have %d available)" % [
@@ -2286,8 +3358,18 @@ func _start_raid(target: Node) -> void:
 	raid_intent["rally_point"] = rally_point
 	raid_intent["raider_quota"] = raider_quota
 	raid_intent["start_time"] = Time.get_ticks_msec() / 1000.0
+	raid_intent["why"] = why
+	raid_intent["goal"] = goal
+	raid_intent["enemy_kills"] = 0
+	raid_intent["building_target"] = null
+	raid_intent["captures_done"] = 0
+	raid_intent["building_down_logged"] = false
+	raid_intent["raid_building_goal_locked"] = false
+	raid_intent["raid_prizes"] = []
+	raid_intent["food_arrived"] = false
 	
 	_last_raid_time = Time.get_ticks_msec() / 1000.0
+	_touch_raid_quiet()
 	strategic_state = StrategicState.RAIDING
 	
 	# Raid test instrumentation
@@ -2303,7 +3385,7 @@ func _start_raid(target: Node) -> void:
 	
 	_form_raid_party(raider_quota)
 
-func _update_raid() -> void:
+func _update_raid(delta: float) -> void:
 	"""Update raid intent state based on NPC progress."""
 	if raid_intent["state"] == RaidState.NONE:
 		return
@@ -2336,10 +3418,20 @@ func _update_raid() -> void:
 		
 		RaidState.ACTIVE:
 			_tick_raid_march_modes()
-			var enemy_fighters: int = _count_enemy_fighters(target)
-			if enemy_fighters == 0:
-				_begin_raid_retreat("enemies_defeated")
-			elif _raid_morale_has_broken():
+			_tick_raid_goals(delta)
+			_tick_raid_prize_states()
+			var cap_eval: Dictionary = RaidMotivePickerScript.evaluate_capture_prizes(raid_intent.get("raid_prizes", []))
+			var goal_str: String = str(raid_intent.get("goal", ""))
+			if cap_eval.get("failed", false) and (
+				goal_str == RaidMotivePickerScript.GOAL_TAKE_WOMEN
+				or goal_str == RaidMotivePickerScript.GOAL_TAKE_ANIMALS
+			):
+				_log_raid_goal_fail("no_prizes_home")
+				_begin_raid_retreat("goal_failed")
+			elif _raid_goal_is_complete():
+				_log_raid_goal_done()
+				_begin_raid_retreat("goal_done")
+			elif _raid_clan_morale_should_calloff():
 				_begin_raid_retreat("morale")
 			elif raider_count < MIN_RAID_PARTY_SIZE:
 				_cancel_raid("raiders_lost")
@@ -2351,29 +3443,170 @@ func _update_raid() -> void:
 			if retreat_elapsed > 30.0:
 				_complete_raid("retreat_complete")
 
-func _raid_morale_has_broken() -> bool:
-	## Most living raiders have dropped under their flight line. Spawn value is 50, so a timid line alone does not count.
-	const MoraleBarScript = preload("res://scripts/combat/morale_bar.gd")
-	var living: int = 0
-	var broken: int = 0
-	var total: float = 0.0
-	for npc in cavemen:
-		if npc == null or not is_instance_valid(npc):
-			continue
-		if not npc.has_meta("raid_joined") or npc.get_meta("raid_joined") != true:
-			continue
-		if npc.has_method("is_dead") and npc.is_dead():
-			continue
-		living += 1
-		var bar: float = MoraleBarScript.current(npc)
-		total += bar
-		if bar < 50.0 and bar < MoraleBarScript.flight_line(npc):
-			broken += 1
-	if living < 2 or broken * 2 < living:
+func _raid_clan_morale_should_calloff() -> bool:
+	if clan_morale >= CLAN_MORALE_RAID_CALLOFF:
 		return false
-	var avg: float = total / float(living)
-	print("RAID_CALLOFF clan=%s reason=morale broken=%d living=%d avg=%.0f" % [clan_name, broken, living, avg])
+	print("RAID_CALLOFF clan=%s reason=morale bar=%.1f" % [clan_name, clan_morale])
 	return true
+
+
+func _apply_clan_morale_delta(delta: float, why: String) -> void:
+	var prev: float = clan_morale
+	clan_morale = clampf(clan_morale + delta, 0.0, 100.0)
+	if absf(clan_morale - prev) < 0.001:
+		return
+	print("NPC_CLAN_MORALE clan=%s bar=%.1f why=%s" % [clan_name, clan_morale, why])
+
+
+func _log_raid_decision_skip(reason: String, detail: String) -> void:
+	var sig: String = RaidMotivePickerScript.skip_signature(reason, detail)
+	if _raid_decision_skip == sig:
+		return
+	_raid_decision_skip = sig
+	if detail == "":
+		print("RAID_SKIP clan=%s reason=%s" % [clan_name, reason])
+	else:
+		print("RAID_SKIP clan=%s reason=%s %s" % [clan_name, reason, detail])
+	_notify_main_raid_decision_proof("skip", reason)
+
+
+func _notify_main_raid_decision_proof(kind: String, detail: String = "") -> void:
+	if territory == null or not territory.get_tree():
+		return
+	var main = territory.get_tree().get_first_node_in_group("main")
+	if main and main.has_method("register_raid_decision_proof"):
+		main.register_raid_decision_proof(kind, detail, clan_name)
+
+
+func _note_raid_too_few(living: int) -> void:
+	if _raid_too_few_logged:
+		return
+	_raid_too_few_logged = true
+	print("RAID_SKIP clan=%s reason=too_few living=%d need=%d" % [clan_name, living, RAID_POPULATION_THRESHOLD])
+
+
+func _tick_clan_morale_drift(delta: float) -> void:
+	if raid_intent["state"] != RaidState.NONE:
+		_clan_morale_drift_log_acc = 0.0
+		return
+	if absf(clan_morale - CLAN_MORALE_DEFAULT) < 0.25:
+		_clan_morale_drift_log_acc = 0.0
+		if absf(clan_morale - CLAN_MORALE_DEFAULT) >= 0.05:
+			clan_morale = CLAN_MORALE_DEFAULT
+			print("NPC_CLAN_MORALE clan=%s bar=%.1f why=drift" % [clan_name, clan_morale])
+		else:
+			clan_morale = CLAN_MORALE_DEFAULT
+		return
+	var step: float = CLAN_MORALE_DRIFT_PER_SEC * delta
+	if clan_morale > CLAN_MORALE_DEFAULT:
+		clan_morale = maxf(CLAN_MORALE_DEFAULT, clan_morale - step)
+	else:
+		clan_morale = minf(CLAN_MORALE_DEFAULT, clan_morale + step)
+	_clan_morale_drift_log_acc += delta
+	if _clan_morale_drift_log_acc >= 2.0:
+		_clan_morale_drift_log_acc = 0.0
+		print("NPC_CLAN_MORALE clan=%s bar=%.1f why=drift" % [clan_name, clan_morale])
+
+
+static func _brain_for_clan_name(clan: String, tree: SceneTree) -> ClanBrain:
+	if clan == "" or tree == null:
+		return null
+	for claim in tree.get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim):
+			continue
+		if str(claim.get("clan_name")) != clan:
+			continue
+		var brain: Variant = claim.get_clan_brain() if claim.has_method("get_clan_brain") else claim.get("clan_brain")
+		return brain as ClanBrain
+	return null
+
+
+static func note_member_death(dead: Node) -> void:
+	if dead == null or not is_instance_valid(dead):
+		return
+	if dead.is_in_group("player"):
+		return
+	var ntype: String = str(dead.get("npc_type")) if dead.get("npc_type") != null else ""
+	if not SettlementRosterScript.is_person_type(ntype):
+		return
+	var clan: String = str(dead.get("clan_name")) if dead.get("clan_name") != null else ""
+	var brain: ClanBrain = _brain_for_clan_name(clan, dead.get_tree())
+	if brain and brain.has_method("forget_dead_member"):
+		brain.forget_dead_member(dead)
+
+
+static func on_raider_death(dead: Node) -> void:
+	if dead == null or not is_instance_valid(dead):
+		return
+	if not dead.has_meta("raid_joined") or dead.get_meta("raid_joined") != true:
+		return
+	var clan: String = str(dead.get("clan_name")) if dead.get("clan_name") != null else ""
+	var tree: SceneTree = dead.get_tree()
+	var brain: ClanBrain = _brain_for_clan_name(clan, tree)
+	if brain == null:
+		return
+	var leader: Node = brain._raid_party_leader_node()
+	if leader == dead:
+		brain._apply_clan_morale_delta(CLAN_MORALE_RAID_LEADER_DEATH, "leader")
+	else:
+		brain._apply_clan_morale_delta(CLAN_MORALE_RAIDER_DEATH, "death")
+
+
+static func on_raider_kill(killer: Node, victim: Node) -> void:
+	if killer == null or not is_instance_valid(killer):
+		return
+	if not killer.has_meta("raid_joined") or killer.get_meta("raid_joined") != true:
+		return
+	var clan: String = ""
+	if killer.has_method("get_clan_name"):
+		clan = str(killer.get_clan_name())
+	elif killer.get("clan_name") != null:
+		clan = str(killer.get("clan_name"))
+	var brain: ClanBrain = _brain_for_clan_name(clan, killer.get_tree())
+	if brain:
+		brain._apply_clan_morale_delta(CLAN_MORALE_RAIDER_KILL, "kill")
+		brain._on_raid_enemy_fighter_killed(victim)
+		brain._touch_raid_quiet()
+
+
+static func on_our_fighter_slain(victim: Node, attacker: Node) -> void:
+	if victim == null or not is_instance_valid(victim):
+		return
+	var vtype: String = str(victim.get("npc_type")) if victim.get("npc_type") != null else ""
+	if vtype != "caveman" and vtype != "clansman":
+		return
+	var victim_clan: String = str(victim.get("clan_name")) if victim.get("clan_name") != null else ""
+	if victim_clan == "":
+		return
+	var attacker_clan: String = ""
+	if attacker and is_instance_valid(attacker):
+		if attacker.has_method("get_clan_name"):
+			attacker_clan = str(attacker.get_clan_name())
+		elif attacker.get("clan_name") != null:
+			attacker_clan = str(attacker.get("clan_name"))
+	if attacker_clan == "" or attacker_clan == victim_clan:
+		return
+	var tree: SceneTree = victim.get_tree()
+	var brain: ClanBrain = _brain_for_clan_name(victim_clan, tree)
+	if brain:
+		brain.record_raid_wrong(attacker_clan, RaidMotivePickerScript.KIND_KILLED)
+		brain._touch_raid_quiet()
+
+
+static func on_raider_break(npc: Node) -> void:
+	if npc == null or not is_instance_valid(npc):
+		return
+	if not npc.has_meta("raid_joined") or npc.get_meta("raid_joined") != true:
+		return
+	var flee_until: float = float(npc.get_meta("flee_until_sec", 0.0))
+	if npc.has_meta("clan_morale_break_flee_until"):
+		if float(npc.get_meta("clan_morale_break_flee_until")) == flee_until:
+			return
+	npc.set_meta("clan_morale_break_flee_until", flee_until)
+	var clan: String = str(npc.get("clan_name")) if npc.get("clan_name") != null else ""
+	var brain: ClanBrain = _brain_for_clan_name(clan, npc.get_tree())
+	if brain:
+		brain._apply_clan_morale_delta(CLAN_MORALE_RAIDER_BREAK, "break")
 
 
 func _begin_raid_retreat(reason: String) -> void:
@@ -2471,8 +3704,17 @@ func _complete_raid(reason: String) -> void:
 	raid_intent["rally_point"] = Vector2.ZERO
 	raid_intent["raider_quota"] = 0
 	raid_intent["phase_start_time"] = 0.0
-	
-	# Clear intent from land claim
+	raid_intent["why"] = ""
+	raid_intent["goal"] = ""
+	raid_intent["enemy_kills"] = 0
+	raid_intent["building_target"] = null
+	raid_intent["captures_done"] = 0
+	raid_intent["building_down_logged"] = false
+	raid_intent["raid_building_goal_locked"] = false
+	raid_intent["raid_prizes"] = []
+	raid_intent["food_arrived"] = false
+	_touch_raid_quiet()
+	_last_raid_time = Time.get_ticks_msec() / 1000.0
 	if territory:
 		territory.remove_meta("raid_intent")
 	
@@ -2656,9 +3898,24 @@ func _form_raid_party(max_raiders: int) -> void:
 	if tree:
 		_notify_party_instrument(true, leader, followers, "raid_start")
 	var lname: String = str(leader.get("npc_name")) if leader.get("npc_name") != null else str(leader.name)
-	print("RAID_START clan=%s leader=%s party=%d home_guard=%d names=%s" % [
-		clan_name, lname, followers.size() + 1, home_names.size(), ",".join(home_names)
+	var why_log: String = str(raid_intent.get("why", ""))
+	var goal_log: String = str(raid_intent.get("goal", ""))
+	var target_log: String = ""
+	var rt: Variant = raid_intent.get("target")
+	if rt and is_instance_valid(rt):
+		target_log = str(rt.get("clan_name")) if rt.get("clan_name") != null else ""
+	print("RAID_START clan=%s why=%s goal=%s target=%s leader=%s party=%d home_guard=%d names=%s" % [
+		clan_name, why_log, goal_log, target_log, lname, followers.size() + 1, home_names.size(), ",".join(home_names)
 	])
+	_notify_main_capture_proof("RAID_START clan=%s why=%s goal=%s target=%s leader=%s party=%d home_guard=%d names=%s" % [
+		clan_name, why_log, goal_log, target_log, lname, followers.size() + 1, home_names.size(), ",".join(home_names)
+	])
+	var tree2 = territory.get_tree() if territory else null
+	if tree2:
+		var pi2 = tree2.root.get_node_or_null("PlaytestInstrumentor")
+		if pi2 and pi2.is_enabled() and pi2.has_method("raid_motive_start"):
+			pi2.raid_motive_start(clan_name, why_log, goal_log, target_log)
+	_notify_main_raid_decision_proof("start", why_log)
 
 
 func _raid_party_leader_node() -> Node:
@@ -2790,6 +4047,489 @@ func _tick_raid_march_modes() -> void:
 				print("RAID_LINE leader=%s mode=ATTACK" % str(leader.get("npc_name")))
 
 
+func _tick_raid_goals(delta: float) -> void:
+	var goal: String = str(raid_intent.get("goal", ""))
+	var target: Node = raid_intent.get("target")
+	if target == null or not is_instance_valid(target):
+		return
+	match goal:
+		RaidMotivePickerScript.GOAL_FOOD:
+			_tick_raid_food_loot(target)
+		RaidMotivePickerScript.GOAL_TAKE_WOMEN, RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+			_tick_raid_capture_setup(target, goal, delta)
+		_:
+			pass
+
+
+func _tick_raid_food_loot(enemy_claim: Node) -> void:
+	var leader: Node = _raid_party_leader_node()
+	if leader == null or not is_instance_valid(leader):
+		return
+	var rad: float = float(enemy_claim.get("radius")) if enemy_claim.get("radius") != null else 400.0
+	if leader.global_position.distance_to(enemy_claim.global_position) > rad:
+		return
+	if not bool(raid_intent.get("food_arrived", false)):
+		raid_intent["food_arrived"] = true
+		print("RAID_FOOD clan=%s phase=arrived" % clan_name)
+		var tree_f = territory.get_tree() if territory else null
+		if tree_f:
+			var pi_f = tree_f.root.get_node_or_null("PlaytestInstrumentor")
+			if pi_f and pi_f.is_enabled() and pi_f.has_method("raid_food"):
+				pi_f.raid_food(clan_name, "arrived")
+	var inv: Variant = enemy_claim.get("inventory")
+	if inv == null:
+		return
+	var raiders: Array = _raid_party_follower_list()
+	raiders.append(leader)
+	for body in raiders:
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.has_method("is_dead") and body.is_dead():
+			continue
+		if not bool(body.get_meta("raid_joined", false)) and body != leader:
+			continue
+		if body.global_position.distance_to(enemy_claim.global_position) > rad:
+			continue
+		var npc_inv: Variant = body.get("inventory")
+		if npc_inv == null:
+			continue
+		if _raider_bag_full(body):
+			continue
+		for i in range(inv.slot_count):
+			var slot = inv.slots[i]
+			if slot == null or not slot is Dictionary:
+				continue
+			var item_type = slot.get("type")
+			var count: int = int(slot.get("count", 0))
+			if item_type == null or count <= 0 or not ResourceData.is_food(item_type):
+				continue
+			var moved: int = mini(count, 1)
+			if not npc_inv.can_add_item(item_type, moved):
+				continue
+			if not inv.remove_item(item_type, moved):
+				continue
+			if not npc_inv.add_item(item_type, moved):
+				inv.add_item(item_type, moved)
+				continue
+			break
+
+
+func _tick_raid_capture_setup(enemy_claim: Node, goal: String, delta: float) -> void:
+	var bt: Variant = raid_intent.get("building_target")
+	var building_goal_locked: bool = bool(raid_intent.get("raid_building_goal_locked", false))
+	if bt != null and is_instance_valid(bt):
+		if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")) and bt.has_method("take_damage"):
+			bt.take_damage(120.0 * delta)
+		if is_instance_valid(bt):
+			return
+	var building_fell: bool = (bt != null and not is_instance_valid(bt)) or (
+		building_goal_locked and not bool(raid_intent.get("building_down_logged", false))
+	)
+	if building_fell:
+		if not bool(raid_intent.get("building_down_logged", false)):
+			raid_intent["building_down_logged"] = true
+			print("RAID_BUILDING_DOWN clan=%s goal=%s" % [clan_name, goal])
+			_notify_main_capture_proof("RAID_BUILDING_DOWN clan=%s goal=%s" % [clan_name, goal])
+			var tree = territory.get_tree() if territory else null
+			if tree:
+				var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+				if pi and pi.is_enabled() and pi.has_method("raid_building_down"):
+					pi.raid_building_down(clan_name, goal)
+		raid_intent["building_target"] = null
+		raid_intent["raid_building_goal_locked"] = false
+		if territory:
+			territory.set_meta("raid_intent", raid_intent.duplicate())
+		_try_raid_capture_pending(enemy_claim, goal)
+		return
+	if bool(raid_intent.get("building_down_logged", false)):
+		_try_raid_capture_pending(enemy_claim, goal)
+		return
+	var picked: Node = _pick_raid_prize_building(enemy_claim, goal)
+	if picked:
+		_snapshot_raid_prizes_from_building(picked, goal, enemy_claim)
+		raid_intent["building_target"] = picked
+		raid_intent["raid_building_goal_locked"] = true
+		if territory:
+			territory.set_meta("raid_intent", raid_intent.duplicate())
+		print("RAID_GOAL clan=%s goal=%s building=%s" % [clan_name, goal, picked.name])
+		_notify_main_capture_proof("RAID_GOAL clan=%s goal=%s building=%s" % [clan_name, goal, picked.name])
+		var tree2 = territory.get_tree() if territory else null
+		if tree2:
+			var pi2 = tree2.root.get_node_or_null("PlaytestInstrumentor")
+			if pi2 and pi2.is_enabled() and pi2.has_method("raid_goal"):
+				pi2.raid_goal(clan_name, goal, picked.name)
+	else:
+		_snapshot_loose_raid_prizes(enemy_claim, goal)
+		_try_raid_capture_pending(enemy_claim, goal)
+
+
+func _stole_goal_for_capture(goal: String) -> String:
+	if goal == RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+		return RaidMotivePickerScript.GOAL_TAKE_ANIMALS
+	return RaidMotivePickerScript.GOAL_TAKE_WOMEN
+
+
+func _append_raid_prize_entry(prize: Node, victim_clan: String) -> void:
+	if prize == null or not is_instance_valid(prize):
+		return
+	var prizes: Array = raid_intent.get("raid_prizes", []) as Array
+	var pid: int = prize.get_instance_id()
+	for e in prizes:
+		if e is Dictionary and int(e.get("prize_id", 0)) == pid:
+			return
+	prize.set_meta("raid_prize_victim_clan", victim_clan)
+	var pname: String = str(prize.get("npc_name")) if prize.get("npc_name") != null else str(prize.name)
+	prizes.append({"prize_id": pid, "state": "pending", "name": pname})
+	raid_intent["raid_prizes"] = prizes
+	print("RAID_PRIZE clan=%s prize=%s state=pending why=snapshot" % [clan_name, pname])
+	var tree = territory.get_tree() if territory else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("raid_prize"):
+			pi.raid_prize(clan_name, pname, "pending", "snapshot")
+
+
+func _snapshot_raid_prizes_from_building(building: Node, goal: String, enemy_claim: Node) -> void:
+	if building == null or enemy_claim == null:
+		return
+	var victim_clan: String = str(enemy_claim.get("clan_name")) if enemy_claim.get("clan_name") != null else ""
+	raid_intent["raid_prizes"] = []
+	if goal == RaidMotivePickerScript.GOAL_TAKE_WOMEN:
+		var slots: Variant = building.get("woman_slots")
+		if slots is Array:
+			for w in slots:
+				if w != null and is_instance_valid(w):
+					_append_raid_prize_entry(w as Node, victim_clan)
+					break
+	elif goal == RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+		var aslots: Variant = building.get("animal_slots")
+		if aslots is Array:
+			for a in aslots:
+				if a != null and is_instance_valid(a):
+					_append_raid_prize_entry(a as Node, victim_clan)
+
+
+func _snapshot_loose_raid_prizes(enemy_claim: Node, goal: String) -> void:
+	if not (raid_intent.get("raid_prizes", []) as Array).is_empty():
+		return
+	var victim_clan: String = str(enemy_claim.get("clan_name")) if enemy_claim.get("clan_name") != null else ""
+	if territory == null or not territory.get_tree():
+		return
+	if goal == RaidMotivePickerScript.GOAL_TAKE_WOMEN:
+		for npc in territory.get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(npc) or str(npc.get("clan_name")) != victim_clan:
+				continue
+			if str(npc.get("npc_type")) != "woman":
+				continue
+			if RaidMotivePickerScript.npc_is_sheltered(npc):
+				continue
+			_append_raid_prize_entry(npc, victim_clan)
+			return
+	elif goal == RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+		for npc in territory.get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(npc) or str(npc.get("clan_name")) != victim_clan:
+				continue
+			var tp: String = str(npc.get("npc_type"))
+			if tp != "sheep" and tp != "goat":
+				continue
+			if RaidMotivePickerScript.npc_is_sheltered(npc):
+				continue
+			_append_raid_prize_entry(npc, victim_clan)
+
+
+func _begin_raid_capture(prize: Node, leader: Node) -> bool:
+	if prize == null or not is_instance_valid(prize) or leader == null:
+		return false
+	var goal: String = _stole_goal_for_capture(str(raid_intent.get("goal", "")))
+	var vc: String = str(prize.get_meta("raid_prize_victim_clan", ""))
+	if vc == "":
+		var tgt: Node = raid_intent.get("target")
+		if tgt:
+			vc = str(tgt.get("clan_name")) if tgt.get("clan_name") != null else ""
+	var tree = territory.get_tree() if territory else null
+	var vb: ClanBrain = _brain_for_clan_name(vc, tree) if tree else null
+	if prize.has_method("try_begin_raid_capture"):
+		return prize.try_begin_raid_capture(leader as Node2D, goal, vb)
+	return false
+
+
+func _try_raid_capture_pending(_enemy_claim: Node, _goal: String) -> void:
+	var leader: Node = _raid_party_leader_node()
+	if leader == null or not is_instance_valid(leader):
+		return
+	var prizes: Array = raid_intent.get("raid_prizes", []) as Array
+	for entry in prizes:
+		if entry is not Dictionary or str(entry.get("state", "")) != "pending":
+			continue
+		var pid: int = int(entry.get("prize_id", 0))
+		var node: Node = instance_from_id(pid)
+		if node == null or not is_instance_valid(node):
+			_set_raid_prize_state(pid, "lost", "gone")
+			continue
+		if bool(node.get_meta("raid_capture_taken", false)):
+			continue
+		_begin_raid_capture(node, leader)
+
+
+func _set_raid_prize_state(prize_id: int, new_state: String, why: String) -> void:
+	var result: Dictionary = RaidMotivePickerScript.apply_prize_state(raid_intent.get("raid_prizes", []), prize_id, new_state, why)
+	raid_intent["raid_prizes"] = result.get("states", [])
+	for ev in result.get("events", []):
+		if ev is not Dictionary:
+			continue
+		print("RAID_PRIZE clan=%s prize=%s state=%s why=%s" % [
+			clan_name, str(ev.get("name", "?")), str(ev.get("state", "")), str(ev.get("why", ""))
+		])
+		_notify_main_capture_proof("RAID_PRIZE clan=%s prize=%s state=%s why=%s" % [
+			clan_name, str(ev.get("name", "?")), str(ev.get("state", "")), str(ev.get("why", ""))
+		])
+		var tree = territory.get_tree() if territory else null
+		if tree:
+			var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+			if pi and pi.is_enabled() and pi.has_method("raid_prize"):
+				pi.raid_prize(clan_name, str(ev.get("name", "?")), str(ev.get("state", "")), str(ev.get("why", "")))
+	if territory:
+		territory.set_meta("raid_intent", raid_intent.duplicate())
+
+
+func _tick_raid_prize_states() -> void:
+	var goal: String = str(raid_intent.get("goal", ""))
+	if goal != RaidMotivePickerScript.GOAL_TAKE_WOMEN and goal != RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+		return
+	var leader: Node = _raid_party_leader_node()
+	for entry in raid_intent.get("raid_prizes", []) as Array:
+		if entry is not Dictionary or str(entry.get("state", "")) != "pending":
+			continue
+		var pid: int = int(entry.get("prize_id", 0))
+		var node: Node = instance_from_id(pid)
+		if node == null or not is_instance_valid(node):
+			_set_raid_prize_state(pid, "lost", "invalid")
+			continue
+		if node.has_method("is_dead") and node.is_dead():
+			_set_raid_prize_state(pid, "lost", "dead")
+			continue
+		if node.has_method("is_wild") and node.is_wild() and not bool(node.get("is_herded")):
+			_set_raid_prize_state(pid, "lost", "wild")
+			continue
+		if bool(node.get("is_herded")) and leader != null:
+			var h: Node = node.get("herder")
+			if h == null or not is_instance_valid(h) or not bool(h.get_meta("raid_joined", false)):
+				_set_raid_prize_state(pid, "lost", "herd_lost")
+
+
+func _prize_on_raid_list(prize: Node) -> bool:
+	if prize == null:
+		return false
+	var pid: int = prize.get_instance_id()
+	for entry in raid_intent.get("raid_prizes", []) as Array:
+		if entry is Dictionary and int(entry.get("prize_id", 0)) == pid:
+			return true
+	return false
+
+
+func _log_raid_goal_fail(reason: String) -> void:
+	var goal: String = str(raid_intent.get("goal", ""))
+	print("RAID_GOAL_FAIL clan=%s goal=%s reason=%s" % [clan_name, goal, reason])
+	var tree = territory.get_tree() if territory else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("raid_goal_fail"):
+			pi.raid_goal_fail(clan_name, goal, reason)
+
+
+func _pick_raid_prize_building(enemy_claim: Node, goal: String) -> Node:
+	if territory == null or not territory.get_tree():
+		return null
+	var enemy_clan: String = str(enemy_claim.get("clan_name")) if enemy_claim.get("clan_name") != null else ""
+	var claim_pos: Vector2 = enemy_claim.global_position
+	var claim_rad: float = float(enemy_claim.get("radius")) if enemy_claim.get("radius") != null else 400.0
+	var best: Node = null
+	var best_dist: float = INF
+	for b in territory.get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		if str(b.get("clan_name")) != enemy_clan:
+			continue
+		if b.global_position.distance_to(claim_pos) > claim_rad:
+			continue
+		var btype: int = int(b.get("building_type")) if b.get("building_type") != null else -1
+		if goal == RaidMotivePickerScript.GOAL_TAKE_WOMEN:
+			if btype != ResourceData.ResourceType.LIVING_HUT:
+				continue
+			if not _building_has_woman(b):
+				continue
+		elif goal == RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+			if btype != ResourceData.ResourceType.FARM and btype != ResourceData.ResourceType.DAIRY_FARM:
+				continue
+			if not _building_has_animals(b):
+				continue
+		else:
+			continue
+		var d: float = claim_pos.distance_to(b.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = b
+	return best
+
+
+func _building_has_animals(building: Node) -> bool:
+	if building == null or not building.has_method("get"):
+		return false
+	var slots: Variant = building.get("animal_slots")
+	if slots is Array:
+		for a in slots:
+			if a != null and is_instance_valid(a):
+				return true
+	return false
+
+
+func _building_has_woman(building: Node) -> bool:
+	if building == null:
+		return false
+	var slots: Variant = building.get("woman_slots")
+	if slots is Array:
+		for w in slots:
+			if w != null and is_instance_valid(w):
+				return true
+	return false
+
+
+func _try_raid_herd_loose_prizes(enemy_claim: Node, goal: String) -> void:
+	_snapshot_loose_raid_prizes(enemy_claim, goal)
+	_try_raid_capture_pending(enemy_claim, goal)
+
+
+func _on_raid_enemy_fighter_killed(victim: Node) -> void:
+	if raid_intent["state"] != RaidState.ACTIVE:
+		return
+	if victim == null or not is_instance_valid(victim):
+		return
+	var goal: String = str(raid_intent.get("goal", ""))
+	if goal != RaidMotivePickerScript.GOAL_WEAKEN:
+		return
+	var target: Node = raid_intent.get("target")
+	if target == null or not is_instance_valid(target):
+		return
+	var victim_clan: String = str(victim.get("clan_name")) if victim.get("clan_name") != null else ""
+	var target_clan: String = str(target.get("clan_name")) if target.get("clan_name") != null else ""
+	if victim_clan != target_clan:
+		return
+	var vtype: String = str(victim.get("npc_type")) if victim.get("npc_type") != null else ""
+	if vtype != "caveman" and vtype != "clansman":
+		return
+	raid_intent["enemy_kills"] = int(raid_intent.get("enemy_kills", 0)) + 1
+	if territory:
+		territory.set_meta("raid_intent", raid_intent.duplicate())
+
+
+func notify_raid_capture_home(captor_clan: String) -> void:
+	## Legacy entry; use notify_raid_capture_home_for_npc when the prize node is known.
+	if captor_clan != clan_name:
+		return
+
+
+func notify_raid_capture_home_for_npc(prize: Node) -> void:
+	if prize == null or not is_instance_valid(prize):
+		return
+	if raid_intent["state"] == RaidState.NONE:
+		return
+	if not _prize_on_raid_list(prize):
+		return
+	var pid: int = prize.get_instance_id()
+	_set_raid_prize_state(pid, "joined", "home")
+	if prize.has_method("_clear_herd"):
+		prize._clear_herd("raid_capture_done")
+
+
+func _raid_goal_is_complete() -> bool:
+	var goal: String = str(raid_intent.get("goal", ""))
+	var tune: Dictionary = _raid_tune_snapshot()
+	match goal:
+		RaidMotivePickerScript.GOAL_WEAKEN:
+			return RaidMotivePickerScript.is_weaken_goal_done(int(raid_intent.get("enemy_kills", 0)), tune)
+		RaidMotivePickerScript.GOAL_FOOD:
+			var target: Node = raid_intent.get("target")
+			var store_food: bool = false
+			if target and is_instance_valid(target):
+				var inv: Variant = target.get("inventory")
+				store_food = _claim_inventory_has_food(inv)
+			return RaidMotivePickerScript.is_food_goal_done(
+				bool(raid_intent.get("food_arrived", false)),
+				_raid_all_in_range_bags_full(),
+				store_food
+			)
+		RaidMotivePickerScript.GOAL_TAKE_WOMEN, RaidMotivePickerScript.GOAL_TAKE_ANIMALS:
+			return RaidMotivePickerScript.evaluate_capture_prizes(raid_intent.get("raid_prizes", [])).get("done", false)
+	return false
+
+
+func _log_raid_goal_done() -> void:
+	var goal: String = str(raid_intent.get("goal", ""))
+	print("RAID_GOAL_DONE clan=%s goal=%s why=%s" % [clan_name, goal, str(raid_intent.get("why", ""))])
+	_notify_main_capture_proof("RAID_GOAL_DONE clan=%s goal=%s why=%s" % [clan_name, goal, str(raid_intent.get("why", ""))])
+	var tree = territory.get_tree() if territory else null
+	if tree:
+		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+		if pi and pi.is_enabled() and pi.has_method("raid_goal_done"):
+			pi.raid_goal_done(clan_name, goal, str(raid_intent.get("why", "")))
+
+
+func _raid_all_in_range_bags_full() -> bool:
+	var target: Node = raid_intent.get("target")
+	if target == null or not is_instance_valid(target):
+		return false
+	var rad: float = float(target.get("radius")) if target.get("radius") != null else 400.0
+	var leader: Node = _raid_party_leader_node()
+	var any_in_range: bool = false
+	var raiders: Array = _raid_party_follower_list()
+	if leader:
+		raiders.append(leader)
+	for body in raiders:
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.has_method("is_dead") and body.is_dead():
+			continue
+		if body.global_position.distance_to(target.global_position) > rad:
+			continue
+		any_in_range = true
+		if not _raider_bag_full(body):
+			return false
+	return any_in_range
+
+
+func _raid_party_any_bag_full() -> bool:
+	var leader: Node = _raid_party_leader_node()
+	if leader and _raider_bag_full(leader):
+		return true
+	for f in _raid_party_follower_list():
+		if f and is_instance_valid(f) and _raider_bag_full(f):
+			return true
+	return false
+
+
+func _raider_bag_full(body: Node) -> bool:
+	var inv: Variant = body.get("inventory")
+	if inv == null or not inv.has_method("get_used_slots"):
+		return true
+	var pct: float = NPCConfig.gather_deposit_threshold if NPCConfig else 0.4
+	var need: int = int(ceil(float(inv.slot_count) * pct))
+	return int(inv.get_used_slots()) >= need
+
+
+func _claim_inventory_has_food(inv: Variant) -> bool:
+	if inv == null or not inv.has_method("get_slot_count"):
+		return false
+	for i in range(inv.slot_count):
+		var slot = inv.slots[i]
+		if slot == null or not slot is Dictionary:
+			continue
+		var item_type = slot.get("type")
+		var count: int = int(slot.get("count", 0))
+		if item_type != null and count > 0 and ResourceData.is_food(item_type):
+			return true
+	return false
+
+
 func hand_raid_party_to_new_leader(new_leader: Node, old_leader_name: String) -> void:
 	if not territory or new_leader == null or not is_instance_valid(new_leader):
 		return
@@ -2851,6 +4591,18 @@ func hand_raid_party_to_new_leader(new_leader: Node, old_leader_name: String) ->
 	print("RAID_SUCCESSION dead=%s new=%s phase=%s" % [
 		old_leader_name, str(new_leader.get("npc_name")), phase
 	])
+	for entry in raid_intent.get("raid_prizes", []) as Array:
+		if entry is not Dictionary or str(entry.get("state", "")) != "pending":
+			continue
+		var pid: int = int(entry.get("prize_id", 0))
+		var prize: Node = instance_from_id(pid)
+		if prize == null or not is_instance_valid(prize):
+			_set_raid_prize_state(pid, "lost", "leader_death")
+			continue
+		if not bool(prize.get("is_herded")):
+			continue
+		if not _begin_raid_capture(prize, new_leader):
+			_set_raid_prize_state(pid, "lost", "rebind_fail")
 
 
 func apply_leader_death_shock(dead_leader_name: String) -> void:
@@ -2900,6 +4652,8 @@ func _disband_raid_party(reason: String) -> void:
 		f.set("is_herded", false)
 		f.set("herder", null)
 		f.set("herd_mentality_active", false)
+		if f.has_method("set_follow_mode_from_string"):
+			f.set_follow_mode_from_string("FOLLOW")
 		var fsm = f.get_node_or_null("FSM")
 		if fsm:
 			fsm.evaluation_timer = 0.0
@@ -2969,6 +4723,10 @@ func _compute_hunt_need_pressure() -> float:
 
 func _evaluate_hunt_opportunity() -> void:
 	if not territory or not is_instance_valid(territory):
+		return
+	if not _record_party.is_empty():
+		return
+	if roster != null and _asleep_living_count(_sim_awake_member_ids()) > 0:
 		return
 	if hunt_intent["state"] != HuntIntentState.NONE:
 		return
@@ -3101,38 +4859,82 @@ func _update_hunt() -> void:
 				if territory:
 					territory.set_meta("hunt_intent", hunt_intent.duplicate())
 			elif target.has_method("is_dead") and target.is_dead():
-				_log_hunt_phase_change("ACTIVE", "LOOTING")
-				hunt_intent["state"] = HuntIntentState.LOOTING
-				hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
-				if territory:
-					territory.set_meta("hunt_intent", hunt_intent.duplicate())
-				var tree_kill = territory.get_tree() if territory else null
-				if tree_kill:
-					var pi_kill = tree_kill.root.get_node_or_null("PlaytestInstrumentor")
-					if pi_kill and pi_kill.is_enabled() and pi_kill.has_method("hunt_prey_killed"):
-						var prey_type_kill: String = str(target.get("npc_type")) if target.get("npc_type") != null else "prey"
-						pi_kill.hunt_prey_killed(clan_name, prey_type_kill, "hunt_party")
-				open_corpse_job_site(target)
+				begin_hunt_corpse_loot(target)
 			else:
 				var active_elapsed: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["phase_start_time"])
 				if active_elapsed > 120.0:
 					_cancel_hunt("active_timeout")
 		HuntIntentState.LOOTING:
-			if territory and not CorpseJobs.is_site_active(territory):
+			if _loot_progress_stalled():
+				_complete_hunt("loot_stalled", true)
+			elif territory and not CorpseJobs.is_site_active(territory):
 				_complete_hunt("loot_complete")
 			elif target and _hunt_corpse_yield_total(target) <= 0:
 				_complete_hunt("loot_complete")
 			elif not target:
 				if territory and CorpseJobs.is_site_active(territory):
-					pass
+					_keep_butchers_on_corpse()
 				else:
 					_complete_hunt("loot_complete")
 			elif territory and not CorpseJobs.is_site_active(territory):
-				open_corpse_job_site(target)
+				begin_hunt_corpse_loot(target)
+			else:
+				_keep_butchers_on_corpse()
 		HuntIntentState.RETREATING:
 			var ret_elapsed: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["phase_start_time"])
 			if ret_elapsed > 35.0:
 				_complete_hunt("retreat_complete")
+
+static func loot_yield_stalled(yield_now: int, yield_seen: int, changed_at: float, now_sec: float, stall_sec: float) -> bool:
+	if yield_now <= 0 or yield_now != yield_seen or changed_at <= 0.0:
+		return false
+	return now_sec - changed_at >= stall_sec
+
+
+func _current_loot_yield() -> int:
+	var prey: Node = _resolve_hunt_target()
+	if prey:
+		return _hunt_corpse_yield_total(prey)
+	if not territory:
+		return 0
+	return _hunt_corpse_yield_total(CorpseJobs.get_site_corpse(territory))
+
+
+func _loot_progress_stalled() -> bool:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var yield_now: int = _current_loot_yield()
+	if _loot_yield_changed_at <= 0.0 or yield_now != _loot_yield_seen:
+		_loot_yield_seen = yield_now
+		_loot_yield_changed_at = now
+		return false
+	return loot_yield_stalled(yield_now, _loot_yield_seen, _loot_yield_changed_at, now, LOOT_STALL_SEC)
+
+
+func _keep_butchers_on_corpse() -> void:
+	## While the carcass is open, idle fighters go back to it. Wander must not end the butcher.
+	if not territory or not CorpseJobs.is_site_active(territory):
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now < _loot_butcher_nudge_at:
+		return
+	_loot_butcher_nudge_at = now + 1.0
+	for n in cavemen:
+		if not is_instance_valid(n):
+			continue
+		if n.has_method("is_dead") and n.is_dead():
+			continue
+		if n.get("is_herded") == true and n.get("follow_is_ordered") != true and n.has_method("_clear_herd"):
+			n._clear_herd("hunt_loot")
+		var runner = n.get("task_runner")
+		if runner and runner.has_method("has_job") and runner.has_job():
+			continue
+		if not CorpseJobs.worker_can_pull(n, territory):
+			continue
+		var fsm = n.get_node_or_null("FSM")
+		if fsm and fsm.has_method("change_state") and str(fsm.get("current_state_name")) != "gather":
+			fsm.evaluation_timer = 0.0
+			fsm.change_state("gather", true)
+
 
 func _log_hunt_phase_change(old_phase: String, new_phase: String) -> void:
 	if DebugConfig and DebugConfig.enable_party_hunt_debug:
@@ -3158,15 +4960,15 @@ func _count_active_hunters() -> int:
 			count += 1
 	return count
 
-func _complete_hunt(reason: String) -> void:
+func _complete_hunt(reason: String, keep_corpse_site: bool = false) -> void:
 	var dur: float = (Time.get_ticks_msec() / 1000.0) - float(hunt_intent["start_time"])
 	print("🎯 ClanBrain %s: Hunt completed (%s) after %.1fs" % [clan_name, reason, dur])
-	var tree = territory.get_tree() if territory else null
+	var tree = territory.get_tree() if territory and is_instance_valid(territory) else null
 	if tree:
 		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
 		if pi and pi.is_enabled() and pi.has_method("hunt_completed"):
 			pi.hunt_completed(clan_name, reason, dur)
-	_reset_hunt_state(reason, true)
+	_reset_hunt_state(reason, true, keep_corpse_site)
 
 func _cancel_hunt(reason: String) -> void:
 	if hunt_intent["state"] == HuntIntentState.NONE:
@@ -3184,7 +4986,7 @@ func _cancel_hunt(reason: String) -> void:
 func abort_hunt(reason: String) -> void:
 	_cancel_hunt(reason)
 
-func _reset_hunt_state(reason: String, _from_complete: bool) -> void:
+func _reset_hunt_state(reason: String, _from_complete: bool, keep_corpse_site: bool = false) -> void:
 	var prey: Node = _resolve_hunt_target()
 	if prey and is_instance_valid(prey) and prey.has_meta("active_hunt_prey"):
 		prey.remove_meta("active_hunt_prey")
@@ -3203,8 +5005,12 @@ func _reset_hunt_state(reason: String, _from_complete: bool) -> void:
 	hunt_intent["need_pressure"] = 0.0
 	hunt_intent["target_type"] = ""
 	_hunt_prey_lost_logged = false
-	if territory:
-		CorpseJobs.clear_site(territory)
+	_loot_yield_seen = -1
+	_loot_yield_changed_at = 0.0
+	_loot_butcher_nudge_at = 0.0
+	if territory and is_instance_valid(territory):
+		if not keep_corpse_site:
+			CorpseJobs.clear_site(territory)
 		if territory.has_meta("hunt_intent"):
 			territory.remove_meta("hunt_intent")
 
@@ -3217,8 +5023,15 @@ func get_hunt_intent() -> Dictionary:
 func get_hunt_rally_point() -> Vector2:
 	return hunt_intent.get("rally_point", Vector2.ZERO)
 
+func is_hunt_looting() -> bool:
+	return int(hunt_intent.get("state", 0)) == HuntIntentState.LOOTING
+
+
 func should_npc_hunt(npc: Node) -> bool:
 	if hunt_intent["state"] == HuntIntentState.NONE:
+		return false
+	# Butcher work owns this phase. A joined flag must not pull the man back into hunt.
+	if is_hunt_looting():
 		return false
 	if not npc or not is_instance_valid(npc):
 		return false
@@ -3432,33 +5245,56 @@ func trigger_hunt_party_attack(prey: Node) -> void:
 		var prey_type: String = str(prey.get("npc_type")) if prey.get("npc_type") != null else "prey"
 		print("🟥 PARTY/HUNT ATTACK: %s party engages %s with spears (%d fighters)" % [clan_name, prey_type, members.size()])
 
+## Prey is down. Looting starts here, even if a kill already registered the corpse site.
+## The site can open before this call; the hunt party must still be released or followers stay in ARC and cannot butcher.
+func begin_hunt_corpse_loot(corpse: Node) -> void:
+	if not corpse or not is_instance_valid(corpse):
+		return
+	var st: int = int(hunt_intent.get("state", 0))
+	if st == HuntIntentState.RECRUITING or st == HuntIntentState.ACTIVE:
+		var from_name: String = "RECRUITING" if st == HuntIntentState.RECRUITING else "ACTIVE"
+		_log_hunt_phase_change(from_name, "LOOTING")
+		hunt_intent["state"] = HuntIntentState.LOOTING
+		hunt_intent["phase_start_time"] = Time.get_ticks_msec() / 1000.0
+		_loot_yield_seen = _hunt_corpse_yield_total(corpse)
+		_loot_yield_changed_at = hunt_intent["phase_start_time"]
+		if territory:
+			territory.set_meta("hunt_intent", hunt_intent.duplicate())
+		var tree_kill = territory.get_tree() if territory else null
+		if tree_kill:
+			var pi_kill = tree_kill.root.get_node_or_null("PlaytestInstrumentor")
+			if pi_kill and pi_kill.is_enabled() and pi_kill.has_method("hunt_prey_killed"):
+				var prey_type_kill: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey"
+				pi_kill.hunt_prey_killed(clan_name, prey_type_kill, "hunt_party")
+	open_corpse_job_site(corpse)
+
+
 func open_corpse_job_site(corpse: Node) -> void:
 	if not corpse or not is_instance_valid(corpse) or not territory:
 		return
 	var existing: Node = CorpseJobs.get_site_corpse(territory)
-	if existing == corpse:
-		return
-	CorpseHarvestScript.add_candidate(territory, corpse)
-	CorpseJobs.register_site(territory, corpse)
-	_soft_disband_hunt_party_for_loot()
-	var tree = territory.get_tree() if territory else null
-	if tree:
-		var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
-		if pi and pi.is_enabled() and pi.has_method("hunt_butcher_started"):
-			var ctype: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey"
-			pi.hunt_butcher_started(
+	if existing != corpse:
+		CorpseHarvestScript.add_candidate(territory, corpse)
+		CorpseJobs.register_site(territory, corpse)
+		var tree = territory.get_tree() if territory else null
+		if tree:
+			var pi = tree.root.get_node_or_null("PlaytestInstrumentor")
+			if pi and pi.is_enabled() and pi.has_method("hunt_butcher_started"):
+				var ctype: String = str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey"
+				pi.hunt_butcher_started(
+					clan_name,
+					ctype,
+					int(corpse.get_meta("meat_remaining", 0)),
+					int(corpse.get_meta("hide_remaining", 0)),
+					int(corpse.get_meta("bone_remaining", 0))
+				)
+		if DebugConfig and DebugConfig.enable_party_hunt_debug:
+			print("🟥 PARTY/HUNT CORPSE SITE: %s opened butcher job at %s (yield %d)" % [
 				clan_name,
-				ctype,
-				int(corpse.get_meta("meat_remaining", 0)),
-				int(corpse.get_meta("hide_remaining", 0)),
-				int(corpse.get_meta("bone_remaining", 0))
-			)
-	if DebugConfig and DebugConfig.enable_party_hunt_debug:
-		print("🟥 PARTY/HUNT CORPSE SITE: %s opened butcher job at %s (yield %d)" % [
-			clan_name,
-			str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey",
-			_hunt_corpse_yield_total(corpse)
-		])
+				str(corpse.get("npc_type")) if corpse.get("npc_type") != null else "prey",
+				_hunt_corpse_yield_total(corpse)
+			])
+	_soft_disband_hunt_party_for_loot()
 
 
 func _soft_disband_hunt_party_for_loot() -> void:
@@ -3501,12 +5337,21 @@ func _soft_disband_hunt_party_for_loot() -> void:
 		for f in followers:
 			if not is_instance_valid(f):
 				continue
-			if HerdManager and leader and is_instance_valid(leader):
-				HerdManager.unregister_follower(leader, f)
-			f.set("follow_is_ordered", false)
-			f.set("is_herded", false)
-			f.set("herder", null)
-			f.set("herd_mentality_active", false)
+			if f.has_method("_clear_herd"):
+				f._clear_herd("hunt_loot")
+			else:
+				if HerdManager and leader and is_instance_valid(leader):
+					HerdManager.unregister_follower(leader, f)
+				f.set("follow_is_ordered", false)
+				f.set("is_herded", false)
+				f.set("herder", null)
+				f.set("herd_mentality_active", false)
+			if f.has_method("set_follow_mode_from_string"):
+				f.set_follow_mode_from_string("FOLLOW")
+		if leader and is_instance_valid(leader):
+			var still_led: int = HerdManager.get_herd_size(leader) if HerdManager else 0
+			if still_led == 0:
+				leader.set("herded_count", 0)
 		territory.remove_meta("hunt_party_leader")
 		territory.remove_meta("hunt_party_followers")
 	for m in all_members:
@@ -3839,7 +5684,7 @@ func get_debug_info() -> Dictionary:
 	"""Get debug information about the clan brain state."""
 	var raid_eligible: Dictionary = {
 		"population_ok": cavemen.size() >= RAID_POPULATION_THRESHOLD,
-		"food_buffer_ok": clan_metrics.get("food_days_buffer", 0.0) >= RAID_MIN_FOOD_DAYS_FOR_RAID,
+		"food_buffer_ok": clan_metrics.get("food_days_buffer", 0.0) >= float(_raid_tune("raid_hunger_days")),
 		"not_hunting": not is_hunting()
 	}
 	return {
@@ -3925,12 +5770,9 @@ func _evaluate_resource_allocation() -> void:
 		return
 	_allocation_eval_counter = 0
 	_cleanup_work_requests()
-	_issue_pickup_requests()
+	_issue_hut_carry_requests()
 	_refresh_abundance_ratios()
-	var chains: Array = _select_production_chains()
-	for chain in chains:
-		if chain is ProductionChainScript and _can_issue_delivery_request(chain):
-			_issue_delivery_request(chain)
+	var chains: Array = []
 	var pending: int = _count_work_requests_by_state("PENDING")
 	if territory:
 		territory.set_meta("work_request_pending_count", pending)
@@ -4021,31 +5863,39 @@ func _has_production_building(building_type: ResourceData.ResourceType) -> bool:
 	return _find_available_building(building_type) != null
 
 
+func _issue_hut_carry_requests() -> void:
+	if not territory or not territory.inventory:
+		return
+	for building in _get_clan_production_buildings():
+		if not is_instance_valid(building) or not (building is BuildingBase):
+			continue
+		if building.building_type != ResourceData.ResourceType.LIVING_HUT:
+			continue
+		var kind := str(building.get("hut_specialty"))
+		if not HutSpecialtyBrainScript.is_known(kind):
+			continue
+		if _has_pending_request_for_building(building, "delivery") or _has_pending_request_for_building(building, "pickup"):
+			continue
+		var woman: Node = HutCarryScript.home_woman(building)
+		if woman == null:
+			continue
+		var reserved: Dictionary = {}
+		if territory.has_method("get_reserved_count"):
+			for type in [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.WOOD, ResourceData.ResourceType.HIDE, ResourceData.ResourceType.FIBER, ResourceData.ResourceType.WOOL]:
+				var held: int = int(territory.get_reserved_count(type))
+				if held > 0:
+					reserved[int(type)] = held
+		var action: Dictionary = HutCarryScript.next_action(building.inventory, territory.inventory, kind, reserved)
+		if str(action.get("kind", "none")) == "none":
+			continue
+		_issue_work_request("delivery" if str(action["kind"]) == "input" else "pickup", "hut_" + kind, building, woman)
+		var woman_name := str(woman.get("npc_name")) if woman.get("npc_name") != null else "?"
+		print("Hut carry: %s %s %s x%d" % [woman_name, kind, str(action.get("kind", "")), int(action.get("qty", 0))])
+
+
 func _select_production_chains() -> Array:
-	var selected: Array = []
-	if not ProductionChainRegistry:
-		return selected
-	var food_buffer: float = float(clan_metrics.get("food_days_buffer", 0.0))
-	var target_days: float = BalanceConfig.clan_food_buffer_target_days if BalanceConfig else 1.0
-	var surplus_threshold: float = BalanceConfig.abundance_threshold if BalanceConfig else 0.85
-	var bread_surplus_grain: float = BalanceConfig.production_bread_surplus_grain_abundance if BalanceConfig else 0.85
-	var leather_min: float = BalanceConfig.production_leather_abundance_min if BalanceConfig else 0.75
-	var tier: int = _get_territory_tier()
-	var bread: Resource = ProductionChainRegistry.get_chain("bread")
-	var leather: Resource = ProductionChainRegistry.get_chain("leather")
-	if bread and bread.min_stage <= tier:
-		if _has_production_building(ResourceData.ResourceType.OVEN) and _chain_inputs_available(bread):
-			var grain_ab: float = abundance_ratios.get(ResourceData.ResourceType.GRAIN, 0.0)
-			if food_buffer < target_days:
-				selected.append(bread)
-			elif grain_ab >= bread_surplus_grain or grain_ab >= surplus_threshold:
-				selected.append(bread)
-	if leather and leather.min_stage <= tier:
-		if _has_production_building(ResourceData.ResourceType.DRYING_RACK) and _chain_inputs_available(leather):
-			var hide_ab: float = abundance_ratios.get(ResourceData.ResourceType.HIDE, 0.0)
-			if food_buffer < target_days or hide_ab >= leather_min or hide_ab >= surplus_threshold:
-				selected.append(leather)
-	return selected
+	# Oven and drying rack no longer post jobs. Specialty huts do.
+	return []
 
 
 func _can_issue_delivery_request(chain: Resource) -> bool:
@@ -4072,7 +5922,7 @@ func _issue_delivery_request(chain: Resource) -> void:
 	_issue_work_request("delivery", chain.chain_id, building)
 
 
-func _issue_work_request(request_type: String, chain_id: String, building: Node) -> void:
+func _issue_work_request(request_type: String, chain_id: String, building: Node, owner: Node = null) -> void:
 	if not building or not is_instance_valid(building):
 		return
 	var req: Dictionary = {
@@ -4080,6 +5930,7 @@ func _issue_work_request(request_type: String, chain_id: String, building: Node)
 		"request_type": request_type,
 		"chain_id": chain_id,
 		"building": building,
+		"owner": owner,
 		"state": "PENDING",
 		"npc": null,
 		"created_at": Time.get_ticks_msec() / 1000.0,
@@ -4151,7 +6002,22 @@ func has_work_request_for_npc(npc: Node) -> bool:
 
 
 func has_production_work_available(npc: Node) -> bool:
-	return has_pending_work_request() or has_work_request_for_npc(npc)
+	return not claim_work_request_preview(npc).is_empty() or has_work_request_for_npc(npc)
+
+
+func claim_work_request_preview(npc: Node) -> Dictionary:
+	if not npc:
+		return {}
+	for req in work_requests:
+		if req.get("state", "") != "PENDING":
+			continue
+		var owner: Variant = req.get("owner")
+		if owner != null and owner != npc:
+			continue
+		if owner == null:
+			continue
+		return req
+	return {}
 
 
 func claim_work_request(npc: Node) -> Dictionary:
@@ -4160,13 +6026,13 @@ func claim_work_request(npc: Node) -> Dictionary:
 	for req in work_requests:
 		if req.get("npc") == npc and req.get("state", "") in ["CLAIMED", "IN_PROGRESS"]:
 			return req
-	for req in work_requests:
-		if req.get("state", "") == "PENDING":
-			req["state"] = "CLAIMED"
-			req["npc"] = npc
-			req["claimed_at"] = Time.get_ticks_msec() / 1000.0
-			return req
-	return {}
+	var pending := claim_work_request_preview(npc)
+	if pending.is_empty():
+		return {}
+	pending["state"] = "CLAIMED"
+	pending["npc"] = npc
+	pending["claimed_at"] = Time.get_ticks_msec() / 1000.0
+	return pending
 
 
 func set_request_state(request_id: int, state: String) -> void:

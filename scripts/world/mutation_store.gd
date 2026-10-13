@@ -194,10 +194,14 @@ func _ensure_caps_for_chunk(rec: Dictionary, pool: Dictionary) -> void:
 		rec["abstract_resource_caps"] = pool.duplicate()
 
 
-func regen_abstract_resources(chunk: Vector2i, elapsed_sec: float, cfg: Node) -> Dictionary:
+func regen_abstract_resources(chunk: Vector2i, elapsed_sec: float, cfg: Node, slice_id: int = -1) -> Dictionary:
 	var events: Dictionary = {"regen": []}
 	if cfg == null or elapsed_sec <= 0.0:
 		return events
+	if slice_id >= 0:
+		var stamped: Dictionary = get_chunk_record(chunk)
+		if int(stamped.get("abstract_regen_slice", -2)) == slice_id:
+			return events
 	var regen_table = cfg.get("gather_regen_per_sim_day")
 	if not (regen_table is Dictionary):
 		return events
@@ -235,6 +239,8 @@ func regen_abstract_resources(chunk: Vector2i, elapsed_sec: float, cfg: Node) ->
 		pool_dict[key] = after
 		events["regen"].append({"resource_key": key, "before": before, "after": after, "cap": cap})
 	rec["abstract_resources"] = pool_dict
+	if slice_id >= 0:
+		rec["abstract_regen_slice"] = slice_id
 	_chunks[chunk_key(chunk)] = rec
 	return events
 
@@ -260,3 +266,44 @@ func deplete_abstract_resource(chunk: Vector2i, resource_key: String, amount: in
 	rec["abstract_resources"] = pool_dict
 	_chunks[chunk_key(chunk)] = rec
 	return taken
+
+
+func visible_spawn_limit(chunk: Vector2i, resource_key: String) -> int:
+	var pool: Dictionary = get_abstract_resource_pool(chunk)
+	if pool.is_empty():
+		return 1000000
+	return maxi(int(pool.get(resource_key, 0)), 0)
+
+
+func get_wildlife(chunk: Vector2i) -> int:
+	var rec: Dictionary = get_chunk_record(chunk)
+	if not rec.has("wildlife"):
+		rec["wildlife"] = 4
+		_chunks[chunk_key(chunk)] = rec
+	return int(rec.get("wildlife", 0))
+
+
+func take_wildlife(chunk: Vector2i, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	var have: int = get_wildlife(chunk)
+	var taken: int = mini(amount, have)
+	var rec: Dictionary = get_chunk_record(chunk)
+	rec["wildlife"] = have - taken
+	_chunks[chunk_key(chunk)] = rec
+	return taken
+
+
+func note_visible_harvest(node: Node, resource_key: String) -> void:
+	if node == null or resource_key.is_empty() or not (node is Node2D):
+		return
+	var chunk := Vector2i.ZERO
+	if node.has_meta(&"chunk_coords"):
+		chunk = node.get_meta(&"chunk_coords")
+	elif node.get_parent() and node.get_parent().has_meta(&"chunk_coords"):
+		chunk = node.get_parent().get_meta(&"chunk_coords")
+	elif ChunkUtils:
+		chunk = ChunkUtils.get_chunk_coords((node as Node2D).global_position)
+	if get_abstract_resource_pool(chunk).is_empty() and WorldGenConfig:
+		ensure_abstract_resource_pool(chunk, int(WorldGenConfig.world_seed), WorldGenConfig)
+	deplete_abstract_resource(chunk, resource_key, 1)

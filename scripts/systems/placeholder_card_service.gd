@@ -102,6 +102,9 @@ func hide_holdables_on_death(entity: Node) -> void:
 	if overlay:
 		overlay.visible = false
 		overlay.set_meta("card_overlay_thrust_ready_final", false)
+	var carry_hold: Sprite2D = sprite.get_node_or_null("CarryHold") as Sprite2D
+	if carry_hold:
+		carry_hold.visible = false
 	WeaponOverlayCombat.set_overlay_state(entity, WeaponOverlayCombat.OverlayState.IDLE)
 	_disable_procedural_arms(entity)
 
@@ -136,32 +139,48 @@ func apply_to_npc(npc: Node) -> void:
 	sync_progress_display_position(npc)
 
 
-func sync_progress_display_position(entity: Node) -> void:
+func sync_progress_display_position(entity: Node, extra_above_head_px: float = 0.0) -> void:
 	if entity == null or not is_instance_valid(entity):
 		return
 	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
 	var y: float = -88.0
 	var tex: Texture2D = null
-	if uses_procedural_mannequin(entity) or uses_layered_body_mannequin(entity):
+	if uses_layered_body_mannequin(entity):
+		var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+		var display_h: float = RUNTIME_LAYERED_MANNEQUIN_DISPLAY_HEIGHT
+		if str(entity.get("npc_type")) == "baby":
+			display_h = BABY_MANNEQUIN_DISPLAY_HEIGHT
+		var r: float = PlaceholderCardRegistryScript.PROGRESS_CIRCLE_RADIUS
+		var gap: float = PlaceholderCardRegistryScript.PROGRESS_CIRCLE_GAP_ABOVE_CARD + maxf(extra_above_head_px, 0.0)
+		y = foot_y - display_h - r - gap
+	elif uses_procedural_mannequin(entity):
 		if _entity_uses_female_mannequin(entity):
 			tex = PartsRegistry.load_female_body()
 		if tex == null:
 			tex = PartsRegistry.load_blank_body()
-	elif sprite and sprite.texture:
-		tex = sprite.texture
-	if tex:
-		if uses_layered_body_mannequin(entity):
+		if tex:
 			y = registry.get_runtime_mannequin_progress_display_y(tex)
 			if str(entity.get("npc_type")) == "baby":
 				y *= 0.5
+			y -= maxf(extra_above_head_px, 0.0)
+	elif sprite and sprite.texture:
+		tex = sprite.texture
+	if tex and not uses_layered_body_mannequin(entity):
+		if uses_procedural_mannequin(entity):
+			pass
 		else:
 			y = registry.get_progress_display_y(tex)
+			y -= maxf(extra_above_head_px, 0.0)
 	var progress: Variant = entity.get("progress_display")
 	if progress is Node2D:
 		(progress as Node2D).position = Vector2(0.0, y)
+		if YSortUtils:
+			YSortUtils.update_world_timer_draw_order(progress as CanvasItem)
 	var eat_progress: Variant = entity.get("eat_progress_display")
 	if eat_progress is Node2D:
 		(eat_progress as Node2D).position = Vector2(0.0, y)
+		if YSortUtils:
+			YSortUtils.update_world_timer_draw_order(eat_progress as CanvasItem)
 
 
 func apply_to_player(player: Node) -> void:
@@ -203,6 +222,9 @@ func tick_card_bounce(npc: Node, delta: float, moving: bool) -> void:
 	if PawnDeathAnimationScript.is_playing(npc) or PawnDeathAnimationScript.is_pose_locked(npc):
 		return
 	if npc.has_method("is_dead") and npc.is_dead():
+		return
+	if npc.get_meta("is_crouching", false) == true:
+		_tick_crouch_mannequin(npc, delta, moving)
 		return
 	if WeaponOverlayCombat.get_overlay_state(npc) == WeaponOverlayCombat.OverlayState.STRIKING:
 		npc.set("_card_bounce_moving", moving)
@@ -335,6 +357,65 @@ func _apply_spear_overlay_walk_sway(
 		ResourceData.ResourceType.SPEAR
 	)
 	overlay.global_position += swung_global - rest_grip_global
+
+
+## Item icon in the woman's hand while her carry slot has a stack.
+func sync_woman_carry_hold(entity: Node) -> void:
+	if entity == null or not is_instance_valid(entity) or not uses_placeholder_cards(entity):
+		return
+	if str(entity.get("npc_type")) != "woman":
+		return
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	var hold: Sprite2D = sprite.get_node_or_null("CarryHold") as Sprite2D
+	if entity_is_dead_or_dying(entity):
+		if hold:
+			hold.visible = false
+		return
+	var item_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE
+	var count := 0
+	var inv = entity.get("inventory")
+	if inv != null and inv.has_method("get_slot"):
+		var slot: Dictionary = inv.get_slot(0)
+		if not slot.is_empty():
+			item_type = slot.get("type", ResourceData.ResourceType.NONE)
+			count = int(slot.get("count", slot.get("quantity", 0)))
+	if item_type == ResourceData.ResourceType.NONE or count <= 0:
+		if hold:
+			hold.visible = false
+		return
+	if hold == null:
+		hold = Sprite2D.new()
+		hold.name = "CarryHold"
+		hold.z_index = 3
+		hold.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		sprite.add_child(hold)
+	if int(hold.get_meta("carry_type", -1)) != int(item_type) or hold.texture == null:
+		var path := ResourceData.get_resource_icon_path(item_type)
+		var tex: Texture2D = null
+		if path != "":
+			if ResourceLoader.exists(path):
+				tex = load(path) as Texture2D
+			else:
+				var image := Image.new()
+				if image.load(ProjectSettings.globalize_path(path)) == OK:
+					tex = ImageTexture.create_from_image(image)
+		hold.texture = tex
+		hold.set_meta("carry_type", int(item_type))
+		if tex != null:
+			WeaponOverlayCombat.apply_carry_hold_overlay_scale(sprite, hold)
+	if hold.texture == null:
+		hold.visible = false
+		return
+	hold.visible = true
+	var display_px: Vector2 = registry.get_tool_overlay_offset_px(ResourceData.ResourceType.STONE) * registry.get_runtime_mannequin_display_scale()
+	var sx: float = absf(sprite.scale.x)
+	if sx < 0.001:
+		sx = 1.0
+	var local_pos := Vector2(display_px.x / sx, display_px.y / sx)
+	hold.flip_h = false
+	hold.position = _mirrored_layered_overlay_pos(sprite, local_pos)
 
 
 ## Show/hide the WeaponOverlay child on card entities (body card stays unchanged).
@@ -1006,11 +1087,72 @@ func _ensure_procedural_rig(entity: Node) -> void:
 		arm_ctrl.set("body_card_id", "clansmen_1")
 
 
+func _hut_work_motion_mul(entity: Node) -> float:
+	if entity == null or not entity.get_meta("hut_work_presence_active", false):
+		return 1.0
+	return float(entity.get_meta("hut_work_motion_scale", HutWomanWorkPresence.WORK_IDLE_MOTION_MUL))
+
+
+func _tick_hut_work_idle_mannequin(entity: Node, sprite: Sprite2D, delta: float, foot_y: float) -> void:
+	var motion_mul: float = _hut_work_motion_mul(entity)
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	var card_index: int = get_card_index_from_entity(entity)
+	if card_index <= 0:
+		card_index = 1
+	var layout = _get_mannequin_layout(card_index)
+	var pose_info: Dictionary = HutWomanWorkPresence.get_idle_pose_for_visual(entity)
+	var pose: int = int(pose_info.get("pose", 0))
+	var t: float = float(pose_info.get("time", 0.0))
+	sprite.position.y = roundf(foot_y)
+	entity.set("_card_bounce_moving", false)
+	if pose == 1 and body_visual and body_visual.has_method("set_gather_state"):
+		var bend: float = (sin(t * 2.2) * 0.11 + 0.08) * motion_mul
+		var head_fwd: float = (sin(t * 1.7) * layout.display_to_local(5.0) + layout.display_to_local(7.0)) * motion_mul
+		body_visual.call("set_gather_state", bend, head_fwd)
+		return
+	var preview = _get_idle_preview(entity)
+	var lookaround := pose == 2
+	if lookaround:
+		preview.set_variant(TunerIdlePreviewScript.VARIANT_ID)
+		preview.set_sun_shield_scan_mode(true)
+		preview.set_look_hold_sec(0.9)
+		preview.begin_sun_shield_raise_if_idle()
+	else:
+		preview.set_variant(TunerIdlePreviewScript.VARIANT_BASE)
+		preview.set_sun_shield_scan_mode(false)
+	preview.tick(delta)
+	var body_amp: float = layout.display_to_local(TunerIdlePreviewScript.BODY_BOUNCE_DISPLAY_PX)
+	var head_amp: float = layout.display_to_local(TunerIdlePreviewScript.HEAD_BOB_DISPLAY_PX)
+	sprite.position.y = roundf(foot_y + preview.body_bounce_offset(body_amp) * motion_mul)
+	var look_right: bool = preview.head_look_right()
+	if sprite.flip_h:
+		look_right = not preview.head_look_right()
+	if lookaround:
+		preview.tick_hand_shade_slide(delta, sprite.flip_h, look_right)
+	var scan_mul: float = motion_mul * 0.55 if lookaround else 0.0
+	entity.set("_idle_arm2_raise_blend", (preview.arm2_raise_blend() * motion_mul) if lookaround else 0.0)
+	entity.set("_idle_scan_blend", preview.scan_blend() * scan_mul if lookaround else 0.0)
+	entity.set("_idle_arm2_lowering", preview.is_arm2_lowering() if lookaround else false)
+	entity.set_meta("_idle_sun_shield_scan_active", lookaround and preview.is_sun_shield_scan_mode())
+	if body_visual and body_visual.has_method("set_idle_state"):
+		body_visual.call(
+			"set_idle_state",
+			preview.head_bob_offset(head_amp) * motion_mul,
+			preview.body_sway_rad() * motion_mul,
+			look_right
+		)
+	if uses_procedural_mannequin(entity):
+		_sync_procedural_arm_process(entity)
+
+
 func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, moving: bool) -> void:
 	if uses_layered_body_mannequin(entity):
 		_tick_pawn_body_mannequin(entity, sprite, delta, moving)
 		return
 	var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+	if entity.get_meta("hut_work_presence_active", false) and not moving:
+		_tick_hut_work_idle_mannequin(entity, sprite, delta, foot_y)
+		return
 	var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
 	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
 	var card_index: int = get_card_index_from_entity(entity)
@@ -1089,15 +1231,42 @@ func _tick_layered_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, 
 
 
 ## In-game pawn: body+head layers, walk bounce, floating weapon (RimWorld-style side slot).
+func _tick_crouch_mannequin(entity: Node, delta: float, moving: bool) -> void:
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+	var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
+	var direction: int = -1 if sprite.flip_h else 1
+	if moving:
+		bounce_time = CardVisualController.tick_walk_bounce(sprite, foot_y, bounce_time, true, delta * 0.55)
+	else:
+		bounce_time = 0.0
+		sprite.position.y = roundf(foot_y)
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	if body_visual and body_visual.has_method("set_crouch_state"):
+		body_visual.call("set_crouch_state", true, moving, bounce_time, direction)
+	entity.set("_card_bounce_time", bounce_time)
+	entity.set("_card_bounce_moving", moving)
+	var overlay: Sprite2D = sprite.get_node_or_null("WeaponOverlay") as Sprite2D
+	if overlay:
+		overlay.visible = false
+
+
 func _tick_pawn_body_mannequin(entity: Node, sprite: Sprite2D, delta: float, moving: bool) -> void:
 	var foot_y: float = float(entity.get("_card_foot_y")) if entity.get("_card_foot_y") != null else -PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT * 0.5
+	if entity.get_meta("hut_work_presence_active", false) and not moving:
+		_tick_hut_work_idle_mannequin(entity, sprite, delta, foot_y)
+		return
+	var motion_mul: float = _hut_work_motion_mul(entity) if entity.get_meta("hut_work_presence_active", false) else 1.0
 	var bounce_time: float = float(entity.get("_card_bounce_time")) if entity.get("_card_bounce_time") != null else 0.0
 	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
 	var direction: int = -1 if sprite.flip_h else 1
 	if moving:
-		bounce_time = CardVisualController.tick_walk_bounce(sprite, foot_y, bounce_time, true, delta)
+		var bounce_delta: float = delta * motion_mul if entity.get_meta("hut_work_presence_active", false) else delta
+		bounce_time = CardVisualController.tick_walk_bounce(sprite, foot_y, bounce_time, true, bounce_delta)
 		if body_visual and body_visual.has_method("set_walk_state"):
-			body_visual.call("set_walk_state", true, bounce_time, direction)
+			body_visual.call("set_walk_state", true, bounce_time, direction, motion_mul)
 	else:
 		bounce_time = 0.0
 		sprite.position.y = roundf(foot_y)
@@ -1278,8 +1447,119 @@ func _apply_skin_modulate(entity: Node) -> void:
 		var hair_sprite: Sprite2D = head.get_node_or_null("HairFront") as Sprite2D
 		if hair_sprite:
 			hair_sprite.modulate = hair_color
+		_apply_hide_clan_color(entity)
 		return
 	sprite.modulate = skin
+
+
+## Same clan shares one dye. Next clan gets the next earth color. No neon.
+const HIDE3_CLOTHING_STYLE := 2
+const HIDE_CLOTHING_DYE_SHADER := preload("res://assets/shaders/hide_clothing_dye.gdshader")
+## hide3 teeth stay near-white; leather takes clan dye.
+const HIDE3_TEETH_PRESERVE_MIN := 0.91
+
+const CLAN_HIDE_DYES: Array[Color] = [
+	Color(0.62, 0.40, 0.24),
+	Color(0.48, 0.30, 0.24),
+	Color(0.42, 0.46, 0.28),
+	Color(0.55, 0.44, 0.30),
+	Color(0.36, 0.32, 0.28),
+	Color(0.58, 0.34, 0.26),
+	Color(0.46, 0.38, 0.26),
+	Color(0.40, 0.36, 0.24),
+]
+
+
+func apply_hide_clan_color(entity: Node) -> void:
+	_apply_hide_clan_color(entity)
+
+
+func _apply_hide_clan_color(entity: Node) -> void:
+	if entity == null or not is_instance_valid(entity):
+		return
+	var sprite: Sprite2D = entity.get_node_or_null("Sprite") as Sprite2D
+	if sprite == null:
+		return
+	var clothing: Sprite2D = sprite.get_node_or_null("BodyVisual/HideClothing") as Sprite2D
+	if clothing == null:
+		return
+	var clan := _clan_name_of(entity)
+	var body_visual: Node = sprite.get_node_or_null("BodyVisual")
+	var allow_style_rng := entity != null and not entity.is_in_group("player")
+	var style := _resolve_clothing_style(entity, allow_style_rng)
+	if body_visual and body_visual.has_method("set_clothing_style"):
+		body_visual.call("set_clothing_style", style)
+	var dye := _hide_dye_for_clan(clan)
+	_apply_clothing_dye_to_sprite(clothing, style, dye)
+
+
+func _apply_clothing_dye_to_sprite(clothing: Sprite2D, style: int, dye: Color) -> void:
+	if clothing == null or not is_instance_valid(clothing):
+		return
+	if style == HIDE3_CLOTHING_STYLE:
+		var mat := clothing.material as ShaderMaterial
+		if mat == null or mat.shader != HIDE_CLOTHING_DYE_SHADER:
+			mat = ShaderMaterial.new()
+			mat.shader = HIDE_CLOTHING_DYE_SHADER
+			clothing.material = mat
+		mat.set_shader_parameter("dye_color", dye)
+		mat.set_shader_parameter("preserve_bright_min", HIDE3_TEETH_PRESERVE_MIN)
+		clothing.modulate = Color.WHITE
+	else:
+		clothing.material = null
+		clothing.modulate = dye
+
+
+func _clan_name_of(entity: Node) -> String:
+	if entity.has_method("get_clan_name"):
+		return str(entity.get_clan_name()).strip_edges()
+	var raw: Variant = entity.get("clan_name")
+	if raw == null:
+		return ""
+	return str(raw).strip_edges()
+
+
+func _hide_dye_for_clan(clan_name: String) -> Color:
+	var key := clan_name.strip_edges().to_lower()
+	if key.is_empty():
+		return Color.WHITE
+	var n := CLAN_HIDE_DYES.size()
+	if n <= 0:
+		return Color.WHITE
+	var idx := absi(key.hash()) % n
+	return CLAN_HIDE_DYES[idx]
+
+
+const CLOTHING_STYLE_COUNT := 4
+
+
+## Per-NPC garment (0–3); clan dye is separate via _hide_dye_for_clan.
+func _resolve_clothing_style(entity: Node, allow_npc_rng: bool) -> int:
+	var style: int = -1
+	if entity != null and entity.has_meta("clothing_style"):
+		style = int(entity.get_meta("clothing_style"))
+	if style < 0 and entity != null and entity.get("clothing_style") != null:
+		style = int(entity.get("clothing_style"))
+	if style < 0 or style >= CLOTHING_STYLE_COUNT:
+		style = -1
+	if style < 0:
+		if allow_npc_rng and entity != null and entity.has_method("npc_randi_range"):
+			style = entity.npc_randi_range(0, CLOTHING_STYLE_COUNT - 1)
+		else:
+			var ws: int = 0
+			if SimRng and SimRng.has_method("get_world_seed"):
+				ws = int(SimRng.get_world_seed())
+			var salt: int = 0
+			if EntityRegistry:
+				salt = int(EntityRegistry.get_id(entity))
+			else:
+				salt = int(hash(entity.get_instance_id())) if entity else 0
+			salt = int(salt) ^ int(hash("clothing_style"))
+			style = SimRng.make_scoped_rng(ws, salt).randi_range(0, CLOTHING_STYLE_COUNT - 1)
+	if entity != null:
+		entity.set("clothing_style", style)
+		entity.set_meta("clothing_style", style)
+	return style
 
 
 func _resolve_hair_modulate(entity: Node) -> Color:

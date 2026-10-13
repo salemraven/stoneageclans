@@ -103,7 +103,11 @@ func update(delta: float) -> void:
 
 func can_enter() -> bool:
 	var npc_name: String = npc.get("npc_name") if npc else "unknown"
-	
+	var npc_type_str: String = str(npc.get("npc_type")) if npc and npc.get("npc_type") != null else ""
+	# Clansmen and cavemen have no idle state. A later flavor pause is an animation between jobs, not this state.
+	if npc_type_str == "clansman" or npc_type_str == "caveman":
+		return false
+
 	# Can always enter idle (lowest priority)
 	UnifiedLogger.log_npc("Can enter check: %s can enter idle (always_available)" % npc_name, {
 		"npc": npc_name,
@@ -131,7 +135,7 @@ func get_priority() -> float:
 	# This prevents cavemen from glitching in one spot
 	if npc:
 		var npc_type_str: String = npc.get("npc_type") if npc else ""
-		if npc_type_str == "caveman":
+		if npc_type_str == "caveman" or npc_type_str == "clansman":
 			return p_cave
 		
 		# CRITICAL FIX: Wild NPCs (women, sheep, goats) should also avoid idle when not herded

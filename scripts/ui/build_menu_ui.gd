@@ -4,6 +4,7 @@ class_name BuildMenuUI
 # Build Menu UI - Opens with B key when player is inside their land claim
 # Shows land claim inventory (center) and building selection cards (right)
 
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 const PANEL_WIDTH := 320
 const PANEL_HEIGHT := 400
 const BUILDING_CARD_WIDTH := 280
@@ -80,7 +81,7 @@ func _build_building_cards() -> void:
 	building_cards.clear()
 	
 	# Get all buildings from registry
-	var buildings = BuildingRegistry.get_all_buildings()
+	var buildings = BuildingRegistry.get_menu_buildings()
 	
 	for building_data in buildings:
 		var card := _create_building_card(building_data)
@@ -92,7 +93,7 @@ func _update_card_availability() -> void:
 	if not land_claim or not land_claim.inventory:
 		return
 	
-	var buildings = BuildingRegistry.get_all_buildings()
+	var buildings = BuildingRegistry.get_menu_buildings()
 	for i in range(min(building_cards.size(), buildings.size())):
 		var card = building_cards[i]
 		if not is_instance_valid(card):
@@ -156,7 +157,7 @@ func _create_building_card(building: BuildingRegistry.BuildingData) -> Control:
 	
 	# Icon
 	var icon := TextureRect.new()
-	var icon_texture := load(building.icon_path) as Texture2D
+	var icon_texture: Texture2D = HutSpecialtyScript.load_texture(building.icon_path) if not ResourceLoader.exists(building.icon_path) else load(building.icon_path) as Texture2D
 	if icon_texture:
 		icon.texture = icon_texture
 		icon.custom_minimum_size = Vector2(64, 64)

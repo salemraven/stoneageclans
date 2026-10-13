@@ -6,6 +6,7 @@ class_name InventorySlot
 signal slot_clicked(slot: InventorySlot)
 signal slot_drag_ended(slot: InventorySlot)
 
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 const ICON_SIZE := 32
 const HOTBAR_CELL := 40
 const LIST_ROW_H := 56
@@ -335,7 +336,9 @@ func _update_display() -> void:
 	var quality: int = shown.get("quality", 0) as int
 	if icon_texture:
 		var icon_path: String = ResourceData.get_resource_icon_path(item_type)
-		var loaded: Texture2D = load(icon_path) as Texture2D if icon_path != "" else null
+		var loaded: Texture2D = null
+		if icon_path != "":
+			loaded = HutSpecialtyScript.load_texture(icon_path) if not ResourceLoader.exists(icon_path) else load(icon_path) as Texture2D
 		icon_texture.texture = loaded if loaded else _create_fallback_icon(item_type)
 	if not is_hotbar:
 		if name_label:

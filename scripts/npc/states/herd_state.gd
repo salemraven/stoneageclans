@@ -80,7 +80,7 @@ func update(delta: float) -> void:
 	var herd_break_dist: float = 300.0
 	if NPCConfig and "herd_max_distance_before_break" in NPCConfig:
 		herd_break_dist = NPCConfig.herd_max_distance_before_break as float
-	if dist_to_herder >= herd_break_dist:
+	if dist_to_herder >= herd_break_dist and not bool(npc.get("follow_is_ordered")):
 		npc._clear_herd()
 		if npc.progress_display:
 			npc.progress_display.stop_collection()

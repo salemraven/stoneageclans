@@ -69,6 +69,8 @@ func force_deplete() -> void:
 func _mark_depleted() -> void:
 	if MutationStore and stable_id != "":
 		MutationStore.deplete_stable_id(stable_id)
+	if MutationStore and MutationStore.has_method("note_visible_harvest"):
+		MutationStore.note_visible_harvest(self, "bugs")
 	remove_meta(&"has_bugs")
 	if has_meta(&"bugs_remaining"):
 		remove_meta(&"bugs_remaining")

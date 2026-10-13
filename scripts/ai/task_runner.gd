@@ -355,6 +355,10 @@ func controls_movement() -> bool:
 	var script_path: String = current_task.get_script().get_path().get_file()
 	if script_path == "move_to_task.gd":
 		return true
+	if script_path == "hut_carry_task.gd":
+		if current_task.has_method("controls_movement"):
+			return current_task.controls_movement()
+		return false
 	if script_path == "drop_off_task.gd":
 		# DropOffTask creates internal MoveToTask when too far - task controls velocity
 		return current_task.get("_move_task") != null

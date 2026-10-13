@@ -227,7 +227,7 @@ func _maybe_print_phase7_row(obj: Dictionary) -> void:
 	if evt.is_empty():
 		return
 	var watch_prefixes: PackedStringArray = PackedStringArray([
-		"settlement_", "baby_", "phase7_", "repro_",
+		"settlement_", "baby_", "phase7_", "repro_", "ai_clan_",
 	])
 	var watch := false
 	for p in watch_prefixes:
@@ -1051,6 +1051,20 @@ func session_nearby_clan_spawned(
 	})
 
 
+func ai_clan_snapshot(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "ai_clan_snapshot"}
+	for k in payload:
+		row[k] = payload[k]
+	_write(row)
+
+
+func ai_clan_repro(payload: Dictionary) -> void:
+	var row: Dictionary = {"evt": "ai_clan_repro"}
+	for k in payload:
+		row[k] = payload[k]
+	_write(row)
+
+
 func session_nearby_clans_complete(count: int, ring_radius_px: float, player_x: float, player_y: float) -> void:
 	_write({
 		"evt": "session_nearby_clans_complete",
@@ -1232,6 +1246,28 @@ func production_allocation_eval(
 		obj["abundance_" + str(k)] = abundance[k]
 	_write(obj)
 
+func camp_park_event(evt_name: String, clan_name: String, chunk_x: int, chunk_y: int) -> void:
+	_write({
+		"evt": evt_name,
+		"clan": clan_name,
+		"chunk_x": chunk_x,
+		"chunk_y": chunk_y,
+	})
+
+
+func hut_carry_transfer(mode: String, kind: String, item_type: int, qty: int, phase: String = "") -> void:
+	if qty <= 0:
+		return
+	_write({
+		"evt": "hut_carry_transfer",
+		"mode": mode,
+		"hut_kind": kind,
+		"item_type": item_type,
+		"qty": qty,
+		"phase": phase,
+	})
+
+
 func work_request_issued(
 	clan_name: String,
 	request_id: int,
@@ -1396,6 +1432,45 @@ func raid_evaluated(clan_name: String, score: float, score_breakdown: Dictionary
 
 func raid_started(attacker_clan: String, target_clan: String) -> void:
 	_write({"evt": "raid_started", "attacker_clan": attacker_clan, "target_clan": target_clan})
+
+func raid_motive_skip(clan_name: String, reason: String, detail: String = "") -> void:
+	var obj := {"evt": "raid_motive_skip", "clan": clan_name, "reason": reason}
+	if detail != "":
+		obj["detail"] = detail
+	_write(obj)
+
+func raid_motive_start(clan_name: String, why: String, goal: String, target_clan: String) -> void:
+	_write({"evt": "raid_motive_start", "clan": clan_name, "why": why, "goal": goal, "target_clan": target_clan})
+
+func raid_goal(clan_name: String, goal: String, building: String) -> void:
+	_write({"evt": "raid_goal", "clan": clan_name, "goal": goal, "building": building})
+
+func raid_goal_done(clan_name: String, goal: String, why: String) -> void:
+	_write({"evt": "raid_goal_done", "clan": clan_name, "goal": goal, "why": why})
+
+func raid_building_down(clan_name: String, goal: String) -> void:
+	_write({"evt": "raid_building_down", "clan": clan_name, "goal": goal})
+
+func raid_wrong(clan_name: String, enemy_clan: String, kind: String) -> void:
+	_write({"evt": "raid_wrong", "clan": clan_name, "enemy": enemy_clan, "kind": kind})
+
+func raid_capture(attacker_clan: String, victim_clan: String, prize: String, prize_type: String) -> void:
+	_write({"evt": "raid_capture", "attacker": attacker_clan, "victim": victim_clan, "prize": prize, "type": prize_type})
+
+func raid_capture_fail(clan_name: String, reason: String, prize: String = "") -> void:
+	var obj := {"evt": "raid_capture_fail", "clan": clan_name, "reason": reason}
+	if prize != "":
+		obj["prize"] = prize
+	_write(obj)
+
+func raid_prize(clan_name: String, prize: String, state: String, why: String) -> void:
+	_write({"evt": "raid_prize", "clan": clan_name, "prize": prize, "state": state, "why": why})
+
+func raid_goal_fail(clan_name: String, goal: String, reason: String) -> void:
+	_write({"evt": "raid_goal_fail", "clan": clan_name, "goal": goal, "reason": reason})
+
+func raid_food(clan_name: String, phase: String) -> void:
+	_write({"evt": "raid_food", "clan": clan_name, "phase": phase})
 
 # --- Hunt + butcher pipeline (ClanBrain / HuntState / ButcherTask) ---
 

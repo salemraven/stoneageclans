@@ -83,12 +83,12 @@ static func _log_swing(npc: Node, why: String) -> void:
 		return
 	var bar: float = current(npc)
 	var line: float = flight_line(npc)
-	var sig: String = "%s|%.0f|%.0f|%s" % [str(npc.get("npc_name")), bar, line, why]
+	var sig: String = "%s|%.1f|%.1f|%s" % [str(npc.get("npc_name")), bar, line, why]
 	if str(npc.get_meta(META_LOG_SIG, "")) == sig:
 		return
 	npc.set_meta(META_LOG_SIG, sig)
 	var name_s: String = str(npc.get("npc_name")) if npc.get("npc_name") != null else "?"
-	print("NPC_MORALE name=%s bar=%.0f line=%.0f why=%s" % [name_s, bar, line, why])
+	print("NPC_MORALE name=%s bar=%.1f line=%.1f why=%s" % [name_s, bar, line, why])
 
 
 static func _apply_delta(npc: Node, delta: float, why: String) -> void:
@@ -114,6 +114,7 @@ static func apply_person_kill(killer: Node, victim: Node) -> void:
 		return
 	_apply_delta(killer, KILL_SELF, "kill")
 	_spread_clan(killer, KILL_NEARBY, killer, "kill")
+	ClanBrain.on_raider_kill(killer, victim)
 
 
 static func apply_clan_man_death(dead: Node, skip_nearby_because_leader: bool) -> void:
@@ -263,5 +264,11 @@ static func tick_combat_nudge(npc: Node, target: Node, delta: float) -> void:
 static func log_flight_start(npc: Node) -> void:
 	if npc == null:
 		return
+	var flee_until: float = float(npc.get_meta("flee_until_sec", 0.0))
+	if npc.has_meta("flight_log_flee_until"):
+		if float(npc.get_meta("flight_log_flee_until")) == flee_until:
+			return
+	npc.set_meta("flight_log_flee_until", flee_until)
 	var name_s: String = str(npc.get("npc_name")) if npc.get("npc_name") != null else "?"
-	print("NPC_FLIGHT name=%s bar=%.0f line=%.0f" % [name_s, current(npc), flight_line(npc)])
+	print("NPC_FLIGHT name=%s bar=%.1f line=%.1f" % [name_s, current(npc), flight_line(npc)])
+	ClanBrain.on_raider_break(npc)

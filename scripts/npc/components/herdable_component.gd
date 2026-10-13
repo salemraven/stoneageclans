@@ -38,7 +38,7 @@ func update_follow_wild(_delta: float) -> bool:
 	var herd_break_dist: float = break_distance
 	if NPCConfig and "herd_max_distance_before_break" in NPCConfig:
 		herd_break_dist = NPCConfig.herd_max_distance_before_break as float
-	if dist >= herd_break_dist:
+	if dist >= herd_break_dist and not bool(_npc.get("follow_is_ordered")):
 		_npc._clear_herd()
 		if _npc.progress_display:
 			_npc.progress_display.stop_collection()
@@ -90,6 +90,10 @@ func attach(new_herder: Node2D) -> void:
 		if herder_type == "caveman" or herder_type == "clansman":
 			# Never force-enter herd_wildnpc if ordered to follow player or in ATTACK/GUARD
 			var blocked: bool = new_herder.get("follow_is_ordered") as bool if new_herder.get("follow_is_ordered") != null else false
+			if not blocked and new_herder.has_meta("raid_joined") and bool(new_herder.get_meta("raid_joined")):
+				blocked = true
+				var lg2: String = str(new_herder.get("npc_name")) if new_herder.get("npc_name") != null else str(new_herder.name)
+				print("RAID_LEADER_GUARD leader=%s" % lg2)
 			if not blocked:
 				var ctx_hc: Dictionary = new_herder.get("command_context") if new_herder.get("command_context") != null else {}
 				var mode_hc: String = ctx_hc.get("mode", "FOLLOW") as String

@@ -1,19 +1,14 @@
 extends Node
-# Manual z_index based on sprite Y position. No YSort nodes.
-# Rule: Lower on screen (higher Y) = more "in front".
-# Sort by the sprite's visual foot: global_position.y + sprite.position.y
-#
-# Usage: YSortUtils.update_draw_order(sprite, self)
-# See bible/draw_order.md (plan archived at bible/archives/draw_order_y_sorting_plan.md)
+# 3/4 top-down flat-plane depth: one world sort-Y per sprite → global z_index.
+# LOCKED SPEC: bible/draw_order.md — do not add ad-hoc z_index on world objects.
+# Screen south (higher Y) draws in front. Pawns @ foot; trees @ trunk; buildings @ midpoint.
 
 # --- EDITABLE: Tweak in Inspector (Project > Project Settings > Autoload > YSortUtils) or here ---
-@export var building_sort_offset_y: float = -220.0  # Buildings: more negative = player stays in front longer as they move north
-@export var tree_foot_offset_y: float = 0.0  # Added to sprite Y after bottom-align; negative = shift art up (ground line above node)
-@export var tree_sort_offset_y: float = 240.0  # Trees: positive = tree draws in front for larger zone = player hides behind trunk when closer
-const PlaceholderCardRegistryScript = preload("res://scripts/config/placeholder_card_registry.gd")
-## Runtime card hominids — keep in sync with PlaceholderCardRegistry.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT.
-const CARD_RUNTIME_DISPLAY_HEIGHT := PlaceholderCardRegistryScript.RUNTIME_MANNEQUIN_DISPLAY_HEIGHT
-const CARD_REFERENCE_DISPLAY_HEIGHT := 128.0
+## Fine-tune (world px) on building midpoint sort line; negative = flip behind only farther north.
+@export var building_sort_offset_y: float = 0.0
+@export var tree_foot_offset_y: float = -24.0  # Bottom of trunk at parent.y + this; see bible/draw_order.md
+## Pixels south of trunk-bottom sort line. Lower/negative = must walk further north before hiding; higher = hide sooner while still south.
+@export var tree_sort_offset_y: float = -20.0
 ## Slight uniform bump for trees, grass, rocks, gatherables, ground piles (not player/buildings).
 @export var world_prop_scale: float = 1.15
 
@@ -24,7 +19,15 @@ const CANVAS_Z_MAX: int = 4095
 const Z_BASE: int = 2048  # Center of Y-sort range
 const Y_SORT_SCALE: int = 1  # foot_y maps to z; scale 1 keeps typical Y (-2000..2000) in range
 const Z_BEHIND_ENTITIES: int = 0  # Follow/leader lines - draw behind player and NPCs
-const Z_ABOVE_WORLD: int = 4095  # Progress bars, lines, indicators - max, draws on top
+## Y-sorted world sprites clamp here so a band above stays free (see bible/draw_order.md stack).
+const Z_WORLD_SORT_CAP: int = 3840
+## Progress rings / eat / gather / craft timers — above all plane sprites, still on world branch (below CanvasLayer UI).
+const Z_WORLD_PROGRESS_OVERLAY: int = 3880
+## Rare world-attached HUD (e.g. clan name on claim). Below menus; above timers optional.
+const Z_HUD_WORLD_FLOAT: int = 3920
+const Z_ABOVE_WORLD: int = 4095  # Max canvas z — CanvasLayer HUD only; not world timers
+## Pawn indicators that still Y-sort with depth (rout / hostile chevrons).
+const OVERLAY_Z_BIAS: int = 2
 
 ## World overlay polylines (herd follow, party leader lines, land claim radius): shared width + opacity.
 const WORLD_OVERLAY_LINE_WIDTH_PX := 2.0
@@ -36,9 +39,8 @@ func get_world_prop_scale() -> float:
 	return maxf(world_prop_scale, 0.01)
 
 
-func scaled_tree_sort_offset_y() -> float:
-	var char_ratio: float = CARD_RUNTIME_DISPLAY_HEIGHT / CARD_REFERENCE_DISPLAY_HEIGHT
-	return tree_sort_offset_y * char_ratio
+func world_sort_z_from_y(sort_y: float) -> int:
+	return clampi(Z_BASE + int(sort_y * Y_SORT_SCALE), CANVAS_Z_MIN, Z_WORLD_SORT_CAP)
 
 
 # 128x128 sprites: move draw lower so feet align with 64x64
@@ -92,47 +94,96 @@ func update_draw_order(sprite: Sprite2D, parent_node: Node2D) -> void:
 		return
 	sprite.z_as_relative = false  # Cross-branch sorting (player under WorldObjects, buildings under LandClaims)
 	var foot_y: float = parent_node.global_position.y + sprite.position.y
-	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+	sprite.z_index = world_sort_z_from_y(foot_y)
 
 
-## Tall placeholder cards: feet stay on entity origin; bounce is visual-only for Y-sort.
-func update_card_draw_order(sprite: Sprite2D, parent_node: Node2D, _card_anchor_foot_y: float) -> void:
+## Tall placeholder cards: sort by anchored foot (not walk bounce on sprite.position.y).
+func update_card_draw_order(sprite: Sprite2D, parent_node: Node2D, card_anchor_foot_y: float) -> void:
 	if not sprite or not parent_node:
 		return
 	sprite.z_as_relative = false
-	var foot_y: float = parent_node.global_position.y
-	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+	var anchor_y: float = card_anchor_foot_y
+	if absf(anchor_y) < 0.001:
+		anchor_y = sprite.position.y
+	var foot_y: float = parent_node.global_position.y + anchor_y
+	sprite.z_index = world_sort_z_from_y(foot_y)
 
-## Tree-specific: sort by bottom of tree sprite (trunk/ground line) so player can hide behind trunks.
-## Sprite position must be from get_tree_sprite_position_for_cell_height (bottom of centered region at foot).
-## trunk_base_y = world Y of bottom edge of scaled tree quad + tree_sort_offset_y.
-## tree_sort_offset_y (positive) = tree draws in front for a larger band when approaching from below.
-func update_tree_draw_order(sprite: Sprite2D, parent_node: Node2D, texture: Texture2D) -> void:
+
+## Timers / progress rings: float above the Y-sorted plane (viewer-adjacent), not behind huts/trees.
+func update_world_timer_draw_order(overlay: CanvasItem) -> void:
+	if overlay == null:
+		return
+	overlay.z_as_relative = false
+	overlay.z_index = Z_WORLD_PROGRESS_OVERLAY
+
+
+## Pawn indicators that still participate in plane depth (not gather/eat craft rings).
+func update_overlay_draw_order(
+	overlay: CanvasItem,
+	owner: Node2D,
+	local_y_from_owner: float,
+	owner_body_sort_local_y: float = NAN
+) -> void:
+	if overlay == null or owner == null:
+		return
+	overlay.z_as_relative = false
+	var sort_y: float = owner.global_position.y + local_y_from_owner
+	if not is_nan(owner_body_sort_local_y):
+		sort_y = maxf(sort_y, owner.global_position.y + owner_body_sort_local_y)
+	overlay.z_index = clampi(world_sort_z_from_y(sort_y) + OVERLAY_Z_BIAS, CANVAS_Z_MIN, Z_WORLD_SORT_CAP)
+
+
+## Tree-specific: sort at trunk ground (same Y line as player/NPC foot compare).
+## North of trunk → behind tree (ambush); south of trunk → in front. Whole canopy uses this one depth.
+func get_tree_trunk_sort_y(parent_node: Node2D) -> float:
+	if parent_node == null:
+		return 0.0
+	# Pawn foot sort uses node.y + card foot (~-28). Trunk bottom is node.y + tree_foot_offset_y (~-24).
+	# Default gap is 4px; tree_sort_offset_y is a small extra so feet-on-trunk reads behind, without a huge southern band.
+	var trunk_bottom_y: float = parent_node.global_position.y + tree_foot_offset_y
+	return trunk_bottom_y + tree_sort_offset_y
+
+
+func update_tree_draw_order(sprite: Sprite2D, parent_node: Node2D, _texture: Texture2D) -> void:
 	if not sprite or not parent_node:
 		return
 	sprite.z_as_relative = false
+	var sort_y: float = get_tree_trunk_sort_y(parent_node)
+	sprite.z_index = world_sort_z_from_y(sort_y)
+
+func get_building_sprite_half_height(sprite: Sprite2D) -> float:
+	if sprite == null:
+		return 64.0 * BUILDING_SCALE * 0.5
 	var tex_h: float
 	if sprite.region_enabled:
 		tex_h = sprite.region_rect.size.y
+	elif sprite.texture:
+		tex_h = float(sprite.texture.get_height())
 	else:
-		tex_h = texture.get_height() if texture else 64.0
-	var scale_y: float = sprite.scale.y if sprite.scale.y > 0 else 1.0
-	var half_visual_height: float = (tex_h * scale_y) / 2.0
-	var trunk_base_y: float = (
-		parent_node.global_position.y
-		+ sprite.position.y
-		+ half_visual_height
-		+ scaled_tree_sort_offset_y()
-	)
-	sprite.z_index = clampi(Z_BASE + int(trunk_base_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+		tex_h = 64.0
+	var scale_y: float = absf(sprite.scale.y)
+	if scale_y < 0.001:
+		scale_y = 1.0
+	return (tex_h * scale_y) * 0.5
 
-## Buildings: offset adjusts when player goes behind. Uses building_sort_offset_y (editable).
+
+## World Y at vertical center of building art (halfway between ground line and roof).
+func get_building_midpoint_sort_y(sprite: Sprite2D, parent_node: Node2D) -> float:
+	if sprite == null or parent_node == null:
+		return 0.0
+	var half_h: float = get_building_sprite_half_height(sprite)
+	var ground_y: float = parent_node.global_position.y + sprite.position.y + half_h
+	var mid_y: float = ground_y - half_h
+	return mid_y + building_sort_offset_y
+
+
+## Buildings: player in front when south of midpoint; behind when north (same rule as trees at trunk).
 func update_building_draw_order(sprite: Sprite2D, parent_node: Node2D) -> void:
 	if not sprite or not parent_node:
 		return
 	sprite.z_as_relative = false
-	var foot_y: float = parent_node.global_position.y + sprite.position.y + building_sort_offset_y
-	sprite.z_index = clampi(Z_BASE + int(foot_y * Y_SORT_SCALE), CANVAS_Z_MIN, CANVAS_Z_MAX - 1)
+	var sort_y: float = get_building_midpoint_sort_y(sprite, parent_node)
+	sprite.z_index = world_sort_z_from_y(sort_y)
 
 # Aliases
 func update_object_y_sort(sprite: Sprite2D, parent_node: Node2D) -> void:

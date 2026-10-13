@@ -39,7 +39,7 @@ var stagger_time: float = 0.0  # Stagger duration when hit (0 = no stagger)
 var attack_cooldown: float = 2.0
 var last_attack_time: float = 0.0
 
-# Sprite sheets: swingclub.png = 4 frames (3×2 grid). spearattack.png = 4 frames (2×2, 1060×700 sheet).
+# Sprite sheets: swingclub.png = 4 frames (3×2 grid). Spear uses the card overlay, not a sheet.
 var attack_sprite_sheet: Texture2D = null
 var sprite_sheet_frame_width: int = 0  # Width of each frame
 var sprite_sheet_frame_height: int = 0  # Height of each frame
@@ -1271,11 +1271,9 @@ func _load_attack_sprite_sheet() -> void:
 	sprite_sheet_hit_col = 2
 	sprite_sheet_hit_row = 0
 	if wt == ResourceData.ResourceType.SPEAR:
-		sprite_sheet_path = "res://assets/sprites/spearattack.png"
-		sprite_sheet_cols = 2
-		sprite_sheet_rows = 2
-		sprite_sheet_hit_col = 0
-		sprite_sheet_hit_row = 1
+		use_sprite_sheet_animation = false
+		attack_sprite_sheet = null
+		return
 
 	_combat_d("🎨 ANIMATION: Loading attack sheet: %s (weapon=%s)" % [sprite_sheet_path, ResourceData.get_resource_name(wt)])
 	attack_sprite_sheet = load(sprite_sheet_path) as Texture2D

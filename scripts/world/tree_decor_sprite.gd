@@ -7,8 +7,8 @@ const DEFAULT_SCALE := 1.15
 
 func setup(desc: Dictionary) -> void:
 	var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
-	var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
-	position = pos + Vector2(0.0, sort_offset)
+	position = pos
+	add_to_group("decorative_trees")
 	var tree_idx: int = clampi(int(desc.get("tree_idx", 0)), 0, 14)
 	var scale_mult: float = float(desc.get("scale_mult", DEFAULT_SCALE))
 	var rot: float = float(desc.get("rotation", 0.0))
@@ -33,7 +33,7 @@ func setup(desc: Dictionary) -> void:
 	sprite.scale = Vector2(scale_mult * wps, scale_mult * wps)
 	sprite.rotation = rot
 	if YSortUtils:
-		sprite.position = Vector2(0.0, -sort_offset) + YSortUtils.get_tree_sprite_position_for_cell_height(cell_h, sprite.scale.y)
+		sprite.position = YSortUtils.get_tree_sprite_position_for_cell_height(cell_h, sprite.scale.y)
 		sprite.z_as_relative = false
 	add_child(sprite)
 	if YSortUtils:

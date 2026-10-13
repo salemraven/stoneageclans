@@ -11,6 +11,8 @@ const OccupyTaskScript = preload("res://scripts/ai/tasks/occupy_task.gd")
 const JobScript = preload("res://scripts/ai/jobs/job.gd")
 const ProductionChainScript = preload("res://scripts/data/production_chain.gd")
 const PassiveProductionComponentScript = preload("res://scripts/buildings/components/passive_production_component.gd")
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
+const HutCarryScript = preload("res://scripts/buildings/hut_carry.gd")
 
 # Base class for all buildings
 # Similar structure to LandClaim
@@ -27,6 +29,9 @@ var animal_slots: Array = []  # Array of Node (sheep or goats)
 var animal_slot_reserved_by: Array = []  # Per-slot reservation for OccupationSystem
 var requires_woman: bool = false  # Whether this building needs a woman to operate
 var is_active: bool = false  # Whether building is turned on/active (default off)
+var hut_specialty: String = ""  # none, oven, weaver, rack, crop. Living hut only.
+var hut_craft_timer: float = 0.0
+var hut_live_frame: int = -1
 var job_reserved_by: Node = null  # NPC that has reserved a production job (prevents multiple NPCs pulling same job)
 var transport_reserved_by: Node = null  # NPC that has reserved a transport job (prevents multiple NPCs transporting same bread)
 
@@ -92,6 +97,7 @@ func _ready() -> void:
 		_setup_drying_rack()
 	elif building_type == ResourceData.ResourceType.LIVING_HUT:
 		_setup_living_hut()
+		apply_hut_art()
 	
 	if building_type in [ResourceData.ResourceType.FARM, ResourceData.ResourceType.DAIRY_FARM]:
 		if BalanceConfig:
@@ -236,11 +242,15 @@ func take_damage(damage: float) -> void:
 
 func _process(delta: float) -> void:
 	"""Process building decay and oven cooking animation"""
+	if sprite and YSortUtils:
+		YSortUtils.update_building_draw_order(sprite, self)
 	if is_orphaned and orphaned_at_game_time >= 0.0 and _orphan_grace_expired():
 		_destroy_building()
 		return
 	if building_type == ResourceData.ResourceType.OVEN and _cook_sprite:
 		_update_oven_cook_animation(delta)
+	if building_type == ResourceData.ResourceType.LIVING_HUT and hut_specialty != "":
+		HutSpecialtyScript.advance(self, delta, true)
 	
 	if not is_decaying:
 		return
@@ -352,7 +362,11 @@ func _setup_visuals() -> void:
 		print("WARNING: No icon path for building type: %s" % ResourceData.get_resource_name(building_type))
 		return
 	
-	var texture := load(icon_path) as Texture2D
+	var texture: Texture2D = null
+	if building_type == ResourceData.ResourceType.LIVING_HUT:
+		texture = HutSpecialtyScript.load_texture(icon_path)
+	elif ResourceLoader.exists(icon_path):
+		texture = load(icon_path) as Texture2D
 	if texture:
 		if sprite and is_instance_valid(sprite):
 			sprite.texture = texture
@@ -439,8 +453,11 @@ func set_occupant(slot_index: int, npc: Node, is_woman: bool) -> void:
 	job_reserved_by = null
 	if npc and is_instance_valid(npc):
 		var npc_sprite = npc.get_node_or_null("Sprite")
+		var hide_in_building := true
+		if is_woman and building_type == ResourceData.ResourceType.LIVING_HUT:
+			hide_in_building = false
 		if npc_sprite:
-			npc_sprite.visible = false
+			npc_sprite.visible = not hide_in_building
 		if is_woman and not is_active:
 			set_active(true)
 		if is_woman:
@@ -608,6 +625,40 @@ func _setup_drying_rack() -> void:
 func _setup_living_hut() -> void:
 	requires_woman = true
 
+
+func specialize_hut(kind: String) -> bool:
+	var claim := _find_land_claim()
+	if claim == null or claim.inventory == null:
+		return false
+	return HutSpecialtyScript.specialize(self, claim.inventory, kind)
+
+
+func dismantle_hut_production() -> bool:
+	var woman := HutCarryScript.home_woman(self)
+	var cleared := HutSpecialtyScript.dismantle(self)
+	if woman != null and woman.get("task_runner") != null and woman.task_runner.has_method("cancel_current_job"):
+		woman.task_runner.cancel_current_job("dismantle")
+	return cleared
+
+
+func apply_hut_art() -> void:
+	if sprite == null or not is_instance_valid(sprite):
+		return
+	var path := HutSpecialtyScript.art_path(hut_specialty if building_type == ResourceData.ResourceType.LIVING_HUT else "")
+	var texture := HutSpecialtyScript.load_texture(path)
+	if texture == null:
+		path = HutSpecialtyScript.ART_FALLBACK
+		texture = HutSpecialtyScript.load_texture(path)
+	if texture == null:
+		return
+	var reference := HutSpecialtyScript.load_texture(HutSpecialtyScript.ART_FALLBACK)
+	var reference_height := float(reference.get_height()) if reference else 0.0
+	var scale := HutSpecialtyScript.display_scale(reference_height, float(texture.get_height())) * 2.5
+	sprite.texture = texture
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR if path != HutSpecialtyScript.ART_FALLBACK else CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.scale = Vector2(scale, scale)
+	sprite.visible = true
+
 func _setup_oven_cook_animation() -> void:
 	"""Create cooking animation sprite next to oven. Random angle, fixed distance."""
 	_cook_sheet = AssetRegistry.get_oven_cook_sheet()
@@ -627,7 +678,7 @@ func _setup_oven_cook_animation() -> void:
 	_cook_sprite.position = Vector2(cos(angle), sin(angle)) * COOK_DISTANCE
 	# Align with oven sprite foot (oven Sprite is at 0,-32)
 	_cook_sprite.position.y -= 32
-	_cook_sprite.z_index = 1  # In front of oven
+	_cook_sprite.z_as_relative = false
 	add_child(_cook_sprite)
 
 func _update_oven_cook_animation(delta: float) -> void:
@@ -638,6 +689,8 @@ func _update_oven_cook_animation(delta: float) -> void:
 		return
 	if is_producing:
 		_cook_sprite.visible = true
+		if YSortUtils:
+			YSortUtils.update_draw_order(_cook_sprite, self)
 		_cook_frame_timer += delta
 		if _cook_frame_timer >= COOK_FRAME_DURATION:
 			_cook_frame_timer = 0.0

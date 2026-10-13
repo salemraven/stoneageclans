@@ -2,6 +2,7 @@ extends InventoryUI
 class_name BuildingInventoryUI
 
 const CampfireScript = preload("res://scripts/campfire.gd")
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 
 # Icons for occupation slots
 const WOMAN_ICON: Texture2D = preload("res://assets/sprites/woman.png")
@@ -39,6 +40,8 @@ var animal_slot_container: HBoxContainer = null
 var woman_slots_ui: Array = []  # Slot controls for woman slots
 var animal_slots_ui: Array = []  # Slot controls for animal slots
 var fire_button: Button = null  # Fire button (right of title, for oven activation)
+var specialty_box: VBoxContainer = null
+var specialty_buttons: Array = []
 var production_progress: ProgressBar = null  # Production progress bar
 var fire_button_audio: AudioStreamPlayer = null  # Audio player for fire button click
 var clan_control_container: VBoxContainer = null  # Defend % slider for player land claims
@@ -913,6 +916,7 @@ func setup_inventory(inventory: InventoryData, corpse_npc_ref: Node = null, buil
 	if building:
 		_build_occupation_slots()
 		_update_occupation_slots()
+		_refresh_hut_specialty_controls()
 
 func _update_title() -> void:
 	if not title_label:
@@ -980,6 +984,8 @@ func _update_title() -> void:
 	elif building:
 		# Show building name
 		var building_name = ResourceData.get_resource_name(building.building_type)
+		if building.building_type == ResourceData.ResourceType.LIVING_HUT and str(building.hut_specialty) != "":
+			building_name = HutSpecialtyScript.display_name(str(building.hut_specialty))
 		title_label.text = building_name
 		title_label.visible = true
 		
@@ -1622,7 +1628,7 @@ func _build_building_icons() -> void:
 		var hut = BuildingRegistry.get_building(ResourceData.ResourceType.LIVING_HUT)
 		buildings = [hut] if hut else []
 	else:
-		buildings = BuildingRegistry.get_all_buildings()
+		buildings = BuildingRegistry.get_menu_buildings()
 	
 	# Create icon for each building
 	for building_data in buildings:
@@ -1651,7 +1657,7 @@ func _create_building_icon(building: BuildingRegistry.BuildingData) -> Control:
 	
 	# Icon texture
 	var icon_texture := TextureRect.new()
-	var texture := load(building.icon_path) as Texture2D
+	var texture: Texture2D = HutSpecialtyScript.load_texture(building.icon_path) if not ResourceLoader.exists(building.icon_path) else load(building.icon_path) as Texture2D
 	if texture:
 		icon_texture.texture = texture
 	else:
@@ -1892,7 +1898,7 @@ func _update_building_icon_states() -> void:
 	if not land_claim or not land_claim.inventory:
 		return
 	
-	var buildings = BuildingRegistry.get_all_buildings()
+	var buildings = BuildingRegistry.get_menu_buildings()
 	for i in range(min(building_icons.size(), buildings.size())):
 		var icon = building_icons[i]
 		if not is_instance_valid(icon):
@@ -1992,6 +1998,52 @@ func _on_defend_slider_changed(value: float) -> void:
 		land_claim._update_player_defender_quota()
 		# Force FSM evaluation for all cavemen/clansmen in clan so they immediately check defend state
 		_notify_clansmen_defend_quota_changed()
+
+func _refresh_hut_specialty_controls() -> void:
+	if specialty_box and is_instance_valid(specialty_box):
+		specialty_box.queue_free()
+	specialty_box = null
+	specialty_buttons.clear()
+	if building == null or not is_instance_valid(building):
+		return
+	if building.building_type != ResourceData.ResourceType.LIVING_HUT:
+		return
+	if occupation_container == null:
+		return
+	specialty_box = VBoxContainer.new()
+	specialty_box.name = "HutSpecialtyBox"
+	occupation_container.add_child(specialty_box)
+	occupation_container.visible = true
+	if str(building.hut_specialty) == "":
+		for kind in HutSpecialtyScript.SPECIALTIES:
+			var button := Button.new()
+			button.text = "Specialize: %s" % HutSpecialtyScript.display_name(kind)
+			button.pressed.connect(_on_specialize_pressed.bind(kind))
+			specialty_box.add_child(button)
+			specialty_buttons.append(button)
+	else:
+		var button := Button.new()
+		button.text = "Dismantle production"
+		button.pressed.connect(_on_dismantle_specialty_pressed)
+		specialty_box.add_child(button)
+		specialty_buttons.append(button)
+
+
+func _on_specialize_pressed(kind: String) -> void:
+	if building == null or not is_instance_valid(building):
+		return
+	if building.specialize_hut(kind):
+		_update_title()
+		_refresh_hut_specialty_controls()
+
+
+func _on_dismantle_specialty_pressed() -> void:
+	if building == null or not is_instance_valid(building):
+		return
+	if building.dismantle_hut_production():
+		_update_title()
+		_refresh_hut_specialty_controls()
+
 
 func _on_fire_button_pressed() -> void:
 	if campfire:

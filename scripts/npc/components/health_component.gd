@@ -29,6 +29,8 @@ func initialize(npc_ref: Node) -> void:
 func take_damage(amount: int, attacker: Node = null, weapon_type: ResourceData.ResourceType = ResourceData.ResourceType.NONE) -> void:
 	if is_dead:
 		return
+	if npc and npc.has_meta("raid_capture_proof_durable") and bool(npc.get_meta("raid_capture_proof_durable")):
+		return
 	if npc and npc.is_in_group("player") and DebugConfig and DebugConfig.npcs_ignore_player:
 		return
 	
@@ -193,6 +195,10 @@ func die() -> void:
 		if last_attacker and is_instance_valid(last_attacker):
 			MoraleBarScript.apply_person_kill(last_attacker, npc)
 		MoraleBarScript.apply_clan_man_death(npc, leader_death)
+		ClanBrain.on_raider_death(npc)
+		ClanBrain.note_member_death(npc)
+		if last_attacker and is_instance_valid(last_attacker):
+			ClanBrain.on_our_fighter_slain(npc, last_attacker)
 	
 	# Change sprite to corpse
 	_set_corpse_sprite()
@@ -219,7 +225,10 @@ func die() -> void:
 	# This ensures resource slots are freed when NPC dies
 	if npc and npc.task_runner:
 		if npc.task_runner.has_method("cancel_current_job"):
+			npc.set_meta("hut_carry_destroy", true)
 			npc.task_runner.cancel_current_job("npc_death")
+			if npc.has_meta("hut_carry_destroy"):
+				npc.remove_meta("hut_carry_destroy")
 			var npc_name_str: String = "unknown"
 			if npc:
 				var name_value = npc.get("npc_name")
@@ -554,8 +563,9 @@ func _show_hitmarker() -> void:
 	else:
 		# Fallback: attach to NPC (may be less visible) - needs high z to appear above Y-sorted sprite
 		hitmarker.z_as_relative = false
-		hitmarker.z_index = YSortUtils.Z_ABOVE_WORLD
 		npc.add_child(hitmarker)
+		if YSortUtils:
+			YSortUtils.update_world_timer_draw_order(hitmarker)
 		hitmarker.position = Vector2(-12, -36)
 		var tween = create_tween()
 		if tween:

@@ -158,6 +158,8 @@ var _syncing_arm_length_ui: bool = false
 var _syncing_weapon_rotation_ui: bool = false
 var _weapon_base_scale: Vector2 = Vector2.ONE
 var _syncing_weapon_size_ui: bool = false
+var _clothing_dragging: bool = false
+var _clothing_grab: Vector2 = Vector2.ZERO
 var _throw_spear_dragging: bool = false
 var _throw_spear_grab_offset: Vector2 = Vector2.ZERO
 var _throw_spear_user_moved: bool = false
@@ -294,6 +296,8 @@ func _finish_startup() -> void:
 		call_deferred("_begin_none_idle_session")
 	elif _wants_hair_edit_startup():
 		call_deferred("_begin_hair_edit_session")
+	elif _wants_clothing_edit_startup():
+		call_deferred("_begin_clothing_edit_session")
 	elif not _has_special_startup():
 		call_deferred("_begin_club_preview_session")
 	if _wants_reviewer_startup():
@@ -1305,6 +1309,40 @@ func _wants_hair_edit_startup() -> bool:
 	return "--hair-edit" in OS.get_cmdline_args()
 
 
+func _wants_clothing_edit_startup() -> bool:
+	if "--clothing-edit" in OS.get_cmdline_user_args():
+		return true
+	return "--clothing-edit" in OS.get_cmdline_args()
+
+
+func _wants_hide2_clothing_edit() -> bool:
+	if "--hide2" in OS.get_cmdline_user_args():
+		return true
+	return "--hide2" in OS.get_cmdline_args()
+
+
+func _wants_hide3_clothing_edit() -> bool:
+	if "--hide3" in OS.get_cmdline_user_args():
+		return true
+	return "--hide3" in OS.get_cmdline_args()
+
+
+func _wants_fiber1_clothing_edit() -> bool:
+	if "--fiber1" in OS.get_cmdline_user_args():
+		return true
+	return "--fiber1" in OS.get_cmdline_args()
+
+
+func _clothing_edit_style_index() -> int:
+	if _wants_fiber1_clothing_edit():
+		return 3
+	if _wants_hide3_clothing_edit():
+		return 2
+	if _wants_hide2_clothing_edit():
+		return 1
+	return 0
+
+
 func _wants_none_idle_pose_b_startup() -> bool:
 	if "--none-idle-pose-2" in OS.get_cmdline_user_args():
 		return true
@@ -1383,6 +1421,7 @@ func _has_special_startup() -> bool:
 		or _wants_none_idle_play_startup()
 		or _wants_none_idle_edit_startup()
 		or _wants_hair_edit_startup()
+		or _wants_clothing_edit_startup()
 		or 		_wants_club_windup_edit_startup()
 		or _wants_club_walk_edit_startup()
 		or _wants_club_walk_preview_startup()
@@ -1793,6 +1832,157 @@ func _begin_none_idle_session() -> void:
 			_status_label.text = (
 				"Empty-hands idle pose — 1 = hand up + head forward · 2 = head back · drag 2h · 1h stays idle"
 			)
+
+
+func _try_clothing_drag(event: InputEvent) -> bool:
+	if not _wants_clothing_edit_startup() or _rig == null or _mode != AppMode.ASSEMBLE:
+		return false
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		if (event as InputEventMouseButton).pressed:
+			var hit := _rig.clothing_hit_rect_global()
+			if hit.size == Vector2.ZERO or not hit.has_point(get_global_mouse_position()):
+				return false
+			_clothing_dragging = true
+			_clothing_grab = get_global_mouse_position() - hit.get_center()
+			get_viewport().set_input_as_handled()
+			return true
+		if _clothing_dragging:
+			_clothing_dragging = false
+			_mark_pose_dirty()
+			get_viewport().set_input_as_handled()
+			return true
+		return false
+	if event is InputEventMouseMotion and _clothing_dragging:
+		_rig.set_clothing_center_from_global(get_global_mouse_position() - _clothing_grab)
+		get_viewport().set_input_as_handled()
+		return true
+	return false
+
+
+func _begin_clothing_edit_session() -> void:
+	_mode = AppMode.ASSEMBLE
+	_set_weapon(ResourceData.ResourceType.NONE, false)
+	_selected_category = AnimCatalog.CATEGORY_IDLE
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	_pose_index = 0
+	_sync_preview_playback()
+	if _rig:
+		_rig.reload_mannequin_from_layout()
+	_refresh_rig_from_preset()
+	if _rig:
+		_rig.clear_idle_pose_edit()
+	_update_ui()
+	_ensure_clothing_edit_style()
+	_apply_clothing_edit_view()
+	if _status_label:
+		var piece := "hide"
+		if _wants_fiber1_clothing_edit():
+			piece = "fiber1"
+		elif _wants_hide3_clothing_edit():
+			piece = "hide3"
+		elif _wants_hide2_clothing_edit():
+			piece = "the fur cloak"
+		_status_label.text = "%s on the body. Drag it. Size is the slider. Copy saves size and placement." % piece
+
+
+func _ensure_clothing_edit_style() -> void:
+	if _rig == null:
+		return
+	var want := _clothing_edit_style_index()
+	if want == 0:
+		return
+	if _rig.has_method("clothing_style") and _rig.clothing_style() == want:
+		return
+	if _rig.has_method("set_clothing_style"):
+		_rig.set_clothing_style(want)
+
+
+func _apply_clothing_edit_view() -> void:
+	if not _wants_clothing_edit_startup() or _rig == null:
+		return
+	_ensure_clothing_edit_style()
+	_hide_clothing_edit_extras()
+	if _weapon_section:
+		_weapon_section.visible = true
+	var header := _weapon_section.get_node_or_null("WeaponHeader") as CanvasItem if _weapon_section else null
+	var help := _weapon_section.get_node_or_null("WeaponHelp") as CanvasItem if _weapon_section else null
+	var rotation_row := _weapon_section.get_node_or_null("WeaponRotationRow") as CanvasItem if _weapon_section else null
+	if header:
+		header.visible = false
+	if help:
+		help.visible = false
+	if rotation_row:
+		rotation_row.visible = false
+	var size_label := _weapon_section.get_node_or_null("WeaponSizeRow/WeaponSizeLabel") as Label if _weapon_section else null
+	if size_label:
+		size_label.text = "Clothing size"
+	_syncing_weapon_size_ui = true
+	if _weapon_size_slider:
+		_weapon_size_slider.min_value = 0.25
+		_weapon_size_slider.max_value = 3.0
+		_weapon_size_slider.step = 0.05
+		_weapon_size_slider.value = _rig.clothing_scale_mul()
+	if _weapon_size_spin:
+		_weapon_size_spin.min_value = 0.25
+		_weapon_size_spin.max_value = 3.0
+		_weapon_size_spin.step = 0.05
+		_weapon_size_spin.value = _rig.clothing_scale_mul()
+	_syncing_weapon_size_ui = false
+
+
+func _hide_clothing_edit_extras() -> void:
+	if not _wants_clothing_edit_startup() or _rig == null:
+		return
+	for handle in [
+		_shoulder_handle,
+		_hand_handle,
+		_support_shoulder_handle,
+		_support_hand_handle,
+		_weapon_elbow_handle,
+		_support_elbow_handle,
+		_head_handle,
+		_hair_handle,
+		_spear_handle,
+		_spear_grip_2_handle,
+	]:
+		if handle:
+			handle.visible = false
+	if _rig.arm_controller:
+		_rig.arm_controller.visible = false
+		_rig.arm_controller.force_show_arms = false
+		_rig.arm_controller.enabled = false
+		_rig.arm_controller.set_process(false)
+	for arm_draw_name in ["Arm1Draw", "Arm2Draw"]:
+		var arm_draw := _rig.get_node_or_null(arm_draw_name) as CanvasItem
+		if arm_draw:
+			arm_draw.visible = false
+	if _rig.has_method("set_head_and_hair_visible"):
+		_rig.set_head_and_hair_visible(false)
+	var header := _weapon_section.get_node_or_null("WeaponHeader") as CanvasItem if _weapon_section else null
+	var help := _weapon_section.get_node_or_null("WeaponHelp") as CanvasItem if _weapon_section else null
+	var rotation_row := _weapon_section.get_node_or_null("WeaponRotationRow") as CanvasItem if _weapon_section else null
+	if header:
+		header.visible = false
+	if help:
+		help.visible = false
+	if rotation_row:
+		rotation_row.visible = false
+	var size_label := _weapon_section.get_node_or_null("WeaponSizeRow/WeaponSizeLabel") as Label if _weapon_section else null
+	if size_label:
+		size_label.text = "Clothing size"
+	_syncing_weapon_size_ui = true
+	if _weapon_size_slider:
+		_weapon_size_slider.min_value = 0.25
+		_weapon_size_slider.max_value = 3.0
+		_weapon_size_slider.step = 0.05
+		_weapon_size_slider.value = _rig.clothing_scale_mul()
+	if _weapon_size_spin:
+		_weapon_size_spin.min_value = 0.25
+		_weapon_size_spin.max_value = 3.0
+		_weapon_size_spin.step = 0.05
+		_weapon_size_spin.value = _rig.clothing_scale_mul()
+	_syncing_weapon_size_ui = false
 
 
 func _begin_hair_edit_session() -> void:
@@ -2857,6 +3047,8 @@ func _mouse_hits_throw_spear(mouse_global: Vector2) -> bool:
 
 
 func _input(event: InputEvent) -> void:
+	if _try_clothing_drag(event):
+		return
 	if _throw_spear_edit_active() and _try_throw_spear_drag(event):
 		return
 	if _try_handle_view_zoom_input(event):
@@ -3419,6 +3611,11 @@ func _note_weapon_base_scale() -> void:
 
 
 func _apply_weapon_size_from_slider() -> void:
+	if _wants_clothing_edit_startup():
+		if _rig and _weapon_size_slider:
+			_rig.set_clothing_scale_mul(float(_weapon_size_slider.value))
+			_mark_pose_dirty()
+		return
 	if _rig == null or _rig.weapon_overlay == null or _weapon_size_slider == null:
 		return
 	var mul := float(_weapon_size_slider.value)
@@ -3840,6 +4037,8 @@ func _sync_dominant_grip_stack(mode: AnimMode, walk_swing: bool = false, gather_
 
 
 func _process(delta: float) -> void:
+	if _wants_clothing_edit_startup():
+		_hide_clothing_edit_extras()
 	if _rig == null or _preset == null:
 		return
 	if _is_reviewer_workspace() and _anim_playing and _active_drag_handle == null:
@@ -6181,10 +6380,23 @@ func _on_copy_pressed() -> void:
 	var clipboard := AnimationReceiptScript.format_clipboard(receipt)
 	DisplayServer.clipboard_set(clipboard)
 	if _status_label:
-		_status_label.text = (
-			"Copied animation receipt (%s). Paste in chat and say: lock in this animation."
-			% _anim_mode_label()
-		)
+		if _wants_clothing_edit_startup():
+			var which := "hide"
+			if _wants_fiber1_clothing_edit():
+				which = "fiber1"
+			elif _wants_hide3_clothing_edit():
+				which = "hide3"
+			elif _wants_hide2_clothing_edit():
+				which = "hide2"
+			_status_label.text = (
+				"Copied %s size and placement. Paste in chat and say: lock in this animation."
+				% which
+			)
+		else:
+			_status_label.text = (
+				"Copied animation receipt (%s). Paste in chat and say: lock in this animation."
+				% _anim_mode_label()
+			)
 
 
 func _build_context_status_line() -> String:
@@ -6329,6 +6541,7 @@ func _update_ui() -> void:
 	_update_weapon_rotation_section_visibility()
 	_sync_weapon_rotation_spin_from_rig()
 	_hide_throw_spear_pins()
+	_apply_clothing_edit_view()
 	_update_pose_row_ui()
 	_update_save_button_style()
 	if (

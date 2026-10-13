@@ -2,15 +2,22 @@ extends Control
 class_name CharacterMenuUI
 
 # Character Menu UI - Displays NPC information when clicked
-# Shows name, lineage, hominid class, and traits table
+# Split-hide layout: vitals + carrying | base stats + inherited traits (no species line)
 # Follows UI.md design standards
 
-const PANEL_WIDTH := 400
-const PANEL_HEIGHT := 700  # Increased to fit both info and inventory
+const PANEL_WIDTH := 440
+const PANEL_HEIGHT := 640
+const LEFT_BAR_WIDTH := 148
 const PANEL_PADDING := 16
 const SLOT_COUNT := 10
 const SLOT_SIZE := 32
 const VitalsBarUtils = preload("res://scripts/ui/vitals_bar_utils.gd")
+const CharacterBodyTabScene = preload("res://scripts/ui/character_body_tab.gd")
+const CharacterKinTabScene = preload("res://scripts/ui/character_kin_tab.gd")
+
+signal kin_inspect_requested(npc: NPCBase)
+
+enum CharacterSheetTab { INFO, BODY, KIN, STORY }
 
 var is_open: bool = false
 var target_npc: NPCBase = null  # The NPC this menu displays info for
@@ -18,17 +25,23 @@ var character_panel: Panel = null
 var content_container: VBoxContainer = null
 
 # UI Elements
-var name_label: Label = null
+var title_name_label: Label = null
 var lineage_label: Label = null
 var mother_label: Label = null
-var hominid_class_label: Label = null
 var status_bars_container: VBoxContainer = null
 var bravery_bar: Control = null
 var agro_bar: Control = null
 var health_vitals_bar: Control = null
 var calorie_vitals_bar: Control = null
 var water_vitals_bar: Control = null
-var traits_table: Control = null
+var base_stats_table: Control = null
+var perk_traits_list: Control = null
+var tab_buttons: Dictionary = {}  # CharacterSheetTab -> Button
+var tab_pages: Dictionary = {}  # CharacterSheetTab -> Control
+var info_page: Control = null
+var body_tab: Control = null
+var kin_tab: Control = null
+var _active_tab: int = CharacterSheetTab.INFO
 
 # Timer display (top right corner)
 var timer_container: Control = null
@@ -38,7 +51,7 @@ var timer_label: Label = null
 var inventory_data: InventoryData = null
 var inventory_section: Control = null
 var inventory_header: Label = null
-var slot_container: VBoxContainer = null
+var slot_container: HBoxContainer = null
 var slots: Array[InventorySlot] = []
 var drag_manager: Node = null
 
@@ -112,141 +125,267 @@ func _setup_panel() -> void:
 	timer_label.text = ""
 	timer_container.add_child(timer_label)
 	
-	# Main content container (vertical)
+	var panel_root := VBoxContainer.new()
+	panel_root.name = "PanelRoot"
+	panel_root.add_theme_constant_override("separation", 8)
+	margin.add_child(panel_root)
+	panel_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	
 	content_container = VBoxContainer.new()
 	content_container.name = "ContentContainer"
 	content_container.add_theme_constant_override("separation", 8)
-	margin.add_child(content_container)
-	content_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	
-	# Build UI elements
+	var titlebar := Panel.new()
+	titlebar.name = "TitleBar"
+	var title_style := StyleBoxFlat.new()
+	title_style.bg_color = Color(0.14, 0.11, 0.09, 1.0)
+	title_style.border_width_bottom = 1
+	title_style.border_color = UITheme.COLOR_BORDER_SADDLE_BROWN
+	titlebar.add_theme_stylebox_override("panel", title_style)
+	titlebar.custom_minimum_size = Vector2(0, 36)
+	panel_root.add_child(titlebar)
+	
+	var title_hbox := HBoxContainer.new()
+	title_hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	title_hbox.offset_left = 8
+	title_hbox.offset_top = 4
+	title_hbox.offset_right = -8
+	title_hbox.offset_bottom = -4
+	titlebar.add_child(title_hbox)
+	
+	title_name_label = Label.new()
+	title_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_name_label.add_theme_font_size_override("font_size", 15)
+	title_name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	title_hbox.add_child(title_name_label)
+	
+	var close_btn := Button.new()
+	close_btn.text = "×"
+	close_btn.custom_minimum_size = Vector2(26, 26)
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.pressed.connect(hide_menu)
+	title_hbox.add_child(close_btn)
+	
+	panel_root.add_child(content_container)
+	
 	_build_ui_elements()
 
+func _add_section_header(parent: Control, text: String) -> void:
+	var header := Label.new()
+	header.text = text
+	header.add_theme_font_size_override("font_size", 12)
+	header.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SELECTED)
+	parent.add_child(header)
+
 func _build_ui_elements() -> void:
-	# Header Section: NPC Name (bold, 20px)
-	name_label = Label.new()
-	name_label.name = "NameLabel"
-	name_label.add_theme_font_size_override("font_size", 20)
-	name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	name_label.add_theme_constant_override("outline_size", 0)  # No outline for now
-	content_container.add_child(name_label)
-	
-	# Lineage: "Son of [Father] of Clan [Name]"
 	lineage_label = Label.new()
 	lineage_label.name = "LineageLabel"
-	lineage_label.add_theme_font_size_override("font_size", 14)
+	lineage_label.add_theme_font_size_override("font_size", 13)
 	lineage_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
+	lineage_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content_container.add_child(lineage_label)
 	
-	# Mother: "Mother XXXX" (only for babies and clansmen)
 	mother_label = Label.new()
 	mother_label.name = "MotherLabel"
-	mother_label.add_theme_font_size_override("font_size", 14)
+	mother_label.add_theme_font_size_override("font_size", 13)
 	mother_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
 	content_container.add_child(mother_label)
 	
-	# Spacer
-	var spacer1 := Control.new()
-	spacer1.custom_minimum_size = Vector2(0, 8)
-	content_container.add_child(spacer1)
+	_build_tab_bar(content_container)
 	
-	# Hominid Class Section
-	var hominid_header := Label.new()
-	hominid_header.name = "HominidHeader"
-	hominid_header.text = "Hominid Class:"
-	hominid_header.add_theme_font_size_override("font_size", 16)
-	hominid_header.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	content_container.add_child(hominid_header)
+	var page_stack := VBoxContainer.new()
+	page_stack.name = "PageStack"
+	page_stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_container.add_child(page_stack)
 	
-	hominid_class_label = Label.new()
-	hominid_class_label.name = "HominidClassLabel"
-	hominid_class_label.add_theme_font_size_override("font_size", 14)
-	hominid_class_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	content_container.add_child(hominid_class_label)
+	info_page = VBoxContainer.new()
+	info_page.name = "InfoPage"
+	info_page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_stack.add_child(info_page)
+	tab_pages[CharacterSheetTab.INFO] = info_page
 	
-	# Spacer
-	var spacer2 := Control.new()
-	spacer2.custom_minimum_size = Vector2(0, 8)
-	content_container.add_child(spacer2)
+	body_tab = CharacterBodyTabScene.new()
+	body_tab.name = "BodyTab"
+	body_tab.visible = false
+	page_stack.add_child(body_tab)
+	tab_pages[CharacterSheetTab.BODY] = body_tab
 	
-	# Status Section Header
-	var status_header := Label.new()
-	status_header.name = "StatusHeader"
-	status_header.text = "Status:"
-	status_header.add_theme_font_size_override("font_size", 16)
-	status_header.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	content_container.add_child(status_header)
+	kin_tab = CharacterKinTabScene.new()
+	kin_tab.name = "KinTab"
+	kin_tab.visible = false
+	kin_tab.custom_minimum_size = Vector2(0, 260)
+	kin_tab.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if kin_tab.has_signal("kin_npc_pressed"):
+		kin_tab.kin_npc_pressed.connect(_on_kin_npc_pressed)
+	page_stack.add_child(kin_tab)
+	tab_pages[CharacterSheetTab.KIN] = kin_tab
 	
-	# Status bars container
+	var story_page := _make_placeholder_page("Story", "Chronicle lines from fights, hunts, and life events.")
+	story_page.visible = false
+	page_stack.add_child(story_page)
+	tab_pages[CharacterSheetTab.STORY] = story_page
+	
+	var split := HBoxContainer.new()
+	split.name = "Split"
+	split.add_theme_constant_override("separation", 14)
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	info_page.add_child(split)
+	
+	# --- Left: Now + carrying ---
+	var left_col := VBoxContainer.new()
+	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.custom_minimum_size = Vector2(168, 0)
+	split.add_child(left_col)
+	
+	_add_section_header(left_col, "Now")
 	status_bars_container = VBoxContainer.new()
 	status_bars_container.name = "StatusBarsContainer"
-	status_bars_container.add_theme_constant_override("separation", 8)
-	content_container.add_child(status_bars_container)
+	status_bars_container.add_theme_constant_override("separation", 6)
+	left_col.add_child(status_bars_container)
 	
-	# Bravery bar
-	bravery_bar = _create_status_bar("Bravery:")
+	health_vitals_bar = VitalsBarUtils.create_labeled_bar("Health:", LEFT_BAR_WIDTH, 10)
+	status_bars_container.add_child(health_vitals_bar)
+	calorie_vitals_bar = VitalsBarUtils.create_labeled_bar("Food:", LEFT_BAR_WIDTH, 10)
+	status_bars_container.add_child(calorie_vitals_bar)
+	water_vitals_bar = VitalsBarUtils.create_labeled_bar("Water:", LEFT_BAR_WIDTH, 10)
+	status_bars_container.add_child(water_vitals_bar)
+	bravery_bar = _create_status_bar("Brave:", LEFT_BAR_WIDTH)
 	status_bars_container.add_child(bravery_bar)
-	
-	# Agro bar
-	agro_bar = _create_status_bar("Agro:")
+	agro_bar = _create_status_bar("Agro:", LEFT_BAR_WIDTH)
 	status_bars_container.add_child(agro_bar)
 	
-	health_vitals_bar = VitalsBarUtils.create_labeled_bar("Health:")
-	status_bars_container.add_child(health_vitals_bar)
-	calorie_vitals_bar = VitalsBarUtils.create_labeled_bar("Calories:")
-	status_bars_container.add_child(calorie_vitals_bar)
-	water_vitals_bar = VitalsBarUtils.create_labeled_bar("Water:")
-	status_bars_container.add_child(water_vitals_bar)
+	var carry_spacer := Control.new()
+	carry_spacer.custom_minimum_size = Vector2(0, 6)
+	left_col.add_child(carry_spacer)
 	
-	# Spacer
-	var spacer3 := Control.new()
-	spacer3.custom_minimum_size = Vector2(0, 8)
-	content_container.add_child(spacer3)
-	
-	# Traits Section Header
-	var traits_header := Label.new()
-	traits_header.name = "TraitsHeader"
-	traits_header.text = "Traits:"
-	traits_header.add_theme_font_size_override("font_size", 16)
-	traits_header.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	content_container.add_child(traits_header)
-	
-	# Traits Table (will be populated when NPC is set)
-	traits_table = VBoxContainer.new()
-	traits_table.name = "TraitsTable"
-	traits_table.add_theme_constant_override("separation", 2)
-	content_container.add_child(traits_table)
-	
-	# Spacer before inventory section
-	var spacer4 := Control.new()
-	spacer4.custom_minimum_size = Vector2(0, 16)
-	content_container.add_child(spacer4)
-	
-	# Inventory Section Header
-	inventory_header = Label.new()
-	inventory_header.name = "InventoryHeader"
-	inventory_header.text = "Inventory:"
-	inventory_header.add_theme_font_size_override("font_size", 16)
-	inventory_header.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
-	content_container.add_child(inventory_header)
-	
-	# Inventory slot container
+	_add_section_header(left_col, "Carrying")
 	inventory_section = VBoxContainer.new()
 	inventory_section.name = "InventorySection"
-	inventory_section.add_theme_constant_override("separation", 2)
-	content_container.add_child(inventory_section)
+	left_col.add_child(inventory_section)
+	inventory_header = null
 	
-	slot_container = VBoxContainer.new()
+	slot_container = HBoxContainer.new()
 	slot_container.name = "SlotContainer"
-	slot_container.add_theme_constant_override("separation", 2)
+	slot_container.add_theme_constant_override("separation", 6)
 	inventory_section.add_child(slot_container)
+	
+	# --- Right: base stats + inherited traits ---
+	var right_col := VBoxContainer.new()
+	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(right_col)
+	
+	_add_section_header(right_col, "Born with")
+	base_stats_table = VBoxContainer.new()
+	base_stats_table.name = "BaseStatsTable"
+	base_stats_table.add_theme_constant_override("separation", 4)
+	right_col.add_child(base_stats_table)
+	
+	var traits_spacer := Control.new()
+	traits_spacer.custom_minimum_size = Vector2(0, 8)
+	right_col.add_child(traits_spacer)
+	
+	_add_section_header(right_col, "Traits")
+	var perk_panel := Panel.new()
+	perk_panel.custom_minimum_size = Vector2(0, 108)
+	var perk_style := StyleBoxFlat.new()
+	perk_style.bg_color = Color(0, 0, 0, 0.12)
+	perk_style.border_color = UITheme.COLOR_BORDER_SADDLE_BROWN
+	perk_style.border_width_left = 1
+	perk_style.border_width_top = 1
+	perk_style.border_width_right = 1
+	perk_style.border_width_bottom = 1
+	perk_style.corner_radius_top_left = 6
+	perk_style.corner_radius_top_right = 6
+	perk_style.corner_radius_bottom_left = 6
+	perk_style.corner_radius_bottom_right = 6
+	perk_panel.add_theme_stylebox_override("panel", perk_style)
+	right_col.add_child(perk_panel)
+	
+	perk_traits_list = VBoxContainer.new()
+	perk_traits_list.name = "PerkTraitsList"
+	perk_traits_list.add_theme_constant_override("separation", 4)
+	var perk_margin := MarginContainer.new()
+	perk_margin.add_theme_constant_override("margin_left", 8)
+	perk_margin.add_theme_constant_override("margin_top", 6)
+	perk_margin.add_theme_constant_override("margin_right", 8)
+	perk_margin.add_theme_constant_override("margin_bottom", 6)
+	perk_panel.add_child(perk_margin)
+	perk_margin.add_child(perk_traits_list)
+	perk_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_set_active_tab(CharacterSheetTab.INFO)
+
+
+func _build_tab_bar(parent: Control) -> void:
+	var bar := HBoxContainer.new()
+	bar.name = "TabBar"
+	bar.add_theme_constant_override("separation", 4)
+	parent.add_child(bar)
+	for tab_id in [CharacterSheetTab.INFO, CharacterSheetTab.BODY, CharacterSheetTab.KIN, CharacterSheetTab.STORY]:
+		var label: String = ["Info", "Body", "Line", "Story"][tab_id]
+		var btn := Button.new()
+		btn.text = label
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.toggle_mode = true
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(func() -> void:
+			_set_active_tab(tab_id)
+		)
+		bar.add_child(btn)
+		tab_buttons[tab_id] = btn
+
+
+func _make_placeholder_page(title: String, detail: String) -> Control:
+	var page := VBoxContainer.new()
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var h := Label.new()
+	h.text = title
+	h.add_theme_font_size_override("font_size", 14)
+	h.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SELECTED)
+	page.add_child(h)
+	var p := Label.new()
+	p.text = detail
+	p.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	p.add_theme_font_size_override("font_size", 13)
+	p.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
+	page.add_child(p)
+	return page
+
+
+func _set_active_tab(tab_id: int) -> void:
+	_active_tab = tab_id
+	for id in tab_pages:
+		var page: Control = tab_pages[id]
+		if page:
+			page.visible = id == tab_id
+	for id in tab_buttons:
+		var btn: Button = tab_buttons[id]
+		if btn:
+			btn.button_pressed = id == tab_id
+	if tab_id == CharacterSheetTab.BODY and body_tab and target_npc:
+		body_tab.refresh(target_npc)
+	if tab_id == CharacterSheetTab.KIN and kin_tab and target_npc:
+		kin_tab.refresh(target_npc)
+
+
+func _on_kin_npc_pressed(npc: NPCBase) -> void:
+	if npc == null or not is_instance_valid(npc):
+		return
+	kin_inspect_requested.emit(npc)
+
+
+func navigate_to_npc(npc: NPCBase) -> void:
+	if not is_open:
+		show_menu()
+	setup(npc)
+	_update_panel_position()
+
 
 func setup(npc: NPCBase) -> void:
-	print("CharacterMenuUI: setup() called for NPC")
 	if not npc or not is_instance_valid(npc):
-		print("CharacterMenuUI: Cannot setup - NPC is invalid!")
 		return
-	print("CharacterMenuUI: NPC is valid, setting target_npc")
+	if target_npc and target_npc != npc and is_instance_valid(target_npc):
+		_freeze_npc_movement(false)
 	target_npc = npc
 	
 	# Setup inventory if NPC has one
@@ -256,8 +395,6 @@ func setup(npc: NPCBase) -> void:
 		_setup_inventory()
 	else:
 		# No inventory - hide inventory section
-		if inventory_header:
-			inventory_header.visible = false
 		if inventory_section:
 			inventory_section.visible = false
 		inventory_data = null
@@ -273,7 +410,7 @@ func _update_display() -> void:
 		return
 	
 	# Safety check: ensure UI elements are initialized
-	if not name_label or not lineage_label or not hominid_class_label or not traits_table:
+	if not title_name_label or not lineage_label or not base_stats_table or not perk_traits_list:
 		print("CharacterMenuUI: UI elements not initialized!")
 		return
 	
@@ -291,12 +428,8 @@ func _update_display() -> void:
 	
 	if npc_name == "":
 		npc_name = "Unknown"
-	print("CharacterMenuUI: About to set name_label.text to: %s" % npc_name)
-	if name_label:
-		name_label.text = npc_name
-		print("CharacterMenuUI: NPC name set successfully")
-	else:
-		print("CharacterMenuUI: ERROR - name_label is null!")
+	if title_name_label:
+		title_name_label.text = npc_name
 	
 	print("CharacterMenuUI: Getting lineage...")
 	# Update lineage: "Son of [Father] of Clan [Name]"
@@ -374,56 +507,25 @@ func _update_display() -> void:
 		mother_label.text = ""
 		mother_label.visible = false
 	
-	print("CharacterMenuUI: Getting hominid class...")
-	# Update hominid class
-	var hominid_class: String = _get_hominid_class(target_npc)
-	hominid_class_label.text = hominid_class
-	print("CharacterMenuUI: Hominid class: %s" % hominid_class)
-	
 	print("CharacterMenuUI: Updating status bars...")
 	# Update status bars (bravery and agro)
 	_update_status_bars()
 	_update_vitals_bars()
 	
-	print("CharacterMenuUI: Updating traits table...")
-	# Update traits table
-	_update_traits_table()
+	_update_base_stats_table()
+	_update_perk_traits()
+	if _active_tab == CharacterSheetTab.BODY and body_tab:
+		body_tab.refresh(target_npc)
+	if _active_tab == CharacterSheetTab.KIN and kin_tab:
+		kin_tab.refresh(target_npc)
 	
 	# Update timer display
 	_update_timers()
 	
 	print("CharacterMenuUI: _update_display() END")
 
-func _get_hominid_class(npc: NPCBase) -> String:
-	if not npc or not is_instance_valid(npc):
-		return "Unknown"
-	
-	# Check for hominid species property - use get() directly
-	var species = npc.get("hominid_species") if npc else null
-	if species != null and species is String and species != "":
-		return species
-	
-	# Fallback: Return placeholder based on NPC type
-	var npc_type: String = "generic"
-	var type_val = npc.get("npc_type") if npc else null
-	if type_val != null and type_val is String:
-		npc_type = type_val
-	match npc_type:
-		"human", "clansman":
-			return "Human"  # Placeholder - will need actual hominid species data
-		"woman":
-			return "Human"  # Placeholder
-		"baby":
-			return "Human"  # Babies inherit species from parents
-		_:
-			return "Unknown"
-
-func _get_traits_list() -> Array[Dictionary]:
-	# Returns the list of traits to display in the character menu
-	# To add new traits, simply add a new dictionary to this array:
-	# {"name": "Display Name", "stat": "stat_property_name"}
-	# The stat property name must match a valid stat in the Stats component
-	# Order matches charactermenu.md specification
+func _get_base_stats_list() -> Array[Dictionary]:
+	# Nine base stats minus Bravery (shown as a live bar under Now).
 	return [
 		{"name": "Strength", "stat": "strength"},
 		{"name": "Intelligence", "stat": "intelligence"},
@@ -431,9 +533,8 @@ func _get_traits_list() -> Array[Dictionary]:
 		{"name": "Agility", "stat": "agility"},
 		{"name": "Perception", "stat": "perception"},
 		{"name": "Social", "stat": "social"},
-		{"name": "Pain Tolerance", "stat": "pain_tolerance"},
-		{"name": "Carry Capacity", "stat": "carry_capacity"},
-		{"name": "Bravery", "stat": "bravery"}  # Dynamic value: 0.0-1.0, displayed as 0-100%
+		{"name": "Pain tol.", "stat": "pain_tolerance"},
+		{"name": "Carry cap.", "stat": "carry_capacity"},
 	]
 
 func _update_vitals_bars() -> void:
@@ -471,60 +572,97 @@ func _update_calorie_display() -> void:
 	_update_vitals_bars()
 
 
-func _update_traits_table() -> void:
+func _update_base_stats_table() -> void:
 	if not target_npc or not is_instance_valid(target_npc):
 		return
 	
-	# Clear existing trait rows
-	for child in traits_table.get_children():
+	for child in base_stats_table.get_children():
 		child.queue_free()
 	
-	# Get stats component - handle missing stats gracefully
 	var stats: Stats = null
-	# Use get() directly - returns null if property doesn't exist
 	var stats_val = target_npc.get("stats_component") if target_npc else null
 	if stats_val != null and stats_val is Stats:
 		stats = stats_val
 	
 	if not stats or not is_instance_valid(stats):
-		# No stats - show message (this is normal for some NPCs like wild women)
 		var no_stats_label := Label.new()
 		no_stats_label.text = "No stats available"
 		no_stats_label.add_theme_font_size_override("font_size", 12)
 		no_stats_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
-		traits_table.add_child(no_stats_label)
+		base_stats_table.add_child(no_stats_label)
 		return
 	
-	# Get traits list (flexible - easy to extend)
-	var traits_to_show: Array[Dictionary] = _get_traits_list()
-	
-	# Create table rows
-	for trait_data in traits_to_show:
+	for trait_data in _get_base_stats_list():
 		var row := _create_trait_row(trait_data["name"], trait_data["stat"], stats)
-		traits_table.add_child(row)
+		base_stats_table.add_child(row)
+
+
+func _update_perk_traits() -> void:
+	if not perk_traits_list:
+		return
+	for child in perk_traits_list.get_children():
+		child.queue_free()
+	if not target_npc or not is_instance_valid(target_npc):
+		return
+	
+	var perks: Array = []
+	var traits_val = target_npc.get("traits")
+	if traits_val is Array:
+		perks = traits_val
+	
+	if perks.is_empty():
+		var empty := Label.new()
+		empty.text = "None yet"
+		empty.add_theme_font_size_override("font_size", 12)
+		empty.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
+		perk_traits_list.add_child(empty)
+		return
+	
+	for i in perks.size():
+		var perk_name: String = str(perks[i])
+		if perk_name == "":
+			continue
+		var row := Label.new()
+		row.text = "• %s" % perk_name
+		row.add_theme_font_size_override("font_size", 13)
+		row.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		perk_traits_list.add_child(row)
+
 
 func _create_trait_row(trait_name: String, stat_name: String, stats: Stats) -> Control:
-	# Create row container (horizontal)
 	var row := Panel.new()
-	row.custom_minimum_size = Vector2(0, 24)  # Row height
+	row.custom_minimum_size = Vector2(0, 34)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
-	# Apply subtle background for alternating rows (optional)
 	var row_style := StyleBoxFlat.new()
-	row_style.bg_color = Color(0, 0, 0, 0.1)  # Very subtle background
+	row_style.bg_color = Color(0.24, 0.15, 0.14, 0.95)
+	row_style.border_color = UITheme.COLOR_BORDER_SADDLE_BROWN
+	row_style.border_width_left = 2
+	row_style.border_width_top = 2
+	row_style.border_width_right = 2
+	row_style.border_width_bottom = 2
+	row_style.corner_radius_top_left = 8
+	row_style.corner_radius_top_right = 8
+	row_style.corner_radius_bottom_left = 8
+	row_style.corner_radius_bottom_right = 8
 	row.add_theme_stylebox_override("panel", row_style)
 	
 	# Horizontal container for content
+	var hbox_margin := MarginContainer.new()
+	hbox_margin.add_theme_constant_override("margin_left", 10)
+	hbox_margin.add_theme_constant_override("margin_right", 10)
+	hbox_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.add_child(hbox_margin)
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 8)
-	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.add_child(hbox)
+	hbox_margin.add_child(hbox)
 	
 	# Trait name (left column)
 	var trait_name_label := Label.new()
 	trait_name_label.text = trait_name
-	trait_name_label.add_theme_font_size_override("font_size", 14)
-	trait_name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	trait_name_label.add_theme_font_size_override("font_size", 13)
+	trait_name_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
 	trait_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(trait_name_label)
 	
@@ -535,45 +673,34 @@ func _create_trait_row(trait_name: String, stat_name: String, stats: Stats) -> C
 	if stats and stats.has_method("get_stat"):
 		stat_value = stats.get_stat(stat_name)
 	
-	# Special handling for bravery: convert 0.0-1.0 to 0-100% display
-	var value_text: String
-	if stat_name == "bravery":
-		# Bravery is stored as 0.0-1.0, display as 0-100%
-		var bravery_percent = stat_value * 100.0
-		value_text = "%d%%" % int(round(bravery_percent))
-	else:
-		# Other stats: display as whole number
-		value_text = "%.0f" % stat_value
-	
+	var value_text: String = "%.0f" % stat_value
 	value_label.text = value_text
-	value_label.add_theme_font_size_override("font_size", 14)
+	value_label.add_theme_font_size_override("font_size", 17)
 	value_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hbox.add_child(value_label)
 	
 	return row
 
-func _create_status_bar(label_text: String) -> Control:
-	# Create a status bar container (label + progress bar)
+func _create_status_bar(label_text: String, bar_width: float = 200.0) -> Control:
 	var container := VBoxContainer.new()
-	container.add_theme_constant_override("separation", 4)
-	container.custom_minimum_size = Vector2(0, 24)
+	container.add_theme_constant_override("separation", 2)
+	container.custom_minimum_size = Vector2(0, 22)
 	
 	# Label
 	var label := Label.new()
 	label.text = label_text
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_SECONDARY)
 	container.add_child(label)
 	
-	# Progress bar container (horizontal: bar + percentage)
 	var bar_container := HBoxContainer.new()
-	bar_container.add_theme_constant_override("separation", 8)
+	bar_container.add_theme_constant_override("separation", 4)
 	container.add_child(bar_container)
 	
-	# Progress bar background
 	var bar_bg := Panel.new()
-	bar_bg.custom_minimum_size = Vector2(200, 16)
+	bar_bg.custom_minimum_size = Vector2(bar_width, 10)
+	bar_bg.set_meta("bar_width", bar_width)
 	bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bg_style := StyleBoxFlat.new()
 	bg_style.bg_color = Color(0x2a, 0x2a, 0x2a, 0.6)  # Dark gray, 60% opacity
@@ -598,7 +725,7 @@ func _create_status_bar(label_text: String) -> Control:
 	# Percentage label
 	var percent_label := Label.new()
 	percent_label.name = "PercentLabel"
-	percent_label.add_theme_font_size_override("font_size", 14)
+	percent_label.add_theme_font_size_override("font_size", 11)
 	percent_label.add_theme_color_override("font_color", UITheme.COLOR_TEXT_PRIMARY)
 	percent_label.text = "0%"
 	bar_container.add_child(percent_label)
@@ -681,18 +808,18 @@ func _update_status_bar(bar_container: Control, label_text: String, value: float
 	var percent: float = 0.0
 	var fill_width: float = 0.0
 	
+	var bar_width: float = 200.0
+	if bar_bg and bar_bg.has_meta("bar_width"):
+		bar_width = float(bar_bg.get_meta("bar_width"))
 	if is_bravery:
-		# Bravery: 0.0-1.0 → 0-100%
 		percent = value * 100.0
-		fill_width = value * 200.0  # Bar width is 200px
+		fill_width = value * bar_width
 	else:
-		# Agro: 0.0-100.0 → 0-100%
 		percent = value
-		fill_width = (value / 100.0) * 200.0  # Bar width is 200px
+		fill_width = (value / 100.0) * bar_width
 	
-	# Clamp values
 	percent = clamp(percent, 0.0, 100.0)
-	fill_width = clamp(fill_width, 0.0, 200.0)
+	fill_width = clamp(fill_width, 0.0, bar_width)
 	
 	# Update percentage label
 	percent_label.text = "%d%%" % int(round(percent))
@@ -725,12 +852,13 @@ func _update_status_bar(bar_container: Control, label_text: String, value: float
 	bar_fill.add_theme_stylebox_override("panel", fill_style)
 	
 	# Set fill size
-	bar_fill.custom_minimum_size = Vector2(fill_width, 16)
+	var bar_h: float = bar_bg.custom_minimum_size.y if bar_bg else 10.0
+	bar_fill.custom_minimum_size = Vector2(fill_width, bar_h)
 	bar_fill.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	bar_fill.offset_left = 0
 	bar_fill.offset_top = 0
 	bar_fill.offset_right = fill_width
-	bar_fill.offset_bottom = 16
+	bar_fill.offset_bottom = bar_h
 
 func show_menu() -> void:
 	print("CharacterMenuUI: show_menu() called")
@@ -814,9 +942,6 @@ func _setup_inventory() -> void:
 			slot.queue_free()
 	slots.clear()
 	
-	# Show inventory section
-	if inventory_header:
-		inventory_header.visible = true
 	if inventory_section:
 		inventory_section.visible = true
 	
@@ -934,23 +1059,16 @@ func _update_panel_position() -> void:
 	if not camera:
 		return
 	
-	# Convert NPC world position to screen position
-	var world_pos: Vector2 = target_npc.global_position
-	var camera_pos: Vector2 = camera.global_position
+	# Canvas transform includes camera zoom, so the sheet sits on the person.
 	var viewport_size: Vector2 = viewport.get_visible_rect().size
-	var screen_center: Vector2 = viewport_size / 2.0
-	var relative_pos: Vector2 = world_pos - camera_pos
-	var screen_pos: Vector2 = screen_center + relative_pos
+	var screen_pos: Vector2 = viewport.get_canvas_transform() * target_npc.global_position
+	var panel_pos: Vector2 = screen_pos + Vector2(-PANEL_WIDTH / 2.0, -90.0)
 	
-	# Position above NPC sprite (offset upward)
-	var offset_y: float = -120.0  # Above the NPC (higher than inventory was)
-	
-	# Convert to global position and set
-	var panel_pos: Vector2 = screen_pos + Vector2(-PANEL_WIDTH / 2.0, offset_y)
-	
-	# Clamp to screen bounds
-	panel_pos.x = clamp(panel_pos.x, 10, viewport_size.x - PANEL_WIDTH - 10)
-	panel_pos.y = clamp(panel_pos.y, 10, viewport_size.y - PANEL_HEIGHT - 10)
+	# Clamp to screen bounds. The sheet is taller than some windows, so keep the name on screen.
+	var max_x := maxf(10.0, viewport_size.x - PANEL_WIDTH - 10.0)
+	var max_y := maxf(10.0, viewport_size.y - minf(PANEL_HEIGHT, viewport_size.y - 20.0) - 10.0)
+	panel_pos.x = clampf(panel_pos.x, 10.0, max_x)
+	panel_pos.y = clampf(panel_pos.y, 10.0, max_y)
 	
 	# Set position (panel is top-level, so use global position)
 	character_panel.global_position = panel_pos
@@ -982,6 +1100,10 @@ func _update_timers() -> void:
 		return
 	
 	var timer_texts: Array[String] = []
+	var fsm := target_npc.get_node_or_null("FSM")
+	if fsm and fsm.get("current_state_name") != null:
+		var eid := EntityRegistry.get_id(target_npc) if EntityRegistry else int(target_npc.get_instance_id())
+		timer_texts.append("#%s · %s" % [eid, str(fsm.current_state_name)])
 	
 	# Get NPC type
 	var npc_type: String = ""
@@ -1047,3 +1169,6 @@ func _process(delta: float) -> void:
 		
 		# Update timers (pregnancy timer counts down, age may update)
 		_update_timers()
+		
+		if _active_tab == CharacterSheetTab.BODY and body_tab:
+			body_tab.refresh(target_npc)

@@ -99,6 +99,14 @@ static func clone_layout(src: CharacterCardLayerLayout) -> CharacterCardLayerLay
 	copy.hair_texture_path = src.hair_texture_path
 	copy.hair_pivot_px = src.hair_pivot_px
 	copy.hair_attach_local_px = src.hair_attach_local_px
+	copy.clothing_offset_px = src.clothing_offset_px
+	copy.clothing_scale_mul = src.clothing_scale_mul
+	copy.clothing2_offset_px = src.clothing2_offset_px
+	copy.clothing2_scale_mul = src.clothing2_scale_mul
+	copy.clothing3_offset_px = src.clothing3_offset_px
+	copy.clothing3_scale_mul = src.clothing3_scale_mul
+	copy.clothing4_offset_px = src.clothing4_offset_px
+	copy.clothing4_scale_mul = src.clothing4_scale_mul
 	return copy
 
 

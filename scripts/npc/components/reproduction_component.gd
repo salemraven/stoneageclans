@@ -138,6 +138,9 @@ func session_quickstart_start_pregnancy_now(father: Node) -> void:
 		"session_quickstart": true
 	})
 	_log_baby_pregnancy_started("session_quickstart")
+	var main_qs := get_tree().get_first_node_in_group("main") if is_inside_tree() else null
+	if main_qs and main_qs.has_method("register_session_ai_clan_repro"):
+		main_qs.register_session_ai_clan_repro(_get_npc_clan_name(), "preg_start", npc_name, {"source": "session_quickstart"})
 
 func has_living_hut_assigned() -> bool:
 	"""Public: Woman has a housing slot in Living Hut, Oven, Farm, or Dairy (all count for reproduction)."""
@@ -324,6 +327,12 @@ func cancel_pregnancy(reason: String) -> void:
 		pi.baby_pregnancy_cancelled(clan_name, npc_name, reason, buffer_days)
 	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
 		print("⚠ REPRODUCTION: %s pregnancy cancelled (%s)" % [npc_name, reason])
+	var main_c := get_tree().get_first_node_in_group("main") if is_inside_tree() else null
+	if main_c and main_c.has_method("register_session_ai_clan_repro"):
+		main_c.register_session_ai_clan_repro(clan_name, "cancel", reason, {
+			"npc": npc_name,
+			"buffer_days": buffer_days,
+		})
 
 
 func _get_baby_pool_manager() -> BabyPoolManager:
@@ -845,6 +854,8 @@ func _spawn_baby() -> void:
 	
 	if DebugConfig and DebugConfig.has_method("allow_gameplay_prints") and DebugConfig.allow_gameplay_prints():
 		print("✓ REPRODUCTION: %s gave birth to baby (clan: %s)" % [npc_name_final, clan_name_final])
+	if main and main.has_method("register_session_ai_clan_repro"):
+		main.register_session_ai_clan_repro(clan_name_final, "birth", npc_name_final)
 	if npc and npc.get_meta("repro_harness_diag", false):
 		var main_n: Node = tree.get_first_node_in_group("main")
 		if main_n and main_n.has_method("_repro_harness_on_birth"):

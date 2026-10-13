@@ -3,6 +3,7 @@ extends SceneTree
 ## Run: godot --path . --headless -s res://tools/test_abstract_hunt.gd
 
 const AbstractHuntScript = preload("res://scripts/systems/abstract_hunt.gd")
+const SettlementPartyScript = preload("res://scripts/systems/settlement_party.gd")
 const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.gd")
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
 
@@ -25,6 +26,7 @@ func _run() -> void:
 	for _i in 8:
 		await process_frame
 	_test_hunt_despawns_prey_and_adds_loot()
+	_test_wildlife_pool_hunt_once()
 	_test_skip_when_meat_sufficient()
 	_test_skip_when_live_hunt_active()
 	_test_skip_herded_prey()
@@ -89,6 +91,34 @@ func _test_hunt_despawns_prey_and_adds_loot() -> void:
 	else:
 		_fail("abstract hunt adds CorpseConfig loot", "meat=%d hide=%d" % [meat, hide])
 	claim.queue_free()
+
+
+func _test_wildlife_pool_hunt_once() -> void:
+	var ms: Node = root.get_node_or_null("/root/MutationStore")
+	if ms == null:
+		_fail("wildlife hunt autoload")
+		return
+	var chunk := Vector2i(11, 11)
+	ms.call("reset_chunk", chunk)
+	ms.call("get_wildlife", chunk)
+	var rec: Dictionary = ms.call("get_chunk_record", chunk)
+	rec["wildlife"] = 1
+	var roster = _make_roster("POOL")
+	var inv := InventoryData.new(16, true, 999)
+	var first: Dictionary = SettlementPartyScript.begin_hunt(roster, chunk, inv, {})
+	var second: Dictionary = SettlementPartyScript.begin_hunt(roster, chunk, inv, first)
+	if second.is_empty() and not first.is_empty():
+		_pass("second hunt the same tick does not start")
+	else:
+		_fail("second hunt the same tick does not start", "first=%s second=%s" % [str(first.get("kind", "")), str(second)])
+	var before: int = inv.get_count(ResourceData.ResourceType.MEAT)
+	SettlementPartyScript.advance(first, roster, inv, 30.0, false)
+	var after: int = inv.get_count(ResourceData.ResourceType.MEAT)
+	var left: int = int(ms.call("get_wildlife", chunk))
+	if after > before and left == 0:
+		_pass("wildlife pool hunt adds meat without a live prey node", "meat=%d pool=%d" % [after, left])
+	else:
+		_fail("wildlife pool hunt adds meat without a live prey node", "meat %d->%d pool=%d token=%s" % [before, after, left, str(first)])
 
 
 func _test_skip_when_meat_sufficient() -> void:

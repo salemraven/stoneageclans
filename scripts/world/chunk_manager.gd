@@ -178,11 +178,19 @@ func _load_chunk(chunk: Vector2i) -> void:
 	var sim_root := Node2D.new()
 	sim_root.name = "SimRoot"
 	root.add_child(sim_root)
+	if _ms and _wgc and _ms.has_method("ensure_abstract_resource_pool"):
+		_ms.call("ensure_abstract_resource_pool", chunk, world_seed_val, _wgc)
 	_spawn_resources(sim_root, chunk, data.get("resources", []))
 	_spawn_tree_groups(visual_root, sim_root, chunk, data.get("tree_groups", []))
 	_spawn_tallgrass_layers(visual_root, sim_root, chunk, data.get("tallgrass_clusters", []), data.get("grass_bug_patches", []))
 	_spawn_ground_items(sim_root, chunk, data.get("ground_items", []))
-	_spawn_clans(root, chunk, data.get("clans", []))
+	var restored_camp := false
+	if OffscreenCamps and OffscreenCamps.has_parked_chunk(chunk):
+		restored_camp = OffscreenCamps.restore_chunk(chunk, root)
+	if restored_camp:
+		_clan_spawned_chunks[chunk] = true
+	else:
+		_spawn_clans(root, chunk, data.get("clans", []))
 	if _main and _main.has_method("_spawn_wildlife_for_loaded_chunk"):
 		_main.call("_spawn_wildlife_for_loaded_chunk", chunk)
 	if _main and _main.has_method("_spawn_wild_women_for_loaded_chunk"):
@@ -198,10 +206,13 @@ func _load_chunk(chunk: Vector2i) -> void:
 func _unload_chunk(chunk: Vector2i) -> void:
 	if LagProfiler and LagProfiler.is_enabled():
 		LagProfiler.record_chunk_unload(chunk)
+	var root: Node = _loaded.get(chunk) as Node
+	# Park the claim and its huts before women are freed, so the roster stays on the brain.
+	if OffscreenCamps and root and is_instance_valid(root):
+		OffscreenCamps.park_chunk_root(root, chunk)
 	var sleep_mgr: Node = get_node_or_null("/root/NPCSleepManager")
 	if sleep_mgr and sleep_mgr.has_method("sleep_npcs_in_chunk") and _main:
 		sleep_mgr.call("sleep_npcs_in_chunk", chunk, _main)
-	var root: Node = _loaded.get(chunk) as Node
 	if root and is_instance_valid(root):
 		root.queue_free()
 	_loaded.erase(chunk)
@@ -284,15 +295,44 @@ func _notify_authored_ground_active() -> void:
 		dirt.visible = false
 
 
+func _resource_key_for_type(resource_type: ResourceData.ResourceType) -> String:
+	match resource_type:
+		ResourceData.ResourceType.WOOD:
+			return "wood"
+		ResourceData.ResourceType.STONE:
+			return "stone"
+		ResourceData.ResourceType.BERRIES:
+			return "berries"
+		ResourceData.ResourceType.WHEAT:
+			return "grain"
+		ResourceData.ResourceType.FIBER:
+			return "fiber"
+		_:
+			return ""
+
+
+func _spawn_budget_ok(chunk: Vector2i, resource_key: String, spawned_so_far: int) -> bool:
+	if _ms == null or not _ms.has_method("visible_spawn_limit"):
+		return true
+	return spawned_so_far < int(_ms.call("visible_spawn_limit", chunk, resource_key))
+
+
 func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
+	var spawned_by_key: Dictionary = {}
 	for desc in list:
 		if typeof(desc) != TYPE_DICTIONARY:
 			continue
 		var sid: String = str(desc.get("stable_id", ""))
 		if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
 			continue
+		var res_type: ResourceData.ResourceType = desc.get("type", ResourceData.ResourceType.STONE) as ResourceData.ResourceType
+		var res_key: String = _resource_key_for_type(res_type)
+		var already: int = int(spawned_by_key.get(res_key, 0))
+		if not _spawn_budget_ok(chunk, res_key, already):
+			continue
+		spawned_by_key[res_key] = already + 1
 		var res: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
-		res.resource_type = desc.get("type", ResourceData.ResourceType.STONE) as ResourceData.ResourceType
+		res.resource_type = res_type
 		match res.resource_type:
 			ResourceData.ResourceType.WOOD:
 				res.min_amount = 4
@@ -319,7 +359,8 @@ func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
 func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, groups: Array) -> void:
 	if not AssetRegistry.get_treess_sprite():
 		return
-	var sort_offset: float = YSortUtils.tree_sort_offset_y if YSortUtils else 0.0
+	var wood_spawned := 0
+	var nut_spawned := 0
 	for group in groups:
 		if typeof(group) != TYPE_ARRAY:
 			continue
@@ -330,10 +371,14 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 			if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
 				continue
 			if bool(desc.get("choppable", false)):
+				if not _spawn_budget_ok(chunk, "wood", wood_spawned):
+					continue
+				wood_spawned += 1
 				var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
 				var tree_idx: int = int(desc.get("tree_idx", 0))
 				var wrapper := Node2D.new()
-				wrapper.global_position = pos + Vector2(0, sort_offset)
+				wrapper.global_position = pos
+				wrapper.add_to_group("decorative_trees")
 				wrapper.set_meta(&"chunk_coords", chunk)
 				if sid != "":
 					wrapper.set_meta(&"stable_id", sid)
@@ -342,10 +387,12 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 				wood.tree_sheet_index = tree_idx
 				wood.min_amount = 4
 				wood.max_amount = 6
-				wood.position = Vector2(0, -sort_offset)
 				wrapper.add_child(wood)
 				sim_root.add_child(wrapper)
 			else:
+				if not _spawn_budget_ok(chunk, "nuts", nut_spawned):
+					continue
+				nut_spawned += 1
 				var decor: Node2D = TreeDecorSpriteScript.new() as Node2D
 				visual_root.add_child(decor)
 				if decor.has_method("setup"):
@@ -361,12 +408,16 @@ func _spawn_tallgrass_layers(visual_root: Node2D, sim_root: Node2D, chunk: Vecto
 			all_pts.append(pt)
 	if not all_pts.is_empty():
 		GrassBatchScript.build(visual_root, all_pts, chunk)
+	var bugs_spawned := 0
 	for patch in bug_patches:
 		if typeof(patch) != TYPE_DICTIONARY:
 			continue
 		var sid: String = str(patch.get("stable_id", ""))
 		if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
 			continue
+		if not _spawn_budget_ok(chunk, "bugs", bugs_spawned):
+			continue
+		bugs_spawned += 1
 		var pos: Vector2 = patch.get("position", Vector2.ZERO) as Vector2
 		if MutationStore and MutationStore.is_position_grass_cleared(pos):
 			continue
@@ -480,6 +531,8 @@ func _process_density_timer(delta: float) -> void:
 				continue
 		if _ms and int(_ms.call("get_clan_deaths_in_chunk", c)) >= int(_wgc.clan_max_deaths_per_chunk):
 			continue
+		if chunk_has_camp(c):
+			continue
 		candidates.append(c)
 	if candidates.is_empty():
 		return
@@ -488,3 +541,21 @@ func _process_density_timer(delta: float) -> void:
 	var pick: Vector2i = candidates[pick_rng.randi_range(0, candidates.size() - 1)]
 	if _main.has_method("spawn_density_fill_clan_at_chunk"):
 		_main.call("spawn_density_fill_clan_at_chunk", pick, _loaded[pick] as Node2D)
+		_clan_spawned_chunks[pick] = true
+
+
+## A chunk already holds a camp if it seeded one, has a parked one, or any land claim stands in it.
+func chunk_has_camp(chunk: Vector2i) -> bool:
+	if _clan_spawned_chunks.get(chunk, false):
+		return true
+	if OffscreenCamps and OffscreenCamps.has_parked_chunk(chunk):
+		return true
+	var tree := get_tree()
+	if tree == null:
+		return false
+	for claim in tree.get_nodes_in_group("land_claims"):
+		if not (claim is Node2D) or not is_instance_valid(claim) or claim.is_queued_for_deletion():
+			continue
+		if ChunkUtils.get_chunk_coords((claim as Node2D).global_position) == chunk:
+			return true
+	return false

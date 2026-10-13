@@ -94,6 +94,8 @@ var enable_throw_debug: bool = false
 
 ## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
 var enable_session_quickstart: bool = false
+## Five living huts on a player claim, with claim wood and stone for one specialty each. CLI: `--hut-tier-test`
+var enable_hut_tier_test: bool = false
 ## Spawn N AI caveman+claim clans in a ring around the player on a normal start (not harnesses). CLI: `--eval-ai-claims` / `--eval-ai-claims 0` to off.
 var eval_ai_claims_near_start: int = 0
 ## Wild women in a ring around player spawn so you can see female mannequins. CLI: `--eval-wild-women N`
@@ -118,6 +120,11 @@ var enable_ai_combat_observe: bool = false
 var enable_ai_village_probe: bool = false
 ## One clan raids the other. No deer. CLI: `--ai-raid-probe`
 var enable_ai_raid_probe: bool = false
+## Observer without the forced raid, so a hunt can finish looting. CLI: `--hunt-loot-proof`
+var enable_hunt_loot_proof: bool = false
+## Enough fighters to pass the raid gate, no forced march. CLI: `--raid-decision-proof`
+var enable_raid_decision_proof: bool = false
+var enable_raid_capture_proof: bool = false
 var eval_ai_arena_clan_count: int = 4
 ## Extra cavemen per AI claim in the arena (leader already spawned). 5 extras = 6-man parties.
 var eval_ai_arena_extra_fighters: int = 5
@@ -277,11 +284,32 @@ func _parse_command_line_args() -> void:
 		enable_ai_combat_observe = true
 		print("✓ AI raid probe: one clan will march on the other, no deer")
 
+	if "--hunt-loot-proof" in args:
+		enable_hunt_loot_proof = true
+		enable_ai_combat_observe = true
+		print("✓ Hunt loot proof: no forced raid, clans may finish a butcher")
+
+	if "--raid-decision-proof" in args:
+		enable_raid_decision_proof = true
+		if session_quit_after_seconds <= 0.0:
+			session_quit_after_seconds = 90.0
+			print("✓ Raid decision proof auto-quit after %.0fs" % session_quit_after_seconds)
+		enable_ai_combat_observe = true
+		print("✓ Raid decision proof: no forced march, a start or a skip must be printed")
+
 	if "--ai-village-probe" in args:
 		enable_ai_village_probe = true
 		print("✓ AI village probe: one enemy man will be placed inside the other claim")
 
-	if "--ai-combat-observe" in args or enable_ai_raid_probe:
+	if "--raid-capture-proof" in args:
+		enable_raid_capture_proof = true
+		if session_quit_after_seconds <= 0.0:
+			session_quit_after_seconds = 240.0
+			print("✓ Raid capture proof auto-quit after %.0fs" % session_quit_after_seconds)
+		enable_ai_combat_observe = true
+		print("✓ Raid capture proof: forced theft raid must capture one woman")
+
+	if "--ai-combat-observe" in args or enable_ai_raid_probe or enable_hunt_loot_proof or enable_raid_decision_proof or enable_raid_capture_proof:
 		enable_ai_combat_observe = true
 		eval_hair_gallery_count = 0
 		eval_wild_women_near_start = 0
@@ -323,12 +351,16 @@ func _parse_command_line_args() -> void:
 			print("✓ Eval behavior auto-quit after %.0fs" % session_quit_after_seconds)
 			break
 
+	if "--hut-tier-test" in args:
+		enable_hut_tier_test = true
+		print("✓ Hut tier test: player claim, 5 living huts, claim wood and stone for one upgrade each")
+
 	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
 	if "--session-quickstart" in args:
 		enable_session_quickstart = true
 		if BalanceConfig:
 			BalanceConfig.ai_use_dev_food_bootstrap = true
-		print("✓ Session quickstart enabled (claim + women + Living Huts; dev AI food bootstrap)")
+		print("✓ Session quickstart enabled (claim + women + Living Huts; nearby AI camps match player start; dev AI food bootstrap)")
 
 	if "--ai-dev-food-bootstrap" in args:
 		if BalanceConfig:

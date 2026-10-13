@@ -201,9 +201,8 @@ func _occupy_building() -> void:
 		UnifiedLogger.log("Woman %s occupied building %s" % [npc_name, ResourceData.get_resource_name(target_building.building_type)], UnifiedLogger.Category.BUILDING)
 		print("[MONITOR] Woman %s occupied building %s" % [npc_name, ResourceData.get_resource_name(target_building.building_type)])
 		
-		# Hide woman's sprite (she's inside the building)
 		var npc_sprite = npc.get_node_or_null("Sprite")
-		if npc_sprite:
+		if npc_sprite and target_building.building_type != ResourceData.ResourceType.LIVING_HUT:
 			npc_sprite.visible = false
 		
 		# Clear target so can_enter() will return false for this state

@@ -11,9 +11,15 @@ const DEATH_TIER: Dictionary = {
 	"player": 99,
 }
 
+const MEMBER_ID_META := "settlement_member_id"
+## Positive id that is not a roster row. A living player character can be a father without a member record.
+const PLAYER_FATHER_ID := 2147483000
+
 var clan_name: String = ""
 var members: Array = []
+var sim_clock: float = 0.0
 var _next_offscreen_id: int = -1
+var _next_stable_id: int = 1
 
 
 static func normalize_member_type(npc_type: String, is_leader: bool = false) -> String:
@@ -36,6 +42,56 @@ static func normalize_member_type(npc_type: String, is_leader: bool = false) -> 
 
 static func death_tier_for(member_type: String) -> int:
 	return int(DEATH_TIER.get(member_type, 2))
+
+
+static func is_person_type(member_type: String) -> bool:
+	return member_type in ["baby", "woman", "clansman", "caveman", "leader", "player"]
+
+
+static func read_member_id(npc: Node) -> int:
+	if npc == null or not is_instance_valid(npc):
+		return 0
+	if npc.has_meta(MEMBER_ID_META):
+		return int(npc.get_meta(MEMBER_ID_META))
+	return 0
+
+
+func alloc_stable_id() -> int:
+	var mid := _next_stable_id
+	_next_stable_id += 1
+	return mid
+
+
+func stamp_member_id(npc: Node, member_id: int) -> void:
+	if npc == null or not is_instance_valid(npc):
+		return
+	npc.set_meta(MEMBER_ID_META, member_id)
+
+
+func living_person_ids() -> Array:
+	var out: Array = []
+	for m in members:
+		if not (m is Dictionary):
+			continue
+		var rec: Dictionary = m as Dictionary
+		if not bool(rec.get("alive", false)):
+			continue
+		if not is_person_type(str(rec.get("type", ""))):
+			continue
+		out.append(int(rec.get("id", 0)))
+	return out
+
+
+func copy_timer_from_body(member_id: int, pregnancy_timer: float, hunger: float, age: float, was_sim_awake: bool) -> void:
+	## A frozen body still shows the timer from the moment physics stopped. Do not write that over the record.
+	if not was_sim_awake:
+		return
+	var m: Dictionary = find_member(member_id)
+	if m.is_empty() or not bool(m.get("alive", false)):
+		return
+	m["pregnancy_timer"] = pregnancy_timer
+	m["hunger"] = hunger
+	m["age"] = age
 
 
 func clear() -> void:
@@ -82,6 +138,9 @@ func snapshot_from_live_npcs(
 		var rec: Dictionary = data as Dictionary
 		if str(rec.get("clan_name", "")).to_upper() != clan.to_upper():
 			continue
+		var sleep_type: String = str(rec.get("npc_type", "clansman"))
+		if is_person_type(sleep_type):
+			continue
 		var nid: int = int(rec.get("network_id", -1))
 		if nid > 0 and seen_ids.has(nid):
 			continue
@@ -96,9 +155,13 @@ func snapshot_from_live_npcs(
 func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 	if npc == null or not is_instance_valid(npc):
 		return {}
-	var nid: int = EntityRegistry.get_network_id(npc) if EntityRegistry else -1
-	if nid < 1:
-		nid = npc.get_instance_id()
+	var hc: Node = npc.get_node_or_null("HealthComponent")
+	if hc and hc.get("is_dead") == true:
+		return {}
+	var nid: int = read_member_id(npc)
+	if nid == 0:
+		nid = alloc_stable_id()
+		stamp_member_id(npc, nid)
 	var is_leader: bool = leader_npc != null and npc == leader_npc
 	var npc_type: String = str(npc.get("npc_type") if npc.get("npc_type") != null else "clansman")
 	var member_type := normalize_member_type(npc_type, is_leader)
@@ -110,6 +173,7 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 	var pregnancy_timer: float = -1.0
 	var growth_timer: float = -1.0
 	var designated_father_id: int = -1
+	var father_is_player: bool = false
 	var last_birth_time: float = -1.0
 	var father_absent_ticks: int = 0
 	var repro = npc.get_node_or_null("ReproductionComponent")
@@ -119,10 +183,15 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		last_birth_time = float(repro.last_birth_time)
 	if repro and repro.get("designated_father") != null:
 		var df: Node = repro.designated_father as Node
-		if df and is_instance_valid(df) and EntityRegistry:
-			var dfid: int = EntityRegistry.get_network_id(df)
-			if dfid > 0:
-				designated_father_id = dfid
+		if df and is_instance_valid(df):
+			father_is_player = df.is_in_group("player") or str(df.get("npc_type")) == "player"
+			if father_is_player:
+				var dfid: int = EntityRegistry.get_network_id(df) if EntityRegistry else -1
+				designated_father_id = dfid if dfid > 0 else PLAYER_FATHER_ID
+			elif EntityRegistry:
+				var dfid_npc: int = EntityRegistry.get_network_id(df)
+				if dfid_npc > 0:
+					designated_father_id = dfid_npc
 	var growth = npc.get_node_or_null("BabyGrowthComponent")
 	if growth and growth.get("growth_timer") != null:
 		growth_timer = float(growth.growth_timer)
@@ -141,6 +210,7 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		"pregnancy_timer": pregnancy_timer,
 		"growth_timer": growth_timer,
 		"designated_father_id": designated_father_id,
+		"father_is_player": father_is_player,
 		"last_birth_time": last_birth_time,
 		"father_absent_ticks": father_absent_ticks,
 		"is_leader": is_leader,
@@ -149,6 +219,7 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		"skin_tone": str(npc.get("skin_tone") if npc.get("skin_tone") != null else "Medium"),
 		"card_index": int(npc.get("card_index") if npc.get("card_index") != null else 0),
 		"hair_id": int(npc.get("hair_id") if npc.get("hair_id") != null else 0),
+		"clothing_style": int(npc.get("clothing_style") if npc.get("clothing_style") != null else -1),
 		"hair_tone": str(npc.get("hair_tone") if npc.get("hair_tone") != null else ""),
 		"genetics_profile": (npc.get("genetics_profile") as Dictionary).duplicate(true) if npc.get("genetics_profile") is Dictionary else {},
 		"traits": traits,
@@ -192,6 +263,7 @@ func _member_from_sleep_record(data: Dictionary, leader_npc: Node) -> Dictionary
 		"skin_tone": str(data.get("skin_tone", "Medium")),
 		"card_index": int(data.get("card_index", 0)),
 		"hair_id": int(data.get("hair_id", 0)),
+		"clothing_style": int(data.get("clothing_style", -1)),
 		"hair_tone": str(data.get("hair_tone", "")),
 		"genetics_profile": (data.get("genetics_profile") as Dictionary).duplicate(true) if data.get("genetics_profile") is Dictionary else {},
 		"traits": traits,
@@ -225,10 +297,12 @@ func get_hungriest(exclude_ids: Dictionary = {}) -> Dictionary:
 	return best
 
 
-func get_next_to_die() -> Dictionary:
+func get_next_to_die(exclude_ids: Dictionary = {}) -> Dictionary:
 	var candidates: Array = []
 	for m in members:
 		if not bool(m.get("alive", false)):
+			continue
+		if exclude_ids.has(int(m.get("id", 0))):
 			continue
 		if bool(m.get("is_player", false)):
 			continue
@@ -287,7 +361,8 @@ func kill_member(member_id: int) -> Dictionary:
 func to_spawn_data(member: Dictionary, fallback_pos: Vector2) -> Dictionary:
 	var pos: Vector2 = member.get("position", fallback_pos) as Vector2
 	return {
-		"network_id": int(member.get("id", -1)),
+		"network_id": -1,
+		"settlement_member_id": int(member.get("id", -1)),
 		"npc_name": str(member.get("name", "NPC")),
 		"npc_type": str(member.get("npc_type", member.get("type", "clansman"))),
 		"age": int(member.get("age", 13)),
@@ -333,6 +408,9 @@ func get_fertile_women(now_sec: float, birth_cooldown: float) -> Array:
 		if float(m.get("pregnancy_timer", -1.0)) > 0.0:
 			continue
 		var last: float = float(m.get("last_birth_time", -1.0))
+		# Older snapshots stored wall-clock seconds. Those are not this camp's sim clock.
+		if last > 100000.0:
+			last = -1.0
 		if last >= 0.0 and (now_sec - last) < birth_cooldown:
 			continue
 		out.append(m)
@@ -410,6 +488,26 @@ func add_baby_member(mother_id: int, father_id: int, baby_name: String, fallback
 	BirthEngineScript.apply_child_to_entity(entry, mother, father, gene_rng)
 	members.append(entry)
 	return entry
+
+
+func upsert_from_live_npc(npc: Node, leader_npc: Node, dead_ids: Dictionary = {}) -> void:
+	var entry := _member_from_live_npc(npc, leader_npc)
+	if entry.is_empty():
+		return
+	var mid: int = int(entry.get("id", 0))
+	if mid != 0 and dead_ids.has(mid):
+		return
+	var previous_away := false
+	for existing in members:
+		if existing is Dictionary and int((existing as Dictionary).get("id", 0)) == mid:
+			previous_away = bool((existing as Dictionary).get("away", false))
+			break
+	entry["away"] = previous_away
+	for i in members.size():
+		if int((members[i] as Dictionary).get("id", 0)) == mid:
+			members[i] = entry
+			return
+	members.append(entry)
 
 
 func start_pregnancy(mother_id: int, father_id: int, pregnancy_seconds: float, now_sec: float) -> bool:

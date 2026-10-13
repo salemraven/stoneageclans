@@ -170,6 +170,19 @@ const OBSERVER_CAM_SPEED: float = 720.0
 
 # Session capture: --session-quit-after N (DebugConfig.session_quit_after_seconds)
 var _session_quit_start_time: float = -1.0
+var _session_ai_clan_instr_accum: float = 0.0
+var _productivity_compare_accum: float = 0.0
+var _productivity_births: Dictionary = {}
+var _productivity_log_ready: bool = false
+var _player_productivity_origin: Vector2 = Vector2.ZERO
+var _player_productivity_origin_set: bool = false
+var _settlement_clock_proof_failed: bool = false
+const SESSION_AI_CLAN_INSTR_INTERVAL_SEC: float = 12.0
+var _ai_productive_camp_serial: int = 0
+var _raid_decision_proof_start_food: bool = false
+var _raid_decision_proof_skip_reason: String = ""
+var _raid_capture_proof_steps: PackedStringArray = PackedStringArray()
+var _raid_capture_proof_started_at: float = -1.0
 
 const RESOURCE_SCENE = preload("res://scenes/GatherableResource.tscn")
 const _NAMING_UTILS_SCRIPT: Script = preload("res://scripts/naming_utils.gd")
@@ -187,6 +200,7 @@ const PlayerSuccessionScript = preload("res://scripts/systems/player_succession.
 const TRAVOIS_GROUND_SCENE = preload("res://scenes/TravoisGround.tscn")
 const NPC_SCENE = preload("res://scenes/NPC.tscn")
 const BUILDING_SCENE = preload("res://scenes/Building.tscn")
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 const DROPDOWN_MENU_UI_SCRIPT = preload("res://scripts/ui/dropdown_menu_ui.gd")
 const ProgressPieOverlay = preload("res://scripts/ui/progress_pie_overlay.gd")
 const GodmodeClanJumperUIScript = preload("res://scripts/ui/godmode_clan_jumper_ui.gd")
@@ -346,9 +360,15 @@ func invalidate_npcs_cache() -> void:
 func _on_world_child_changed(_node: Node) -> void:
 	invalidate_npcs_cache()
 
-func _on_land_claim_tree_exiting(_claim: Node) -> void:
+func _on_land_claim_tree_exiting(claim: Node) -> void:
 	"""Called when a land claim is about to be removed from the tree."""
 	invalidate_land_claims_cache()
+	if bool(get_meta("session_quitting", false)):
+		return
+	var scene: Node = get_tree().current_scene if get_tree() else null
+	if scene and scene.is_queued_for_deletion():
+		return
+	_refresh_all_neighbor_lists(claim)
 
 func register_land_claim(claim: Node) -> void:
 	"""Register a new land claim for cache tracking. Call after adding to tree."""
@@ -359,6 +379,16 @@ func register_land_claim(claim: Node) -> void:
 		if claim.has_signal("claim_destroyed") and not claim.claim_destroyed.is_connected(_on_ai_claim_destroyed):
 			claim.claim_destroyed.connect(_on_ai_claim_destroyed)
 	invalidate_land_claims_cache()
+	_refresh_all_neighbor_lists()
+
+func _refresh_all_neighbor_lists(skip: Node = null) -> void:
+	## A new or dying camp changes who the closest neighbors are. Do not wait for the threat timer.
+	for claim in get_tree().get_nodes_in_group("land_claims"):
+		if not is_instance_valid(claim) or claim == skip:
+			continue
+		var brain: Variant = claim.get_clan_brain() if claim.has_method("get_clan_brain") else claim.get("clan_brain")
+		if brain and brain.has_method("_refresh_nearby_enemies"):
+			brain._refresh_nearby_enemies(skip)
 
 func _on_ai_claim_destroyed(_clan_name: String) -> void:
 	"""When AI land claim destroyed, spawn replacement caveman."""
@@ -447,6 +477,8 @@ func _spawn_replacement_caveman() -> void:
 	_equip_spear_to_npc(npc)
 	npc.visible = true
 	print("✓ Spawned replacement Caveman: %s at %s with land claim '%s' (AI claim destroyed)" % [npc_name, pos, clan_name])
+	_ai_productive_camp_serial += 1
+	await _apply_session_parity_to_ai_camp(land_claim, npc, _ai_productive_camp_serial)
 
 
 ## Seeded chunk streamer: fixed claim + caveman positions (deterministic layout from ChunkGenerator).
@@ -518,7 +550,14 @@ func spawn_seeded_ai_clan_at(
 			claim_center_world.y,
 			clan_name
 		)
+	if spawn_source == "chunk_seeded_clan":
+		_ai_productive_camp_serial += 1
+		call_deferred("_start_ai_camp_productive", land_claim, npc, _ai_productive_camp_serial)
 	return npc
+
+
+func _start_ai_camp_productive(land_claim: LandClaim, leader: Node, camp_index: int) -> void:
+	await _apply_session_parity_to_ai_camp(land_claim, leader, camp_index)
 
 
 func _apply_placeholder_card_to_npc(npc: Node) -> void:
@@ -532,19 +571,18 @@ func _deferred_finish_caveman_visual(npc: Node) -> void:
 	_apply_placeholder_card_to_npc(npc)
 
 
+## Counts AI clans by their land claims, so a parked camp (whose caveman is asleep on the roster) still counts.
 func count_ai_clans_with_claims_near(world_pos: Vector2, radius_px: float) -> int:
-	var n := 0
-	for node in get_tree().get_nodes_in_group("npcs"):
-		if not is_instance_valid(node):
+	var clans: Dictionary = {}
+	for node in get_tree().get_nodes_in_group("land_claims"):
+		if not (node is LandClaim) or not is_instance_valid(node) or node.is_queued_for_deletion():
 			continue
-		if str(node.get("npc_type")) != "caveman":
+		if (node as LandClaim).player_owned:
 			continue
-		if node.get_meta("has_land_claim", false) != true:
+		if (node as LandClaim).global_position.distance_to(world_pos) > radius_px:
 			continue
-		if node.global_position.distance_to(world_pos) > radius_px:
-			continue
-		n += 1
-	return n
+		clans[str((node as LandClaim).clan_name).to_upper()] = true
+	return clans.size()
 
 
 ## Minimum-clan density backfill (ChunkManager timer) — positions derived from chunk hash.
@@ -1108,12 +1146,19 @@ func _process(delta: float) -> void:
 			var now_sq: float = Time.get_ticks_msec() / 1000.0
 			if now_sq - _session_quit_start_time >= lim:
 				print("Session capture: auto-quit after %.1fs" % lim)
-				get_tree().quit(0)
+				set_meta("session_quitting", true)
+				_write_productivity_compare("end")
+				_finalize_settlement_clock_proof_on_exit()
+				_finalize_raid_decision_proof_on_exit()
+				_finalize_raid_capture_proof_on_exit()
+				get_tree().quit(_session_proof_exit_code())
 				return
 	if not player:
 		return
 	_tick_village_probe_snap(delta)
+	_tick_session_ai_clan_instrumentation(delta)
 	_tick_raid_probe_snap(delta)
+	_tick_raid_capture_proof(delta)
 	if _production_chain_test_active:
 		_production_chain_test_tick(Time.get_ticks_msec() / 1000.0)
 		return
@@ -1581,7 +1626,12 @@ func _input(event: InputEvent) -> void:
 			else:
 				# LMB release
 				if selection_box_active:
+					var click_travel := selection_box_start.distance_to(selection_box_end)
 					_selection_box_complete()
+					if click_travel < 4.0:
+						var tapped := _get_npc_under_cursor()
+						if tapped:
+							_open_character_menu(tapped)
 					get_viewport().set_input_as_handled()
 					return
 				if npc_dragging:
@@ -1600,8 +1650,12 @@ func _input(event: InputEvent) -> void:
 						get_viewport().set_input_as_handled()
 						return
 				if npc_drag_source:
+					var tapped_npc := npc_drag_source
 					npc_drag_source = null
 					npc_drag_hold_timer = 0.0
+					_open_character_menu(tapped_npc)
+					get_viewport().set_input_as_handled()
+					return
 				# Bags and the person sheet stay open. Press I to close them.
 				clicked_npc = null
 				set("dragged_occupation_building", null)
@@ -1626,14 +1680,20 @@ func _check_nearby_buildings() -> void:
 	
 	var player_pos := player.global_position
 	var closest_building: Node = null
-	var closest_distance := 100.0  # Interaction range
+	var closest_distance := INF
 	
-	# Check all land claims and campfires
+	# Land claim stock opens anywhere inside the circle, not only on the totem.
 	var land_claims := get_cached_land_claims()
 	for claim in land_claims:
-		if claim is LandClaim or claim is CampfireScript:
+		if claim is LandClaim:
+			var reach: float = float(claim.get("radius")) if claim.get("radius") != null else 400.0
 			var distance := player_pos.distance_to(claim.global_position)
-			if distance < closest_distance:
+			if distance <= reach and distance < closest_distance:
+				closest_distance = distance
+				closest_building = claim
+		elif claim is CampfireScript:
+			var distance := player_pos.distance_to(claim.global_position)
+			if distance <= 100.0 and distance < closest_distance:
 				closest_distance = distance
 				closest_building = claim
 	
@@ -1642,7 +1702,7 @@ func _check_nearby_buildings() -> void:
 	for bld in buildings:
 		if bld is BuildingBase:
 			var distance := player_pos.distance_to(bld.global_position)
-			if distance < closest_distance:
+			if distance <= 100.0 and distance < closest_distance:
 				closest_distance = distance
 				closest_building = bld
 	
@@ -2193,6 +2253,8 @@ func _setup_inventory_ui() -> void:
 	character_menu_ui = CharacterMenuUI.new()
 	character_menu_ui.name = "CharacterMenuUI"
 	ui_layer.add_child(character_menu_ui)
+	if character_menu_ui.has_signal("kin_inspect_requested"):
+		character_menu_ui.kin_inspect_requested.connect(_on_character_kin_inspect)
 
 	# Context menu (dropdown) — Step 1 integration_plan
 	dropdown_menu_ui = DROPDOWN_MENU_UI_SCRIPT.new()
@@ -2483,6 +2545,10 @@ func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
 	npc.set("hair_id", int(data.get("hair_id", 0)))
 	if int(data.get("hair_id", 0)) > 0:
 		npc.set_meta("hair_id", int(data.get("hair_id", 0)))
+	var sleep_clothing_style: int = int(data.get("clothing_style", -1))
+	npc.set("clothing_style", sleep_clothing_style)
+	if sleep_clothing_style >= 0:
+		npc.set_meta("clothing_style", sleep_clothing_style)
 	var sleep_hair_tone: String = str(data.get("hair_tone", ""))
 	npc.set("hair_tone", sleep_hair_tone)
 	if not sleep_hair_tone.is_empty():
@@ -3600,10 +3666,7 @@ func _on_dropdown_option_selected(id: String) -> void:
 						_open_player_bag_beside_building()
 		else:
 			# NPC: character menu
-			if character_menu_ui:
-				character_menu_ui.setup(target)
-				character_menu_ui.show_menu()
-				clicked_npc = target
+			_open_character_menu(target)
 		return
 	if id == "follow" and target != null and is_instance_valid(target) and player != null:
 		_set_ordered_follow(target, "context_menu")
@@ -4893,20 +4956,40 @@ const HOVER_OUTLINE_SHADER := preload("res://assets/shaders/sprite_outline.gdsha
 
 var _hovered_entity: Node = null  # Entity with outline (NPC, ground item, resource)
 
+func _npc_body_center(npc: Node2D) -> Vector2:
+	# Card art is drawn above the feet. The click point is the sprite center, not the origin.
+	var foot_y := -28.0
+	var stored = npc.get("_card_foot_y")
+	if stored != null:
+		foot_y = float(stored)
+	return npc.global_position + Vector2(0.0, foot_y)
+
+func _npc_body_pick_radius(npc: Node) -> float:
+	var half_h := 28.0
+	var stored = npc.get("_card_foot_y")
+	if stored != null:
+		half_h = absf(float(stored))
+	return maxf(CONTEXT_MENU_CLICK_RADIUS, half_h + 18.0)
+
 func _get_npc_under_cursor() -> Node:
-	"""Return NPC within 32px of world mouse, or null. Used for F2 context menu and Step 2 right-click. Excludes corpses."""
+	"""Closest living NPC whose visible body is under the cursor. Excludes corpses."""
 	if not camera or not is_instance_valid(camera):
 		return null
 	var world_pos := _get_world_mouse_position()
+	var best: Node = null
+	var best_dist := INF
 	var npcs := get_tree().get_nodes_in_group("npcs")
 	for npc in npcs:
-		if not is_instance_valid(npc):
+		if not is_instance_valid(npc) or not (npc is Node2D):
 			continue
 		if npc.has_method("is_dead") and npc.is_dead():
 			continue
-		if npc.global_position.distance_to(world_pos) < CONTEXT_MENU_CLICK_RADIUS:
-			return npc
-	return null
+		var center := _npc_body_center(npc as Node2D)
+		var dist := center.distance_to(world_pos)
+		if dist < _npc_body_pick_radius(npc) and dist < best_dist:
+			best_dist = dist
+			best = npc
+	return best
 
 func _get_campfire_under_cursor_world() -> CampfireScript:
 	"""Campfire under mouse (world). Skips starting RTS selection box when opening campfire UI."""
@@ -4954,13 +5037,15 @@ func _get_entity_under_cursor_for_outline() -> Node:
 	var best: Node = null
 	var best_dist := HOVER_OUTLINE_RADIUS
 
-	# Check NPCs (including corpses - for looting feedback)
+	# Check NPCs (including corpses - for looting feedback). Match the body, not the feet.
 	var npcs := get_tree().get_nodes_in_group("npcs")
 	for npc in npcs:
-		if not is_instance_valid(npc):
+		if not is_instance_valid(npc) or not (npc is Node2D):
 			continue
-		var d: float = npc.global_position.distance_to(world_pos)
-		if d < best_dist:
+		var center := _npc_body_center(npc as Node2D)
+		var d: float = center.distance_to(world_pos)
+		var reach: float = _npc_body_pick_radius(npc) + 8.0
+		if d < reach and (best == null or d < best_dist):
 			best_dist = d
 			best = npc
 
@@ -5111,6 +5196,16 @@ func _resolve_click_target() -> Dictionary:
 	if not camera or not is_instance_valid(camera):
 		return result
 	var world_pos := _get_world_mouse_position()
+
+	# Totem first so a woman standing on the marker does not steal the stock menu.
+	var land_claims_first := get_tree().get_nodes_in_group("land_claims")
+	for claim in land_claims_first:
+		if not is_instance_valid(claim) or not (claim is LandClaim):
+			continue
+		if claim.global_position.distance_to(world_pos) <= 40.0:
+			result["target"] = claim
+			result["target_type"] = "land_claim"
+			return result
 
 	var npc := _get_npc_under_cursor()
 	if npc:
@@ -6565,6 +6660,9 @@ func _try_run_dev_test_harness() -> bool:
 	if DebugConfig and DebugConfig.enable_eval_camp:
 		await _setup_eval_camp_environment()
 		return true
+	if DebugConfig and DebugConfig.enable_hut_tier_test:
+		await _setup_hut_tier_test_environment()
+		return true
 	if DebugConfig and DebugConfig.enable_session_quickstart:
 		await _setup_session_quickstart_environment()
 		return true
@@ -7204,10 +7302,14 @@ func _spawn_eval_camp_wilderness_women(center: Vector2) -> void:
 
 func _setup_ai_combat_observe() -> void:
 	const CLAN_COUNT := 2
-	const RING_PX := 1100.0
-	var extra_fighters: int = 7 if DebugConfig and bool(DebugConfig.get("enable_ai_raid_probe")) else 4
+	var ring_px: float = 1100.0
+	if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+		ring_px = 550.0
+	var extra_fighters: int = 4
+	if DebugConfig and (bool(DebugConfig.get("enable_ai_raid_probe")) or bool(DebugConfig.get("enable_raid_decision_proof")) or bool(DebugConfig.get("enable_raid_capture_proof"))):
+		extra_fighters = 7
 	var center := Vector2.ZERO
-	print("=== AI COMBAT OBSERVE: %d clans on a %.0fpx ring, player hidden ===" % [CLAN_COUNT, RING_PX])
+	print("=== AI COMBAT OBSERVE: %d clans on a %.0fpx ring, player hidden ===" % [CLAN_COUNT, ring_px])
 	if player and is_instance_valid(player):
 		player.global_position = center
 		player.velocity = Vector2.ZERO
@@ -7222,7 +7324,7 @@ func _setup_ai_combat_observe() -> void:
 		camera.global_position = center
 	if world:
 		world.ensure_chunks_for_position(center)
-	await _spawn_session_nearby_ai_clans(center, CLAN_COUNT, RING_PX, "ai_combat_observe")
+	await _spawn_session_nearby_ai_clans(center, CLAN_COUNT, ring_px, "ai_combat_observe")
 	var clan_i := 0
 	for claim in get_cached_land_claims():
 		if not is_instance_valid(claim) or bool(claim.get("player_owned")):
@@ -7232,7 +7334,13 @@ func _setup_ai_combat_observe() -> void:
 		_stock_eval_camp_food(claim.inventory)
 		claim.set("ranged_ratio", 0.5)
 		var father: Node = claim.get("owner_npc") as Node
-		_spawn_eval_camp_women_with_huts(claim as LandClaim, father, 2, "W%d" % clan_i)
+		var camp_women: Array[Node] = _spawn_eval_camp_women_with_huts(claim as LandClaim, father, 2, "W%d" % clan_i)
+		if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+			await get_tree().process_frame
+			for w in camp_women:
+				if w and is_instance_valid(w):
+					_place_herder_hut(claim as LandClaim, w, father, true)
+					await get_tree().process_frame
 		_spawn_eval_arena_fighters(claim as LandClaim, extra_fighters)
 		if world:
 			world.ensure_chunks_for_position(claim.global_position)
@@ -7265,7 +7373,8 @@ func _setup_ai_combat_observe() -> void:
 		)
 		await get_tree().process_frame
 	var raid_probe: bool = DebugConfig and bool(DebugConfig.get("enable_ai_raid_probe"))
-	if not raid_probe:
+	var raid_decision: bool = DebugConfig and bool(DebugConfig.get("enable_raid_decision_proof"))
+	if not raid_probe and not raid_decision and not (DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof"))):
 		await _seed_party_hunt_debug_deer_near_claims(world_objects)
 	set_meta("ai_combat_observe_ready", true)
 	print("AI_COMBAT_OBSERVE_READY clans=%d" % clan_i)
@@ -7273,7 +7382,419 @@ func _setup_ai_combat_observe() -> void:
 		_start_raid_probe()
 	elif DebugConfig and bool(DebugConfig.get("enable_ai_village_probe")):
 		_place_village_probe()
+	elif DebugConfig and bool(DebugConfig.get("enable_hunt_loot_proof")):
+		_send_hunt_loot_proof()
+	elif DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+		call_deferred("_start_raid_capture_proof")
+	elif not (DebugConfig and bool(DebugConfig.get("enable_raid_decision_proof"))):
+		_send_eager_observer_raid()
+	elif raid_decision:
+		print("RAID_DECISION_PROOF waiting for RAID_START why=food or a real RAID_SKIP (no eager_raid)")
 	print("Watch CLAN_COMBAT lines. Quit on a timer with --eval-behavior-sec 300 or --playtest-5min.")
+
+
+func register_raid_decision_proof(kind: String, detail: String, _clan: String = "") -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_decision_proof")):
+		return
+	if kind == "start" and detail == "food":
+		_raid_decision_proof_start_food = true
+		print("RAID_DECISION_PROOF saw start why=food clan=%s" % _clan)
+	elif kind == "skip":
+		var allowed: PackedStringArray = PackedStringArray([
+			"too_few", "outnumbered", "alert", "hunting", "cooldown", "trade",
+			"no_target", "no_motive", "short_handed", "shaken", "no_prize",
+		])
+		if detail in allowed and _raid_decision_proof_skip_reason == "":
+			_raid_decision_proof_skip_reason = detail
+			print("RAID_DECISION_PROOF saw skip reason=%s clan=%s" % [detail, _clan])
+
+
+func _finalize_raid_decision_proof_on_exit() -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_decision_proof")):
+		return
+	if _raid_decision_proof_start_food:
+		print("RAID_DECISION_PROOF_OK start=food")
+	elif _raid_decision_proof_skip_reason != "":
+		print("RAID_DECISION_PROOF_OK skip=%s" % _raid_decision_proof_skip_reason)
+	else:
+		push_error("RAID_DECISION_PROOF_FAIL: need RAID_START why=food or a real RAID_SKIP")
+
+
+func _raid_decision_proof_exit_code() -> int:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_decision_proof")):
+		return 0
+	if _raid_decision_proof_start_food or _raid_decision_proof_skip_reason != "":
+		return 0
+	return 1
+
+
+func _start_raid_capture_proof() -> void:
+	var claims: Array = []
+	for claim in get_cached_land_claims():
+		if is_instance_valid(claim) and not bool(claim.get("player_owned")):
+			claims.append(claim)
+	if claims.size() < 2:
+		push_error("RAID_CAPTURE_PROOF_FAIL missing=setup")
+		get_tree().quit(1)
+		return
+	var attacker: Node2D = claims[0] as Node2D
+	var defender: Node2D = claims[1] as Node2D
+	var brain: Variant = attacker.get_clan_brain() if attacker.has_method("get_clan_brain") else attacker.get("clan_brain")
+	if brain and brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
+	if brain == null or not brain.has_method("_start_raid"):
+		push_error("RAID_CAPTURE_PROOF_FAIL missing=brain")
+		get_tree().quit(1)
+		return
+	set_meta("raid_capture_proof_armed", true)
+	_raid_capture_proof_steps = PackedStringArray()
+	_raid_capture_proof_started_at = Time.get_ticks_msec() / 1000.0
+	if brain.has_method("is_raiding") and brain.is_raiding() and brain.has_method("_cancel_raid"):
+		brain._cancel_raid("capture_proof_reset")
+	await get_tree().process_frame
+	brain._start_raid(defender, "theft", "take_women")
+	call_deferred("_arm_raid_capture_proof_durable", attacker)
+	print("RAID_CAPTURE_PROOF forced attacker=%s target=%s" % [str(attacker.get("clan_name")), str(defender.get("clan_name"))])
+
+
+func _arm_raid_capture_proof_durable(attacker_claim: Node2D) -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_capture_proof")):
+		return
+	var attacker_clan: String = str(attacker_claim.get("clan_name")) if attacker_claim.get("clan_name") != null else ""
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc):
+			continue
+		var nc: String = str(npc.get("clan_name")) if npc.get("clan_name") != null else ""
+		if nc != attacker_clan:
+			continue
+		var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+		if nt != "caveman" and nt != "clansman":
+			continue
+		npc.set_meta("raid_capture_proof_durable", true)
+
+
+func _tick_raid_capture_proof(delta: float) -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_capture_proof")):
+		return
+	if _raid_capture_proof_started_at < 0.0:
+		return
+	var required: PackedStringArray = PackedStringArray([
+		"start_theft", "raid_goal", "building_down", "raid_capture", "raid_wrong_stole", "npc_joined", "prize_joined", "goal_done",
+	])
+	if _raid_capture_proof_steps.size() >= required.size():
+		print("RAID_CAPTURE_PROOF_OK")
+		get_tree().quit(0)
+		return
+	var elapsed: float = Time.get_ticks_msec() / 1000.0 - _raid_capture_proof_started_at
+	if elapsed > 235.0:
+		var missing: String = ""
+		for step in required:
+			if not _raid_capture_proof_steps.has(step):
+				missing = step
+				break
+		push_error("RAID_CAPTURE_PROOF_FAIL missing=%s" % missing)
+		get_tree().quit(1)
+
+
+func register_raid_capture_proof_line(line: String) -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_capture_proof")):
+		return
+	if not bool(get_meta("raid_capture_proof_armed", false)):
+		return
+	if "RAID_START" in line and "why=theft" in line and "goal=take_women" in line:
+		_note_capture_step("start_theft")
+	elif line.begins_with("RAID_GOAL clan="):
+		_note_capture_step("raid_goal")
+	elif line.begins_with("RAID_BUILDING_DOWN"):
+		_note_capture_step("building_down")
+	elif line.begins_with("RAID_CAPTURE victim="):
+		_note_capture_step("raid_capture")
+	elif "RAID_WRONG" in line and "kind=stole" in line:
+		_note_capture_step("raid_wrong_stole")
+	elif " joined clan " in line and "entered herder" in line:
+		_note_capture_step("npc_joined")
+	elif line.begins_with("RAID_PRIZE") and "state=joined" in line:
+		_note_capture_step("prize_joined")
+	elif line.begins_with("RAID_GOAL_DONE"):
+		_note_capture_step("goal_done")
+
+
+func _note_capture_step(step: String) -> void:
+	var required: PackedStringArray = PackedStringArray([
+		"start_theft", "raid_goal", "building_down", "raid_capture", "raid_wrong_stole", "npc_joined", "prize_joined", "goal_done",
+	])
+	var next_idx: int = _raid_capture_proof_steps.size()
+	if next_idx >= required.size() or step != required[next_idx]:
+		return
+	if step in _raid_capture_proof_steps:
+		return
+	_raid_capture_proof_steps.append(step)
+	print("RAID_CAPTURE_PROOF step=%s" % step)
+
+
+func _finalize_raid_capture_proof_on_exit() -> void:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_capture_proof")):
+		return
+	if _raid_capture_proof_steps.size() >= 8:
+		print("RAID_CAPTURE_PROOF_OK")
+	else:
+		push_error("RAID_CAPTURE_PROOF_FAIL on_exit steps=%d" % _raid_capture_proof_steps.size())
+
+
+func _raid_capture_proof_exit_code() -> int:
+	if not DebugConfig or not bool(DebugConfig.get("enable_raid_capture_proof")):
+		return 0
+	return 0 if _raid_capture_proof_steps.size() >= 8 else 1
+
+
+func _clan_people_are_awake(clan_canon: String) -> bool:
+	var clan_key := clan_canon.strip_edges().to_lower()
+	for npc in get_cached_npcs():
+		if not is_instance_valid(npc):
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		var ntype := str(npc.get("npc_type"))
+		if ntype != "woman" and ntype != "baby" and ntype != "clansman" and ntype != "caveman":
+			continue
+		if npc.has_method("is_sim_dormant") and bool(npc.call("is_sim_dormant")):
+			continue
+		return true
+	return false
+
+
+func _write_productivity_compare(tag: String) -> void:
+	## This session only. Awake camps are counted from their bodies. Asleep camps are counted from the camp record.
+	if not _session_ai_clan_instrument_active():
+		return
+	var elapsed := 0.0
+	if _session_quit_start_time >= 0.0:
+		elapsed = Time.get_ticks_msec() / 1000.0 - _session_quit_start_time
+	var moved := 0.0
+	if player and is_instance_valid(player):
+		if not _player_productivity_origin_set:
+			_player_productivity_origin = player.global_position
+			_player_productivity_origin_set = true
+		moved = player.global_position.distance_to(_player_productivity_origin)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append(
+		"PRODUCTIVITY_COMPARE tag=%s t=%.0f player_moved_px=%.0f" % [tag, elapsed, moved]
+	)
+	print(lines[0])
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim):
+			continue
+		var clan := str(claim.get("clan_name"))
+		if clan.is_empty():
+			continue
+		var owned := 1 if bool(claim.get("player_owned")) else 0
+		var awake := _clan_people_are_awake(clan)
+		var women := 0
+		var pregnant := 0
+		var babies := 0
+		var clansmen := 0
+		var source := "record"
+		if awake:
+			source = "live"
+			var live := _session_ai_clan_roster_counts(clan)
+			women = int(live.get("women", 0))
+			pregnant = int(live.get("pregnant", 0))
+			babies = int(live.get("babies", 0))
+			clansmen = int(live.get("clansmen", 0))
+		else:
+			var brain: Variant = claim.get("clan_brain")
+			if brain and brain.has_method("record_counts"):
+				var rec: Dictionary = brain.call("record_counts")
+				women = int(rec.get("women", 0))
+				pregnant = int(rec.get("pregnant", 0))
+				babies = int(rec.get("babies", 0))
+				clansmen = int(rec.get("clansmen", 0))
+		var food := 0
+		if ClanFoodBuffer:
+			var pantry: Dictionary = ClanFoodBuffer.compute(claim)
+			food = int(pantry.get("food_total", 0))
+		var births := int(_productivity_births.get(clan.to_lower(), 0))
+		var away := 0
+		var edible := 0
+		var hunts := 0
+		var raids := 0
+		var brain_row: Variant = claim.get("clan_brain")
+		if brain_row and brain_row.has_method("session_activity"):
+			var act: Dictionary = brain_row.call("session_activity")
+			away = int(act.get("away", 0))
+			edible = int(act.get("edible", 0))
+			hunts = int(act.get("hunts", 0))
+			raids = int(act.get("raids", 0))
+		var row := (
+			"PRODUCTIVITY_ROW tag=%s side=%s clan=%s source=%s women=%d pregnant=%d babies=%d clansmen=%d births=%d food=%d away=%d edible=%d hunts=%d raids=%d"
+			% [
+				tag,
+				"player" if owned == 1 else "ai",
+				clan,
+				source,
+				women,
+				pregnant,
+				babies,
+				clansmen,
+				births,
+				food,
+				away,
+				edible,
+				hunts,
+				raids,
+			]
+		)
+		lines.append(row)
+		print(row)
+	var path := ProjectSettings.globalize_path("res://Tests/logs/productivity_compare_latest.txt")
+	var mode := FileAccess.READ_WRITE if _productivity_log_ready else FileAccess.WRITE
+	var f := FileAccess.open(path, mode)
+	if f == null:
+		push_error("productivity compare log failed: %s" % path)
+		return
+	if _productivity_log_ready:
+		f.seek_end()
+	else:
+		f.store_line("# This session. Awake camp = live bodies. Asleep camp = camp record. Births counted this session.")
+		_productivity_log_ready = true
+	for line in lines:
+		f.store_line(line)
+	f.close()
+
+
+func _finalize_settlement_clock_proof_on_exit() -> void:
+	if not _session_ai_clan_instrument_active():
+		return
+	if player == null or not is_instance_valid(player):
+		return
+	var player_pos: Vector2 = player.global_position
+	var materialized := false
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim):
+			continue
+		var brain: Variant = claim.get("clan_brain")
+		var dist: float = claim.global_position.distance_to(player_pos)
+		if bool(claim.get("player_owned")):
+			var live := _session_ai_clan_roster_counts(str(claim.get("clan_name")))
+			var women_bits: PackedStringArray = live.get("women_bits", PackedStringArray())
+			var all_dormant := women_bits.size() > 0
+			for bit in women_bits:
+				if not str(bit).contains("dorm=1"):
+					all_dormant = false
+			if all_dormant and dist <= 400.0:
+				_settlement_clock_proof_failed = true
+				print("AI_CLAN_PROOF_FAIL clan=%s reason=player_camp_frozen" % str(claim.get("clan_name")))
+			continue
+		if dist <= 2400.0:
+			continue
+		if brain == null or not brain.has_method("record_counts"):
+			_settlement_clock_proof_failed = true
+			print("AI_CLAN_PROOF_FAIL clan=%s reason=no_record" % str(claim.get("clan_name")))
+			continue
+		if brain.has_method("_emit_record_log"):
+			brain.call("_emit_record_log", "proof", 0.0)
+		var counts: Dictionary = brain.call("record_counts")
+		var women: int = int(counts.get("women", 0))
+		var births: int = int(counts.get("births", 0))
+		var clansmen: int = int(counts.get("clansmen", 0))
+		var need_growth: bool = false
+		if DebugConfig:
+			need_growth = float(DebugConfig.session_quit_after_seconds) >= 40.0
+		if women < 2 or (need_growth and (births < 1 or clansmen < 1)):
+			_settlement_clock_proof_failed = true
+			print(
+				"AI_CLAN_PROOF_FAIL clan=%s reason=record women=%d births=%d clansmen=%d"
+				% [str(claim.get("clan_name")), women, births, clansmen]
+			)
+		if need_growth and brain.has_method("session_activity"):
+			var act: Dictionary = brain.call("session_activity")
+			if int(act.get("edible", 0)) <= 0 and int(act.get("hunts", 0)) <= 0:
+				_settlement_clock_proof_failed = true
+				print(
+					"AI_CLAN_PROOF_FAIL clan=%s reason=no_work edible=%d hunts=%d"
+					% [str(claim.get("clan_name")), int(act.get("edible", 0)), int(act.get("hunts", 0))]
+				)
+		if not materialized and brain.has_method("materialize_clan_for_combat"):
+			brain.call("materialize_clan_for_combat")
+			var live_after := _session_ai_clan_roster_counts(str(claim.get("clan_name")))
+			var live_people: int = int(live_after.get("women", 0)) + int(live_after.get("babies", 0)) + int(live_after.get("clansmen", 0))
+			var record_people: int = women + int(counts.get("babies", 0)) + clansmen - int(counts.get("away", 0))
+			# Leader is a caveman, not counted as clansman. Allow the leader body on top of the record people.
+			if live_people < record_people:
+				_settlement_clock_proof_failed = true
+				print(
+					"AI_CLAN_PROOF_FAIL clan=%s reason=materialize live=%d record=%d"
+					% [str(claim.get("clan_name")), live_people, record_people]
+				)
+			materialized = true
+	if _settlement_clock_proof_failed:
+		print("AI_CLAN_PROOF_FAIL settlement clock")
+	else:
+		print("AI_CLAN_PROOF_PASS settlement clock")
+
+
+func _session_proof_exit_code() -> int:
+	if _settlement_clock_proof_failed:
+		return 1
+	if DebugConfig and bool(DebugConfig.get("enable_raid_decision_proof")):
+		return _raid_decision_proof_exit_code()
+	if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+		return _raid_capture_proof_exit_code()
+	return 0
+
+
+func _send_hunt_loot_proof() -> void:
+	## One clan is sent after a seeded deer so the butcher can finish. Hunger is not the thing under test.
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim) or bool(claim.get("player_owned")):
+			continue
+		var brain: RefCounted = claim.get_clan_brain() if claim.has_method("get_clan_brain") else null
+		if brain == null or not brain.has_method("_start_hunt"):
+			continue
+		var deer: Node = null
+		var best: float = INF
+		for n in get_tree().get_nodes_in_group("npcs"):
+			if not is_instance_valid(n) or str(n.get("npc_type")) != "deer":
+				continue
+			if n.has_method("is_dead") and n.is_dead():
+				continue
+			var d: float = claim.global_position.distance_to(n.global_position)
+			if d < best:
+				best = d
+				deer = n
+		if deer == null:
+			push_warning("HUNT_LOOT_PROOF: no deer for %s" % str(claim.get("clan_name")))
+			return
+		if brain.has_method("_refresh_clan_members"):
+			brain._refresh_clan_members()
+		print("HUNT_LOOT_PROOF clan=%s deer=%s dist=%.0f" % [str(claim.get("clan_name")), str(deer.get("npc_name")), best])
+		brain._start_hunt(deer, 3, 1.0)
+		return
+	push_warning("HUNT_LOOT_PROOF: no clan")
+
+
+func _send_eager_observer_raid() -> void:
+	## First clan is given a high bar and sent. It already counts the other camp as a neighbor.
+	var claims: Array = []
+	for claim in get_cached_land_claims():
+		if is_instance_valid(claim) and not bool(claim.get("player_owned")):
+			claims.append(claim)
+	if claims.size() < 2:
+		push_warning("AI_COMBAT_OBSERVE: need two claims to raid")
+		return
+	var eager: Node2D = claims[0] as Node2D
+	var target: Node2D = claims[1] as Node2D
+	var brain: Variant = eager.get_clan_brain() if eager.has_method("get_clan_brain") else eager.get("clan_brain")
+	if brain == null or not brain.has_method("_start_raid"):
+		push_warning("AI_COMBAT_OBSERVE: eager clan has no raid")
+		return
+	if brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
+	brain.set("clan_morale", 80.0)
+	var eager_name := str(eager.get("clan_name"))
+	print("NPC_CLAN_MORALE clan=%s bar=80.0 why=observer" % eager_name)
+	print("AI_COMBAT_OBSERVE eager_raid clan=%s target=%s bar=80.0" % [eager_name, str(target.get("clan_name"))])
+	brain._start_raid(target)
 
 
 func _place_village_probe() -> void:
@@ -7377,6 +7898,7 @@ func _start_raid_probe() -> void:
 	if brain == null or not brain.has_method("_start_raid"):
 		push_warning("RAID_PROBE: attacker has no raid")
 		return
+	_prove_raid_appetite_gate(brain, defender)
 	brain._start_raid(defender)
 	var leader: Node = attacker.get_meta("raid_party_leader") as Node if attacker.has_meta("raid_party_leader") else null
 	var followers: Array = attacker.get_meta("raid_party_followers", []) if attacker.has_meta("raid_party_followers") else []
@@ -7404,26 +7926,104 @@ func _start_raid_probe() -> void:
 	set_meta("raid_probe_t0", Time.get_ticks_msec() / 1000.0)
 	set_meta("raid_probe_snap_acc", 1.0)
 	set_meta("raid_probe_leader_killed", false)
+	set_meta("raid_probe_light_loss_done", false)
+	set_meta("raid_probe_shaken_recheck_done", false)
+	set_meta("raid_probe_recovered_start_done", false)
 
 
-func _maybe_raid_probe_kill_leader(attacker: Node2D) -> void:
+func _prove_raid_appetite_gate(brain: Variant, defender: Node2D) -> void:
+	## A direct start at 49 must refuse. The real probe start happens after this, at 50.
+	brain.set("clan_morale", 49.0)
+	brain._start_raid(defender)
+	var state_after: int = int(brain.get_raid_state()) if brain.has_method("get_raid_state") else -1
+	var refused: bool = state_after == 0
+	print("RAID_PROBE gate bar=49.0 state=%d ok=%s" % [state_after, "yes" if refused else "no"])
+	brain.set("clan_morale", 50.0)
+
+
+func _raid_probe_kill(body: Node) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	if body.has_method("is_dead") and body.is_dead():
+		return false
+	var hc: Node = body.get_node_or_null("HealthComponent")
+	if hc == null or not hc.has_method("take_damage"):
+		return false
+	hc.take_damage(9999, null)
+	return true
+
+
+func _maybe_raid_probe_light_loss(attacker: Node2D, defender: Node2D) -> void:
+	## Two raider deaths (not the leader) and two enemy deaths. Six living on each side.
+	## Ends the march before the fight wipes the warband, then asks to raid again while the bar is under 50.
 	if DisplayServer.get_name() != "headless":
 		return
-	if bool(get_meta("raid_probe_leader_killed", false)):
+	if bool(get_meta("raid_probe_light_loss_done", false)):
+		_maybe_raid_probe_recovered_start(attacker, defender)
 		return
-	if not attacker.has_meta("raid_form_left") or not bool(attacker.get_meta("raid_form_left")):
+	if not attacker.has_meta("raid_party_leader") or not attacker.has_meta("raid_party_followers"):
 		return
-	if not attacker.has_meta("raid_party_leader"):
+	var brain: Variant = attacker.get_clan_brain() if attacker.has_method("get_clan_brain") else attacker.get("clan_brain")
+	if brain == null or not brain.has_method("_start_raid"):
 		return
-	var leader_v: Variant = attacker.get_meta("raid_party_leader")
-	if leader_v == null or not is_instance_valid(leader_v):
+	var leader: Node = attacker.get_meta("raid_party_leader") as Node
+	var followers: Array = attacker.get_meta("raid_party_followers", [])
+	var killed_raiders: int = 0
+	for follower in followers:
+		if killed_raiders >= 2:
+			break
+		if follower == null or follower == leader:
+			continue
+		if _raid_probe_kill(follower as Node):
+			killed_raiders += 1
+	var defender_clan: String = str(defender.get("clan_name"))
+	var killed_enemy: int = 0
+	for member in get_tree().get_nodes_in_group("npcs"):
+		if killed_enemy >= 2:
+			break
+		if not is_instance_valid(member):
+			continue
+		var member_clan: String = str(member.get_meta("clan_name", "")) if member.has_meta("clan_name") else ""
+		if member_clan != defender_clan:
+			continue
+		var kind: String = str(member.get("npc_type"))
+		if kind != "caveman" and kind != "clansman":
+			continue
+		if _raid_probe_kill(member):
+			killed_enemy += 1
+	if killed_raiders < 2 or killed_enemy < 2:
+		push_warning("RAID_PROBE light loss incomplete raiders=%d enemy=%d" % [killed_raiders, killed_enemy])
 		return
-	var leader: Node = leader_v as Node
-	var hc: Node = leader.get_node_or_null("HealthComponent")
-	if hc and hc.has_method("take_damage") and not bool(hc.get("is_dead")):
-		hc.take_damage(9999, null)
-		set_meta("raid_probe_leader_killed", true)
-		print("RAID_PROBE leader_killed=%s" % str(leader.get("npc_name")))
+	set_meta("raid_probe_light_loss_done", true)
+	print("RAID_PROBE light_loss raiders=%d enemy=%d bar=%.1f" % [killed_raiders, killed_enemy, float(brain.get("clan_morale"))])
+	if brain.has_method("_complete_raid"):
+		brain._complete_raid("probe_disengage")
+	if bool(get_meta("raid_probe_shaken_recheck_done", false)):
+		return
+	set_meta("raid_probe_shaken_recheck_done", true)
+	var bar_now: float = float(brain.get("clan_morale"))
+	brain._start_raid(defender)
+	var state_after: int = int(brain.get_raid_state()) if brain.has_method("get_raid_state") else -1
+	print("RAID_PROBE shaken bar=%.1f state=%d ok=%s" % [bar_now, state_after, "yes" if state_after == 0 else "no"])
+
+
+func _maybe_raid_probe_recovered_start(attacker: Node2D, defender: Node2D) -> void:
+	if bool(get_meta("raid_probe_recovered_start_done", false)):
+		return
+	if not bool(get_meta("raid_probe_shaken_recheck_done", false)):
+		return
+	var brain: Variant = attacker.get_clan_brain() if attacker.has_method("get_clan_brain") else attacker.get("clan_brain")
+	if brain == null or not brain.has_method("_start_raid"):
+		return
+	if brain.has_method("get_raid_state") and int(brain.get_raid_state()) != 0:
+		return
+	var bar_now: float = float(brain.get("clan_morale"))
+	if bar_now < 50.0:
+		return
+	set_meta("raid_probe_recovered_start_done", true)
+	brain._start_raid(defender)
+	var state_after: int = int(brain.get_raid_state()) if brain.has_method("get_raid_state") else -1
+	print("RAID_PROBE recovered bar=%.1f state=%d ok=%s" % [bar_now, state_after, "yes" if state_after != 0 else "no"])
 
 
 func _tick_raid_probe_snap(delta: float) -> void:
@@ -7446,7 +8046,7 @@ func _emit_raid_probe_snap() -> void:
 		return
 	var attacker: Node2D = attacker_v as Node2D
 	var defender: Node2D = defender_v as Node2D
-	_maybe_raid_probe_kill_leader(attacker)
+	_maybe_raid_probe_light_loss(attacker, defender)
 	var elapsed: float = Time.get_ticks_msec() / 1000.0 - float(get_meta("raid_probe_t0", 0.0))
 	var attacker_clan: String = str(attacker.get("clan_name"))
 	var defender_clan: String = str(defender.get("clan_name"))
@@ -7757,6 +8357,376 @@ func _log_eval_camp_ai_status(tag: String = "") -> void:
 		])
 
 
+func _session_ai_clan_instrument_active() -> bool:
+	if DebugConfig == null or not DebugConfig.enable_session_quickstart:
+		return false
+	return int(DebugConfig.session_nearby_clans_count) > 0
+
+
+func _tick_session_ai_clan_instrumentation(delta: float) -> void:
+	if not _session_ai_clan_instrument_active():
+		return
+	_session_ai_clan_instr_accum += delta
+	if _session_ai_clan_instr_accum < SESSION_AI_CLAN_INSTR_INTERVAL_SEC:
+		return
+	_session_ai_clan_instr_accum = 0.0
+	_emit_session_ai_clan_snapshots("tick")
+	_productivity_compare_accum += SESSION_AI_CLAN_INSTR_INTERVAL_SEC
+	if _productivity_compare_accum >= 60.0:
+		_productivity_compare_accum = 0.0
+		_write_productivity_compare("minute")
+
+
+func register_session_ai_clan_repro(clan: String, event: String, detail: String, extra: Dictionary = {}) -> void:
+	if not _session_ai_clan_instrument_active():
+		return
+	var clan_s := str(clan).strip_edges()
+	if clan_s.is_empty():
+		return
+	var player_owned := 0
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim):
+			continue
+		if str(claim.get("clan_name")).strip_edges().to_lower() == clan_s.to_lower():
+			player_owned = 1 if bool(claim.get("player_owned")) else 0
+			break
+	if event == "birth":
+		_productivity_births[clan_s.to_lower()] = int(_productivity_births.get(clan_s.to_lower(), 0)) + 1
+	var line := "AI_CLAN_REPRO clan=%s player_owned=%d event=%s detail=%s" % [clan_s, player_owned, event, detail]
+	for k in extra:
+		line += " %s=%s" % [str(k), str(extra[k])]
+	print(line)
+	var pi := get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("ai_clan_repro"):
+		var payload := {"clan": clan_s, "player_owned": player_owned, "event": event, "detail": detail}
+		for k in extra:
+			payload[k] = extra[k]
+		pi.ai_clan_repro(payload)
+
+
+func _npc_sim_dormant(npc: Node) -> bool:
+	if npc == null or not is_instance_valid(npc):
+		return false
+	if npc.has_method("is_sim_dormant"):
+		return bool(npc.call("is_sim_dormant"))
+	return false
+
+
+func _npc_inside_own_claim(npc: Node) -> bool:
+	if npc == null or not is_instance_valid(npc):
+		return false
+	if npc.has_method("is_inside_land_claim"):
+		var info: Variant = npc.call("is_inside_land_claim")
+		if info is Dictionary:
+			return bool((info as Dictionary).get("inside", false))
+	return false
+
+
+func _session_ai_clan_roster_counts(clan_canon: String) -> Dictionary:
+	var out := {
+		"women": 0, "pregnant": 0, "babies": 0, "clansmen": 0, "women_bits": PackedStringArray(),
+	}
+	var clan_key := clan_canon.strip_edges().to_lower()
+	for npc in get_cached_npcs():
+		if not is_instance_valid(npc):
+			continue
+		var nc := str(npc.get("clan_name")).strip_edges().to_lower()
+		if nc != clan_key:
+			continue
+		var ntype := str(npc.get("npc_type"))
+		match ntype:
+			"woman":
+				out.women += 1
+				var rc: Node = npc.get("reproduction_component") if npc.has_method("get") else null
+				var preg := false
+				var timer := 0.0
+				if rc:
+					preg = bool(rc.get("is_pregnant"))
+					timer = float(rc.get("birth_timer"))
+				if preg:
+					out.pregnant += 1
+				var hut := false
+				if rc and rc.has_method("has_living_hut_assigned"):
+					hut = bool(rc.call("has_living_hut_assigned"))
+				var bit := "%s:preg=%s t=%.1f hut=%d in=%d dorm=%d" % [
+					str(npc.get("npc_name")),
+					"1" if preg else "0",
+					timer,
+					1 if hut else 0,
+					1 if _npc_inside_own_claim(npc) else 0,
+					1 if _npc_sim_dormant(npc) else 0,
+				]
+				out.women_bits.append(bit)
+			"baby":
+				out.babies += 1
+			"clansman":
+				out.clansmen += 1
+	return out
+
+
+func _find_clan_leader_npc(clan_canon: String) -> Node:
+	var clan_key := clan_canon.strip_edges().to_lower()
+	for npc in get_cached_npcs():
+		if not is_instance_valid(npc):
+			continue
+		if str(npc.get("npc_type")) != "caveman":
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		return npc
+	return null
+
+
+func _emit_session_ai_clan_snapshots(tag: String = "tick") -> void:
+	if not _session_ai_clan_instrument_active():
+		return
+	for claim in get_cached_land_claims():
+		if not is_instance_valid(claim):
+			continue
+		var clan_canon := str(claim.get("clan_name"))
+		if clan_canon.is_empty():
+			continue
+		var metrics := ClanFoodBuffer.compute(claim)
+		var pantry_days: float = float(metrics.get("pantry_days", 0.0))
+		var food_total: int = int(metrics.get("food_total", 0))
+		var leader := _find_clan_leader_npc(clan_canon)
+		var leader_name := "?"
+		var leader_in := 0
+		var leader_dorm := 0
+		if leader:
+			leader_name = str(leader.get("npc_name"))
+			leader_in = 1 if _npc_inside_own_claim(leader) else 0
+			leader_dorm = 1 if _npc_sim_dormant(leader) else 0
+		var brain_dorm := 1
+		var brain: Variant = claim.get("clan_brain")
+		if brain:
+			brain_dorm = 1 if bool(brain.get("is_dormant")) else 0
+		var roster := _session_ai_clan_roster_counts(clan_canon)
+		var player_owned := 1 if bool(claim.get("player_owned")) else 0
+		var line := (
+			"AI_CLAN_SNAPSHOT tag=%s clan=%s player_owned=%d pantry_days=%.2f food_total=%d "
+			+ "leader=%s leader_in_claim=%d leader_dormant=%d brain_dormant=%d "
+			+ "women=%d pregnant=%d babies=%d clansmen=%d women=%s"
+		) % [
+			tag, clan_canon, player_owned, pantry_days, food_total,
+			leader_name, leader_in, leader_dorm, brain_dorm,
+			int(roster.women), int(roster.pregnant), int(roster.babies), int(roster.clansmen),
+			"|".join(roster.women_bits),
+		]
+		print(line)
+		var pi := get_node_or_null("/root/PlaytestInstrumentor")
+		if pi and pi.has_method("ai_clan_snapshot"):
+			pi.ai_clan_snapshot({
+				"tag": tag,
+				"clan": clan_canon,
+				"player_owned": player_owned,
+				"pantry_days": pantry_days,
+				"food_total": food_total,
+				"leader": leader_name,
+				"leader_in_claim": leader_in,
+				"leader_dormant": leader_dorm,
+				"brain_dormant": brain_dorm,
+				"women": int(roster.women),
+				"pregnant": int(roster.pregnant),
+				"babies": int(roster.babies),
+				"clansmen": int(roster.clansmen),
+			})
+		if brain and brain.has_method("_emit_record_log"):
+			brain.call("_emit_record_log", tag, 0.0)
+
+
+func _stock_session_quickstart_claim_inventory(building_inventory: InventoryData) -> void:
+	if building_inventory == null:
+		return
+	for i in range(building_inventory.slot_count):
+		building_inventory.slots[i] = null
+	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
+	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
+	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
+	building_inventory.add_item(ResourceData.ResourceType.BREAD, 10)
+
+
+func _spawn_session_quickstart_women(
+	land_claim: LandClaim,
+	clan_canon: String,
+	name_prefix: String
+) -> Array[Node]:
+	var women: Array[Node] = []
+	if land_claim == null or not world_objects:
+		return women
+	var land_claim_pos: Vector2 = land_claim.global_position
+	var woman_offsets: Array[Vector2] = [Vector2(-50, -80), Vector2(-50, 80)]
+	for i in range(2):
+		var woman_pos: Vector2 = land_claim_pos + woman_offsets[i]
+		var npc: Node = NPC_SCENE.instantiate()
+		if not npc:
+			continue
+		var npc_name: String = "%s_%s" % [name_prefix, ["A", "B"][i]]
+		npc.set("npc_name", npc_name)
+		npc.set("npc_type", "woman")
+		npc.set("traits", ["herd"])
+		npc.set("age", 25)
+		npc.set("clan_name", clan_canon)
+		_apply_placeholder_card_to_npc(npc)
+		world_objects.add_child(npc)
+		npc.global_position = woman_pos
+		npc.set("spawn_position", woman_pos)
+		var stats: Node = npc.get_node_or_null("Stats")
+		if stats and stats.has_method("set_stat"):
+			stats.set_stat("agility", 9.0)
+		elif stats:
+			stats.agility = 9.0
+		npc.visible = true
+		if npc.has_method("set_clan_name"):
+			npc.set_clan_name(clan_canon, "session_quickstart")
+		women.append(npc)
+	return women
+
+
+func _apply_session_parity_to_ai_camp(land_claim: LandClaim, leader: Node, camp_index: int) -> void:
+	if land_claim == null or leader == null or not is_instance_valid(leader):
+		return
+	var clan_canon: String = str(land_claim.clan_name)
+	if land_claim.inventory:
+		_stock_session_quickstart_claim_inventory(land_claim.inventory)
+	await get_tree().process_frame
+	var prefix: String = "AI%d" % camp_index
+	var women: Array[Node] = _spawn_session_quickstart_women(land_claim, clan_canon, prefix)
+	await get_tree().process_frame
+	for w in women:
+		if w and is_instance_valid(w):
+			_place_herder_hut(land_claim, w, leader, true)
+			await get_tree().process_frame
+	for w in women:
+		if not w or not is_instance_valid(w):
+			continue
+		var rc: Node = w.get("reproduction_component") if w.has_method("get") else null
+		if rc and rc.has_method("session_quickstart_start_pregnancy_now"):
+			rc.session_quickstart_start_pregnancy_now(leader)
+	var specialties: PackedStringArray = _specialize_ai_start_huts(land_claim)
+	var brain: Variant = land_claim.get("clan_brain")
+	if brain and brain.has_method("capture_record_after_productive_start"):
+		brain.capture_record_after_productive_start()
+	elif brain and brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
+	print("✓ AI camp '%s' productive start — stock + 2 huts (%s) + 2 women" % [clan_canon, ", ".join(specialties)])
+
+
+const AI_START_HUT_SPECIALTIES: Array[String] = ["crop", "oven"]
+
+
+## AI camps pay the same wood + stone a player pays. Their start stock has no stone, so each hut is given one first.
+func _specialize_ai_start_huts(land_claim: LandClaim) -> PackedStringArray:
+	var made := PackedStringArray()
+	if land_claim == null or land_claim.inventory == null or ClaimBuildingIndex == null:
+		return made
+	for building in ClaimBuildingIndex.get_buildings_in_claim(land_claim):
+		if made.size() >= AI_START_HUT_SPECIALTIES.size():
+			break
+		if not (building is BuildingBase) or not HutSpecialtyScript.can_specialize(building):
+			continue
+		var kind: String = AI_START_HUT_SPECIALTIES[made.size()]
+		land_claim.inventory.add_item(ResourceData.ResourceType.STONE, 1)
+		if (building as BuildingBase).specialize_hut(kind):
+			made.append(kind)
+		else:
+			land_claim.inventory.remove_item(ResourceData.ResourceType.STONE, 1)
+	return made
+
+
+# Player claim, five unspecialized living huts, and claim wood/stone for one Tier 1 upgrade each.
+func _setup_hut_tier_test_environment() -> void:
+	print("=== HUT TIER TEST: 5 living huts. Specialize spends the land-claim stock, not the player bag. ===")
+	if not player or not world_objects:
+		print("ERROR: Hut tier test: player or world_objects is null")
+		return
+	const HUT_TIER_CLAN: String = "test"
+	const HUT_COUNT: int = 5
+	var land_claim: LandClaim = LAND_CLAIM_SCENE.instantiate() as LandClaim
+	if not land_claim:
+		print("ERROR: Hut tier test: failed to instantiate land claim")
+		return
+	land_claim.global_position = player.global_position
+	land_claim.set_clan_name(HUT_TIER_CLAN)
+	var clan_canon: String = land_claim.clan_name
+	land_claim.player_owned = true
+	var building_inventory := _new_land_claim_inventory()
+	for i in range(building_inventory.slot_count):
+		building_inventory.slots[i] = null
+	building_inventory.add_item(ResourceData.ResourceType.WOOD, HUT_COUNT + 10)
+	building_inventory.add_item(ResourceData.ResourceType.STONE, HUT_COUNT)
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 10)
+	building_inventory.add_item(ResourceData.ResourceType.HIDE, 10)
+	building_inventory.add_item(ResourceData.ResourceType.FIBER, 10)
+	land_claim.inventory = building_inventory
+	world_objects.add_child(land_claim)
+	_despawn_tallgrass_near(land_claim.global_position, land_claim.radius)
+	_despawn_decorative_trees_near(land_claim.global_position, land_claim.radius)
+	register_land_claim(land_claim)
+	land_claim.visible = true
+	_set_player_name(clan_canon)
+	await get_tree().process_frame
+	var placed := 0
+	var hut_women: Array = []
+	var hut_kinds: Array = ["oven", "weaver", "rack", "crop", "oven"]
+	for i in range(HUT_COUNT):
+		var angle := TAU * float(i) / float(HUT_COUNT)
+		var place_pos := land_claim.global_position + Vector2(cos(angle), sin(angle)) * 180.0
+		var building: BuildingBase = BUILDING_SCENE.instantiate() as BuildingBase
+		if not building:
+			continue
+		building.building_type = ResourceData.ResourceType.LIVING_HUT
+		building.clan_name = clan_canon
+		building.player_owned = true
+		building.global_position = place_pos
+		world_objects.add_child(building)
+		building.visible = true
+		_handle_building_placed(building, land_claim)
+		placed += 1
+		var woman: Node = NPC_SCENE.instantiate()
+		if woman:
+			woman.set("npc_name", "HutW%d" % (i + 1))
+			woman.set("npc_type", "woman")
+			woman.set("age", 25)
+			woman.set("clothing_style", i % 4)
+			woman.set_meta("clothing_style", i % 4)
+			woman.set("clan_name", clan_canon)
+			world_objects.add_child(woman)
+			woman.global_position = place_pos + Vector2(24, 0)
+			if woman.has_method("set_clan_name"):
+				woman.set_clan_name(clan_canon, "hut_tier_test")
+			if OccupationSystem:
+				OccupationSystem.force_assign(woman, building, 0, "woman")
+			var woman_sprite := woman.get_node_or_null("Sprite")
+			if woman_sprite:
+				woman_sprite.visible = true
+			hut_women.append(woman)
+		var kind: String = str(hut_kinds[i])
+		if building.specialize_hut(kind) and kind == "crop" and building.inventory:
+			building.inventory.add_item(ResourceData.ResourceType.GRAIN, 3)
+		print("🏠 Hut tier test hut %d woman HutW%d %s" % [i + 1, i + 1, HutSpecialtyScript.display_name(kind)])
+	if land_claim.clan_brain and land_claim.clan_brain.has_method("_evaluate_resource_allocation"):
+		land_claim.clan_brain._allocation_eval_counter = 99
+		land_claim.clan_brain._evaluate_resource_allocation()
+		print("Hut carry requests posted: %d" % land_claim.clan_brain.work_requests.size())
+	for woman in hut_women:
+		if woman and woman.get("fsm") and woman.fsm.has_method("force_evaluation"):
+			woman.fsm.force_evaluation()
+	print("=== HUT TIER TEST: %d huts, one woman each. Claim wood %d stone %d grain %d hide %d fiber %d. ===" % [
+		placed,
+		building_inventory.get_count(ResourceData.ResourceType.WOOD),
+		building_inventory.get_count(ResourceData.ResourceType.STONE),
+		building_inventory.get_count(ResourceData.ResourceType.GRAIN),
+		building_inventory.get_count(ResourceData.ResourceType.HIDE),
+		building_inventory.get_count(ResourceData.ResourceType.FIBER),
+	])
+	print("  Oven %s" % HutSpecialtyScript.art_path("oven"))
+	print("  Weaver %s" % HutSpecialtyScript.art_path("weaver"))
+	print("  Leather %s" % HutSpecialtyScript.art_path("rack"))
+	print("  Crop %s" % HutSpecialtyScript.art_path("crop"))
+
+
 # Session / playtest: player-owned claim + 2 women + 2 Living Huts (Player = designated father via herder path). Skips AI cavemen.
 # Claim is centered on the player so you start inside it (reproduction needs player in claim for father eligibility).
 func _setup_session_quickstart_environment() -> void:
@@ -7789,12 +8759,7 @@ func _setup_session_quickstart_environment() -> void:
 	land_claim.player_owned = true
 	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
-	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
-	# Reproduction needs food buffer or ≥3 food items; 20 grain alone ≈0.6 days for a small clan.
-	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
-	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
-	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
-	building_inventory.add_item(ResourceData.ResourceType.BREAD, 10)
+	_stock_session_quickstart_claim_inventory(building_inventory)
 	world_objects.add_child(land_claim)
 	_despawn_tallgrass_near(land_claim_pos, land_claim.radius)
 	_despawn_decorative_trees_near(land_claim_pos, land_claim.radius)
@@ -7802,34 +8767,10 @@ func _setup_session_quickstart_environment() -> void:
 	land_claim.visible = true
 	_set_player_name(clan_canon)
 	await get_tree().process_frame
-	var women: Array[Node] = []
-	var woman_offsets: Array[Vector2] = [Vector2(-50, -80), Vector2(-50, 80)]
-	for i in range(2):
-		var woman_pos: Vector2 = land_claim_pos + woman_offsets[i]
-		var npc: Node = NPC_SCENE.instantiate()
-		if not npc:
-			continue
-		var npc_name: String = "QS_%s" % (["A", "B"][i])
-		npc.set("npc_name", npc_name)
-		npc.set("npc_type", "woman")
-		npc.set("traits", ["herd"])
-		npc.set("age", 25)
-		npc.set("clan_name", clan_canon)
-		_apply_placeholder_card_to_npc(npc)
-		world_objects.add_child(npc)
-		npc.global_position = woman_pos
-		npc.set("spawn_position", woman_pos)
-		await get_tree().process_frame
-		var stats: Node = npc.get_node_or_null("Stats")
-		if stats and stats.has_method("set_stat"):
-			stats.set_stat("agility", 9.0)
-		elif stats:
-			stats.agility = 9.0
-		npc.visible = true
-		if npc.has_method("set_clan_name"):
-			npc.set_clan_name(clan_canon, "session_quickstart")
-		women.append(npc)
-		print("✓ Session quickstart: Woman %s at %s" % [npc_name, woman_pos])
+	var women: Array[Node] = _spawn_session_quickstart_women(land_claim, clan_canon, "QS")
+	for w in women:
+		if w and is_instance_valid(w):
+			print("✓ Session quickstart: Woman %s at %s" % [str(w.get("npc_name")), str(w.global_position)])
 	await get_tree().process_frame
 	for w in women:
 		if w and is_instance_valid(w):
@@ -7850,7 +8791,8 @@ func _setup_session_quickstart_environment() -> void:
 		pi_qs.phase7_playtest_briefing(clan_canon, preg_sec, tick_sec)
 	print("=== SESSION QUICKSTART: complete (clan '%s', claim center %s — you are inside; ~%.0fs pregnancy) ===" % [clan_canon, land_claim_pos, BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0])
 	if DebugConfig and int(DebugConfig.session_nearby_clans_count) > 0:
-		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count), 1500.0, "session_nearby_clan")
+		# Claim radius 400. 3200 center-to-center leaves ~2400px of open ground between borders.
+		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count), 3200.0, "session_nearby_clan")
 
 
 func _spawn_session_nearby_ai_clans(
@@ -7875,6 +8817,10 @@ func _spawn_session_nearby_ai_clans(
 		var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
 		var leader: Node = spawn_seeded_ai_clan_at(claim_pos, cave_pos, clan_name, world_objects, spawn_source)
 		var leader_name: String = str(leader.get("npc_name")) if leader else "?"
+		if DebugConfig and DebugConfig.enable_session_quickstart and leader and is_instance_valid(leader):
+			var ai_claim: LandClaim = leader.get_my_land_claim() as LandClaim if leader.has_method("get_my_land_claim") else null
+			if ai_claim:
+				await _apply_session_parity_to_ai_camp(ai_claim, leader, i + 1)
 		print("✓ AI camp '%s' claim at %s (caveman %s near %s)" % [clan_name, claim_pos, leader_name, cave_pos])
 		if pi and pi.is_enabled() and pi.has_method("session_nearby_clan_spawned"):
 			pi.session_nearby_clan_spawned(
@@ -7883,6 +8829,12 @@ func _spawn_session_nearby_ai_clans(
 	await get_tree().process_frame
 	if pi and pi.is_enabled() and pi.has_method("session_nearby_clans_complete"):
 		pi.session_nearby_clans_complete(count, ring_radius_px, player_center.x, player_center.y)
+	if DebugConfig and DebugConfig.enable_session_quickstart and count > 0:
+		print(
+			"=== SESSION AI CLAN INSTRUMENT: AI_CLAN_SNAPSHOT every %.0fs + AI_CLAN_REPRO on preg/birth/cancel ==="
+			% SESSION_AI_CLAN_INSTR_INTERVAL_SEC
+		)
+		_emit_session_ai_clan_snapshots("spawn")
 	if DebugConfig and DebugConfig.session_ai_clan_tour:
 		await _run_session_ai_clan_tour(player_center, count, ring_radius_px)
 
@@ -8297,7 +9249,7 @@ func _setup_raid_test_environment() -> void:
 		print("ERROR: Player or world_objects is null")
 		return
 	var center_pos := player.global_position
-	const CLAIM_DISTANCE := 650.0  # ~1300px apart — inside THREAT_DISTANCE_MAX and RAID_DISTANCE_MAX
+	const CLAIM_DISTANCE := 650.0  # ~1300px apart — near enough to be each other's closest neighbor
 	var claim_a_pos := center_pos + Vector2(-CLAIM_DISTANCE, 0)
 	var claim_b_pos := center_pos + Vector2(CLAIM_DISTANCE, 0)
 
@@ -9028,7 +9980,7 @@ func _equip_stone_to_npc(npc: Node) -> void:
 
 
 func _equip_spear_to_npc(npc: Node) -> void:
-	"""Spear behaves like club for NPCs: same stance visibility rules; melee thrust only (walk + spearattack sheet)."""
+	"""Spear behaves like club for NPCs: same stance visibility rules; melee thrust only."""
 	if not npc or not is_instance_valid(npc):
 		return
 	
@@ -9536,6 +10488,41 @@ func _on_land_claim_clicked(land_claim: LandClaim) -> void:
 		nearby_building = land_claim
 		_open_player_bag_beside_building()
 		print("Showing inventory for land claim: ", land_claim.clan_name)
+
+func _on_character_kin_inspect(npc: NPCBase) -> void:
+	if not npc or not is_instance_valid(npc):
+		return
+	if not character_menu_ui:
+		return
+	if clicked_npc and clicked_npc != npc and is_instance_valid(clicked_npc):
+		_freeze_npc_for_inspection(clicked_npc, false)
+	clicked_npc = npc
+	_freeze_npc_for_inspection(npc, true)
+	character_menu_ui.navigate_to_npc(npc)
+
+
+func _open_character_menu(npc: Node) -> void:
+	if not npc or not is_instance_valid(npc) or not (npc is NPCBase):
+		return
+	if not character_menu_ui:
+		return
+	if clicked_npc and clicked_npc != npc and is_instance_valid(clicked_npc):
+		_freeze_npc_for_inspection(clicked_npc, false)
+	var npc_type := str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	var npc_name := "unknown"
+	var name_val = npc.get("npc_name")
+	if name_val != null:
+		npc_name = str(name_val)
+	var state_name := ""
+	var fsm := npc.get_node_or_null("FSM")
+	if fsm and fsm.get("current_state_name") != null:
+		state_name = str(fsm.current_state_name)
+	var eid := EntityRegistry.get_id(npc) if EntityRegistry else int(npc.get_instance_id())
+	print("CHARACTER_MENU open id=%s name=%s type=%s state=%s pos=%s" % [eid, npc_name, npc_type, state_name, npc.global_position])
+	clicked_npc = npc
+	_freeze_npc_for_inspection(npc, true)
+	character_menu_ui.setup(npc as NPCBase)
+	character_menu_ui.show_menu()
 
 func _try_click_npc_for_inventory() -> void:
 	# Block if any inventory UI is open

@@ -185,7 +185,6 @@ func _setup_collection_progress() -> void:
 			offset_y = -sprite.texture.get_height() / 2.0 - 40.0
 		collection_progress.position = Vector2(0, offset_y)
 		collection_progress.z_as_relative = false
-		collection_progress.z_index = YSortUtils.Z_ABOVE_WORLD  # Above Y-sorted sprite
 		add_child(collection_progress)
 		collection_progress.visible = false
 
@@ -277,6 +276,8 @@ func _collect_one_item() -> void:
 			if icon_path != "":
 				icon = load(icon_path) as Texture2D
 		collection_progress.start_collection(icon, collection_time)
+		if YSortUtils:
+			YSortUtils.update_world_timer_draw_order(collection_progress)
 	
 	is_collecting = true
 	_sync_interaction_process()
@@ -318,8 +319,7 @@ func _finish_collection() -> void:
 	sprite.visible = false
 	if main.active_collection_resource == self:
 		main.active_collection_resource = null
-	if has_meta(&"stable_id") and MutationStore:
-		MutationStore.deplete_stable_id(str(get_meta(&"stable_id")))
+	_note_pool_pickup()
 	queue_free()
 	print("Player gathered %s" % ResourceData.get_resource_name(item_type))
 
@@ -352,7 +352,24 @@ func harvest() -> int:
 	# Make sprite disappear and remove from world
 	is_picked_up = true
 	sprite.visible = false
-	if has_meta(&"stable_id") and MutationStore:
-		MutationStore.deplete_stable_id(str(get_meta(&"stable_id")))
+	_note_pool_pickup()
 	queue_free()
 	return 1  # Ground items give 1 item
+
+
+func _note_pool_pickup() -> void:
+	if has_meta(&"stable_id") and MutationStore:
+		MutationStore.deplete_stable_id(str(get_meta(&"stable_id")))
+	if MutationStore == null or not MutationStore.has_method("note_visible_harvest"):
+		return
+	var pool_key := "stone"
+	match item_type:
+		ResourceData.ResourceType.WOOD:
+			pool_key = "wood"
+		ResourceData.ResourceType.BERRIES:
+			pool_key = "berries"
+		ResourceData.ResourceType.WHEAT:
+			pool_key = "grain"
+		ResourceData.ResourceType.FIBER:
+			pool_key = "fiber"
+	MutationStore.note_visible_harvest(self, pool_key)

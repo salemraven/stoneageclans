@@ -16,9 +16,10 @@ func enter() -> void:
 	_try_pull_job()
 
 func exit() -> void:
-	# Clear occupation when leaving
 	if npc and OccupationSystem:
-		OccupationSystem.unassign(npc, "state_exit")
+		var home_hut: Node2D = OccupationSystem.get_home_living_hut(npc)
+		if home_hut == null:
+			OccupationSystem.unassign(npc, "state_exit")
 	
 	# Show woman's sprite again (she's leaving the building)
 	if npc:
@@ -60,10 +61,10 @@ func update(delta: float) -> void:
 	if npc.is_dead():
 		return
 	
-	# Sprite visibility: hidden when inside building; visible when outside (including transporting)
 	var npc_sprite = npc.get_node_or_null("Sprite")
 	if npc_sprite:
-		npc_sprite.visible = not _is_occupying_building()
+		var hide_inside := _is_occupying_building() and not HutWomanWorkPresence.is_living_hut_occupant(npc)
+		npc_sprite.visible = not hide_inside
 	
 	# Task System - Step 17: Check for jobs periodically if no current job
 	job_check_timer += delta
@@ -72,8 +73,10 @@ func update(delta: float) -> void:
 		if not _has_active_job():
 			_try_pull_job()
 	
-	# If we have an active job, TaskRunner handles it - we just need to stay in this state
 	if _has_active_job():
+		return
+	
+	if HutWomanWorkPresence.is_living_hut_occupant(npc):
 		return
 	
 	# Legacy behavior: If no job system active, use old building occupation logic

@@ -16,6 +16,7 @@ var _item_icon: Texture2D = null  # Icon to show in center of progress circle
 
 var _cancel_flash_active: bool = false
 var _cancel_flash_generation: int = 0
+var _manual_external: bool = false
 
 func _ready() -> void:
 	pass
@@ -31,6 +32,7 @@ func _full_reset_hidden() -> void:
 	_progress = 0.0
 	_item_icon = null
 	_cancel_flash_active = false
+	_manual_external = false
 	visible = false
 	if _collection_tween:
 		_collection_tween.kill()
@@ -100,6 +102,26 @@ func set_progress(value: float) -> void:
 	_progress = clamp(value, 0.0, 1.0)
 	queue_redraw()
 
+
+## Driven by external timers (e.g. hut craft) — no tween.
+func show_manual_progress(icon: Texture2D, progress_ratio: float) -> void:
+	if _collection_tween:
+		_collection_tween.kill()
+		_collection_tween = null
+	_cancel_flash_active = false
+	_is_collecting = false
+	_manual_external = true
+	_item_icon = icon
+	_progress = clampf(progress_ratio, 0.0, 1.0)
+	visible = true
+	queue_redraw()
+
+
+func hide_manual_progress() -> void:
+	_manual_external = false
+	stop_collection(false)
+
+
 func _draw() -> void:
 	if _cancel_flash_active:
 		if _progress <= 0.0:
@@ -111,6 +133,18 @@ func _draw() -> void:
 			var icon_rect := Rect2(center - Vector2(icon_size / 2.0, icon_size / 2.0), Vector2(icon_size, icon_size))
 			draw_texture_rect(_item_icon, icon_rect, false, CANCEL_ICON_TINT)
 		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 64, CANCEL_COLOR_OUTLINE, 2.0, false)
+		return
+
+	if _manual_external and _item_icon:
+		var outline_idle := Color(1.0, 1.0, 1.0, 0.85)
+		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 64, outline_idle, 2.0, false)
+		if _progress > 0.001:
+			var fill_col := Color(1.0, 1.0, 1.0, 0.7)
+			var outline_col := Color(1.0, 1.0, 1.0, 0.9)
+			_draw_progress_fill(_progress, fill_col, outline_col)
+		var icon_size: float = radius * 1.6
+		var icon_rect := Rect2(Vector2(-icon_size * 0.5, -icon_size * 0.5), Vector2(icon_size, icon_size))
+		draw_texture_rect(_item_icon, icon_rect, false)
 		return
 
 	if _progress <= 0.0:

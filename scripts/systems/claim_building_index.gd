@@ -19,6 +19,9 @@ func register_building(building: BuildingBase, claim: LandClaim) -> void:
 		return
 	arr.append(building)
 	_building_to_clan[building] = clan
+	if building.get("land_claim") == null:
+		building.set("land_claim", claim)
+	_assign_hut_net_id(building, claim)
 
 
 func unregister_building(building: BuildingBase) -> void:
@@ -72,3 +75,20 @@ func invalidate_by_clan(clan_name: String) -> void:
 
 func _on_claim_destroyed(clan_name: String) -> void:
 	invalidate_by_clan(clan_name)
+
+
+func _assign_hut_net_id(building: Node, claim: Node) -> void:
+	if building == null or claim == null:
+		return
+	if int(building.get("building_type")) != int(ResourceData.ResourceType.LIVING_HUT):
+		return
+	if building.has_meta("hut_net_id") and str(building.get_meta("hut_net_id")) != "":
+		if OffscreenCamps:
+			OffscreenCamps._apply_pending_stock(building)
+		return
+	var seq: int = int(claim.get_meta("hut_net_seq", 0)) + 1
+	claim.set_meta("hut_net_seq", seq)
+	var clan: String = str(claim.get("clan_name"))
+	building.set_meta("hut_net_id", "%s#%d" % [clan, seq])
+	if OffscreenCamps:
+		OffscreenCamps._apply_pending_stock(building)

@@ -35,7 +35,10 @@ enum ResourceType {
 	NUTS,
 	SPEAR,
 	DRYING_RACK,
-	COOKED_MEAT
+	COOKED_MEAT,
+	LEATHER_SHEET,
+	FIBER_SHEET,
+	WOOL_SHEET
 }
 
 enum DietType { HERBIVORE, CARNIVORE, OMNIVORE }
@@ -55,7 +58,6 @@ static func get_diet_foods(diet: DietType) -> Array[ResourceType]:
 		DietType.OMNIVORE:
 			return [
 				ResourceType.BERRIES,
-				ResourceType.GRAIN,
 				ResourceType.MEAT,
 				ResourceType.COOKED_MEAT,
 				ResourceType.BREAD,
@@ -122,6 +124,9 @@ static func get_resource_name(type: ResourceType) -> String:
 		ResourceType.BUGS: return "Bugs"
 		ResourceType.NUTS: return "Nuts"
 		ResourceType.SPEAR: return "Spear"
+		ResourceType.LEATHER_SHEET: return "Leather Sheet"
+		ResourceType.FIBER_SHEET: return "Fiber Sheet"
+		ResourceType.WOOL_SHEET: return "Wool Sheet"
 		_: return "Unknown"
 
 static func get_resource_color(type: ResourceType) -> Color:
@@ -152,6 +157,9 @@ static func get_resource_color(type: ResourceType) -> Color:
 		ResourceType.BUGS: return Color(0.45, 0.5, 0.35)
 		ResourceType.NUTS: return Color(0.55, 0.4, 0.2)
 		ResourceType.SPEAR: return Color(0.45, 0.35, 0.25)
+		ResourceType.LEATHER_SHEET: return Color(0.55, 0.4, 0.28)
+		ResourceType.FIBER_SHEET: return Color(0.75, 0.65, 0.45)
+		ResourceType.WOOL_SHEET: return Color(0.92, 0.92, 0.88)
 		_: return Color.WHITE
 
 static func get_resource_icon_path(type: ResourceType) -> String:
@@ -166,7 +174,7 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.PICK: return "res://assets/sprites/pick.png"
 		ResourceType.BLADE: return "res://assets/sprites/blade.png"
 		ResourceType.LANDCLAIM: return "res://assets/sprites/landclaim.png"
-		ResourceType.LIVING_HUT: return "res://assets/sprites/hut.png"
+		ResourceType.LIVING_HUT: return "res://assets/buildings/living hut1.png"
 		ResourceType.SUPPLY_HUT: return "res://assets/sprites/supply.png"
 		ResourceType.SHRINE: return "res://assets/sprites/shrine.png"
 		ResourceType.DAIRY_FARM: return "res://assets/sprites/dairy.png"
@@ -189,6 +197,8 @@ static func get_resource_icon_path(type: ResourceType) -> String:
 		ResourceType.BUGS: return "res://assets/sprites/bugs.png"
 		ResourceType.NUTS: return "res://assets/sprites/nuts1.png"
 		ResourceType.SPEAR: return "res://assets/placeholder_cards/spear.png"
+		ResourceType.LEATHER_SHEET, ResourceType.FIBER_SHEET, ResourceType.WOOL_SHEET:
+			return "res://assets/sprites/placeholder_sheet.png"
 		_: return ""
 
 static func is_equipment(type: ResourceType) -> bool:
@@ -235,6 +245,8 @@ static func get_resource_tier(_type: ResourceType) -> int:
 		ResourceType.BUGS: return 0
 		ResourceType.NUTS: return 0
 		ResourceType.SPEAR: return 1
+		ResourceType.LEATHER_SHEET, ResourceType.FIBER_SHEET, ResourceType.WOOL_SHEET:
+			return 1
 		_: return 0
 
 static func get_tier_border_color(tier: int) -> Color:
@@ -304,7 +316,6 @@ static func get_food_hunger_restore_percent(type: ResourceType) -> float:
 # All edible food types (single source of truth for iteration)
 const EDIBLE_FOOD_TYPES: Array[ResourceType] = [
 	ResourceType.BERRIES,
-	ResourceType.GRAIN,
 	ResourceType.MEAT,
 	ResourceType.COOKED_MEAT,
 	ResourceType.BREAD,

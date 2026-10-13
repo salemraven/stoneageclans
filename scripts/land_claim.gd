@@ -135,6 +135,12 @@ func _setup_collision() -> void:
 	# Create an Area2D for clicking/interaction
 	_collision_area = Area2D.new()
 	_collision_area.name = "InteractionArea"
+	_collision_area.input_pickable = true
+	_collision_area.collision_layer = 1
+	_collision_area.collision_mask = 0
+	var vp := get_viewport()
+	if vp:
+		vp.physics_object_picking = true
 	
 	var collision_shape := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
@@ -422,10 +428,9 @@ func get_enemies_in_claim() -> Array:
 	_enemies_in_claim = valid
 	return _enemies_in_claim
 
-func _on_input_event(_viewport: Node, _event: InputEvent, _shape_idx: int) -> void:
-	# Left-click no longer opens inventory; use right-click context menu → Open Inventory.
-	# Kept for potential future use (e.g. other input).
-	pass
+func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_on_clicked()
 
 func _on_clicked() -> void:
 	# Signal to main that this land claim was clicked
@@ -800,12 +805,16 @@ func _process(delta: float) -> void:
 		_grid_scan_accum = 0.0
 		if _aoh_authority_ok():
 			_refresh_lists_from_grid()
+			if has_village_intruder() and clan_brain and clan_brain.has_method("materialize_clan_for_combat"):
+				clan_brain.materialize_clan_for_combat()
 	
 	# Phase 3 Part C: Update ClanBrain (all clans; player quota = n/4 + drag pool)
 	# Server-authoritative: clients skip brain simulation (multiplayer-safe).
 	if clan_brain and not is_decaying:
 		var mp: MultiplayerAPI = get_multiplayer()
 		if mp == null or not mp.has_multiplayer_peer() or mp.is_server():
+			if clan_brain.has_method("_tick_clan_morale_drift"):
+				clan_brain._tick_clan_morale_drift(delta)
 			var interest: Node = get_node_or_null("/root/WorldInterestManager")
 			var claim_active: bool = interest == null or interest.call("is_claim_active", self)
 			if claim_active:

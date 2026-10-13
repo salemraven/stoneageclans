@@ -6,6 +6,7 @@ class_name StockRow
 signal row_clicked(row: StockRow)
 signal row_drag_started(row: StockRow)
 
+const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 const ICON_SZ := 28
 const HOLD_SEC := 0.15
 const DRAG_PX := 5.0
@@ -94,7 +95,7 @@ func _refresh_from_item(item: Dictionary) -> void:
 	var c: int = int(item.get("count", 1))
 	var path: String = ResourceData.get_resource_icon_path(t)
 	if path != "":
-		var tex: Texture2D = load(path) as Texture2D
+		var tex: Texture2D = HutSpecialtyScript.load_texture(path) if not ResourceLoader.exists(path) else load(path) as Texture2D
 		_icon.texture = tex
 	else:
 		_icon.texture = null

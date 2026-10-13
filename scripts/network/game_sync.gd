@@ -177,3 +177,49 @@ func receive_clan_metrics(metrics: Dictionary, clan_name: String) -> void:
 			if metrics.has(key):
 				claim.set_meta(key, metrics[key])
 		break
+
+
+func publish_hut_stock(clan_name: String, hut_net_id: String, hut_rows: Array, claim_rows: Array) -> void:
+	if hut_net_id.is_empty():
+		return
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	receive_hut_stock.rpc(clan_name, hut_net_id, hut_rows, claim_rows)
+
+
+@rpc("authority", "call_remote", "reliable")
+func receive_hut_stock(clan_name: String, hut_net_id: String, hut_rows: Array, claim_rows: Array) -> void:
+	var tree := get_tree()
+	if tree == null or hut_net_id.is_empty():
+		return
+	var building: Node = null
+	for node in tree.get_nodes_in_group("buildings"):
+		if node and is_instance_valid(node) and str(node.get_meta("hut_net_id", "")) == hut_net_id:
+			building = node
+			break
+	if building == null:
+		if OffscreenCamps:
+			OffscreenCamps.stash_stock(hut_net_id, clan_name, hut_rows, claim_rows)
+		return
+	_apply_stock_rows(building.get("inventory"), hut_rows)
+	var claim: Node = building.get("land_claim") as Node
+	if claim == null:
+		for node in tree.get_nodes_in_group("land_claims"):
+			if node and str(node.get("clan_name")) == clan_name:
+				claim = node
+				break
+	if claim:
+		_apply_stock_rows(claim.get("inventory"), claim_rows)
+
+
+func _apply_stock_rows(inv: Variant, rows: Array) -> void:
+	if inv == null or not inv.has_method("set_slot") or not inv.has_method("add_item"):
+		return
+	var slots: int = int(inv.get("slot_count"))
+	for i in slots:
+		inv.call("set_slot", i, {})
+	for row in rows:
+		if not (row is Dictionary):
+			continue
+		var rec: Dictionary = row as Dictionary
+		inv.call("add_item", int(rec.get("type", 0)), int(rec.get("count", 0)))

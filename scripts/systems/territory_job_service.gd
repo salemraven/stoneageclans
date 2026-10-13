@@ -2,6 +2,18 @@
 # Campfire is Node2D + land_claims group but does not extend LandClaim — same logic must apply.
 extends RefCounted
 
+const GatherJobScript = preload("res://scripts/ai/jobs/gather_job.gd")
+
+const _EDIBLE_TYPES: Array[int] = [
+	ResourceData.ResourceType.BERRIES,
+	ResourceData.ResourceType.WHEAT,
+	ResourceData.ResourceType.GRAIN,
+	ResourceData.ResourceType.NUTS,
+	ResourceData.ResourceType.BUGS,
+	ResourceData.ResourceType.MUSHROOM,
+]
+const _CHUNK_ARRIVE_PX: float = 160.0
+
 ## Rate-limit SESSION lines when session instrumentation is on (avoids 40k+ WORK_GATHER_NO_RESOURCE lines per long run).
 const _SESSION_NO_RES_MIN_INTERVAL_SEC: float = 4.0
 static var _last_work_gather_no_resource_log: Dictionary = {} # worker_instance_id -> unix time
@@ -207,3 +219,415 @@ static func find_nearest_available_resource(claim: Node2D, worker: Node) -> Node
 			best_score = score
 			best = resource
 	return best
+
+
+## One assignment. Deliver, a reserved loaded-disk node, a herd already in hand,
+## the next unsearched loaded chunk, or a hunt. Never "stand here."
+static func next_job(claim: Node2D, worker: Node, disk_override: Array = []) -> Dictionary:
+	if claim == null or worker == null or not is_instance_valid(claim) or not is_instance_valid(worker):
+		return _assignment("none", Vector2.ZERO)
+	if worker.has_method("is_dead") and worker.is_dead():
+		return _assignment("none", Vector2.ZERO)
+	var fsm: Node = worker.get("fsm") as Node if worker.get("fsm") != null else null
+	if fsm:
+		var state_name: String = str(fsm.get("current_state_name"))
+		if state_name in ["combat", "defend", "raid", "flee_combat"]:
+			return _assignment(state_name, worker.global_position)
+	if worker.get("follow_is_ordered") == true:
+		return _assignment("order", worker.global_position)
+	var worker_clan: String = _clan_of(worker)
+	var claim_clan: String = _clan_of(claim)
+	if worker_clan == "" or worker_clan != claim_clan:
+		return _assignment("none", claim.global_position)
+	var disk: Array[Vector2i] = _loaded_disk(claim, disk_override)
+	var deliver_pos: Vector2 = _deliver_position(claim, worker)
+	if deliver_pos != Vector2.INF:
+		return _assignment("deliver", deliver_pos)
+	var held: Dictionary = _existing_gather(worker)
+	if not held.is_empty():
+		return held
+	var node: Node2D = _reserve_disk_node(claim, worker, disk)
+	if node:
+		var job: Job = _build_gather_job(claim, worker, node)
+		return _assignment("gather", node.global_position, node, job)
+	if int(worker.get("herded_count") if worker.get("herded_count") != null else 0) > 0:
+		return _assignment("herd", claim.global_position)
+	if _herd_slot_open(claim, worker) and _herdable_in_disk(claim, worker, disk):
+		return _assignment("herd", claim.global_position)
+	var walked: Dictionary = _continue_chunk_walk(claim, worker)
+	if not walked.is_empty():
+		return walked
+	var fresh: Dictionary = _assign_chunk(claim, worker, disk, false)
+	if not fresh.is_empty():
+		return fresh
+	var prey: Vector2 = _prey_in_disk(worker, disk)
+	if prey != Vector2.INF:
+		return _assignment("hunt", prey)
+	return _assign_chunk(claim, worker, disk, true)
+
+
+static func apply_assignment(worker: Node, assignment: Dictionary) -> void:
+	if worker == null or not is_instance_valid(worker):
+		return
+	var kind: String = str(assignment.get("kind", "none"))
+	var target: Vector2 = assignment.get("target", Vector2.ZERO) as Vector2
+	worker.set_meta("next_job_kind", kind)
+	worker.set_meta("next_job_at", Time.get_ticks_msec() / 1000.0)
+	worker.set_meta("next_job_pos", target)
+	if assignment.has("chunk_key"):
+		worker.set_meta("next_job_chunk", str(assignment.get("chunk_key", "")))
+	match kind:
+		"gather":
+			var job: Job = assignment.get("job") as Job
+			var runner: Node = worker.get("task_runner") as Node if worker.get("task_runner") != null else null
+			if job and runner and runner.has_method("assign_job"):
+				runner.assign_job(job)
+			_change_state_if(worker, "gather")
+		"deliver":
+			worker.set_meta("moving_to_deposit", true)
+			worker.set_meta("is_depositing", true)
+			_steer(worker, target)
+		"chunk":
+			if worker.has_meta("moving_to_deposit"):
+				worker.remove_meta("moving_to_deposit")
+			if worker.has_meta("is_depositing"):
+				worker.remove_meta("is_depositing")
+			_steer(worker, target)
+		"herd":
+			_change_state_if(worker, "herd_wildnpc")
+		"hunt":
+			_change_state_if(worker, "hunt")
+		_:
+			pass
+
+
+static func _assignment(kind: String, target: Vector2, node: Node = null, job: Job = null, chunk: Vector2i = Vector2i.ZERO, include_chunk: bool = false) -> Dictionary:
+	var row: Dictionary = {"kind": kind, "target": target, "node": node, "job": job}
+	if include_chunk:
+		row["chunk"] = chunk
+		row["chunk_key"] = _chunk_key(chunk)
+	return row
+
+
+static func _clan_of(node: Node) -> String:
+	if node.has_method("get_clan_name"):
+		return str(node.get_clan_name())
+	if node.get("clan_name") != null:
+		return str(node.get("clan_name"))
+	return ""
+
+
+static func _loaded_disk(claim: Node2D, disk_override: Array) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if disk_override.size() > 0:
+		for item in disk_override:
+			if item is Vector2i:
+				out.append(item as Vector2i)
+		if not out.is_empty():
+			return out
+	if ChunkManager and ChunkManager.has_method("get_loaded_chunk_coords"):
+		var loaded: Array = ChunkManager.get_loaded_chunk_coords()
+		for item in loaded:
+			if item is Vector2i:
+				out.append(item as Vector2i)
+	if out.is_empty():
+		out.append(ChunkUtils.get_chunk_coords(claim.global_position))
+	return out
+
+
+static func _deliver_position(claim: Node2D, worker: Node) -> Vector2:
+	var inv: Variant = worker.get("inventory")
+	var claim_inv: Variant = claim.get("inventory")
+	if inv == null or claim_inv == null:
+		return Vector2.INF
+	if not inv.has_method("get_used_slots") or not claim_inv.has_method("can_add_item"):
+		return Vector2.INF
+	var used: int = int(inv.get_used_slots())
+	var slots: int = int(inv.get("slot_count") if inv.get("slot_count") != null else 5)
+	var pct: float = NPCConfig.gather_deposit_threshold if NPCConfig else 0.4
+	var threshold: int = max(3, int(ceil(float(slots) * pct)))
+	if used < threshold:
+		return Vector2.INF
+	var acceptable: bool = false
+	var slot_list: Array = inv.get("slots") if inv.get("slots") is Array else []
+	for slot in slot_list:
+		if slot == null or not (slot is Dictionary):
+			continue
+		var count: int = int((slot as Dictionary).get("count", 0))
+		if count <= 0 or not (slot as Dictionary).has("type"):
+			continue
+		var item_type: int = int((slot as Dictionary).get("type"))
+		if claim_inv.can_add_item(item_type, 1):
+			acceptable = true
+			break
+	if not acceptable:
+		return Vector2.INF
+	return claim.global_position
+
+
+static func _existing_gather(worker: Node) -> Dictionary:
+	var runner: Node = worker.get("task_runner") as Node if worker.get("task_runner") != null else null
+	if runner == null or not runner.has_method("has_job") or not runner.has_job():
+		return {}
+	var job: Job = runner.get("current_job") as Job if runner.get("current_job") != null else null
+	if job == null:
+		return {}
+	var node: Node2D = job.get("resource_node") as Node2D if job.get("resource_node") != null else null
+	if node == null or not is_instance_valid(node):
+		return {}
+	return _assignment("gather", node.global_position, node, job)
+
+
+static func _reserve_disk_node(claim: Node2D, worker: Node, disk: Array[Vector2i]) -> Node2D:
+	if ResourceIndex == null:
+		return null
+	var on_disk: Dictionary = {}
+	for chunk in disk:
+		on_disk[_chunk_key(chunk)] = true
+	var hungry: bool = _pantry_thin(claim)
+	var held: Node2D = null
+	var best: Node2D = null
+	var best_edible: int = 2
+	var best_dist: float = INF
+	var worker_pos: Vector2 = worker.global_position
+	var claims: Array = []
+	if worker.is_inside_tree():
+		claims = worker.get_tree().get_nodes_in_group("land_claims")
+	var clan_name: String = _clan_of(claim)
+	for chunk in disk:
+		var center: Vector2 = ChunkUtils.get_chunk_center(chunk)
+		var found: Array = ResourceIndex.query_near(center, ChunkUtils.CHUNK_SIZE * 0.8, {
+			"exclude_cooldown": true,
+			"exclude_no_capacity": false,
+			"exclude_empty": true,
+		})
+		for pair in found:
+			if not (pair is Dictionary):
+				continue
+			var node: Node2D = (pair as Dictionary).get("node") as Node2D
+			if node == null or not is_instance_valid(node):
+				continue
+			var node_chunk: String = _chunk_key(ChunkUtils.get_chunk_coords(node.global_position))
+			if not on_disk.has(node_chunk):
+				continue
+			if node.has_method("is_in_cooldown_state") and node.is_in_cooldown_state():
+				continue
+			if ResourceIndex.is_position_in_enemy_claim(claims, node.global_position, clan_name):
+				continue
+			var item_type: int = _node_resource_type(node)
+			if item_type < 0 or not _claim_can_store(claim, item_type):
+				continue
+			var mine: bool = _worker_holds(node, worker)
+			if not mine and node.has_method("has_capacity") and not node.has_capacity():
+				continue
+			if mine:
+				held = node
+				continue
+			var edible_rank: int = 0 if (hungry and item_type in _EDIBLE_TYPES) else 1
+			var dist: float = worker_pos.distance_to(node.global_position)
+			if edible_rank < best_edible or (edible_rank == best_edible and dist < best_dist):
+				best_edible = edible_rank
+				best_dist = dist
+				best = node
+	var chosen: Node2D = held if held else best
+	if chosen == null:
+		return null
+	if _worker_holds(chosen, worker):
+		return chosen
+	if chosen.has_method("reserve") and not chosen.reserve(worker):
+		return null
+	return chosen
+
+
+static func _pantry_thin(claim: Node) -> bool:
+	if claim.has_meta("food_buffer_critical") and bool(claim.get_meta("food_buffer_critical")):
+		return true
+	if not claim.has_meta("food_days_buffer"):
+		return false
+	var days: float = float(claim.get_meta("food_days_buffer"))
+	var critical: float = BalanceConfig.clan_food_buffer_critical_days if BalanceConfig else 0.5
+	return days < critical
+
+
+static func _claim_can_store(claim: Node, item_type: int) -> bool:
+	var inv: Variant = claim.get("inventory")
+	if inv == null or not inv.has_method("can_add_item"):
+		return false
+	return bool(inv.can_add_item(item_type, 1))
+
+
+static func _node_resource_type(node: Node) -> int:
+	var raw: Variant = node.get("resource_type")
+	if raw == null:
+		raw = node.get("item_type")
+	if raw == null:
+		return -1
+	return int(raw)
+
+
+static func _worker_holds(node: Node, worker: Node) -> bool:
+	var reserved: Variant = node.get("reserved_workers")
+	return reserved is Array and worker in (reserved as Array)
+
+
+static func _build_gather_job(claim: Node2D, worker: Node, resource: Node2D) -> Job:
+	var skip_deposit: bool = false
+	var inv: Variant = worker.get("inventory")
+	if inv:
+		var used: int = int(inv.get_used_slots()) if inv.has_method("get_used_slots") else 0
+		var slots: int = int(inv.get("slot_count") if inv.get("slot_count") != null else 5)
+		var pct: float = NPCConfig.gather_same_node_until_pct if NPCConfig else 1.0
+		skip_deposit = used < int(ceil(float(slots) * pct))
+	var job: Job = GatherJobScript.new(resource, claim, skip_deposit) as Job
+	if job:
+		job.building = claim
+	return job
+
+
+static func _herd_slot_open(claim: Node, worker: Node) -> bool:
+	var max_herders: int = int(claim.get_meta("max_active_herders", 2))
+	var active: int = 0
+	if not claim.is_inside_tree():
+		return active < max_herders
+	var clan_name: String = _clan_of(claim)
+	for other in claim.get_tree().get_nodes_in_group("npcs"):
+		if other == worker or not is_instance_valid(other):
+			continue
+		if _clan_of(other) != clan_name:
+			continue
+		var fsm: Node = other.get("fsm") as Node if other.get("fsm") != null else null
+		if fsm and str(fsm.get("current_state_name")) == "herd_wildnpc":
+			active += 1
+	return active < max_herders
+
+
+static func _herdable_in_disk(claim: Node, worker: Node, disk: Array[Vector2i]) -> bool:
+	if not claim.is_inside_tree() or NPCConfig == null:
+		return false
+	var on_disk: Dictionary = {}
+	for chunk in disk:
+		on_disk[_chunk_key(chunk)] = true
+	for other in claim.get_tree().get_nodes_in_group("npcs"):
+		if other == worker or not is_instance_valid(other) or not (other is Node2D):
+			continue
+		var kind: String = str(other.get("npc_type") if other.get("npc_type") != null else "")
+		var profile: Dictionary = NPCConfig.get_wild_profile(kind) if NPCConfig.has_method("get_wild_profile") else {}
+		if not bool(profile.get("herdable", false)):
+			continue
+		if _clan_of(other) != "":
+			continue
+		var key: String = _chunk_key(ChunkUtils.get_chunk_coords((other as Node2D).global_position))
+		if on_disk.has(key):
+			return true
+	return false
+
+
+static func _prey_in_disk(worker: Node, disk: Array[Vector2i]) -> Vector2:
+	if not worker.is_inside_tree() or NPCConfig == null or not NPCConfig.has_method("is_ai_hunt_prey_type"):
+		return Vector2.INF
+	var on_disk: Dictionary = {}
+	for chunk in disk:
+		on_disk[_chunk_key(chunk)] = true
+	var best: Vector2 = Vector2.INF
+	var best_dist: float = INF
+	for other in worker.get_tree().get_nodes_in_group("npcs"):
+		if other == worker or not is_instance_valid(other) or not (other is Node2D):
+			continue
+		var kind: String = str(other.get("npc_type") if other.get("npc_type") != null else "")
+		if not NPCConfig.is_ai_hunt_prey_type(kind):
+			continue
+		var pos: Vector2 = (other as Node2D).global_position
+		if not on_disk.has(_chunk_key(ChunkUtils.get_chunk_coords(pos))):
+			continue
+		var dist: float = worker.global_position.distance_to(pos)
+		if dist < best_dist:
+			best_dist = dist
+			best = pos
+	return best
+
+
+static func _continue_chunk_walk(claim: Node, worker: Node) -> Dictionary:
+	if not worker.has_meta("next_job_chunk"):
+		return {}
+	var key: String = str(worker.get_meta("next_job_chunk"))
+	if key.is_empty():
+		return {}
+	var chunk: Vector2i = _parse_chunk_key(key)
+	var center: Vector2 = ChunkUtils.get_chunk_center(chunk)
+	if worker.global_position.distance_to(center) > _CHUNK_ARRIVE_PX:
+		return _assignment("chunk", center, null, null, chunk, true)
+	_stamp_chunk_searched(claim, worker, chunk)
+	worker.remove_meta("next_job_chunk")
+	return {}
+
+
+static func _assign_chunk(claim: Node, worker: Node, disk: Array[Vector2i], allow_repeat: bool) -> Dictionary:
+	if disk.is_empty():
+		return {}
+	var searched: Dictionary = {}
+	if claim.has_meta("next_job_searched"):
+		var stored: Variant = claim.get_meta("next_job_searched")
+		if stored is Dictionary:
+			searched = stored
+	var best: Vector2i = disk[0]
+	var best_dist: float = INF
+	var found_fresh: bool = false
+	var oldest: Vector2i = disk[0]
+	var oldest_time: float = INF
+	for chunk in disk:
+		var key: String = _chunk_key(chunk)
+		var center: Vector2 = ChunkUtils.get_chunk_center(chunk)
+		var dist: float = worker.global_position.distance_to(center)
+		if not searched.has(key):
+			if dist < best_dist:
+				best_dist = dist
+				best = chunk
+				found_fresh = true
+		else:
+			var when: float = float(searched[key])
+			if when < oldest_time:
+				oldest_time = when
+				oldest = chunk
+	if not found_fresh and not allow_repeat:
+		return {}
+	var chosen: Vector2i = best if found_fresh else oldest
+	worker.set_meta("next_job_chunk", _chunk_key(chosen))
+	return _assignment("chunk", ChunkUtils.get_chunk_center(chosen), null, null, chosen, true)
+
+
+static func _stamp_chunk_searched(claim: Node, worker: Node, chunk: Vector2i) -> void:
+	if worker.has_method("is_dead") and worker.is_dead():
+		return
+	var searched: Dictionary = {}
+	if claim.has_meta("next_job_searched"):
+		var stored: Variant = claim.get_meta("next_job_searched")
+		if stored is Dictionary:
+			searched = (stored as Dictionary).duplicate()
+	searched[_chunk_key(chunk)] = Time.get_ticks_msec() / 1000.0
+	claim.set_meta("next_job_searched", searched)
+
+
+static func _chunk_key(chunk: Vector2i) -> String:
+	return "%d,%d" % [chunk.x, chunk.y]
+
+
+static func _parse_chunk_key(key: String) -> Vector2i:
+	var parts: PackedStringArray = key.split(",")
+	if parts.size() != 2:
+		return Vector2i.ZERO
+	return Vector2i(int(parts[0]), int(parts[1]))
+
+
+static func _steer(worker: Node, target: Vector2) -> void:
+	var agent: Variant = worker.get("steering_agent")
+	if agent != null and agent.has_method("set_arrive_target"):
+		agent.set_arrive_target(target)
+
+
+static func _change_state_if(worker: Node, state_name: String) -> void:
+	var fsm: Node = worker.get("fsm") as Node if worker.get("fsm") != null else null
+	if fsm == null or not fsm.has_method("change_state"):
+		return
+	if str(fsm.get("current_state_name")) == state_name:
+		return
+	fsm.change_state(state_name)

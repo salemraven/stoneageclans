@@ -39,6 +39,7 @@ var task_runner: Node = null  # Task System - Step 17: TaskRunner component (Nod
 @export var skin_tone: String = "Medium"  # Dark, Medium, Light (visual only)
 var card_index: int = 0  # clansmen_card1-18 for caveman/clansman/player lineage
 var hair_id: int = 0  # 1–15 grayscale hair styles; shared by men and women
+var clothing_style: int = -1  # 0–3 hide garment; clan shares dye only
 var hair_tone: String = ""  # Black, DarkBrown, Brown, LightBrown, DirtyBlonde, Auburn, Gray
 var genetics_profile: Dictionary = {}  # conception profile; skin_modulate applied in PR3
 var _card_foot_y: float = -28.0
@@ -170,6 +171,8 @@ func set_clan_name(value: String, caller_name: String = "unknown") -> void:
 	var old_backup = get_meta("land_claim_clan_name", "") if has_meta("land_claim_clan_name") else ""
 	
 	clan_name = value
+	if PlaceholderCardService and PlaceholderCardService.has_method("apply_hide_clan_color"):
+		PlaceholderCardService.apply_hide_clan_color(self)
 	# ALWAYS update meta property (even if value is same, ensure it's synced)
 	if value != "":
 		set_meta("clan_name", value)
@@ -230,11 +233,24 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 		set_clan_name(claim_clan, "npc_base._try_join_clan_from_claim")
 		var reason := "wandered into player claim" if not is_herded else "entered herder's land claim"
 		print("NPC %s joined clan %s (%s)" % [npc_name, claim_clan, reason])
+		var join_line := "NPC %s joined clan %s (%s)" % [npc_name, claim_clan, reason]
+		var main_j = get_tree().get_first_node_in_group("main") if get_tree() else null
+		if main_j and main_j.has_method("register_raid_capture_proof_line"):
+			main_j.register_raid_capture_proof_line(join_line)
 		# Track herding delivery for leaderboard
 		if is_herded and herder and is_instance_valid(herder):
 			var herder_name: String = str(herder.get("npc_name")) if herder.get("npc_name") != null else (str(herder.name) if herder else "?")
 			if herder.is_in_group("player"):
 				herder_name = "Player"
+			var herder_clan_for_raid: String = ""
+			if herder.has_method("get_clan_name"):
+				herder_clan_for_raid = str(herder.get_clan_name())
+			elif herder.get("clan_name") != null:
+				herder_clan_for_raid = str(herder.get("clan_name"))
+			if herder_clan_for_raid == claim_clan and herder.has_meta("raid_joined") and bool(herder.get_meta("raid_joined")):
+				var hc: Variant = claim.get_clan_brain() if claim.has_method("get_clan_brain") else claim.get("clan_brain")
+				if hc != null and hc.has_method("notify_raid_capture_home_for_npc"):
+					hc.notify_raid_capture_home_for_npc(self)
 			var ct = get_node_or_null("/root/CompetitionTracker")
 			if ct and ct.has_method("record_herding_delivery"):
 				ct.record_herding_delivery(herder_name, claim_clan, npc_type)
@@ -409,6 +425,64 @@ func set_follow_mode_from_string(s: String) -> void:
 
 
 # Phase 3: Helper functions for herd management (keeps herded_count in sync)
+
+func try_begin_raid_capture(leader: Node2D, stole_goal: String, victim_brain: Variant) -> bool:
+	## Release prize from victim clan and attach to raid leader. Returns false if cap blocks or not a prize type.
+	var tp: String = str(npc_type)
+	if tp != "woman" and tp != "sheep" and tp != "goat":
+		return false
+	if leader == null or not is_instance_valid(leader):
+		return false
+	var victim_clan: String = str(clan_name) if clan_name != null else ""
+	if victim_clan.strip_edges() == "":
+		return false
+	var attacker_clan: String = ""
+	if leader.has_method("get_clan_name"):
+		attacker_clan = str(leader.get_clan_name())
+	elif leader.get("clan_name") != null:
+		attacker_clan = str(leader.get("clan_name"))
+	if attacker_clan == "" or attacker_clan == victim_clan:
+		return false
+	if has_meta("raid_capture_taken") and bool(get_meta("raid_capture_taken")):
+		return false
+	if HerdManager and not HerdManager.can_add_herd_animal(leader, self):
+		print("RAID_CAPTURE_FAIL reason=herd_cap prize=%s" % npc_name)
+		return false
+	var repro := get_node_or_null("ReproductionComponent")
+	if repro == null:
+		repro = get("reproduction_component")
+	if repro and repro.has_method("cancel_pregnancy") and repro.get("is_pregnant"):
+		repro.cancel_pregnancy("raid_capture")
+	if OccupationSystem and OccupationSystem.has_ref(self):
+		OccupationSystem.unassign(self, "raid_capture")
+	workplace_building = null
+	set_clan_name("", "raid_capture")
+	if has_meta("clan_name"):
+		remove_meta("clan_name")
+	if has_meta("land_claim_clan_name"):
+		remove_meta("land_claim_clan_name")
+	follow_is_ordered = true
+	_start_herd(leader)
+	if not is_herded or herder != leader:
+		print("RAID_CAPTURE_FAIL reason=herd_attach prize=%s" % npc_name)
+		return false
+	set_meta("raid_capture_taken", true)
+	if DebugConfig and bool(DebugConfig.get("enable_raid_capture_proof")):
+		set_meta("raid_capture_proof_durable", true)
+	var prize_name: String = str(npc_name)
+	print("RAID_CAPTURE victim=%s prize=%s type=%s" % [victim_clan, prize_name, tp])
+	var cap_line := "RAID_CAPTURE victim=%s prize=%s type=%s" % [victim_clan, prize_name, tp]
+	var main_cap = get_tree().get_first_node_in_group("main") if get_tree() else null
+	if main_cap and main_cap.has_method("register_raid_capture_proof_line"):
+		main_cap.register_raid_capture_proof_line(cap_line)
+	if victim_brain != null and victim_brain.has_method("record_raid_wrong"):
+		victim_brain.record_raid_wrong(attacker_clan, "stole", {"stole_goal": stole_goal})
+	var pi = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.is_enabled() and pi.has_method("raid_capture"):
+		pi.raid_capture(attacker_clan, victim_clan, prize_name, tp)
+	return true
+
+
 func _start_herd(new_herder: Node2D) -> void:
 	"""Start being herded by a new herder. HerdableComponent owns woman/sheep/goat herd state."""
 	var hc = get_herdable()
@@ -446,6 +520,10 @@ func _start_herd(new_herder: Node2D) -> void:
 			if herder_type == "caveman" or herder_type == "clansman":
 				# Never force-enter herd_wildnpc if ordered to follow player or in ATTACK/GUARD
 				var blocked: bool = new_herder.get("follow_is_ordered") as bool if new_herder.get("follow_is_ordered") != null else false
+				if not blocked and new_herder.has_meta("raid_joined") and bool(new_herder.get_meta("raid_joined")):
+					blocked = true
+					var lg: String = str(new_herder.get("npc_name")) if new_herder.get("npc_name") != null else str(new_herder.name)
+					print("RAID_LEADER_GUARD leader=%s" % lg)
 				if not blocked:
 					var ctx_nb: Dictionary = new_herder.get("command_context") if new_herder.get("command_context") != null else {}
 					var mode_nb: String = ctx_nb.get("mode", "FOLLOW") as String
@@ -1787,10 +1865,14 @@ func _physics_tick(delta: float) -> void:
 			if progress_display:
 				progress_display.stop_collection(false)
 			gathering = false
+	if npc_type == "woman":
+		HutWomanWorkPresence.pre_physics(self, delta)
+	
 	if crafting or building_hut or gathering:
-		velocity = Vector2.ZERO
-		move_and_slide()
-		return
+		if not get_meta("hut_work_presence_active", false):
+			velocity = Vector2.ZERO
+			move_and_slide()
+			return
 	
 	var dbg_desired_vel := Vector2.ZERO
 	var dbg_steering_used := false
@@ -1798,6 +1880,8 @@ func _physics_tick(delta: float) -> void:
 	# Task controls movement (MoveToTask, DropOffTask walking) - don't overwrite velocity
 	if task_runner and task_runner.has_method("controls_movement") and task_runner.controls_movement():
 		pass  # Task set velocity; fall through to move_and_slide
+	elif npc_type == "woman" and HutWomanWorkPresence.controls_npc(self):
+		HutWomanWorkPresence.apply_patrol_velocity(self, delta)
 	# Update steering/movement with smooth interpolation
 	elif steering_agent and not is_idle:
 		var desired_velocity: Vector2
@@ -1990,6 +2074,7 @@ func _physics_tick(delta: float) -> void:
 			YSortUtils.update_card_draw_order(sprite, self, _card_foot_y)
 		else:
 			YSortUtils.update_object_y_sort(sprite, self)
+	_sync_world_overlay_draw_order()
 	
 	# Flip sprite based on movement direction (only if not in idle state)
 	# Use hysteresis and target-based flipping in combat to prevent rapid flipping
@@ -2011,6 +2096,12 @@ func _physics_tick(delta: float) -> void:
 					elif direction_to_target.x > 0.3:  # Target is clearly to the right
 						sprite.flip_h = false
 					# If target is roughly in front/behind (between -0.3 and 0.3), keep current flip state
+			elif get_meta("hut_work_presence_active", false) and bool(get_meta("hut_work_walking", false)):
+				var hut_vx: float = float(get_meta("hut_work_vx", 0.0))
+				if hut_vx < -0.1:
+					sprite.flip_h = true
+				elif hut_vx > 0.1:
+					sprite.flip_h = false
 			else:
 				# For other states (and mammoth), use velocity with hysteresis
 				# Mammoth: use lower threshold (5.0) - smaller scaled NPC may have lower apparent velocity
@@ -2036,8 +2127,14 @@ func _physics_tick(delta: float) -> void:
 	if combat_comp and combat_comp.get("state") != null:
 		combat_idle = (combat_comp.state == CombatComponent.CombatState.IDLE)
 	var moving := velocity.length_squared() > 50.0
+	if get_meta("hut_work_presence_active", false):
+		moving = bool(get_meta("hut_work_walking", false))
 	if moving:
-		if absf(velocity.x) > 15.0:
+		if get_meta("hut_work_presence_active", false) and bool(get_meta("hut_work_walking", false)):
+			var hv: float = float(get_meta("hut_work_vx", 0.0))
+			if absf(hv) > 0.1:
+				_last_facing = Vector2(signf(hv), 0.0)
+		elif absf(velocity.x) > 15.0:
 			_last_facing = velocity.normalized()
 		else:
 			var keep_x: float = _last_facing.x
@@ -2165,6 +2262,8 @@ func _physics_tick(delta: float) -> void:
 			if _weapon_overlay_needs_sync(moving):
 				PlaceholderCardService.sync_weapon_overlay_flip(self)
 				_remember_weapon_overlay_sync()
+		if npc_type == "woman" and PlaceholderCardService.has_method("sync_woman_carry_hold"):
+			PlaceholderCardService.sync_woman_carry_hold(self)
 
 func _apply_woman_idle_once() -> void:
 	"""Apply woman idle (womanwalk frame 0) once after _ready. Used for women."""
@@ -2255,9 +2354,9 @@ func _initialize_inventory() -> void:
 			can_stack = false
 			max_stack = 1
 		"woman":
-			slot_count = 10  # Women need extra slots for oven jobs (Wood + Grain + Bread + misc)
-			can_stack = false
-			max_stack = 1
+			slot_count = 1
+			can_stack = true
+			max_stack = 5
 		"baby":
 			slot_count = NPCConfig.baby_inventory_slots if NPCConfig else 2  # Babies: configurable slots for food
 			can_stack = false
@@ -2284,7 +2383,7 @@ func _initialize_inventory() -> void:
 		"type": ResourceData.ResourceType.BERRIES,
 		"quantity": 1
 	}
-	if npc_type != "deer" and npc_type != "mammoth" and inventory:
+	if npc_type != "deer" and npc_type != "mammoth" and npc_type != "woman" and inventory:
 		inventory.set_slot(0, berry_item)
 	
 	# Cavemen start with a land claim item only if not pre-assigned to a claim (AI spawn = claim + caveman together)
@@ -2524,6 +2623,19 @@ func _apply_world_boundary(delta: float) -> void:
 		var target_velocity: Vector2 = velocity + direction_to_spawn * boundary_force * delta
 		velocity = velocity.lerp(target_velocity, 0.4)
 
+func _sync_world_overlay_draw_order() -> void:
+	if not YSortUtils:
+		return
+	if progress_display and progress_display.visible:
+		YSortUtils.update_world_timer_draw_order(progress_display)
+	if rout_indicator and rout_indicator.visible:
+		YSortUtils.update_overlay_draw_order(rout_indicator, self, rout_indicator.position.y, _card_foot_y)
+	if hostile_indicator and hostile_indicator.visible:
+		YSortUtils.update_overlay_draw_order(
+			hostile_indicator, self, hostile_indicator.position.y, _card_foot_y
+		)
+
+
 func _create_progress_display() -> void:
 	# Create a progress display node for eating/harvesting
 	progress_display = Node2D.new()
@@ -2531,7 +2643,7 @@ func _create_progress_display() -> void:
 	progress_display.position = Vector2(0, -88)  # Synced to card height via PlaceholderCardService
 	progress_display.visible = false
 	progress_display.z_as_relative = false
-	progress_display.z_index = YSortUtils.Z_ABOVE_WORLD  # Above Y-sorted sprite
+	progress_display.z_as_relative = false
 	add_child(progress_display)
 	
 	# Add script to draw progress circle
@@ -2568,7 +2680,7 @@ func _create_rout_indicator() -> void:
 	rout_indicator.add_theme_color_override("font_color", Color(1.0, 0.92, 0.2, 1.0))
 	rout_indicator.add_theme_font_size_override("font_size", 28)
 	rout_indicator.z_as_relative = false
-	rout_indicator.z_index = YSortUtils.Z_ABOVE_WORLD
+	rout_indicator.z_as_relative = false
 	rout_indicator.visible = false
 	add_child(rout_indicator)
 
@@ -2602,21 +2714,8 @@ func set_raid_form_signal(on: bool) -> void:
 
 
 func _ensure_raid_form_spear() -> void:
-	if _raid_form_spear != null:
-		return
-	var tex: Texture2D = load("res://assets/sprites/spear.png") as Texture2D
-	if tex == null:
-		return
-	_raid_form_spear = Sprite2D.new()
-	_raid_form_spear.name = "RaidFormSpear"
-	_raid_form_spear.texture = tex
-	_raid_form_spear.rotation = deg_to_rad(-90.0)
-	_raid_form_spear.position = Vector2(-16, -72)
-	_raid_form_spear.scale = Vector2(0.45, 0.45)
-	_raid_form_spear.z_as_relative = false
-	_raid_form_spear.z_index = YSortUtils.Z_ABOVE_WORLD
-	_raid_form_spear.visible = false
-	add_child(_raid_form_spear)
+	# The little raid-form spear picture was assets/sprites/spear.png. That file is gone.
+	return
 
 
 func _tick_raid_form_signal(_delta: float) -> void:
@@ -2655,7 +2754,7 @@ func _create_hostile_indicator() -> void:
 	hostile_indicator.add_theme_color_override("font_color", Color(1.0, 0.0, 0.0, 1.0))  # Red
 	hostile_indicator.add_theme_font_size_override("font_size", 30)  # Larger for visibility
 	hostile_indicator.z_as_relative = false
-	hostile_indicator.z_index = YSortUtils.Z_ABOVE_WORLD  # Above Y-sorted sprite
+	hostile_indicator.z_as_relative = false
 	hostile_indicator.visible = false
 	add_child(hostile_indicator)
 
@@ -4613,6 +4712,7 @@ func serialize_to_sleep_data() -> Dictionary:
 		"skin_tone": skin_tone,
 		"card_index": card_index,
 		"hair_id": hair_id,
+		"clothing_style": clothing_style,
 		"hair_tone": hair_tone,
 		"genetics_profile": genetics_profile.duplicate(true) if genetics_profile is Dictionary else {},
 		"traits": traits.duplicate(),
@@ -4633,6 +4733,8 @@ func apply_sleep_data(data: Dictionary) -> void:
 		stats_component.restore_hunger(float(data.get("hunger_percent", 1.0)))
 	if data.has("age"):
 		set("age", int(data.get("age", age)))
+	if data.has("settlement_member_id"):
+		set_meta("settlement_member_id", int(data.get("settlement_member_id", 0)))
 	var repro: Node = get_node_or_null("ReproductionComponent")
 	if repro:
 		var pt: float = float(data.get("pregnancy_timer", -1.0))

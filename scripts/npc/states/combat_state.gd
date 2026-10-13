@@ -181,8 +181,7 @@ func exit() -> void:
 		# Hunt party: resume hunt only after the animal fight. A person fight or a run does not.
 		if npc.get_meta("hunt_after_combat", false) == true and str(npc.get_meta("fsm_next_state", "")) != "flee_combat":
 			npc.set_meta("hunt_after_combat", false)
-			if fsm:
-				fsm.change_state("hunt", true)
+			_handoff_hunt_or_butcher()
 			return
 
 func update(_delta: float) -> void:
@@ -206,7 +205,7 @@ func update(_delta: float) -> void:
 		combat_target = null
 		if resume_hunt and fsm:
 			_notify_hunt_prey_dead_loot(corpse_node)
-			fsm.change_state("hunt", true)
+			_handoff_hunt_or_butcher()
 		elif fsm and fsm.has_method("force_evaluation"):
 			fsm.force_evaluation()
 		return
@@ -541,6 +540,30 @@ func _is_living_enemy_person(body: Node) -> bool:
 	var kind: String = str(body.get("npc_type")) if body.get("npc_type") != null else ""
 	return kind == "caveman" or kind == "clansman"
 
+func _handoff_hunt_or_butcher() -> void:
+	## Looting is gather. A forced hunt entry is refused by the FSM, so the leader goes straight to the corpse.
+	if not fsm:
+		return
+	var brain: Variant = _hunt_brain()
+	if brain and brain.has_method("is_hunt_looting") and brain.is_hunt_looting():
+		fsm.change_state("gather", true)
+		return
+	fsm.change_state("hunt", true)
+	if str(fsm.get("current_state_name")) != "hunt":
+		fsm.change_state("gather", true)
+
+
+func _hunt_brain() -> Variant:
+	if not npc or not npc.has_method("get_my_land_claim"):
+		return null
+	var claim: Node = npc.get_my_land_claim()
+	if claim == null or not is_instance_valid(claim):
+		return null
+	if claim.has_method("get_clan_brain"):
+		return claim.get_clan_brain()
+	return claim.get("clan_brain")
+
+
 func _notify_hunt_prey_dead_loot(corpse: Node) -> void:
 	if not npc or not corpse or not is_instance_valid(corpse):
 		return
@@ -548,7 +571,9 @@ func _notify_hunt_prey_dead_loot(corpse: Node) -> void:
 	if not claim or not is_instance_valid(claim):
 		return
 	var brain = claim.get_clan_brain() if claim.has_method("get_clan_brain") else null
-	if brain and brain.has_method("open_corpse_job_site"):
+	if brain and brain.has_method("begin_hunt_corpse_loot"):
+		brain.begin_hunt_corpse_loot(corpse)
+	elif brain and brain.has_method("open_corpse_job_site"):
 		brain.open_corpse_job_site(corpse)
 
 func _target_display_name(t: Node2D) -> String:
@@ -914,6 +939,10 @@ func _flee_reason() -> String:
 	if not npc:
 		return ""
 	if FightFlight.is_woman(npc):
+		if bool(npc.get("follow_is_ordered")) and bool(npc.get("is_herded")):
+			var rh: Variant = npc.get("herder")
+			if rh is Node and is_instance_valid(rh) and rh.has_meta("raid_joined") and bool(rh.get_meta("raid_joined")):
+				return ""
 		return "shelter"
 	if _find_pursuit_target() != null:
 		return ""

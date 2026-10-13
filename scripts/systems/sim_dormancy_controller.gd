@@ -77,6 +77,9 @@ func _npc_should_sim_awake(npc: Node, main: Node) -> bool:
 		return true
 	if npc.get("is_agro") == true:
 		return true
+	var home: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+	if home and home.has_method("has_village_intruder") and bool(home.call("has_village_intruder")):
+		return true
 	if not (npc is Node2D):
 		return true
 	# Eval watch modes: keep claim NPCs awake so you can see AI walk/work.
