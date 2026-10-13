@@ -1,0 +1,17 @@
+[2026-08-30T16:39:57] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T16:41:53] [WARNING] [NPC] STATE_DURATION: RUJA in wander for 138.2s (LONG - potentially stuck!) npc=RUJA state=wander duration_s=138.2 warning=potentially_stuck
+[2026-08-30T16:41:55] [WARNING] [NPC] STATE_DURATION: VUAH in wander for 139.5s (LONG - potentially stuck!) npc=VUAH state=wander duration_s=139.5 warning=potentially_stuck
+[2026-08-30T16:42:02] [WARNING] [NPC] STATE_DURATION: RUJA in wander for 147.2s (LONG - potentially stuck!) npc=RUJA state=wander duration_s=147.2 warning=potentially_stuck
+[2026-08-30T16:42:10] [WARNING] [NPC] STATE_DURATION: VUAH in wander for 154.6s (LONG - potentially stuck!) npc=VUAH state=wander duration_s=154.6 warning=potentially_stuck
+[2026-08-30T16:42:25] [WARNING] [NPC] STATE_DURATION: VUAH in wander for 169.6s (LONG - potentially stuck!) npc=VUAH state=wander duration_s=169.6 warning=potentially_stuck
+[2026-08-30T16:42:26] [WARNING] [NPC] GatherTask FAILED: VUAH resource invalid, no alternative found npc=VUAH
+[2026-08-30T16:42:26] [WARNING] [NPC] TaskRunner: Task 1/2 (gather_task.gd) FAILED - cancelling job npc=VUAH job_progress=1/2 task_type=gather_task.gd
+[2026-08-30T16:42:27] [WARNING] [NPC] STATE_DURATION: RUJA in wander for 171.5s (LONG - potentially stuck!) npc=RUJA state=wander duration_s=171.5 warning=potentially_stuck
+[2026-08-30T16:42:29] [WARNING] [NPC] STATE_DURATION: RUJA in wander for 173.8s (LONG - potentially stuck!) npc=RUJA state=wander duration_s=173.8 warning=potentially_stuck
+[2026-08-30T16:42:35] [WARNING] [NPC] STATE_DURATION: RUJA in gather for 42.1s (LONG - potentially stuck!) npc=RUJA state=gather duration_s=42.1 warning=potentially_stuck
+[2026-08-30T16:42:35] [WARNING] [NPC] STATE_DURATION: VUAH in gather for 40.8s (LONG - potentially stuck!) npc=VUAH state=gather duration_s=40.8 warning=potentially_stuck
+[2026-08-30T16:42:35] [WARNING] [NPC] STATE_DURATION: VUAH in gather for 25.8s (LONG - potentially stuck!) npc=VUAH state=gather duration_s=25.8 warning=potentially_stuck
+[2026-08-30T16:42:36] [WARNING] [NPC] STATE_DURATION: VUAH in wander for 180.9s (LONG - potentially stuck!) npc=VUAH state=wander duration_s=180.9 warning=potentially_stuck
+[2026-08-30T16:43:22] [WARNING] [NPC] STATE_DURATION: VUAH in party for 46.8s (LONG - potentially stuck!) npc=VUAH state=party duration_s=46.8 warning=potentially_stuck
+[2026-08-30T16:43:22] [WARNING] [NPC] STATE_DURATION: VUAH in party for 46.8s (LONG - potentially stuck!) npc=VUAH state=party duration_s=46.8 warning=potentially_stuck
+[2026-08-30T16:43:22] [WARNING] [NPC] STATE_DURATION: RUJA in party for 46.8s (LONG - potentially stuck!) npc=RUJA state=party duration_s=46.8 warning=potentially_stuck

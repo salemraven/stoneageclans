@@ -1,0 +1,31 @@
+5-min eval-ai-arena behavior capture
+Date: 2026-09-22
+Folder: Tests/logs/eval_behavior_5min_20260922
+Files:
+  playtest_session.jsonl  (source of truth, ~45k lines, t=301s)
+  godot.log
+  REPORT.txt              (this file)
+
+Flags: --eval-ai-arena --godmode --playtest-capture --session-quit-after 300
+NPCs ignore player: yes (snapshots confirm ignore=true, targeting_player max=0)
+Player died: no. HP stayed 100/100 for all 60 snapshots. player_died events: 0.
+
+What happened
+- Real fights: combat_started 406, 38 kills, 38 deaths, 7 butcher jobs, 18 slices.
+- Peak fight pulse: 13 in combat, 15 routing, up to 6 people hitting the same target.
+- Panic: rout_delta 622, rout_flee 88. Max rout meter 236 (well over flee threshold). Bravery values seen: 0.15, 0.3, 0.5, 0.7, 0.9, 1.0 — not everyone is the same.
+- Targeting: 14 switches, all reason=out_of_arc. Nobody locked onto the player.
+
+Issues the log proves
+1) fight_over spam — 4006 rows but only ~95 unique npc+corpse pairs. After a kill, two fighters (e.g. GUQE/BEOD) keep emitting fight_over every ~0.3s for minutes. Same for combat_ended 4448 vs started 406, and clansman_agro_reset 4410. That is the main "glitchy fight" signal: the fight-over path is not latching once.
+2) agro_increased 5090 — agro is pumped constantly (likely still ticking while overlapping).
+3) Late-run stuck gate — more than half of last-minute move samples had stuck_s > 4s (script FAIL). Mix of real stands (butcher/idle) and possible combat orbit freeze.
+4) ClanBrain eval printed 6 clan names (4 arena + extras). Two extra names showed up in early evals.
+
+Not a player-death run. If you saw a corpse last time, it was likely an NPC, or an older window without ignore/spectator.
+
+New instrumentation in this capture
+- snapshot.in_combat / in_flee / pile_max / pile_target / targeting_player
+- snapshot.rout_max / rout_mean / combat_bravery_mean
+- snapshot.player_hp / player_dead / npcs_ignore_player
+- player_died event (none fired)

@@ -1,0 +1,506 @@
+=== EVAL BEHAVIOR  t=301s  lines=31153  file=Tests/logs/eval_behavior_300s_20260922_183048/playtest_session.jsonl ===
+-- counts --
+  agro_increased: 3350
+  agro_threshold_crossed: 604
+  butcher_slice: 37
+  clan_brain_eval: 144
+  clan_brain_quota_update: 138
+  combat_ended: 396
+  combat_started: 363
+  combat_target_switch: 19
+  corpse_job_opened: 29
+  deposit_completed: 134
+  fight_over: 106
+  fight_over_broadcast: 43
+  flee_decide: 50
+  fsm_bounce: 18
+  gather_completed: 387
+  gather_failed: 3
+  gather_started: 154
+  npc_ate: 137
+  npc_died: 43
+  npc_kill: 43
+  npc_move_sample: 8972
+  npc_stuck_state_escaped: 4
+  rout_delta: 692
+  rout_flee: 89
+  snapshot: 60
+-- ClanBrain clans (6): CA YEEW, GI JUHA, JI NOUR, LE FULA, LE NORU, VE BUXO
+  invariant_failed: 0
+  GI JUHA t=0s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  VE BUXO t=0s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  JI NOUR t=0s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  LE NORU t=0s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  GI JUHA t=1s state=PEACEFUL gather_p=0.43 fsm gather/combat/wander=0/0/6 quota d+s=1+2/6
+  VE BUXO t=2s state=PEACEFUL gather_p=0.43 fsm gather/combat/wander=0/0/6 quota d+s=1+2/6
+  JI NOUR t=3s state=PEACEFUL gather_p=0.43 fsm gather/combat/wander=0/0/6 quota d+s=1+2/6
+  LE NORU t=4s state=PEACEFUL gather_p=0.43 fsm gather/combat/wander=0/0/6 quota d+s=1+2/6
+  GI JUHA t=6s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/0 quota d+s=1+2/6
+  VE BUXO t=7s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/0 quota d+s=1+2/6
+  JI NOUR t=8s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/0 quota d+s=1+2/6
+  LE NORU t=9s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/0 quota d+s=1+2/6
+  GI JUHA t=11s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/2 quota d+s=1+2/6
+  VE BUXO t=12s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/1 quota d+s=1+2/6
+  JI NOUR t=13s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/1 quota d+s=1+2/6
+  LE NORU t=14s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/0/1 quota d+s=1+2/6
+  GI JUHA t=16s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/0 quota d+s=1+2/6
+  VE BUXO t=17s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/1 quota d+s=1+2/6
+  JI NOUR t=18s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/1 quota d+s=1+2/6
+  LE NORU t=19s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/0 quota d+s=1+2/6
+  GI JUHA t=21s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/2 quota d+s=1+2/6
+  VE BUXO t=22s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/0/2 quota d+s=1+2/6
+  JI NOUR t=23s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/3 quota d+s=1+2/6
+  LE NORU t=24s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/0 quota d+s=1+2/6
+  GI JUHA t=26s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/2 quota d+s=1+2/6
+  VE BUXO t=27s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/1/2 quota d+s=1+2/6
+  JI NOUR t=28s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/1/1 quota d+s=1+2/6
+  LE NORU t=29s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/1 quota d+s=1+2/6
+  GI JUHA t=31s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/0/1 quota d+s=1+2/6
+  VE BUXO t=32s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=0/5/0 quota d+s=1+2/6
+  JI NOUR t=33s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/1/2 quota d+s=1+2/6
+  LE NORU t=34s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/3 quota d+s=1+2/6
+  GI JUHA t=36s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/2 quota d+s=1+2/6
+  JI NOUR t=38s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/1/1 quota d+s=1+2/6
+  LE NORU t=39s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/2 quota d+s=1+2/6
+  GI JUHA t=41s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/1 quota d+s=1+2/8
+  JI NOUR t=43s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=6/0/0 quota d+s=1+2/8
+  LE NORU t=44s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  GI JUHA t=46s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  JI NOUR t=48s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=0/4/2 quota d+s=1+2/8
+  LE NORU t=49s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  GI JUHA t=51s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  JI NOUR t=53s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=0/0/0 quota d+s=1+2/8
+  LE NORU t=54s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  GI JUHA t=56s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/1 quota d+s=1+2/8
+  LE NORU t=59s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/1 quota d+s=1+2/8
+  GI JUHA t=61s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  LE NORU t=64s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/0/1 quota d+s=1+2/8
+  GI JUHA t=66s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/0/4 quota d+s=1+2/8
+  LE NORU t=69s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=6/0/2 quota d+s=1+3/10
+  GI JUHA t=71s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+2/8
+  LE NORU t=74s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=6/0/0 quota d+s=1+3/10
+  GI JUHA t=76s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=6/0/2 quota d+s=1+3/10
+  LE NORU t=79s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=4/0/2 quota d+s=1+3/10
+  GI JUHA t=81s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/1/2 quota d+s=1+3/10
+  LE NORU t=84s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=2/1/3 quota d+s=1+3/10
+  GI JUHA t=86s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=6/2/1 quota d+s=1+3/10
+  LE NORU t=89s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=0/1/2 quota d+s=1+3/10
+  GI JUHA t=91s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=5/3/1 quota d+s=1+3/10
+  LE NORU t=94s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=3/1/2 quota d+s=1+3/12
+  GI JUHA t=96s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/2/1 quota d+s=1+3/10
+  LE NORU t=99s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=4/1/1 quota d+s=1+3/12
+  GI JUHA t=101s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=4/2/2 quota d+s=1+3/12
+  LE NORU t=104s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=5/2/0 quota d+s=1+3/12
+  GI JUHA t=106s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=6/0/1 quota d+s=1+3/12
+  LE NORU t=109s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/1/0 quota d+s=1+3/12
+  GI JUHA t=111s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=5/0/2 quota d+s=1+3/12
+  LE NORU t=114s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/1/0 quota d+s=1+3/12
+  GI JUHA t=116s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=5/0/3 quota d+s=1+3/12
+  LE NORU t=119s state=DEFENSIVE gather_p=0.43 fsm gather/combat/wander=3/1/0 quota d+s=1+3/12
+  GI JUHA t=121s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=4/0/4 quota d+s=1+3/12
+  LE NORU t=124s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=2/1/1 quota d+s=1+3/12
+  GI JUHA t=126s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=5/1/3 quota d+s=1+3/14
+  LE NORU t=129s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=1/3/2 quota d+s=1+3/12
+  GI JUHA t=131s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=5/2/1 quota d+s=1+3/14
+  LE NORU t=134s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=0/9/0 quota d+s=1+3/14
+  GI JUHA t=136s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=0/1/0 quota d+s=1+3/14
+  LE NORU t=139s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=0/8/1 quota d+s=1+3/14
+  GI JUHA t=141s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=1/1/1 quota d+s=1+3/14
+  LE NORU t=144s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=1/9/0 quota d+s=1+4/14
+  GI JUHA t=146s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=3/1/0 quota d+s=1+3/14
+  LE NORU t=149s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=1/5/2 quota d+s=1+4/14
+  GI JUHA t=151s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=0/1/1 quota d+s=1+3/14
+  LE NORU t=154s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=1/8/0 quota d+s=1+4/14
+  GI JUHA t=156s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=1/0/1 quota d+s=1+3/14
+  LE NORU t=159s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=3/6/1 quota d+s=1+4/16
+  GI JUHA t=161s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=1/0/1 quota d+s=1+3/14
+  LE NORU t=164s state=DEFENSIVE gather_p=0.51 fsm gather/combat/wander=2/9/0 quota d+s=1+3/15
+  GI JUHA t=166s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/1/0 quota d+s=1+3/14
+  LE NORU t=169s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/9/0 quota d+s=1+4/15
+  GI JUHA t=171s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/1/1 quota d+s=1+3/14
+  LE NORU t=174s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/9/0 quota d+s=1+4/15
+  GI JUHA t=176s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/2/1 quota d+s=1+4/14
+  LE NORU t=179s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=0/9/2 quota d+s=1+4/15
+  GI JUHA t=181s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/1/0 quota d+s=1+4/14
+  LE NORU t=184s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/5/3 quota d+s=1+4/17
+  GI JUHA t=186s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/1/0 quota d+s=1+4/14
+  LE NORU t=189s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=1/9/2 quota d+s=1+4/17
+  GI JUHA t=191s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=1/1/0 quota d+s=1+4/16
+  LE NORU t=194s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=0/0/1 quota d+s=1+4/17
+  GI JUHA t=196s state=DEFENSIVE gather_p=0.44 fsm gather/combat/wander=0/2/0 quota d+s=1+4/16
+  LE NORU t=199s state=DEFENSIVE gather_p=0.53 fsm gather/combat/wander=0/0/1 quota d+s=1+4/17
+  GI JUHA t=201s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/1/0 quota d+s=1+4/16
+  LE NORU t=204s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/0/1 quota d+s=1+4/17
+  GI JUHA t=206s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/1/0 quota d+s=1+4/16
+  LE NORU t=209s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/3/1 quota d+s=1+4/17
+  GI JUHA t=211s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=2/1/0 quota d+s=1+4/16
+  LE NORU t=214s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=0/0/1 quota d+s=1+4/17
+  GI JUHA t=216s state=DEFENSIVE gather_p=0.52 fsm gather/combat/wander=4/1/0 quota d+s=1+4/18
+  LE NORU t=219s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/2/1 quota d+s=1+4/17
+  GI JUHA t=221s state=DEFENSIVE gather_p=0.53 fsm gather/combat/wander=3/2/0 quota d+s=1+4/18
+  LE NORU t=224s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/1/0 quota d+s=1+4/19
+  GI JUHA t=226s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=2/1/0 quota d+s=1+4/18
+  LE NORU t=229s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=5/2/2 quota d+s=1+4/18
+  GI JUHA t=231s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/1/1 quota d+s=1+4/18
+  LE NORU t=234s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/3/1 quota d+s=1+4/18
+  CA YEEW t=234s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  GI JUHA t=236s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=2/1/1 quota d+s=1+4/18
+  LE NORU t=239s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=6/2/1 quota d+s=1+4/17
+  GI JUHA t=241s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=1/2/1 quota d+s=1+4/19
+  LE NORU t=244s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/3/1 quota d+s=1+4/17
+  GI JUHA t=246s state=AGGRESSIVE gather_p=0.46 fsm gather/combat/wander=0/1/0 quota d+s=1+4/19
+  LE NORU t=249s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=3/4/2 quota d+s=1+4/19
+  GI JUHA t=251s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=0/0/0 quota d+s=1+4/19
+  LE NORU t=254s state=AGGRESSIVE gather_p=0.53 fsm gather/combat/wander=1/10/1 quota d+s=1+4/19
+  LE FULA t=255s state=PEACEFUL gather_p=0.6 fsm gather/combat/wander=0/0/0 quota d+s=0+0/0
+  GI JUHA t=256s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=0/0/1 quota d+s=1+4/18
+  LE NORU t=259s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=1/8/2 quota d+s=1+4/19
+  GI JUHA t=261s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=1/0/0 quota d+s=1+4/17
+  LE NORU t=264s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=3/8/1 quota d+s=1+4/19
+  GI JUHA t=266s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=2/1/1 quota d+s=1+4/19
+  LE NORU t=269s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=0/11/1 quota d+s=1+4/19
+  GI JUHA t=271s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=2/1/0 quota d+s=1+4/17
+  LE NORU t=274s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=3/8/0 quota d+s=1+4/19
+  GI JUHA t=276s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=2/2/0 quota d+s=1+4/17
+  LE NORU t=279s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=4/7/2 quota d+s=1+4/21
+  GI JUHA t=281s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=0/1/0 quota d+s=1+4/16
+  LE NORU t=284s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=3/8/2 quota d+s=1+5/21
+  GI JUHA t=286s state=AGGRESSIVE gather_p=0.54 fsm gather/combat/wander=0/0/0 quota d+s=1+4/16
+  LE NORU t=289s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=4/8/1 quota d+s=1+5/21
+  GI JUHA t=291s state=DEFENSIVE gather_p=0.49 fsm gather/combat/wander=0/3/1 quota d+s=18+0/18
+  LE NORU t=294s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=5/6/1 quota d+s=1+5/21
+  GI JUHA t=296s state=DEFENSIVE gather_p=0.49 fsm gather/combat/wander=0/1/0 quota d+s=18+0/18
+  LE NORU t=299s state=AGGRESSIVE gather_p=0.55 fsm gather/combat/wander=6/6/0 quota d+s=1+5/21
+-- move samples 8972 median_spd=43.8 jumps>200px=0 late_stuck>4s=989/1763 late_combat_stuck=569/770 late_flee_stuck=120/248
+-- work gather_started=154 completed=387 deposit=134 failed=3
+-- combat started=363 ended=396 kills=43 died=43 fight_over=106 bounce=18 target_switch=19
+-- targeting switches=19
+  switch t=50.3 npc=GUAC F3_ZIFE -> GUQE reason=out_of_arc
+  switch t=50.4 npc=GUAC F3_ZIFE -> GUQE reason=out_of_arc
+  switch t=51.5 npc=GUAC GUQE -> BEOD reason=out_of_arc
+  switch t=53.8 npc=F3_MOMO GUQE -> BEOD reason=out_of_arc
+  switch t=97.2 npc=F5_DONE GUQE -> F4_QOEL reason=out_of_arc
+  switch t=97.4 npc=GUQE F2_GOIG -> KAGE reason=out_of_arc
+  switch t=104.5 npc=MINO F4_ZOTU -> YIIG reason=out_of_arc
+  switch t=105.0 npc=MINO F4_ZOTU -> YIIG reason=out_of_arc
+  switch t=118.0 npc=F2_GOIG NURU -> GUQE reason=out_of_arc
+  switch t=133.4 npc=KIEM BUEC -> BUEC reason=out_of_arc
+  switch t=133.8 npc=KIEM BUEC -> F3_JAKU reason=out_of_arc
+  switch t=144.7 npc=NURU HAYU -> KAGE reason=out_of_arc
+  switch t=144.8 npc=HAYU NURU -> BEOD reason=out_of_arc
+  switch t=146.7 npc=F3_JAKU KIEM -> F4_ZOTU reason=out_of_arc
+  switch t=222.7 npc=KIEM F4_JUXI -> F3_MOMO reason=out_of_arc
+  switch t=223.4 npc=KIEM F3_MOMO -> GUAC reason=out_of_arc
+  switch t=243.9 npc=KIEM F1_ZAIS -> BUEC reason=out_of_arc
+  switch t=244.1 npc=KIEM F1_ZAIS -> BUEC reason=out_of_arc
+  switch t=291.9 npc=KAGE F3_ZIUP -> QIEB reason=out_of_arc
+-- rout_delta sample --
+  t=34.0 npc=GUAC clan=VE BUXO add=24.0 after=24.0 bravery=1.0 thresh=79.8 reason=ally_death
+  t=34.0 npc=F2_GOIG clan=VE BUXO add=39.4 after=39.4 bravery=0.3 thresh=43.2 reason=ally_death
+  t=34.0 npc=F3_MOMO clan=VE BUXO add=35.0 after=35.0 bravery=0.5 thresh=53.6 reason=ally_death
+  t=34.0 npc=F4_JUXI clan=VE BUXO add=30.6 after=30.6 bravery=0.7 thresh=64.1 reason=ally_death
+  t=34.0 npc=F5_DONE clan=VE BUXO add=26.2 after=26.2 bravery=0.9 thresh=74.5 reason=ally_death
+  t=44.6 npc=NURU clan=JI NOUR add=24.0 after=24.0 bravery=1.0 thresh=79.8 reason=ally_death
+  t=44.6 npc=F2_PAED clan=JI NOUR add=39.4 after=39.4 bravery=0.3 thresh=43.2 reason=ally_death
+  t=44.6 npc=F3_ZIFE clan=JI NOUR add=35.0 after=35.0 bravery=0.5 thresh=53.6 reason=ally_death
+  t=44.6 npc=F4_QOEL clan=JI NOUR add=30.6 after=30.6 bravery=0.7 thresh=64.1 reason=ally_death
+  t=44.6 npc=F5_FUIR clan=JI NOUR add=26.2 after=26.2 bravery=0.9 thresh=74.5 reason=ally_death
+  t=44.6 npc=BEOD clan=JI NOUR add=35.0 after=35.0 bravery=0.5 thresh=53.6 reason=ally_death
+  t=44.6 npc=GUQE clan=JI NOUR add=35.0 after=35.0 bravery=0.5 thresh=53.6 reason=ally_death
+  t=50.7 npc=NURU clan=JI NOUR add=24.0 after=24.0 bravery=1.0 thresh=79.8 reason=ally_death
+  t=50.7 npc=F1_PEIC clan=JI NOUR add=42.7 after=42.7 bravery=0.15 thresh=35.3 reason=ally_death
+  t=50.7 npc=F2_PAED clan=JI NOUR add=39.4 after=54.2 bravery=0.3 thresh=43.2 reason=ally_death
+  t=50.7 npc=NURU clan=JI NOUR add=16.8 after=40.8 bravery=1.0 thresh=79.8 reason=ally_rout
+-- morale rout_delta=692 rout_flee=89 flee_decide=50
+-- battle pulses 60 combat max=13 median=7 flee max=15 pile_max=6 rout_max=258.3 targeting_player max=0
+-- player snap hp first/last=100/100 dead_snaps=0 ignore=True
+  peak-fight t=135s combat=9 flee=12 pile=1 on YIIG rout_mean=45.6 brav=0.85
+  flee_decide t=33.9 npc=F1_KEKU bravery=0.15 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=34.0 npc=F1_PEIC bravery=0.15 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=34.0 npc=F1_PEIC bravery=0.15 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=39.9 npc=F1_PEIC bravery=0.15 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=44.6 npc=GUAC bravery=1.0 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=44.6 npc=GUAC bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=44.6 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=44.6 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=44.6 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=50.6 npc=F3_ZIFE bravery=0.5 rout=10.9 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=50.7 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=F2_PAED bravery=0.3 rout=54.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=BEOD bravery=0.5 rout=69.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=GUQE bravery=0.5 rout=59.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=F5_FUIR bravery=0.9 rout=82.8 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=NURU bravery=1.0 rout=91.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=50.7 npc=F4_QOEL bravery=0.7 rout=79.4 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=50.7 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=50.7 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=50.7 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=55.3 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  fight_over t=55.3 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=55.3 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=55.6 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=55.6 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=56.2 npc=GUQE bravery=0.5 rout=191.5 hp=0.67 rule=rout_meter reason=None agro_after=None
+  flee_decide t=57.2 npc=NURU bravery=1.0 rout=129.9 hp=1.0 rule=rout_meter reason=None agro_after=None
+  npc_kill t=57.8 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  fight_over t=57.8 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=57.8 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=58.7 npc=F5_FUIR bravery=0.9 rout=166.3 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=59.5 npc=F4_QOEL bravery=0.7 rout=136.2 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=77.1 npc=GUQE bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=83.3 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  fight_over t=83.3 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=83.3 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=83.3 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=87.4 npc=YIIG bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=F1_ZAIS bravery=0.15 rout=42.7 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=F3_JAKU bravery=0.5 rout=59.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=F4_HOEW bravery=0.7 rout=73.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=MINO bravery=0.5 rout=84.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=BUEC bravery=0.5 rout=84.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=87.4 npc=F4_ZOTU bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=87.4 npc=YIIG bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=87.4 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=NURU bravery=1.0 rout=81.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=87.4 npc=F4_QOEL bravery=0.7 rout=85.6 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=87.4 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=87.4 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=87.4 npc=HAYU bravery=0.5 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=89.5 npc=HAYU bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=90.0 npc=BEOD bravery=0.5 rout=43.1 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=90.0 npc=BEOD bravery=0.5 rout=43.1 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=91.6 npc=F2_GOIG bravery=0.3 rout=32.9 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=91.6 npc=F2_GOIG bravery=0.3 rout=32.9 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=91.6 npc=F3_MOMO bravery=0.5 rout=28.5 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=91.6 npc=F5_DONE bravery=0.9 rout=19.7 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=91.6 npc=HAYU bravery=0.5 rout=0.0 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=93.1 npc=MINO bravery=0.5 rout=61.1 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=98.0 npc=F1_ZAIS bravery=0.15 rout=89.8 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=98.9 npc=KAGE bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  flee_decide t=99.2 npc=GUQE bravery=0.5 rout=4.7 hp=0.47 rule=low_hp reason=None agro_after=None
+  npc_kill t=100.1 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=100.1 npc=BEOD bravery=0.5 rout=71.6 hp=0.0 rule=None reason=None agro_after=None
+  rout_flee t=100.1 npc=NURU bravery=1.0 rout=95.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=100.1 npc=BEOD bravery=0.5 rout=60.5 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=100.1 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=104.1 npc=YIIG bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=105.2 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=105.2 npc=F2_GOIG bravery=0.3 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=105.4 npc=F4_ZOTU bravery=0.7 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=105.4 npc=F3_JAKU bravery=0.5 rout=71.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=105.4 npc=F4_HOEW bravery=0.7 rout=74.7 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=105.4 npc=F4_ZOTU bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=105.4 npc=YIIG bravery=0.5 rout=0.0 hp=0.33 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=107.7 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  fight_over t=107.7 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=107.7 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=107.7 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=119.7 npc=GUQE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=119.7 npc=BEOD bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=119.7 npc=GUQE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=119.7 npc=GUQE bravery=0.5 rout=71.0 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=126.3 npc=F5_DONE bravery=0.9 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=126.6 npc=NURU bravery=1.0 rout=54.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=126.6 npc=NURU bravery=1.0 rout=54.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=133.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=F1_YEIG bravery=0.15 rout=42.7 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=F2_QOAM bravery=0.3 rout=67.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=F3_ZIUP bravery=0.5 rout=59.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=KIEM bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=F4_ZOTU bravery=0.7 rout=73.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=YIIG bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=YIIG bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=KIEM bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=YIIG bravery=0.5 rout=59.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=133.9 npc=KIEM bravery=0.5 rout=59.5 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=133.9 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=133.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=139.6 npc=KIEM bravery=0.5 rout=110.4 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=139.6 npc=F3_ZIUP bravery=0.5 rout=159.1 hp=1.0 rule=rout_meter reason=None agro_after=None
+  npc_kill t=139.7 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=139.7 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=139.7 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=139.7 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=139.7 npc=F4_HOEW bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=139.7 npc=YIIG bravery=0.5 rout=169.4 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=139.7 npc=F4_ZOTU bravery=0.7 rout=145.1 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=139.8 npc=YIIG bravery=0.5 rout=144.3 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=146.9 npc=HAYU bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=147.1 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=F1_YEIG bravery=0.15 rout=165.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=F2_QOAM bravery=0.3 rout=203.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=YIIG bravery=0.5 rout=145.0 hp=0.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=KIEM bravery=0.5 rout=76.8 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=YIIG bravery=0.5 rout=101.3 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=KIEM bravery=0.5 rout=125.8 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=147.1 npc=KIEM bravery=0.5 rout=70.0 hp=0.0 rule=None reason=None agro_after=None
+  fight_over t=147.1 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=147.1 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=147.1 npc=F4_HOEW bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=147.3 npc=BEOD bravery=0.5 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=147.3 npc=F2_GOIG bravery=0.3 rout=78.8 hp=0.0 rule=None reason=None agro_after=None
+  fight_over t=147.3 npc=NURU bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=147.3 npc=BEOD bravery=0.5 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=148.4 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=148.4 npc=F5_GOEY bravery=0.9 rout=83.7 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=148.4 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=154.8 npc=F1_YEIG bravery=0.15 rout=207.0 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=156.0 npc=F2_QOAM bravery=0.3 rout=234.5 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=157.4 npc=KIEM bravery=0.5 rout=143.9 hp=1.0 rule=rout_meter reason=None agro_after=None
+  npc_kill t=159.9 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=159.9 npc=KIEM bravery=0.5 rout=95.7 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=159.9 npc=YIIG bravery=0.5 rout=120.2 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=159.9 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=159.9 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=159.9 npc=F4_HOEW bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=159.9 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=159.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=165.0 npc=F5_GOEY bravery=0.9 rout=43.3 hp=1.0 rule=outnumbered reason=None agro_after=None
+  npc_kill t=179.5 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=179.5 npc=YIIG bravery=0.5 rout=76.7 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=179.5 npc=PEIM bravery=1.0 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=179.5 npc=F4_HOEW bravery=0.7 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=181.2 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=181.2 npc=KIEM bravery=0.5 rout=80.5 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=181.2 npc=F3_JAKU bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=182.3 npc=F4_HOEW bravery=0.7 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=182.6 npc=F5_GOEY bravery=0.9 rout=40.1 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=182.6 npc=F1_ZAIS bravery=0.15 rout=42.7 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=182.6 npc=F3_ZIUP bravery=0.5 rout=197.3 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=182.6 npc=F5_GOEY bravery=0.9 rout=40.1 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=189.8 npc=PEIM bravery=1.0 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=190.0 npc=F5_GOEY bravery=0.9 rout=10.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=F2_QUZE bravery=0.3 rout=49.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=MINO bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=54.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=54.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=F3_JAKU bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=MINO bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=MINO bravery=0.5 rout=54.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=MINO bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=190.0 npc=BUEC bravery=0.5 rout=64.9 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=190.0 npc=F5_GOEY bravery=0.9 rout=10.5 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=190.0 npc=F2_QOAM bravery=0.3 rout=219.5 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=195.6 npc=MINO bravery=0.5 rout=159.6 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.7 npc=BUEC bravery=0.5 rout=159.3 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.7 npc=BUEC bravery=0.5 rout=115.5 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.7 npc=MINO bravery=0.5 rout=115.5 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.7 npc=MINO bravery=0.5 rout=164.3 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.8 npc=BUEC bravery=0.5 rout=164.0 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=195.9 npc=F2_QUZE bravery=0.3 rout=163.4 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=196.4 npc=F3_JAKU bravery=0.5 rout=39.3 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=196.5 npc=F5_GOEY bravery=0.9 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=196.5 npc=F5_GOEY bravery=0.9 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=196.5 npc=F1_YEIG bravery=0.15 rout=186.8 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=196.8 npc=BUEC bravery=0.5 rout=195.3 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=196.9 npc=BUEC bravery=0.5 rout=170.4 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=210.8 npc=BUEC bravery=0.5 rout=41.3 hp=1.0 rule=outnumbered reason=None agro_after=None
+  npc_kill t=212.0 npc=F5_GOEY bravery=0.9 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=F1_ZAIS bravery=0.15 rout=53.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=BUEC bravery=0.5 rout=169.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=MINO bravery=0.5 rout=71.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=MINO bravery=0.5 rout=169.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=BUEC bravery=0.5 rout=169.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=212.0 npc=BUEC bravery=0.5 rout=120.4 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=212.0 npc=F5_GOEY bravery=0.9 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=222.2 npc=F5_LUOL bravery=0.9 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=222.3 npc=F5_GOEY bravery=0.9 rout=0.0 hp=0.33 rule=None reason=None agro_after=None
+  rout_flee t=222.3 npc=F1_ZAIS bravery=0.15 rout=54.7 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=222.3 npc=F2_QUZE bravery=0.3 rout=176.1 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=222.3 npc=MINO bravery=0.5 rout=65.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=222.3 npc=BUEC bravery=0.5 rout=65.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=222.3 npc=MINO bravery=0.5 rout=114.2 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=222.3 npc=F5_GOEY bravery=0.9 rout=0.0 hp=0.33 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=224.0 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=224.0 npc=F3_ZIUP bravery=0.5 rout=66.8 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=224.0 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=224.0 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=232.2 npc=YIIG bravery=0.5 rout=1.9 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=232.4 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=232.4 npc=YIIG bravery=0.5 rout=92.7 hp=0.67 rule=None reason=None agro_after=None
+  fight_over t=232.4 npc=GUAC bravery=1.0 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=232.4 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=238.1 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=238.1 npc=F3_ZIUP bravery=0.5 rout=80.3 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=238.1 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=238.1 npc=BUEC bravery=0.5 rout=99.9 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=238.3 npc=BUEC bravery=0.5 rout=144.9 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=244.2 npc=KIEM bravery=0.5 rout=24.1 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=244.5 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=244.5 npc=KIEM bravery=0.5 rout=57.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=244.5 npc=YIIG bravery=0.5 rout=57.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=244.5 npc=KIEM bravery=0.5 rout=82.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=244.5 npc=YIIG bravery=0.5 rout=57.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=244.5 npc=YIIG bravery=0.5 rout=73.5 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=244.5 npc=F1_ZAIS bravery=0.15 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=251.0 npc=KIEM bravery=0.5 rout=8.9 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=256.5 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=256.5 npc=KIEM bravery=0.5 rout=118.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=256.5 npc=YIIG bravery=0.5 rout=93.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=256.5 npc=KIEM bravery=0.5 rout=93.9 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=256.5 npc=YIIG bravery=0.5 rout=69.4 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=256.5 npc=YIIG bravery=0.5 rout=95.5 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=256.5 npc=BUEC bravery=0.5 rout=26.3 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=MINO bravery=0.5 rout=20.9 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=BUEC bravery=0.5 rout=20.9 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=256.5 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=257.6 npc=BEOD bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=257.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=257.9 npc=BUEC bravery=0.5 rout=20.8 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=257.9 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=265.8 npc=YIIG bravery=0.5 rout=58.1 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=269.4 npc=BUEC bravery=0.5 rout=0.0 hp=0.33 rule=low_hp reason=None agro_after=None
+  flee_decide t=270.5 npc=YIIG bravery=0.5 rout=13.3 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=270.6 npc=BUEC bravery=0.5 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=270.6 npc=F3_ZIUP bravery=0.5 rout=55.1 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=270.6 npc=KIEM bravery=0.5 rout=96.8 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=270.6 npc=YIIG bravery=0.5 rout=72.3 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=270.6 npc=KIEM bravery=0.5 rout=72.3 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=270.6 npc=BUEC bravery=0.5 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=270.6 npc=MINO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=270.6 npc=BUEC bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=278.1 npc=BUEC bravery=0.5 rout=0.0 hp=0.67 rule=None reason=None agro_after=None
+  rout_flee t=278.1 npc=KIEM bravery=0.5 rout=70.0 hp=0.0 rule=None reason=None agro_after=None
+  fight_over t=278.1 npc=BUEC bravery=0.5 rout=0.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=279.6 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=279.6 npc=YIIG bravery=0.5 rout=69.1 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=279.6 npc=KIEM bravery=0.5 rout=58.6 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=279.6 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=279.6 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=285.0 npc=KIEM bravery=0.5 rout=72.0 hp=0.33 rule=rout_meter reason=None agro_after=None
+  npc_kill t=285.4 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=285.4 npc=KIEM bravery=0.5 rout=167.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=285.4 npc=YIIG bravery=0.5 rout=167.2 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=285.4 npc=KIEM bravery=0.5 rout=142.7 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=285.4 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=285.4 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=286.1 npc=YIIG bravery=0.5 rout=102.5 hp=1.0 rule=rout_meter reason=None agro_after=None
+  npc_kill t=291.8 npc=YIIG bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  rout_flee t=291.8 npc=F1_ZAIS bravery=0.15 rout=42.7 hp=0.33 rule=None reason=None agro_after=None
+  fight_over t=291.8 npc=F3_MOMO bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=291.8 npc=YIIG bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=291.9 npc=YIIG bravery=0.5 rout=168.6 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  flee_decide t=292.7 npc=KIEM bravery=0.5 rout=138.2 hp=1.0 rule=rout_meter reason=None agro_after=None
+  flee_decide t=293.3 npc=QIEB bravery=1.0 rout=44.9 hp=0.33 rule=low_hp reason=None agro_after=None
+  npc_kill t=293.5 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=293.5 npc=KAGE bravery=0.5 rout=0.0 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  npc_kill t=294.9 npc=YIIG bravery=0.5 rout=29.4 hp=1.0 rule=None reason=None agro_after=None
+  fight_over t=294.9 npc=F3_ZIUP bravery=0.5 rout=147.0 hp=0.67 rule=None reason=target_dead agro_after=0.0
+  fight_over t=294.9 npc=YIIG bravery=0.5 rout=29.4 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=294.9 npc=KIEM bravery=0.5 rout=29.4 hp=1.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=294.9 npc=QIEB bravery=1.0 rout=44.1 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=294.9 npc=YIIG bravery=0.5 rout=143.0 hp=0.0 rule=None reason=target_dead agro_after=0.0
+  fight_over t=294.9 npc=KIEM bravery=0.5 rout=105.4 hp=0.0 rule=None reason=target_dead agro_after=0.0
+PASS: behavior gates

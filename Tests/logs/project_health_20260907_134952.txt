@@ -1,0 +1,14 @@
+==============================================
+project_health_report 20260907_134952
+repo: /Users/macbook/Desktop/stoneageclans
+==============================================
+
+>>> Phase 1: static scan (Python)
+----------------------------------------------
+=== project_health_scan 2026-09-07T17:49:53Z ===
+errors=1 warnings=0 info=0
+
+--- ERROR (1) ---
+[missing_resource] assets/sprites/nuts1.png
+  Referenced by 2 file(s): scripts/resource_data.gd, scripts/gatherable_resource.gd
+  fix: Restore file, update reference, or archive dead code

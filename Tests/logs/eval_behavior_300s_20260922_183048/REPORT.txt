@@ -1,0 +1,37 @@
+5-min eval after fight-over + rout latch (2026-09-22 ~18:30)
+Folder: Tests/logs/eval_behavior_300s_20260922_183048
+Source: playtest_session.jsonl (t=301s, 31153 lines)
+Also: godot.log, this REPORT.txt
+
+Flags: --eval-ai-arena --godmode --playtest-capture --session-quit-after 300
+Player: HP 100/100 all 60 snapshots. ignore=true. targeting_player=0. player_died=0.
+
+Vs last capture (eval_behavior_300s_20260922_180757):
+  fight_over        117 → 106   (still not spam; 72 unique npc+corpse pairs)
+  combat_ended      620 → 396   (started 363; ratio ~1.1)
+  kills / deaths     55 → 43
+  rout_flee         111 → 89
+  peak pulse         26/22 → 13 combat / 15 routing
+  pile_max          22? → 6 people on one target
+  agro_increased    (still high) 3350 this run
+  jumps>200px       0
+  fsm_bounce        18 (under cap)
+
+What happened
+- Real fights: 363 combat starts, 43 kills, 29 butcher jobs, 37 slices, 134 deposits.
+- Panic: 692 rout_delta (513 ally_death, 179 ally_rout). Max meter 258. Flee decide: 27 rout_meter, 21 low_hp, 2 outnumbered.
+- Cowards break first: flee bravery counts 0.15×7, 0.3×6, 0.5×66, 0.7×5, 0.9×2, 1.0×3. Brave still run if the pile of fear is huge (example NURU bravery 1.0 at t=50.7 after several deaths).
+- Killers skew braver: 0.9 and 1.0 together got 15 of 43 kills; cowards 0.15 only 3.
+- Targeting: 19 switches, all reason=out_of_arc. Nobody locked the player. One no-op switch (KIEM BUEC→BUEC).
+- Peak-fight snapshot t=135s: 9 in combat, 12 fleeing, pile 1 on YIIG, combat bravery mean 0.85.
+
+Gates
+- PASS: behavior gates (script exit 0).
+
+Still noisy / not the old corpse loop
+- agro_increased 3350 — people walking into each other still pump agro before a fight.
+- Late-minute move samples: 989/1763 stuck>4s (569 of 770 combat, 120 of 248 flee). Same as last report: melee stand looks “stuck” on the sampler; some routers get pinned in a pile then leave after a kill.
+- ClanBrain printed 6 names. Early (~0–2s) only the 4 arena clans. Later CA YEEW and LE FULA show up — extra brains, not the 4-camp start.
+- fight_over can still fire a few times on one corpse (BUEC+KIEM ×7) but it is not the old every-tick spam.
+
+PASS: intended fight-over + spectator + rout spread still holding.

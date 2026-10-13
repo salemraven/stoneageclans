@@ -1,0 +1,28 @@
+{
+  "timestamp": "20260907_134959",
+  "static_scan": {
+    "tool": "project_health_scan.py",
+    "timestamp": "2026-09-07T17:49:59Z",
+    "summary": {
+      "error": 1,
+      "warning": 0,
+      "info": 0
+    },
+    "findings": [
+      {
+        "severity": "error",
+        "category": "missing_resource",
+        "path": "assets/sprites/nuts1.png",
+        "message": "Referenced by 2 file(s): scripts/resource_data.gd, scripts/gatherable_resource.gd",
+        "fix_hint": "Restore file, update reference, or archive dead code"
+      }
+    ]
+  },
+  "godot_scan": {},
+  "summary": {
+    "static_errors": 1,
+    "static_warnings": 0,
+    "godot_errors": null,
+    "godot_exit_code": 0
+  }
+}

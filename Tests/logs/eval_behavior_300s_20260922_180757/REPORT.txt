@@ -1,0 +1,25 @@
+5-min eval after fight-over latch (2026-09-22)
+Folder: Tests/logs/eval_behavior_300s_20260922_180757
+Source: playtest_session.jsonl (t=301s)
+
+Vs previous capture (eval_behavior_5min_20260922):
+  fight_over        4006 → 117
+  combat_ended      4448 → 620  (started 584)
+  agro_reset spam   gone (only logged on real combat exit)
+  player            HP 100/100, ignore=true, targeting_player=0
+  kills / deaths    55 / 55
+  rout_flee         111  (cowards first; bravery 0.15–1.0)
+  peak pulse        26 in combat, 22 routing
+
+What we fixed
+- Latch fight_over once (~2.5s). No more per-tick fight_over on the same corpse.
+- Do not assign corpses as new combat targets.
+- Lost-target leaves combat quietly (no fake fight_over).
+- Agro pumps stay off while fighting, fleeing, or latched.
+
+Still noisy (not the old glitch)
+- agro_increased still high while people walk into each other before a fight.
+- Standing in melee looks “stuck” on the move sampler — they are stabbing, not frozen.
+- Some routers get pinned in a pile (physics), but they do leave after a kill.
+
+PASS: behavior gates

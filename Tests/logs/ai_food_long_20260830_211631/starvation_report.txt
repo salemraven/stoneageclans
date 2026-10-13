@@ -1,0 +1,35 @@
+=== AI food starvation analysis ===
+File: /Users/macbook/Desktop/stoneageclans/Tests/logs/ai_food_long_20260830_211631/playtest_session.jsonl
+Session length: 1187s
+Critical buffer: 0.50 sim-days (< = STARVING gate)
+
+--- FU ZEEP ---
+  dormant_ticks: 22  brain_evals: 2
+  samples: 24  buffer: start=1.00d  end=0.02d  min=0.02d  max=1.00d  Δ=-0.98d
+  workforce modes: {'GROWTH': 2, 'BALANCED': 11, 'STARVING': 11}
+  trend: declining (0.95d → 0.11d)  verdict: STARVING
+  buffer timeline: 1.0 1.0 0.9 0.9 0.9 0.7 0.6 0.4 0.3 0.1 0.1 0.0
+
+--- JU QEIC ---
+  dormant_ticks: 22  brain_evals: 2
+  samples: 24  buffer: start=1.00d  end=0.35d  min=0.35d  max=1.13d  Δ=-0.65d
+  workforce modes: {'GROWTH': 10, 'BALANCED': 8, 'STARVING': 6}
+  trend: declining (1.05d → 0.45d)  verdict: STARVING
+  buffer timeline: 1.0 1.0 1.1 1.1 1.1 1.0 0.9 0.7 0.7 0.4 0.4 0.4
+
+--- MA LOUB ---
+  dormant_ticks: 0  brain_evals: 1
+  samples: 1  buffer: start=1.00d  end=1.00d  min=1.00d  max=1.00d  Δ=+0.00d
+  workforce modes: {'GROWTH': 1}
+  trend: stable (1.00d → 1.00d)  verdict: OK
+  buffer timeline: 1.0
+
+--- SE NAUM ---
+  dormant_ticks: 22  brain_evals: 2
+  samples: 24  buffer: start=1.00d  end=0.09d  min=0.09d  max=1.06d  Δ=-0.91d
+  workforce modes: {'GROWTH': 6, 'BALANCED': 8, 'STARVING': 10}
+  trend: declining (1.01d → 0.20d)  verdict: STARVING
+  buffer timeline: 1.0 1.1 1.0 1.0 0.9 0.7 0.7 0.5 0.4 0.2 0.1 0.1
+
+--- Overall ---
+  ❌ At least one AI clan hit STARVING / critical buffer — tune bootstrap or gather yields.

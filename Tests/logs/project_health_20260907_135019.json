@@ -1,0 +1,108 @@
+{
+  "timestamp": "20260907_135019",
+  "static_scan": {
+    "tool": "project_health_scan.py",
+    "timestamp": "2026-09-07T17:50:19Z",
+    "summary": {
+      "error": 1,
+      "warning": 0,
+      "info": 0
+    },
+    "findings": [
+      {
+        "severity": "error",
+        "category": "missing_resource",
+        "path": "assets/sprites/nuts1.png",
+        "message": "Referenced by 2 file(s): scripts/resource_data.gd, scripts/gatherable_resource.gd",
+        "fix_hint": "Restore file, update reference, or archive dead code"
+      }
+    ]
+  },
+  "godot_scan": {
+    "findings": [
+      {
+        "category": "critical_script",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scripts/main.gd",
+        "severity": "info"
+      },
+      {
+        "category": "critical_script",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scripts/world_map_editor.gd",
+        "severity": "info"
+      },
+      {
+        "category": "critical_script",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scripts/world/terrain_query.gd",
+        "severity": "info"
+      },
+      {
+        "category": "critical_script",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://assets/shaders/biome_ground.gdshader",
+        "severity": "info"
+      },
+      {
+        "category": "critical_scene",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scenes/Main.tscn",
+        "severity": "info"
+      },
+      {
+        "category": "critical_scene",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scenes/WorldMapEditor.tscn",
+        "severity": "info"
+      },
+      {
+        "category": "critical_scene",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scenes/Player.tscn",
+        "severity": "info"
+      },
+      {
+        "category": "critical_scene",
+        "fix_hint": "",
+        "message": "ok",
+        "path": "res://scenes/NPC.tscn",
+        "severity": "info"
+      },
+      {
+        "category": "scene_smoke",
+        "fix_hint": "",
+        "message": "instantiated 20 frames",
+        "path": "res://scenes/WorldMapEditor.tscn",
+        "severity": "info"
+      },
+      {
+        "category": "scene_smoke",
+        "fix_hint": "",
+        "message": "instantiated 12 frames",
+        "path": "res://scenes/Main.tscn",
+        "severity": "info"
+      }
+    ],
+    "summary": {
+      "error": 0,
+      "info": 10,
+      "warning": 0
+    },
+    "timestamp": "2026-09-07T135019",
+    "tool": "project_health_report.gd"
+  },
+  "summary": {
+    "static_errors": 1,
+    "static_warnings": 0,
+    "godot_errors": 0,
+    "godot_exit_code": 0
+  }
+}

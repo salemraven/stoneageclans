@@ -1,0 +1,10 @@
+[2026-08-30T17:36:41] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:42] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:42] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:44] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:44] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:46] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:46] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:36:50] [ERROR] [COMBAT] COMBAT: Hit frame - target invalid
+[2026-08-30T17:37:20] [WARNING] [NPC] STATE_DURATION: VUAH in wander for 42.7s (LONG - potentially stuck!) npc=VUAH state=wander duration_s=42.7 warning=potentially_stuck
+[2026-08-30T17:37:20] [WARNING] [NPC] STATE_DURATION: RUJA in wander for 42.7s (LONG - potentially stuck!) npc=RUJA state=wander duration_s=42.7 warning=potentially_stuck

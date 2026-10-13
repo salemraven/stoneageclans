@@ -1,0 +1,81 @@
+{
+	"findings": [
+		{
+			"category": "critical_script",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scripts/main.gd",
+			"severity": "info"
+		},
+		{
+			"category": "critical_script",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scripts/world_map_editor.gd",
+			"severity": "info"
+		},
+		{
+			"category": "critical_script",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scripts/world/terrain_query.gd",
+			"severity": "info"
+		},
+		{
+			"category": "critical_script",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://assets/shaders/biome_ground.gdshader",
+			"severity": "info"
+		},
+		{
+			"category": "critical_scene",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scenes/Main.tscn",
+			"severity": "info"
+		},
+		{
+			"category": "critical_scene",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scenes/WorldMapEditor.tscn",
+			"severity": "info"
+		},
+		{
+			"category": "critical_scene",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scenes/Player.tscn",
+			"severity": "info"
+		},
+		{
+			"category": "critical_scene",
+			"fix_hint": "",
+			"message": "ok",
+			"path": "res://scenes/NPC.tscn",
+			"severity": "info"
+		},
+		{
+			"category": "scene_smoke",
+			"fix_hint": "",
+			"message": "instantiated 20 frames",
+			"path": "res://scenes/WorldMapEditor.tscn",
+			"severity": "info"
+		},
+		{
+			"category": "scene_smoke",
+			"fix_hint": "",
+			"message": "instantiated 12 frames",
+			"path": "res://scenes/Main.tscn",
+			"severity": "info"
+		}
+	],
+	"summary": {
+		"error": 0,
+		"info": 10,
+		"warning": 0
+	},
+	"timestamp": "2026-09-07T134930",
+	"tool": "project_health_report.gd"
+}

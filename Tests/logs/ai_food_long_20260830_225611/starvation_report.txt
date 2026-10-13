@@ -1,0 +1,38 @@
+=== AI food & growth analysis ===
+File: /Users/macbook/Desktop/stoneageclans/Tests/logs/ai_food_long_20260830_225611/playtest_session.jsonl
+Session length: 1191s
+Success target: surviving clan + growth signals (births/baby_grew/pop) + not chronic STARVING
+
+--- HO RAJU ---
+  ticks=0 pop=None births=0 grew=0 deaths=0 slaughters=0 regen=0
+  buffer: 1.00d → 1.00d (min 1.00d) modes={'GROWTH': 1}
+  verdict: PRODUCTIVE / STABLE
+  buffer timeline: 1.0
+
+--- QI WIUY ---
+  ticks=22 pop=1 births=0 grew=0 deaths=0 slaughters=0 regen=0
+  buffer: 1.00d → 0.02d (min 0.02d) modes={'GROWTH': 3, 'BALANCED': 12, 'STARVING': 10}
+  verdict: AT RISK (chronic STARVING, no growth)
+  buffer timeline: 1.0 1.0 1.0 0.9 0.9 0.8 0.6 0.5 0.4 0.2
+
+--- RO SECE ---
+  ticks=22 pop=1 births=0 grew=0 deaths=0 slaughters=0 regen=0
+  buffer: 1.00d → 0.02d (min 0.02d) modes={'GROWTH': 3, 'BALANCED': 12, 'STARVING': 10}
+  verdict: AT RISK (chronic STARVING, no growth)
+  buffer timeline: 1.0 1.0 1.0 0.9 0.9 0.8 0.6 0.6 0.4 0.3
+
+--- YA VIUH ---
+  ticks=0 pop=None births=0 grew=0 deaths=0 slaughters=0 regen=0
+  buffer: 1.00d → 1.00d (min 1.00d) modes={'GROWTH': 1}
+  verdict: PRODUCTIVE / STABLE
+  buffer timeline: 1.0
+
+--- ZU VAWE ---
+  ticks=22 pop=1 births=0 grew=0 deaths=0 slaughters=0 regen=0
+  buffer: 1.00d → 0.02d (min 0.02d) modes={'GROWTH': 3, 'BALANCED': 11, 'STARVING': 11}
+  verdict: AT RISK (chronic STARVING, no growth)
+  buffer timeline: 1.0 1.0 1.0 0.9 0.9 0.7 0.6 0.5 0.4 0.2
+
+--- Overall ---
+  Ring AI clans: QI WIUY, RO SECE, ZU VAWE
+  ⚠ Mixed — some clans OK, some at risk.
