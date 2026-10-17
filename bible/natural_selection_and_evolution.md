@@ -177,4 +177,4 @@ No equations in UI. Causes must be readable: **starved baby**, **died defending*
 
 ---
 
-*Promote rows into [director_locks_2026_10.md](director_locks_2026_10.md) when director says **save** to GitHub canon merge.*
+*Synced with [director_locks_2026_10.md](director_locks_2026_10.md) §4, §6, §8 (Oct 2026 director interview).*
