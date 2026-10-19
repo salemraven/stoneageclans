@@ -5,7 +5,7 @@ Compiled from guides, GDD, and implementation docs. Covers both design intent an
 
 **Scope:** §I–§XXI describe **implemented or agreed-in-code** behavior (with *planned* callouts where noted). Ideas without implementation live in **§XXII Future implementations** and linked docs — not as shipped systems.
 
-**Newest design locks (Oct 2026 director interview):** [director_locks_2026_10.md](director_locks_2026_10.md) · [story_data.md](story_data.md). Where they disagree with a section below, they win.
+**Newest design locks (Oct 2026 director interview):** [director_locks_2026_10.md](director_locks_2026_10.md) · [story_data.md](story_data.md) · [natural_selection_and_evolution.md](natural_selection_and_evolution.md). Where they disagree with a section below, they win.
 
 **Opening loop & tiers (design owner):** [earlygame_vision.md](earlygame_vision.md) · **Tier 1 = Campfire** land claim · **Tier 2 = Flag** (settled).
 

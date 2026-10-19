@@ -13,7 +13,7 @@ This is the **single ordered list** for nomad → island MP → raid economy →
 New order of work ([director_locks_2026_10.md](director_locks_2026_10.md) §6):
 
 1. **Story data + lineage records** ([story_data.md](story_data.md); lineage is old Phase 2.1). Promoted now.
-2. **Multiplayer foundation** — host-a-world, each friend runs their own clan. Moves **ahead** of Phases 3–5 (old Phase 6).
+2. **Multiplayer foundation** — **persistent dedicated server**; each friend runs their own clan (listen host = dev/LAN). Moves **ahead** of Phases 3–5 (old Phase 6). See [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §2.4.
 3. **Daughters**, wounds and medic, and the knapping / hafting tool chain.
 4. Then the rest (farming, island polish, day/night).
 

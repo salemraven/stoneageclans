@@ -3,7 +3,8 @@
 **Status:** Design locks agreed with the director on **2026-10-13**. This is design, not code. Each row says what the code does today.
 **Wins over:** `bible.md`, `raid.md`, `ai_clan_brain.md`, `economy_catalog.md`, `production_tiers.md`, `clan_founding_and_exile.md`, and `leader_hut.md` wherever they disagree with this file. Those docs now point here.
 **Does not override:** `systems/*_canon.md` locks that this file does not mention.
-**Story record details:** [story_data.md](story_data.md).
+**Story record details:** [story_data.md](story_data.md).  
+**Evolution & Agro (director interview, Oct 2026):** [natural_selection_and_evolution.md](natural_selection_and_evolution.md).
 
 **Code column:** `built` = in the game today. `pending` = locked, not coded. `partial` = some of it exists.
 
@@ -43,25 +44,21 @@ Already locked before this interview: one building per plot, no batch system, no
 | **No size rule on raids.** Any clan may raid any neighbor, including a bigger one. Small clans raid big ones for herdables and loot. The `thin` motive still picks smaller camps because it means "they are weak". | pending. `raid.md` and `raid_motive_picker.gd` still skip larger targets (`outnumbered`). |
 | **How often a clan raids depends on its aggression.** Some clans never raid. See §4. | partial (`raid_temper` is a stub stuck at 0) |
 | **No protection for new camps.** A fresh camp can be raided. | built (nothing prevents it) |
-| **Flag wiped, player survives:** you keep playing, but **all your clansmen are lost**. It is a solo restart. | pending |
+| **Flag wiped, player survives:** you keep playing with **no clansmen under your command** (solo restart). **Presentation:** most men **die defending** the claim; **instant mass despawn at the flag is wrong**. A **rare** breaker may **wander off** then leave the sim; wild/founder only on that path + clan slots. Detail: [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §2.2. | pending |
 | **First contact:** a **standoff ladder** on first sighting. Freeze, arm up, then back off, hold or charge, decided by bravery, traits and how the player has behaved. It is skipped when there is a grudge, and then it is a straight fight. It works the same for AI and human clans. | pending |
 | **Famine ladder** (five visible steps, each with a warning): no pregnancies, then babies weaken, then everyone is slower and fights worse, then men desert as wild exiles who can found clans later, then deaths (babies first, breeders last). | pending |
 | **Mammoth:** dangerous big prey that fights back and never hunts people. High reward. Taming is deferred. | partial |
 | **Orders vs fear:** an Attack or Guard order gives a courage bonus. It does not remove fear. The weakest can still break and run, shown with the yellow `!!`. | partial. `raid_joined` men currently never lose nerve from the nudge. |
 
-## 4. Bravery and the aggression bar
+## 4. Bravery and Agro (fight-or-flight)
 
-The in-fight **nerve bar** and personal **break line** are `built` ([morale_bar_flight.md](future%20implementations/morale_bar_flight.md)). The rest below is `pending`.
+The in-fight **morale / flight** bar and personal **break line** are `built` ([morale_bar_flight.md](future%20implementations/morale_bar_flight.md)); UI still shows legacy **Agro** separately — **merge to one person Agro bar** over time. Full lock: [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §2.1.
 
-- Each person has a lasting **bravery**. It already sets his break line.
-- Bravery comes from genes, traits and age. Over a life, kills raise it, and scars and lost kin lower it.
-- Each person also has an individual **aggression bar**, with **attack** at one end and **flee** at the other. Bravery affects this bar.
-- **Raids are joined by the bold.** Timid men stay home as defenders, hunters or builders.
-- **Clan aggression** is the average bravery and aggression of its fighters, tilted by the leader. It replaces the separate `raid_temper` number.
-- A clan full of bold men raids often. A clan of timid men keeps its head down.
-- Raiders break off when the party's own nerve breaks (see §3, orders vs fear). A brave or cornered party can still be wiped out.
-
-Still open: how the aggression bar relates to the nerve bar, and the exact things that move each (see §8).
+- Each person has a lasting **bravery** (genes, traits, age; kills up, scars and lost kin down). It sets the **break line** and biases Agro at rest.
+- **Agro** = single per-person **fight-or-flight** meter (fast in combat). Retired as design terms: separate person **aggression bar** + **nerve bar**.
+- **AI raids:** bold men **volunteer**; timid stay home. **Player raids:** the **player picks** the squad ([raid.md](raid.md)); bravery/Agro affect break, not draft selection.
+- **Clan raid appetite** = ClanBrain from fighters' bravery distribution + leader tilt; replaces `raid_temper` stub.
+- Raiders break off when party nerve/Agro breaks (§3 orders vs fear).
 
 ## 5. Stories and saved data
 
@@ -78,7 +75,7 @@ Full spec: [story_data.md](story_data.md).
 | Lock | Code |
 |------|------|
 | **Order:** story data and lineage records, then the **multiplayer foundation**, then daughters, wounds/medic and the tool chain. | n/a |
-| **Multiplayer shape: host-a-world.** One player hosts. A few friends join, each running **their own clan with their own flag** on a shared island with AI clans. It stops when the host quits. | stubs only |
+| **Multiplayer shape:** **Persistent dedicated server** (saved world, reconnect, ClanBrain while offline). Each human runs **their own clan + flag** on a shared island with AI clans. **Listen host** = dev/LAN only, same server-authoritative code. Supersedes production “session ends when host quits.” Detail: [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §2.4. | stubs only |
 | **Phase promoted now:** story-data logging. Everything else on the roadmap keeps its place. | n/a |
 | **Day and night, and exhaustion:** deferred until right after lineage and daughters. | n/a |
 
@@ -90,11 +87,15 @@ Predators, trade trips, prisoners, research, graves and age quality tiers, proto
 
 ## 8. Open items
 
-1. **Bravery vs the aggression bar.** How the two relate, and what raises or lowers each. Recommended: bravery moves slowly over a life, and the aggression bar moves fast in a fight.
-2. **Flag wipe and AI clans.** The new rule is for the player. `clan_founding_and_exile.md` still says AI survivors become exiles, and one may found a new clan. Recommended: keep that for AI clans, and decide whether the player's lost clansmen die or scatter as wild exiles.
-3. **Tool chain.** The knapping and hafting huts, tar and bows need recipes. Durability is not spent anywhere yet.
-4. **Multiplayer details.** What happens to the clans when the host leaves, how many players, whether saves are shared, and whether the foundation waits for the authored island (roadmap Phase 5) or starts on the current map.
-5. **Population-day gates.** `production_tiers.md` still lists population and food-day gates. They are retired (claim tier is the only gate), but the numbers there could still be useful for staffing and food tuning.
+**Resolved in director interview (Oct 2026)** — see [natural_selection_and_evolution.md](natural_selection_and_evolution.md): Agro single bar, wipe presentation, tool wear deferred, persistent MP, pop gates as hints only.
+
+Still open:
+
+1. **Tool chain recipes** — knapping, hafting, tar, bows (durability spend **deferred**).
+2. **MP fine print** — player count target, zero-humans-online sim speed, island vs current map for first net playtest ([roadmap_2026.md](roadmap_2026.md) reorder note).
+3. **Founder count per wipe** — recommended one per [clan_founding_and_exile.md](clan_founding_and_exile.md) §4; confirm for player-origin exiles.
+4. **Natural selection v1** — implement per [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §5 after lineage phase.
+5. **Story UI** — timeline cap, bloodline-end recap, save Agro vs bravery only ([story_data.md](story_data.md) §6).
 
 ## 9. Known risks
 

@@ -9,9 +9,7 @@
 
 ## 0. Player flag wipe (locked 2026-10-13)
 
-If the **player's** flag falls and the player is still alive, the player **keeps playing but loses all clansmen** (a solo restart). This is the player rule and it overrides §3.1 for the player. The rest of this file (exile, founder roll, slots) still describes **AI clans**.
-
-**Open:** whether the player's lost clansmen die or scatter as wild exiles, and whether AI clans keep the exile and founder rule as written. See [director_locks_2026_10.md](director_locks_2026_10.md) §8. Famine deserters (men who leave a starving clan) follow the pipeline below and can found clans later.
+If the **player's** flag falls and the player is still alive, the player **keeps playing with no clansmen under command** (solo restart). **Most fighters die defending** the claim; **instant despawn at the flag is wrong**. A **rare** man who **breaks and runs** may wander off and leave the sim; **wild/founder** only on that rare path + clan slots (same pipeline as AI). Detail: [natural_selection_and_evolution.md](natural_selection_and_evolution.md) §2.2. AI clans: §3–§4 below. Famine deserters follow the same exile pipeline and can found clans later.
 
 ---
 
