@@ -22,7 +22,8 @@ Definitions of project-specific terms used throughout design and code.
 | **AOP** | Area of Perception. Design term. Universal radius — what each NPC can sense. Implemented by PerceptionArea. |
 | **AOA** | Area of Agro. Inner zone within AOP. When hostile enters AOA, agro increases (fight-or-flight). |
 | **PerceptionArea** | Component (Area2D) that implements AOP. Tracks entities in range. Feeds AOA, combat, agro. |
-| **Herd** | Wild herdables only (women, sheep, goats). FSM state **`herd`**: tethered follow; influence/steal; join clan when delivered. |
+| **Herd** | Wild herdables only (women, sheep, goats). FSM state **`herd`**: tethered follow; influence/steal; join clan when delivered. White line. |
+| **Captive cord** | *Planned.* Bound cordage is an adult captive. Brown line. Not the `herd` state. They do not join the clan. [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) § Captive cord. |
 | **Party** | Fighters (cavemen, clansmen) in **ordered follow** with stances Follow/Guard/Attack. FSM state **`party`**: same formations as player-led squads (`FormationUtils` + `formation_slots` on player or NPC leader). |
 | **Follow** | Stance/mode within a party (`command_context.mode`), not the FSM state name. |
 | **Herdable** | NPC that can be herded: animals, women. Has HerdInfluenceArea. |
@@ -76,7 +77,7 @@ All major systems in one place. Each row links to the section where that system 
 | **Food & production** | Forage / meat / grain-bread; `food_days_buffer`; Oven + Farm/Dairy; wild wheat outside claims. | §XII, [earlygame_vision.md](earlygame_vision.md) |
 | **Items & resources** | Wood, stone, wheat, fiber, leather; tools (axe, pick, club); equipment slots (hotbar 1–0). | §XIII Items & resources |
 | **Relics & shrine** | Rare items; place in Shrine → clan-wide buff; flag upgrades may require relics. | §XIV Relics & shrine |
-| **Herding** | Influence on **wild** herdables; context menu + proximity; **cordage bond** for enemy claimed targets planned. | §XV, [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) |
+| **Herding** | Influence on **wild** herdables (white line); context menu + proximity. **Captive cord** (brown line, planned) is a different leash: hotbar 1–2, does not join the clan. | §XV, [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) |
 | **Hunting** | **AI:** AoH prey → **hunt_intent** → **hunt_state** (party phases). **Player:** RTS **PEACE / AGRO / HUNT** + stalk/arc/ambush; deer **flee_prey**. | §XV-A Hunting, §XVI, §XVIII, `bible/Phase4/raiding_hunting.md` |
 | **ClanBrain (AI)** | One brain per territory; defender/searcher/raid/**hunt** intent; pressures + food buffer; survival mode; strategic state; alert decay. | §XVI ClanBrain |
 | **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; **`party`**, **`herd`**, **`hunt_state`**, **`flee_prey`**, Agro, Combat, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
@@ -474,7 +475,8 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 
 ### Stealing
 - **Wild** herdables: cross-clan influence attach allowed; same-clan cannot steal from each other.
-- **Claimed** herdables inside enemy territory: influence **does not** attach today — **cordage bond** planned ([herdable_raiding.md](future%20implementations/herdable_raiding.md)).
+- **Claimed** herdables inside enemy territory: influence **does not** attach today.
+- **Captive cord (planned, not herd):** club downs an adult, bound cordage is that person on hotbar 1–2, brown line at the claim, they do **not** join the clan. [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) § Captive cord. Rites: [the_land.md](the_land.md) §9.
 - `follow_is_ordered` prevents stealing (player-ordered follow / horn rally).
 
 ---
@@ -504,6 +506,11 @@ Edge cases: **`docs/hunting_system_edge_cases.md`**. Phase design: **`bible/Phas
 - HUD modes: **PEACE · AGRO · HUNT** (one active). Stance row changes per mode (e.g. HUNT: **AMBUSH · STALK · ARC**).
 - **H** in **HUNT** mode **aborts** the hunt (switches to PEACE, loud cue — spooks prey); **H** in PEACE/AGRO still **rallies** fighters.
 - Deer use **`flee_prey_state`** + perception centroid / sound — see §XVIII and **`bible/Phase4/raiding_hunting.md`**.
+- **Engagement token (Oct 2026):** while the player is in **HUNT**, an ordered clansman gets one `hunt_engagement` on `player_party_hunt.gd`. He takes the nearest huntable prey (deer, mammoth) within about **520 px** of himself or the player, and stays in **combat** until the prey is dead, HUNT ends (mode change or horn), or the prey is past about **750 px**. Hide and party do not steal him mid-fight, and leaving combat does not wipe a live token. Playtest: `hunt_engage`, `hunt_release`, `hunt_state_held`.
+
+### Wife search clock
+
+A clansman in `herd_wildnpc` with **no one attached** comes home after the empty-hands timeout (about **14 s** after the minimum search time). Seeing a woman does **not** reset that clock. An attach (`herded_count > 0`) still leads her in. Playtest: `wife_seek_abort` (`empty_hands_timeout`).
 
 ### Known tuning gaps (May 2026)
 
@@ -1002,7 +1009,7 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **ui.md** | UI standards and layouts. | Reference for new screens (Clan Menu, Tutorial); conform to UITheme, panel style. |
 | **Stats.md** | Character stats (strength, intelligence, etc.). | Add StatsComponent or extend NPC; persist on save; feed into damage, gather speed, birth chance; display in character menu. |
 | **128upgrade.md** | Redo all graphics at 128×128. | Art pipeline change: re-export sprites at 128; update AssetRegistry and scene scales; adjust camera/zoom if needed. |
-| **lategame.md** | Governments, religions, trade. | High-level theme; would need new systems: government type (chiefdom, council), religion (shrine rituals, buffs), trade (between claims, caravans). Design before coding. |
+| **lategame.md** | Governments, religions, trade. | Religion is now [the_land.md](the_land.md). Governments and trade still need a design. |
 | **future_buildings.md** / **futurebuildings.md** | Additional building ideas. | Add to building_registry and Building List when ready; same pattern as existing buildings (cost, woman slot, production_component). |
 | **roadmap.md** | Phase 1–3 roadmap to beta. | Planning only; use with issue tracker / `bible/game_map.md` for ordering feature work. |
 | **main.md** | Main game mechanics and vision (long). | Reference doc; not a single feature—use for alignment. |
@@ -1014,7 +1021,8 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **proto_farming.md** | **Proto farming:** Field building inside claim; **crop ring** around it; plant → grow → harvest **grain** → existing **Oven** bread chain. Wild wheat gather remains. **Not** the current Farm (sheep/wool). | **Not implemented.** New building type; `CropPlot` states; server plot deltas; optional woman slot + ClanBrain milestone. See [future implementations/proto_farming.md](future%20implementations/proto_farming.md). |
 | **wounds.md** | Living clansmen retain **wounds** after combat; medic/heal path; not corpses-only. | **Not implemented.** Stub: [future implementations/wounds.md](future%20implementations/wounds.md). |
 | **earlygame_vision.md** | **First 10 min → settlement:** Tier 1 campfire land claim, three-food loop, raid verbs, horn+herd fix, genetics UI, build order. | Hub: [earlygame_vision.md](earlygame_vision.md). Cross-links: [nomad.md](nomad.md), [herdable_raiding.md](future%20implementations/herdable_raiding.md), [female_baby.md](future%20implementations/female_baby.md). |
-| **environment_goal.md** | **Canonical environment:** wedge biomes, map scale, weather, gatherable/wildlife kits, water, trade. | Hub: [environment_goal.md](environment_goal.md). Art: [island_map.md](island_map.md) · [assets/island_map2.jpg](assets/island_map2.jpg). MP: [island_mp.md](future%20implementations/island_mp.md). |
+| **environment_goal.md** | **Canonical environment:** wedge biomes, nine climate zones (§3.7), map scale, weather, gatherable/wildlife kits, water, trade. | Hub: [environment_goal.md](environment_goal.md). Art: [island_map.md](island_map.md) · [assets/island_map2.jpg](assets/island_map2.jpg). MP: [island_mp.md](future%20implementations/island_mp.md). |
+| **the_land.md** | **The Land (planned):** one spirit, Favor, Listening, offerings, catastrophes, ice delay. **Capture (planned):** club downs, bound cordage on hotbar 1–2, brown leash, shrine sacrifice slot. | **Not implemented.** [the_land.md](the_land.md) §9. Map zones: [environment_goal.md](environment_goal.md) §3.7. Lock summary: [director_locks_2026_10.md](director_locks_2026_10.md) §10. |
 | **island_map.md** | **Map2 art checklist** — land-use %, four rivers, desert-no-rivers, **organic biome pipeline** (§1c). Points to environment_goal. | [environment_goal.md](environment_goal.md) |
 | **island_mp.md** | Island MP: four quadrant spawns, claim non-overlap, disconnect → ClanBrain, domination panel, server herd/raid authority. | **Not implemented.** See [future implementations/island_mp.md](future%20implementations/island_mp.md). |
 | **lineage.md** | **Person** records (`person_id`, `mother_id`, `father_id`); prerequisite for female babies, genetics UI, inbreeding. | **Not implemented.** See [future implementations/lineage.md](future%20implementations/lineage.md). |

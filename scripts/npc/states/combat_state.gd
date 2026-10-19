@@ -7,6 +7,7 @@ const FightFlight = preload("res://scripts/combat/fight_flight.gd")
 const CombatTargetPick = preload("res://scripts/combat/combat_target_pick.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const ThrowHitResolver = preload("res://scripts/combat/throw_hit_resolver.gd")
+const PlayerPartyHunt = preload("res://scripts/systems/player_party_hunt.gd")
 const CombatStance = preload("res://scripts/systems/combat_stance.gd")
 
 # Combat State - NPCs attack enemies when agro_meter >= 70
@@ -139,13 +140,14 @@ func exit() -> void:
 			if combat_comp.state == CombatComponent.CombatState.READY:
 				combat_comp.cancel_ready()
 			combat_comp.clear_target()
-		# CRITICAL: Clear combat_target when exiting combat state
-		# This prevents NPCs from retaining invalid targets (like dead enemies or same-clan players)
-		npc.set("combat_target_id", -1)
-		npc.set("combat_target", null)
-		combat_target = null
-		if "combat_target_id" in npc:
-			npc.combat_target_id = -1
+		# A live player-hunt token keeps the deer. Person fights still drop their target.
+		var keep_hunt: bool = PlayerPartyHunt.token_is_live(npc)
+		if not keep_hunt:
+			npc.set("combat_target_id", -1)
+			npc.set("combat_target", null)
+			combat_target = null
+			if "combat_target_id" in npc:
+				npc.combat_target_id = -1
 		if npc.hostile_indicator:
 			npc.hostile_indicator.visible = false
 		if npc.has_meta("pursue_logged_id"):
@@ -154,7 +156,7 @@ func exit() -> void:
 			npc.steering_agent.restore_original_speed()
 		if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
 			npc.steering_agent.hold_still()
-		if npc.has_method("reset_agro_after_combat"):
+		if not keep_hunt and npc.has_method("reset_agro_after_combat"):
 			npc.reset_agro_after_combat()
 			var pi_ar: Node = npc.get_node_or_null("/root/PlaytestInstrumentor")
 			if pi_ar and pi_ar.is_enabled():
@@ -647,6 +649,11 @@ func can_enter() -> bool:
 		if Time.get_ticks_msec() / 1000.0 - lf < cd and am_now < thr:
 			return false
 	
+	if PlayerPartyHunt.refresh(npc):
+		var hunt_prey: Node2D = PlayerPartyHunt.token_prey(npc)
+		if hunt_prey != null:
+			combat_target = hunt_prey
+		return true
 	if npc.has_method("is_fight_over_latched") and npc.is_fight_over_latched():
 		return false
 	if FightFlight.ordered_mode(npc) == "FOLLOW":

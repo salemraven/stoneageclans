@@ -1,5 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
+const PlayerPartyHunt = preload("res://scripts/systems/player_party_hunt.gd")
+
 ## Hide / ambush: move to cover (or crouch in open), stay hidden; ambush joins leader’s attack.
 
 const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
@@ -135,6 +137,11 @@ func update(delta: float) -> void:
 		return
 	if npc.is_dead():
 		return
+	if PlayerPartyHunt.refresh(npc):
+		if fsm and fsm.has_method("force_evaluation"):
+			fsm.evaluation_timer = 0.0
+			fsm.force_evaluation()
+		return
 	if not npc.herder or not is_instance_valid(npc.herder):
 		if fsm:
 			fsm.change_state("wander")
@@ -174,6 +181,8 @@ func can_enter() -> bool:
 		return false
 	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
 	if nt != "caveman" and nt != "clansman":
+		return false
+	if PlayerPartyHunt.token_is_live(npc):
 		return false
 	if npc.get("follow_is_ordered") != true:
 		return false

@@ -16,12 +16,45 @@ var search_center: Vector2 = Vector2.ZERO
 
 var last_exit_time: float = 0.0
 var search_start_time: float = 0.0  # When we entered herd_wildnpc (for min search duration)
+var _wife_seek_log_at: float = 0.0
 const DELIVERY_COOLDOWN_SEC: float = 28.0
 
 func _get_delivery_cooldown_sec() -> float:
 	if NPCConfig and "herd_delivery_cooldown_sec" in NPCConfig:
 		return NPCConfig.herd_delivery_cooldown_sec as float
 	return DELIVERY_COOLDOWN_SEC
+
+
+const LEAD_WHEN_WITHIN: float = 120.0
+const WAIT_BEYOND: float = 150.0
+
+
+func _farthest_follower() -> Node2D:
+	var farthest: Node2D = null
+	var farthest_dist := 0.0
+	if not npc or not HerdManager:
+		return null
+	for follower in HerdManager.get_herd(npc):
+		if not is_instance_valid(follower):
+			continue
+		var dist: float = npc.global_position.distance_to(follower.global_position)
+		if dist > farthest_dist:
+			farthest = follower
+			farthest_dist = dist
+	return farthest
+
+
+func _followers_ready_to_lead() -> bool:
+	if not npc or not HerdManager:
+		return true
+	var was_leading := bool(npc.get_meta("herd_leading_home", false))
+	var limit := WAIT_BEYOND if was_leading else LEAD_WHEN_WITHIN
+	for follower in HerdManager.get_herd(npc):
+		if not is_instance_valid(follower):
+			continue
+		if npc.global_position.distance_to(follower.global_position) > limit:
+			return false
+	return true
 
 
 func _get_reentry_cooldown_sec() -> float:
@@ -161,31 +194,53 @@ func update(delta: float) -> void:
 				fsm.change_state("wander")
 			return
 
+	if herded_count == 0 and _empty_hands_timed_out(current_time, search_elapsed, min_search_time):
+		_abort_empty_hands_chase(current_time)
+		return
+
 	if herded_count > 0:
-		# Lead to claim - use set_target_position (not immediate) to avoid zeroing velocity every frame
-		# set_target_position_immediate zeros velocity each call; called every frame = herder never accelerates
+		# Lead to claim only once she is comfortably inside the follow band.
+		# Refresh the point without clearing speed. Immediate seek zeros velocity every frame.
 		no_target_time = 0.0  # Reset - we have herd
+		if not _followers_ready_to_lead():
+			npc.set_meta("herd_leading_home", false)
+			if npc.steering_agent:
+				npc.steering_agent.set_speed_multiplier(0.45)
+				var lagging := _farthest_follower()
+				if lagging and npc.global_position.distance_to(lagging.global_position) > WAIT_BEYOND:
+					if npc.steering_agent.has_method("retarget_seek"):
+						npc.steering_agent.retarget_seek(lagging.global_position)
+					else:
+						npc.steering_agent.set_target_position(lagging.global_position)
+				elif npc.steering_agent.has_method("hold_still"):
+					npc.steering_agent.hold_still()
+			return
+		npc.set_meta("herd_leading_home", true)
 		if npc.steering_agent:
 			var mult: float = NPCConfig.herd_leader_speed_multiplier if NPCConfig and "herd_leader_speed_multiplier" in NPCConfig else 0.97
 			npc.steering_agent.set_speed_multiplier(mult)
-		if land_claim:
+		if land_claim and npc.steering_agent:
 			npc.steering_agent.set_target_position(land_claim.global_position)
 		return
 
-	# Active seeking: women first, else nearest herdable
-	# When breeding_females == 0: use full detection range for women so caveman can walk toward them
+	# Active seeking: women first, out to the full search range, else nearest sheep or goat.
+	# 250px is only the influence circle that attaches her. A wife already in camp does not shorten the walk.
 	var detection_range: float = 1700.0
 	if NPCConfig and "herd_detection_range" in NPCConfig:
 		detection_range = NPCConfig.herd_detection_range as float
-	var perception_range: float = 250.0
-	if NPCConfig and "herd_mentality_detection_range" in NPCConfig:
-		perception_range = NPCConfig.herd_mentality_detection_range as float
-	var woman_range: float = perception_range
-	if bf == 0:
-		woman_range = detection_range  # Must find women - use full range
-	var target = _find_nearest_herdable_target(detection_range, woman_range)
+	var target = _find_nearest_herdable_target(detection_range, detection_range)
+	if current_time - _wife_seek_log_at >= 2.0:
+		_wife_seek_log_at = current_time
+		var pi_seek = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_seek and pi_seek.is_enabled() and pi_seek.has_method("wife_seek"):
+			var tname := ""
+			var tdist := -1.0
+			if target and is_instance_valid(target):
+				tname = str(target.get("npc_name"))
+				tdist = npc.global_position.distance_to(target.global_position)
+			pi_seek.wife_seek(str(npc.get("npc_name")), tname, tdist, herded_count, int(npc.collision_layer))
 	if target and is_instance_valid(target):
-		no_target_time = current_time  # Have target, don't timeout
+		# Seeing her does not reset the empty-hands clock. Only an attach does.
 		if npc.steering_agent:
 			npc.steering_agent.set_speed_multiplier(1.0)
 			npc.steering_agent.set_target_position(target.global_position)
@@ -216,17 +271,29 @@ func update(delta: float) -> void:
 		if "speed_multiplier" in npc.steering_agent:
 			npc.steering_agent.speed_multiplier = 1.0
 
-	# Exit when no animals attached for extended timeout (only after min_search_time)
-	# When breeding_females == 0: never exit - caveman MUST keep searching until he gets a woman
-	if bf > 0:
-		var time_without_herd: float = current_time - no_target_time
-		var extended_timeout: float = max_no_target_time * 2.0
-		if search_elapsed >= min_search_time and time_without_herd >= extended_timeout:
-			if fsm:
-				fsm.change_state("wander")
-				npc.set_meta("wander_reset_timer", 1.0)
-				fsm.evaluation_timer = 0.0
-			return
+func empty_hands_timed_out(now: float, search_elapsed: float, min_search: float, herded: int) -> bool:
+	if herded > 0:
+		return false
+	return _empty_hands_timed_out(now, search_elapsed, min_search)
+
+
+func _empty_hands_timed_out(now: float, search_elapsed: float, min_search: float) -> bool:
+	if search_elapsed < min_search:
+		return false
+	var extended_timeout: float = max_no_target_time * 2.0
+	return now - no_target_time >= extended_timeout
+
+
+func _abort_empty_hands_chase(now: float) -> void:
+	var chased: float = now - no_target_time
+	var pi = npc.get_node_or_null("/root/PlaytestInstrumentor") if npc else null
+	if pi and pi.is_enabled() and pi.has_method("wife_seek_abort"):
+		pi.wife_seek_abort(str(npc.get("npc_name")), "empty_hands_timeout", chased)
+	if fsm:
+		fsm.change_state("wander")
+		npc.set_meta("wander_reset_timer", 1.0)
+		fsm.evaluation_timer = 0.0
+
 
 func can_enter() -> bool:
 	if not npc:
@@ -243,6 +310,19 @@ func can_enter() -> bool:
 		if pi_lead and pi_lead.is_enabled():
 			pi_lead.herd_wildnpc_can_enter(npc.npc_name, true, "delivery_in_hand")
 		return true
+	# A posted guard stays on the circle instead of leaving to find a wife.
+	var posted_claim = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+	var posted: bool = false
+	var dt_guard = npc.get("defend_target")
+	if dt_guard and is_instance_valid(dt_guard):
+		posted = true
+	elif posted_claim and is_instance_valid(posted_claim) and npc in posted_claim.assigned_defenders:
+		posted = true
+	if posted:
+		var pi_guard = npc.get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_guard and pi_guard.is_enabled():
+			pi_guard.herd_wildnpc_can_enter(npc.npc_name, false, "posted_guard")
+		return false
 	if npc.has_meta("raid_joined") and bool(npc.get_meta("raid_joined")):
 		return false
 	# Clansmen in ATTACK or GUARD mode never herd — only FOLLOW mode allows herding
@@ -277,8 +357,11 @@ func can_enter() -> bool:
 			pi.herd_wildnpc_can_enter(npc.npc_name, false, "not_caveman_or_clansman")
 		return false
 
+	# A leftover deposit flag with no walk home was keeping sons out of the search.
+	if npc.has_meta("is_depositing") and not npc.has_meta("moving_to_deposit"):
+		npc.remove_meta("is_depositing")
 	# Deposit block: allow override if herdable very close (drop berries, grab target)
-	if npc.has_meta("is_depositing") or npc.has_meta("moving_to_deposit"):
+	if npc.has_meta("moving_to_deposit"):
 		var close_target = _find_nearest_herdable_target(350.0)
 		if not (close_target and is_instance_valid(close_target)):
 			if pi and pi.is_enabled():
@@ -291,15 +374,25 @@ func can_enter() -> bool:
 			pi.herd_wildnpc_can_enter(npc.npc_name, false, "no_land_claim")
 		return false
 
-	# Active herder cap: max NPCs in herd_wildnpc at once (prevents swarm)
+	# Active herder cap: max NPCs in herd_wildnpc at once (prevents swarm).
+	# The man already searching does not count against his own slot, or the next check throws him out.
 	var land_claim = _get_land_claim(clan_name_val)
 	if land_claim and is_instance_valid(land_claim):
 		var max_herders: int = land_claim.get_meta("max_active_herders", 2)
 		var active_herders: int = _count_clan_in_herd_wildnpc(clan_name_val)
+		if fsm and fsm.has_method("get_current_state_name") and fsm.get_current_state_name() == "herd_wildnpc":
+			active_herders = maxi(0, active_herders - 1)
 		if active_herders >= max_herders:
 			if pi and pi.is_enabled():
 				pi.herd_wildnpc_can_enter(npc.npc_name, false, "max_active_herders")
 			return false
+
+	# A grown man who already walked a wife home does not take another search slot.
+	var wife_home_claim := _get_land_claim(clan_name_val)
+	if wife_home_claim and wife_home_claim.get("player_owned") == true and bool(npc.get_meta("wife_brought_home", false)) and int(npc.get("herded_count") if npc.get("herded_count") != null else 0) <= 0:
+		if pi and pi.is_enabled():
+			pi.herd_wildnpc_can_enter(npc.npc_name, false, "wife_brought_home")
+		return false
 
 	# Searcher quota
 	var land_claims = npc.get_tree().get_nodes_in_group("land_claims")
@@ -373,7 +466,7 @@ func get_priority() -> float:
 	if NPCConfig and "herd_detection_range" in NPCConfig:
 		detection_range = NPCConfig.herd_detection_range as float
 	const CLOSE_TARGET_RANGE: float = 500.0  # Within this: high priority (go herd). Beyond: low (gather)
-	var target = _find_nearest_herdable_target(detection_range)
+	var target = _find_nearest_herdable_target(detection_range, detection_range)
 	if target and is_instance_valid(target):
 		var d: float = npc.global_position.distance_to(target.global_position)
 		if d <= CLOSE_TARGET_RANGE:
@@ -398,6 +491,12 @@ func get_priority() -> float:
 				else:
 					searching = 6.1
 		return searching
+	# Player-camp man with no wife yet still walks out. No-target used to lose to gathering, so he never left.
+	var home_claim = _get_land_claim(npc.get_clan_name() if npc.has_method("get_clan_name") else "")
+	if home_claim and home_claim.get("player_owned") == true and not bool(npc.get_meta("wife_brought_home", false)):
+		if NPCConfig and "priority_herd_wildnpc_searching" in NPCConfig:
+			return NPCConfig.priority_herd_wildnpc_searching as float
+		return 6.0
 	if NPCConfig:
 		return NPCConfig.priority_herd_wildnpc_no_target
 	return 5.2

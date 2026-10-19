@@ -279,6 +279,38 @@ func herd_wildnpc_enter(npc_name: String, herded_count: int) -> void:
 func herd_wildnpc_exit(npc_name: String, herded_count: int) -> void:
 	_write({"evt": "herd_wildnpc_exit", "npc": npc_name, "herded_count": herded_count})
 
+func wife_seek(npc_name: String, target_name: String, dist: float, herded_count: int, collision_layer: int) -> void:
+	_write({
+		"evt": "wife_seek",
+		"npc": npc_name,
+		"target": target_name,
+		"dist": snappedf(dist, 1.0),
+		"herded_count": herded_count,
+		"collision_layer": collision_layer,
+	})
+
+func wife_seek_abort(npc_name: String, reason: String, chased_sec: float) -> void:
+	_write({
+		"evt": "wife_seek_abort",
+		"npc": npc_name,
+		"reason": reason,
+		"chased_sec": snappedf(chased_sec, 0.1),
+	})
+
+func hunt_engage(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_engage", "npc": npc_name, "prey": prey_name, "reason": reason})
+
+func hunt_release(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_release", "npc": npc_name, "prey": prey_name, "reason": reason})
+
+func hunt_state_held(npc_name: String, state_name: String, dist: float) -> void:
+	_write({
+		"evt": "hunt_state_held",
+		"npc": npc_name,
+		"state": state_name,
+		"dist": snappedf(dist, 1.0),
+	})
+
 func herd_influence_body_entered(animal_name: String, herder_name: String, herder_type: String) -> void:
 	_write({"evt": "herd_influence_entered", "animal": animal_name, "herder": herder_name, "herder_type": herder_type})
 
@@ -1246,12 +1278,44 @@ func production_allocation_eval(
 		obj["abundance_" + str(k)] = abundance[k]
 	_write(obj)
 
-func camp_park_event(evt_name: String, clan_name: String, chunk_x: int, chunk_y: int) -> void:
-	_write({
+func camp_park_event(evt_name: String, clan_name: String, chunk_x: int, chunk_y: int, woke_known: bool = false, woke: bool = false) -> void:
+	var row := {
 		"evt": evt_name,
 		"clan": clan_name,
 		"chunk_x": chunk_x,
 		"chunk_y": chunk_y,
+	}
+	if woke_known:
+		row["woke"] = woke
+	_write(row)
+
+
+func camp_tick(clan_name: String, owed_sec: float, slices: int, accum_sec: float, parked_count: int) -> void:
+	_write({
+		"evt": "camp_tick",
+		"clan": clan_name,
+		"owed_sec": snappedf(owed_sec, 0.001),
+		"slices": slices,
+		"accum_sec": snappedf(accum_sec, 0.001),
+		"parked_count": parked_count,
+	})
+
+
+func camp_materialize(clan_name: String, spawned: int, still_missing: int, babies_waiting: int, hut_fallback: int) -> void:
+	_write({
+		"evt": "camp_materialize",
+		"clan": clan_name,
+		"spawned": spawned,
+		"still_missing": still_missing,
+		"babies_waiting": babies_waiting,
+		"hut_fallback": hut_fallback,
+	})
+
+
+func camp_dormant_refused(clan_name: String) -> void:
+	_write({
+		"evt": "camp_dormant_refused",
+		"clan": clan_name,
 	})
 
 

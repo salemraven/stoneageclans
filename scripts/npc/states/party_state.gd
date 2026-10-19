@@ -1,5 +1,7 @@
 extends "res://scripts/npc/states/base_state.gd"
 
+const PlayerPartyHunt = preload("res://scripts/systems/player_party_hunt.gd")
+
 ## Party state — cavemen/clansmen in ordered follow (Follow/Guard/Attack) behind player or NPC leader.
 ## Wild herdables use herd_state.gd instead.
 
@@ -45,6 +47,11 @@ func update(delta: float) -> void:
 	if not npc:
 		return
 	if npc.is_dead():
+		return
+	if PlayerPartyHunt.refresh(npc):
+		if fsm and fsm.has_method("force_evaluation"):
+			fsm.evaluation_timer = 0.0
+			fsm.force_evaluation()
 		return
 	if not npc.herder or not is_instance_valid(npc.herder):
 		npc._clear_herd()
@@ -360,6 +367,8 @@ func can_enter() -> bool:
 	if npc_type_str != "caveman" and npc_type_str != "clansman":
 		return false
 	var herder_valid: bool = npc.herder != null and is_instance_valid(npc.herder)
+	if PlayerPartyHunt.token_is_live(npc):
+		return false
 	if not npc.get("follow_is_ordered") or not herder_valid:
 		if npc_type_str == "caveman":
 			npc._clear_herd()

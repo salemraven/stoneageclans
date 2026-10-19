@@ -1,9 +1,9 @@
 # Herding System Guide
 
-**Last Updated:** September 2026  
-**Status:** Active — **wild** herdables only via influence. **Claimed enemy herdables:** cordage bond — planned ([future implementations/herdable_raiding.md](future%20implementations/herdable_raiding.md)).  
+**Last Updated:** October 2026  
+**Status:** Active — **wild** herdables only via influence (white line). **Captive cord** is a separate planned leash (brown line) — see [Captive cord](#captive-cord-planned) below and [the_land.md](the_land.md) §9.  
 **Player UX:** walk within **~250px** for influence attach; **right-click** opens **context menu** (not instant herd on all NPC types).  
-**Not herding:** **deer/mammoth** (PREY) — AoH **hunt** path (`bible/hunting.md`). **Fighters** use **`party`** state for ordered follow, not `herd`.
+**Not herding:** **deer/mammoth** (PREY) — AoH **hunt** path (`bible/hunting.md`). **Fighters** use **`party`** state for ordered follow, not `herd`. A captive is not in the `herd` state.
 
 ## Overview
 
@@ -95,7 +95,7 @@ The herding system allows cavemen (and the player) to bring wild NPCs (women, sh
 
 ### Exit Conditions
 
-- No animals attached for **14s** (2× `herd_max_no_target_time`).
+- No animals attached for **14s** (2× `herd_max_no_target_time`), after the minimum search time. **Seeing a woman does not reset this clock.** The same timeout runs when `breeding_females` is 0. An attach (`herded_count > 0`) still leads her home.
 - Inventory ≥ 50% full or (herded_count ≥ 2 and within 150px of claim) → exit to wander for deposit.
 - Farther than 600px from claim with no herd → return to wander.
 - Too far from claim (>90% of 2000px) → blocked from re-entry.
@@ -156,6 +156,38 @@ priority_herd_wildnpc_searching = 5.5 # When no target — below gather (5.6) so
 priority_deposit = 11.0
 # See GatherGuide.md for priority_gather_other (5.6) and productivity mode.
 ```
+
+## Three lines
+
+These are different leashes. Do not reuse the herd follow state for a captive.
+
+| Line | Who | What it means | Today |
+|------|-----|---------------|--------|
+| **White** | Woman, sheep, or goat on influence | `herd` state. They follow the herder and **join the clan** inside the claim. | Built |
+| **Red** | Fighters on an order | `party` / ordered follow. Not herdables. | Built |
+| **Brown** | An adult on bound cordage | A captive. They do not join, do not take a hut, and do not have babies. | Planned |
+
+## Captive cord (planned)
+
+**Not built.** Locked 2026-10-18. Rites and the shrine slot: [the_land.md](the_land.md) §2 and §9. This section is the herding-side contract so the rope never goes through `HerdInfluenceArea` or `herd_state.gd`.
+
+Loose cordage stays a normal stack (travois, clothes). **Bound cordage** is a different item: the rope **is** the person. It holds their id.
+
+| Rule | Detail |
+|------|--------|
+| How it starts | Club's first hit **downs** them (no death shadow). Equipped loose cordage used on that body spends one rope and fills the hotbar slot with the captive. |
+| Who | Any **adult**. Not children. Not sheep or goats — butcher those and offer the meat. |
+| Hands | Hotbar **1** and hotbar **2** only. One captive each. Two is the max. |
+| Backpack | Bound cordage cannot go in the player inventory. |
+| While you hold it | A short **brown** leash from you to them. Your other hotbar slots can still be weapons. |
+| You die | The ropes drop. The captives run. You cannot drop a bound rope on the ground while alive. |
+| At the claim | Drag the rope into the **land-claim inventory**. Brown line from the captive to the claim, same idea as the white herd tether, different color and different rules. |
+| What they are not | Not `is_herded`. Not a clan member. They eat from the claim. They can starve, escape, or be cut free. |
+| Shrine | One sacrifice slot, separate from relic slots. Dropping the rope there spends the person. |
+
+A downed adult who is not roped gets back up. The herd cap (8 followers) does not apply. The captive cap is the two hotbar slots.
+
+The older note that cordage steals a woman, sheep, or goat **into your clan** is retired for people. Wild herding stays the white line above.
 
 ## Related Files
 

@@ -127,7 +127,7 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **Morale bar (ClanBrain)** | *Planned.* Clan-level mood on the brain (bold vs brittle). **Not** the per-fighter morale / flight bar in `morale_bar_flight.md`. |
 | **ClanBrain buff / debuff** | *Planned.* Temporary or lasting modifiers on the brain (relics, events, rally, shame) stacked with averaged stats and quorum traits. |
 | **Area of Hunt (AoH)** | Zone on **land claim** wider than the claim footprint. Counts **`WildRole.PREY`** wildlife (**deer**, **mammoth** via **`NPCConfig.is_ai_hunt_prey_type`**) that ClanBrain uses for **`hunt_intent`**. **Herdables** (sheep, goat, woman) can be in the zone but are **not** AoH hunt targets — they route through **`herd_wildnpc`** / search. |
-| **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties — player uses RTS **Peace / Agro / Hunt**. |
+| **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties. In RTS **Hunt**, each ordered clansman holds one **`hunt_engagement`** token (`player_party_hunt.gd`) on the nearest huntable prey until it dies, the mode ends, or it leaves the release radius. |
 | **Defender quota** | How many clansmen **ClanBrain** wants on **defend** duty at the claim edge. |
 | **Searcher quota** | How many clansmen should **search / herd wild** herdables (wilderness recruitment). |
 | **Strategic state** | ClanBrain mood: **PEACEFUL**, **DEFENSIVE**, **AGGRESSIVE**, **RAIDING**, **RECOVERING** (gates budgets and intent). |
@@ -146,7 +146,14 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 |------|------------|
 | **Living Hut** | Houses **one woman** + her children; **pregnancy** requires assignment here + woman inside claim radius. Drives population pacing. |
 | **Supply Hut** | Extra shared **storage** slots. |
-| **Shrine** | Holds **relics** → buffs whole clan. |
+| **Shrine** | Holds **relics** → buffs whole clan. While the relic stays, the clan can feed **the Land** ([the_land.md](the_land.md)). Steal the relic and that attention ends. |
+| **The Land** | *Planned.* The island's one spirit. Three faces: **the Wet** (flood and drought), **the Hot Sky** (heat and failed wild food), **the Cough** (sickness in crowded camps). Clans may name it. Spec: [the_land.md](the_land.md). |
+| **Favor** | *Planned.* One clan's standing with the Land. Softens the next local hit by one step and enriches wild plants and animals in that clan's **climate zone**. Fades if they stop offering. |
+| **Listening** | *Planned.* Island-wide pool fed by every offering. Slows the ice age and can delay its start by about a season. Has a ceiling. The ice age still comes. |
+| **Climate zone** | *Planned.* One of nine whole bodies of land (glacier, four savannas, desert, jungle, swamp, coast). Shares one temperature and one rainfall. Borders move as a front, not as random patches. Map: [environment_goal.md](environment_goal.md) §3.7. |
+| **Downed** | *Planned.* A club's first hit. The person has fallen and has no death shadow. A second hit kills. If nobody ropes them, they get up. [the_land.md](the_land.md) §9. |
+| **Bound cordage** | *Planned.* A rope item that **is** an adult captive. Only hotbar 1 and hotbar 2, or a land-claim slot. Not the backpack. Loose cordage is still normal rope. |
+| **Brown line** | *Planned.* Leash for a captive. White is herd. Red is party. |
 | **Dairy Farm** | Production building; needs assigned woman; milk → cheese/butter (design). |
 | **Oven** | **Wood + grain → bread** (timed craft). |
 

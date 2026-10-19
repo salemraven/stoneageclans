@@ -268,6 +268,7 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 			# Herder builds a Living Hut per delivered woman (queued on the herder who brought her in).
 			if is_herded and herder and is_instance_valid(herder):
 				herder_ref_for_hut = herder
+				herder.set_meta("wife_brought_home", true)
 				var hut_q: Array = []
 				if herder.has_meta("build_hut_queue"):
 					hut_q = (herder.get_meta("build_hut_queue") as Array).duplicate()
@@ -718,6 +719,9 @@ func resolve_combat_target() -> Node2D:
 	return combat_target
 
 func leave_combat_lost_target() -> void:
+	const PlayerPartyHunt = preload("res://scripts/systems/player_party_hunt.gd")
+	if PlayerPartyHunt.should_keep_fighting(self):
+		return
 	_silent_clear_combat_slots()
 	if not is_fight_over_latched():
 		fight_over_latched = true
@@ -801,12 +805,11 @@ func _apply_sensor_budget() -> void:
 			pa.monitorable = false
 			pa.set_process(false)
 	var hi: Node = get_node_or_null("HerdInfluenceArea")
-	if hi:
-		hi.set_physics_process(false)
-		if hi is Area2D:
-			var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
-			(hi as Area2D).monitoring = herd_on
-			(hi as Area2D).monitorable = false
+	if hi and hi is Area2D:
+		var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
+		(hi as Area2D).monitoring = herd_on
+		(hi as Area2D).monitorable = false
+		hi.set_physics_process(herd_on)
 
 
 func _apply_fighter_perception_off(pa: Node) -> void:
@@ -952,6 +955,19 @@ func _enforce_village_call_band() -> void:
 		print("NPC_VILLAGE_HOME name=%s target=%s dist_claim=%.0f state=%s" % [
 			npc_name, tname, dist_claim, st_name
 		])
+
+
+func _eating_in_place() -> bool:
+	if fsm == null or not fsm.has_method("get_current_state_name"):
+		return false
+	if str(fsm.get_current_state_name()) != "eat":
+		return false
+	if not fsm.has_method("_get_state"):
+		return false
+	var eat_st: Node = fsm._get_state("eat")
+	if eat_st == null:
+		return false
+	return eat_st.get("food_target") == null
 
 
 func _village_dist_to_own_claim() -> float:
@@ -1480,12 +1496,11 @@ func set_sim_dormant(dormant: bool) -> void:
 	if pa_on is PerceptionArea:
 		_apply_fighter_perception_off(pa_on)
 	var hi_on: Node = get_node_or_null("HerdInfluenceArea")
-	if hi_on:
-		hi_on.set_physics_process(false)
-		if hi_on is Area2D:
-			var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
-			(hi_on as Area2D).monitoring = herd_on
-			(hi_on as Area2D).monitorable = false
+	if hi_on and hi_on is Area2D:
+		var herd_on := npc_type == "woman" or npc_type == "sheep" or npc_type == "goat"
+		(hi_on as Area2D).monitoring = herd_on
+		(hi_on as Area2D).monitorable = false
+		hi_on.set_physics_process(herd_on)
 	if HostileEntityIndex:
 		HostileEntityIndex.register(self)
 
@@ -2056,10 +2071,16 @@ func _physics_tick(delta: float) -> void:
 		velocity = velocity.lerp(Vector2.ZERO, 6.0 * delta)  # Slightly slower for smoother stop
 	
 	var task_controls_movement: bool = (task_runner != null and task_runner.has_method("controls_movement") and task_runner.controls_movement())
+	if _eating_in_place():
+		velocity = Vector2.ZERO
+		if steering_agent and steering_agent.has_method("hold_still"):
+			steering_agent.hold_still()
 	MovementDebugInstrument.try_log_physics_step(self, delta, dbg_desired_vel, dbg_steering_used, task_controls_movement, is_idle)
 	
-	# Task (MoveTo/DropOff) already calls move_and_slide - don't double-move
-	if not task_controls_movement:
+	# Task (MoveTo/DropOff) already calls move_and_slide - don't double-move.
+	# A woman on her hut line is placed directly; sliding would shove her back toward the fire.
+	var hut_line_holds: bool = npc_type == "woman" and HutWomanWorkPresence.controls_npc(self)
+	if not task_controls_movement and not hut_line_holds:
 		if LagProfiler and LagProfiler.is_enabled():
 			var t_move: int = Time.get_ticks_usec()
 			move_and_slide()
@@ -4301,7 +4322,10 @@ func _check_and_assign_to_building() -> void:
 		# RESERVED - path and try confirm when close
 		workplace_building = target
 		var dist: float = global_position.distance_to(target.global_position)
-		if steering_agent:
+		var living_hut_walk: bool = npc_type == "woman" and int(target.get("building_type")) == int(ResourceData.ResourceType.LIVING_HUT)
+		if living_hut_walk:
+			HutWomanWorkPresence.steer_to_hut_foot(self)
+		elif steering_agent and not (npc_type == "woman" and HutWomanWorkPresence.is_living_hut_occupant(self)):
 			steering_agent.set_target_position(target.global_position)
 		# Timeout: unassign after 12s if not close (was 5s - too aggressive for distant animals)
 		var assign_time: float = get_meta("assigned_building_since", 0.0) as float
@@ -4319,7 +4343,9 @@ func _check_and_assign_to_building() -> void:
 					OccupationDiagLogger.log("ANIMAL_ENTERED_BUILDING", {"npc": npc_name, "building": target.name, "type": npc_type})
 					workplace_building = null
 					remove_meta("assigned_building_since")
-					if steering_agent:
+					if npc_type == "woman" and int(target.get("building_type")) == int(ResourceData.ResourceType.LIVING_HUT):
+						HutWomanWorkPresence.steer_to_hut_foot(self)
+					elif steering_agent:
 						steering_agent.set_wander(global_position, 50.0)
 		return
 	# No assignment - retry throttle

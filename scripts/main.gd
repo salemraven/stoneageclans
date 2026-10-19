@@ -310,6 +310,15 @@ func _apply_playtest_world_seed_from_cli() -> void:
 		wgc.world_seed = seed_val
 
 
+## A cushion for the sped-up birth clock. Gathering still has to keep up after this is eaten.
+func _stock_player_claim_starter_food(building_inventory: InventoryData) -> void:
+	if building_inventory == null:
+		return
+	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 120)
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
+	building_inventory.add_item(ResourceData.ResourceType.MEAT, 30)
+
+
 func _new_land_claim_inventory() -> InventoryData:
 	var n: int = BalanceConfig.land_claim_inventory_slots if BalanceConfig else 40
 	var m: int = BalanceConfig.land_claim_inventory_max_stack if BalanceConfig else 999999
@@ -489,6 +498,8 @@ func spawn_seeded_ai_clan_at(
 	parent: Node2D,
 	spawn_source: String = "chunk_seeded_clan"
 ) -> Node:
+	if DebugConfig and DebugConfig.no_ai_clans:
+		return null
 	if not parent:
 		parent = world_objects
 	var claim_pos := Vector2(
@@ -1031,6 +1042,7 @@ func _handle_war_horn() -> void:
 	if _player_rts_mode == RTS_MODE.HUNT:
 		SoundDetection.emit_horn(player)
 		_player_rts_mode = RTS_MODE.PEACE
+		_clear_player_hunt_party_engagements()
 		_sync_rts_mode_buttons()
 		_remap_stance_hud_labels()
 		for n2 in _get_player_party_follower_nodes():
@@ -2417,11 +2429,30 @@ func _on_party_ranged_ratio_changed(value: float) -> void:
 
 
 func _on_rts_mode_selected(mode: int) -> void:
+	var leaving_hunt: bool = _player_rts_mode == RTS_MODE.HUNT and mode != RTS_MODE.HUNT
 	_player_rts_mode = mode
+	if leaving_hunt:
+		_clear_player_hunt_party_engagements()
 	_sync_rts_mode_buttons()
 	_remap_stance_hud_labels()
 	_ensure_followers_stances_match_mode()
+	_apply_command_context_to_followers()
 	_update_selection_mode_buttons()
+
+
+func is_player_rts_hunt_mode() -> bool:
+	return _player_rts_mode == RTS_MODE.HUNT
+
+
+func _clear_player_hunt_party_engagements() -> void:
+	const PlayerPartyHuntScript = preload("res://scripts/systems/player_party_hunt.gd")
+	for id in _follower_cache:
+		var n: Node = EntityRegistry.get_entity_node(id) if EntityRegistry else null
+		if n and is_instance_valid(n):
+			PlayerPartyHuntScript.clear_hunt_engagement(n)
+	for n in selected_clansmen:
+		if n and is_instance_valid(n):
+			PlayerPartyHuntScript.clear_hunt_engagement(n)
 
 
 func _sync_rts_mode_buttons() -> void:
@@ -2729,6 +2760,7 @@ func _build_command_context(npc: Node, commander_id: int, is_hostile: bool) -> D
 		"stance_aggro_threshold": cfg.get("aggro_threshold", 0.0),
 		"stance_chase_dist": cfg.get("chase_dist", 0.0),
 		"is_hostile": is_hostile,
+		"rts_hunt": _player_rts_mode == RTS_MODE.HUNT,
 		"issued_at_time": Time.get_ticks_msec() / 1000.0,
 	}
 
@@ -5397,7 +5429,10 @@ func _show_clan_name_dialog(world_pos: Vector2, from_slot: InventorySlot, place_
 	dialog.visible = true
 	dialog.popup_centered()
 
-func _on_clan_name_dialog_confirmed(clan_name: String, world_pos: Vector2, from_slot: InventorySlot, place_type: String) -> void:
+func _on_clan_name_dialog_confirmed(clan_name: String, dye_index: int, world_pos: Vector2, from_slot: InventorySlot, place_type: String) -> void:
+	var pcs: Node = get_node_or_null("/root/PlaceholderCardService")
+	if pcs and pcs.has_method("choose_clan_dye"):
+		pcs.call("choose_clan_dye", clan_name, dye_index)
 	if place_type == "campfire":
 		_on_campfire_clan_name_confirmed(clan_name, world_pos, from_slot)
 	else:
@@ -5443,9 +5478,7 @@ func _on_clan_name_confirmed(clan_name: String, world_pos: Vector2, from_slot: I
 	# Create building inventory (will be set in land_claim._ready())
 	var building_inventory := _new_land_claim_inventory()
 	land_claim.inventory = building_inventory
-	
-	# NORMAL CONFIGURATION: Land claim starts with empty inventory
-	# (No resources pre-populated)
+	_stock_player_claim_starter_food(building_inventory)
 	
 	var nearest_dist: float = INF
 	for c in get_tree().get_nodes_in_group("land_claims"):
@@ -5687,6 +5720,7 @@ func _apply_campfire_replaced_by_land_claim(campfire_ref: CampfireScript, new_la
 			BalanceConfig.land_claim_inventory_max_stack
 		)
 	new_land_claim.inventory = claim_inv
+	_stock_player_claim_starter_food(claim_inv)
 	for npc in get_tree().get_nodes_in_group("npcs"):
 		if not is_instance_valid(npc):
 			continue
@@ -6771,7 +6805,7 @@ func _spawn_eval_ai_clans_near_player_if_requested() -> void:
 		return
 	if not player or not is_instance_valid(player):
 		return
-	await _spawn_session_nearby_ai_clans(player.global_position, count, 960.0, "eval_start_clan")
+	await _spawn_session_nearby_ai_clans(player.global_position, count, 700.0, "eval_start_clan")
 
 
 func _spawn_eval_wild_women_near_player_if_requested() -> void:
@@ -6784,10 +6818,12 @@ func _spawn_eval_wild_women_near_player_if_requested() -> void:
 	if not DebugConfig:
 		return
 	var count: int = int(DebugConfig.eval_wild_women_near_start)
+	if count < 1 and not _cmdline_has("--headless") and DisplayServer.get_name() != "headless":
+		count = 4
 	if count < 1 or not player or not world_objects:
 		return
-	# Just outside a 400px claim, inside sim wake so they walk and you can find them.
-	const RING_RADIUS_PX: float = 420.0
+	# Just outside a 400px claim, inside sim wake so they walk and you can herd them home.
+	const RING_RADIUS_PX: float = 700.0
 	print("=== EVAL WILD WOMEN: spawning %d around player (%.0fpx) ===" % [count, RING_RADIUS_PX])
 	var ws: int = _playtest_world_seed_value()
 	var center: Vector2 = player.global_position
@@ -6802,7 +6838,7 @@ func _spawn_eval_wild_women_near_player_if_requested() -> void:
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
-		npc.set("age", 20 + (i * 3) % 25)
+		npc.set("age", 22 + (i * 4) % 20)
 		npc.set("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
 		npc.set_meta("hair_id", (i % CharacterCardPartsRegistry.HAIR_STYLE_COUNT) + 1)
 		var woman_tone: String = CharacterCardPartsRegistry.hair_tone_at(i)
@@ -6813,13 +6849,15 @@ func _spawn_eval_wild_women_near_player_if_requested() -> void:
 		world_objects.add_child(npc)
 		npc.global_position = pos
 		npc.set("spawn_position", pos)
+		if npc.has_method("_apply_wild_profile"):
+			npc._apply_wild_profile()
 		var stats: Node = npc.get_node_or_null("Stats")
 		if stats and stats.has_method("set_stat"):
 			stats.set_stat("agility", 9.0)
 		elif stats:
 			stats.agility = 9.0
 		npc.visible = true
-		print("✓ Eval wild woman: %s at %s" % [npc_name, pos])
+		print("✓ Wild woman: %s at %s" % [npc_name, pos])
 	await get_tree().process_frame
 
 
@@ -8541,6 +8579,7 @@ func _stock_session_quickstart_claim_inventory(building_inventory: InventoryData
 	for i in range(building_inventory.slot_count):
 		building_inventory.slots[i] = null
 	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
+	building_inventory.add_item(ResourceData.ResourceType.STONE, 12)
 	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
 	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
 	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
@@ -8550,14 +8589,16 @@ func _stock_session_quickstart_claim_inventory(building_inventory: InventoryData
 func _spawn_session_quickstart_women(
 	land_claim: LandClaim,
 	clan_canon: String,
-	name_prefix: String
+	name_prefix: String,
+	count: int = 2
 ) -> Array[Node]:
 	var women: Array[Node] = []
 	if land_claim == null or not world_objects:
 		return women
 	var land_claim_pos: Vector2 = land_claim.global_position
 	var woman_offsets: Array[Vector2] = [Vector2(-50, -80), Vector2(-50, 80)]
-	for i in range(2):
+	var n_women: int = mini(count, woman_offsets.size())
+	for i in range(n_women):
 		var woman_pos: Vector2 = land_claim_pos + woman_offsets[i]
 		var npc: Node = NPC_SCENE.instantiate()
 		if not npc:
@@ -8767,7 +8808,7 @@ func _setup_session_quickstart_environment() -> void:
 	land_claim.visible = true
 	_set_player_name(clan_canon)
 	await get_tree().process_frame
-	var women: Array[Node] = _spawn_session_quickstart_women(land_claim, clan_canon, "QS")
+	var women: Array[Node] = _spawn_session_quickstart_women(land_claim, clan_canon, "QS", 1)
 	for w in women:
 		if w and is_instance_valid(w):
 			print("✓ Session quickstart: Woman %s at %s" % [str(w.get("npc_name")), str(w.global_position)])
@@ -8817,6 +8858,11 @@ func _spawn_session_nearby_ai_clans(
 		var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
 		var leader: Node = spawn_seeded_ai_clan_at(claim_pos, cave_pos, clan_name, world_objects, spawn_source)
 		var leader_name: String = str(leader.get("npc_name")) if leader else "?"
+		if spawn_source == "eval_start_clan" and leader and is_instance_valid(leader):
+			var eval_claim: LandClaim = leader.get_my_land_claim() as LandClaim if leader.has_method("get_my_land_claim") else null
+			if eval_claim:
+				_ai_productive_camp_serial += 1
+				await _start_ai_camp_productive(eval_claim, leader, _ai_productive_camp_serial)
 		if DebugConfig and DebugConfig.enable_session_quickstart and leader and is_instance_valid(leader):
 			var ai_claim: LandClaim = leader.get_my_land_claim() as LandClaim if leader.has_method("get_my_land_claim") else null
 			if ai_claim:
@@ -10076,8 +10122,10 @@ func _spawn_baby(clan_name: String, spawn_pos: Vector2, mother: NPCBase, father:
 		print("ERROR: Failed to instantiate NPC scene for baby")
 		return
 	
-	# Generate random name for baby
-	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(spawn_pos.x), int(spawn_pos.y), hash(mother_name))))
+	# Each birth gets its own name. Mother plus claim position alone named every son the same.
+	var birth_serial: int = int(get_meta("baby_name_serial", 0)) + 1
+	set_meta("baby_name_serial", birth_serial)
+	var npc_name: String = _seeded_caveman_name(hash(Vector3i(int(spawn_pos.x) ^ birth_serial, int(spawn_pos.y), hash(mother_name))))
 	
 	UnifiedLogger.log_system("SPAWN_BABY: Baby NPC instantiated, setting properties", {
 		"clan": clan_name,
