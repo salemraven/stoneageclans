@@ -14,6 +14,8 @@ static func prune_sample_time_cache_if_huge() -> void:
 
 static var _jsonl_last: Dictionary = {}
 static var _jsonl_last_pos: Dictionary = {}
+static var _woman_jsonl_last: Dictionary = {}
+static var _woman_jsonl_pos: Dictionary = {}
 
 
 static func try_log_physics_step(
@@ -25,6 +27,7 @@ static func try_log_physics_step(
 	is_idle_brake: bool
 ) -> void:
 	_try_jsonl_move_sample(npc)
+	_try_jsonl_woman_sample(npc)
 	var cfg: Node = _get_debug_config()
 	if cfg == null or not (cfg.get("enable_movement_debug") as bool):
 		return
@@ -137,6 +140,67 @@ static func _try_jsonl_move_sample(npc: CharacterBody2D) -> void:
 	})
 
 
+static func _try_jsonl_woman_sample(npc: CharacterBody2D) -> void:
+	if npc == null:
+		return
+	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
+	if nt != "woman":
+		return
+	var clan: String = ""
+	if npc.has_method("get_clan_name"):
+		clan = str(npc.get_clan_name())
+	if clan == "":
+		return
+	var st: SceneTree = Engine.get_main_loop() as SceneTree
+	if st == null:
+		return
+	var pi: Node = st.root.get_node_or_null("/root/PlaytestInstrumentor")
+	if pi == null or not pi.has_method("is_enabled") or not pi.is_enabled() or not pi.has_method("npc_move_sample"):
+		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var oid: int = npc.get_instance_id()
+	var last_t: float = float(_woman_jsonl_last.get(oid, -1.0))
+	if last_t >= 0.0 and (now - last_t) < 0.25:
+		return
+	_woman_jsonl_last[oid] = now
+	if _woman_jsonl_last.size() > 400:
+		_woman_jsonl_last.clear()
+		_woman_jsonl_pos.clear()
+	var fsm_state: String = ""
+	if npc.get("fsm") and npc.fsm and npc.fsm.has_method("get_current_state_name"):
+		fsm_state = str(npc.fsm.get_current_state_name())
+	var steer: SteeringAgent = npc.steering_agent as SteeringAgent if npc.steering_agent else null
+	var tgt: Vector2 = steer.target_position if steer else Vector2.ZERO
+	var jump: float = 0.0
+	if _woman_jsonl_pos.has(oid):
+		jump = npc.global_position.distance_to(_woman_jsonl_pos[oid])
+	_woman_jsonl_pos[oid] = npc.global_position
+	var hut_d: float = -1.0
+	var hut_xy := Vector2.ZERO
+	if OccupationSystem:
+		var hut: Node2D = OccupationSystem.get_home_living_hut(npc)
+		if hut and is_instance_valid(hut):
+			hut_xy = hut.global_position
+			hut_d = npc.global_position.distance_to(hut_xy)
+	pi.npc_move_sample({
+		"npc": str(npc.get("npc_name")) if npc.get("npc_name") != null else "?",
+		"clan": clan,
+		"type": "woman",
+		"fsm": fsm_state,
+		"mode": _steering_mode_name(steer) if steer else "no_agent",
+		"x": snappedf(npc.global_position.x, 0.1),
+		"y": snappedf(npc.global_position.y, 0.1),
+		"spd": snappedf(npc.velocity.length(), 0.1),
+		"tgt_x": snappedf(tgt.x, 0.1),
+		"tgt_y": snappedf(tgt.y, 0.1),
+		"jump_px": snappedf(jump, 0.1),
+		"presence": bool(npc.get_meta("hut_work_presence_active", false)),
+		"hut_d": snappedf(hut_d, 0.1),
+		"hut_x": snappedf(hut_xy.x, 0.1),
+		"hut_y": snappedf(hut_xy.y, 0.1),
+	})
+
+
 static func _get_debug_config() -> Node:
 	var st: SceneTree = Engine.get_main_loop() as SceneTree
 	if st == null:
@@ -170,5 +234,7 @@ static func _steering_mode_name(steer: SteeringAgent) -> String:
 			return "FLEE"
 		SteeringAgent.SteeringMode.WANDER:
 			return "WANDER"
+		SteeringAgent.SteeringMode.HOLD:
+			return "HOLD"
 		_:
 			return "?"

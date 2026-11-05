@@ -1,9 +1,12 @@
 # Raid Mechanic — Stone Age Clans
 
 **Status:** NPC raids use motive + goal evaluation (`raid_motive_picker.gd`, `clan_brain.gd`). Score-based start is **removed.**  
-**Last Updated:** 2026-10-13  
-**Locked, code pending (2026-10-13):** the **size rule is removed**. Any clan may raid any neighbor, including a larger one. The `outnumbered` hard stop and every "not larger" filter below are **retired by design** but still in the code. How often a clan raids comes from its fighters' **bravery and aggression** (replaces `raid_temper`). Raiders break off when the party's nerve breaks. Details: [director_locks_2026_10.md](director_locks_2026_10.md) §3–§4. Where this file still says "not larger", read it as "today's code".  
-**Related:** `bible/hunting.md`, `bible/trade.md` (neighbor list is the road; trade is not built)
+**Last Updated:** 2026-11-04  
+**Locked, code pending (2026-10-13, refined 2026-11-04):** there is no blunt “more men than us, never raid” rule. A bigger camp can be hit when the odds look good. A march still starts only when the brain thinks it can win (opportunity, distance, winnability). How often a clan raids comes from its fighters' **bravery and aggression** (replaces `raid_temper`). Raiders break off when the party's nerve breaks. Details: [director_locks_2026_10.md](director_locks_2026_10.md) §3, §4, and §11. Where this file still says "not larger", that is today's code, not the rule.  
+**Grudge expiry (2026-10-31):** blood and theft no longer expire on a timer. They stay open until answered. The names that outlive the pressure live in [story_data.md](story_data.md) §8. The 60-second gap between raids is unchanged.  
+**Feud target (2026-11-04):** if several bloods are open, march on the worst kill score among neighbors they can beat. One death still answers the oldest blood. [director_locks_2026_10.md](director_locks_2026_10.md) §11.  
+**Odds gate (2026-11-04):** the brain starts a raid or a blood feud only when it thinks it can win. Opportunity, distance, and winnability weigh more than the feud. A rival can tip a close call. A rival cannot force a suicide march. The blunt “they have more men, never raid” skip stays retired. The old score table stays retired. The cutoff is not a chosen number yet.  
+**Related:** `bible/hunting.md`, `bible/trade.md` (neighbor list is the road; trade is not built), [story_data.md](story_data.md)
 
 ---
 
@@ -39,7 +42,7 @@ ClanBrain (WHEN to raid)          RaidState (HOW to raid)
 
 One raid has one motive and one goal. The first motive that is fully true wins. The others do not add points, and they do not cancel it. A neighbor merely existing is not a reason to march.
 
-The target comes from `get_neighbor_claims()` (the same list as defense and, later, trade). There is no raid distance cap. Equal size may be attacked. **Today's code:** a larger camp is never the target. **Locked change:** this is removed, and any neighbor may be hit.
+The target comes from `get_neighbor_claims()` (the same list as defense and, later, trade). Equal size may be attacked. **Today's code:** a larger camp is never the target. **Locked:** that blunt skip is retired. A bigger camp can be hit when the odds look good (weak, shamed, or short of defenders). A smaller camp is left alone when the march is long or the fight looks like a loss. See the odds gate below.
 
 ### Hard stops
 
@@ -48,7 +51,7 @@ If any of these is true, no motive is considered. Each prints one `RAID_SKIP` an
 | Skip | Rule |
 |------|------|
 | `too_few` | Fewer than 6 living fighters. Corpses are not a warband. That clan hunts. |
-| `outnumbered` | Every listed neighbor has more living fighters than we do. **Retired by design (2026-10-13), still in code.** |
+| `outnumbered` | Every listed neighbor has more living fighters than we do. **Retired as a blunt rule. Still in code.** Replaced by the odds gate, which can still refuse a bigger camp when the fight looks unwinnable. |
 | `alert` | Someone is already fighting us. |
 | `hunting` | A hunt is still out. |
 | `cooldown` | Less than 60 seconds since the **last raid ended** (not since it started). |
@@ -63,13 +66,20 @@ Clan morale under 30 still calls off a raid that has already started.
 
 | Order | Why | When it is true | Who they hit |
 |-------|-----|-----------------|--------------|
-| 1 | `blood` | A named neighbor killed our people. The grudge outlives the 60-second cooldown, then expires. Morale is at least 30. | That neighbor, if he is on our list and not larger. If he is larger, the grudge stays and this motive does not fire. |
-| 2 | `theft` | A named neighbor took a woman or an animal (`stole` wrong recorded **when the prize is taken**, not when she crosses the claim edge). Same memory. Morale is at least 30. | That neighbor, same size rule, and they still hold the matching prize (`has_woman` / `has_animal`). Else `no_prize`. |
-| 3 | `food` | The pantry is under the hunger line and the warband is intact. The 3-day comfort bar does not apply. Morale is at least 30. | Closest listed neighbor who is not larger **and** `has_food`. Else `no_prize`. |
+| 1 | `blood` | A named neighbor killed our people, and that neighbor passes the odds gate. The grudge stays open until answered (below) even when the gate says no. It does not expire on a timer. Morale is at least 30. The 60-second cooldown still blocks a new raid from starting. | If several bloods pass the gate, the neighbor with the **worst open score**. If the worst rival fails the gate, skip them. Do not suicide. |
+| 2 | `theft` | A named neighbor took a woman or an animal (`stole` wrong recorded **when the prize is taken**, not when she crosses the claim edge). Stays open until answered, even if the odds gate says no today. Morale is at least 30. | That neighbor, if they pass the odds gate and still hold the matching prize (`has_woman` / `has_animal`). Else `no_prize`. Code still also skips a larger camp. |
+| 3 | `food` | The pantry is under the hunger line and the warband is intact. The 3-day comfort bar does not apply. Morale is at least 30. | Closest listed neighbor who passes the odds gate **and** `has_food`. Else `no_prize`. Code still also skips a larger camp. |
 | 4 | `thin` | We are not hungry. Morale is at least 50. A listed neighbor has half our living fighters or fewer. | That thin camp, for **our** sharpest need (women short of Living Hut slots, else animals short of Farm/Dairy slots, else food) if they can supply it. Else `no_prize`. |
-| 5 | `restless` | Pantry has at least 3 days. Morale is at least 70. A long quiet stretch with no fight and no march. | Closest listed neighbor who is not larger. |
+| 5 | `restless` | Pantry has at least 3 days. Morale is at least 70. A long quiet stretch with no fight and no march. | Closest listed neighbor who passes the odds gate. Code still also skips a larger camp. |
 
-Blood and theft remember a clan name, a kind (`killed` or `stole`), and a time. Restless reads the last time we fought or marched. Nothing else is a score.
+Blood and theft remember a clan name, a kind (`killed` or `stole`), and a time. The player-facing names of the deed-doers, kept after this pressure clears, are a rival mark in [story_data.md](story_data.md) §8. Restless reads the last time we fought or marched. Nothing else is a score.
+
+**Answered (2026-10-31).** Several deeds can be open. Names remain after the pressure clears.
+
+- **Blood** clears when your clan kills one of their fighters, or the named killer is already dead. One returned death answers the oldest open blood. Marching uses the worst score, so the clan they march on and the blood a death answers can be two different neighbors.
+- Answering a blood shames the loser and emboldens the winner on the clan screen. How big and how long is not chosen. The cooldown below still applies. [future implementations/clan_feud.md](future%20implementations/clan_feud.md).
+- **Theft** clears when they no longer hold that woman or animal, or you take a matching prize back.
+- The cooldown row above still waits 60 seconds after a raid **ends** before another can start. An open grudge is not a raid every minute.
 
 ### Goals
 
@@ -134,7 +144,21 @@ These run in `_evaluate_raid_opportunity()` **before** `RaidMotivePicker.pick`. 
 | Party size | Enough free fighters after `defender_quota` for `MIN_RAID_PARTY_SIZE` |
 | Motive | `pick()` returns `ok` with target, `why`, and `goal`; else skip (`no_motive`, `no_prize`, `no_target`, …) |
 
-Target choice is **neighbor list + motive rules** (no raid score, no global distance cap on neighbors).
+Target choice is **neighbor list + motive rules + the odds gate**. There is no restored point-score table and no new hard distance cap. Distance is one of the heavy weights inside the gate.
+
+### Odds gate (2026-11-04)
+
+This runs before a motive can start a march, including an unseen raid. The player ordering his own men does not use this gate.
+
+The brain asks three questions, in this order of weight:
+
+1. **Can we win?** Men we can send, after the home guard stays, against the men we expect to meet. A camp with more men can still lose this check if it is shamed, low on morale, or its fighters are already away. A camp with fewer men can still fail it if the trip strips our own defense.
+2. **How far?** A longer march is a worse bet. Men are away. The other clan has time. Far alone can make the odds bad.
+3. **Is there an opportunity?** A real prize, a weak camp, a shamed camp, defenders already gone. Opportunity makes a winnable fight more attractive. It does not create a fight the first question said no to.
+
+A feud adds weight on that neighbor and can tip a close call. If the first question is no, the feud does not override it. The grudge stays open. They sit, or they hit a different neighbor who does pass the gate.
+
+The cutoff for “good odds” is not a number yet. Measure it in play. Do not bring back the old weighted raid-score table.
 
 ### Removed (do not reintroduce without a design pass)
 

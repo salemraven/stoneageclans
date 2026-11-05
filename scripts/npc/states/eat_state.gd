@@ -36,7 +36,8 @@ func enter() -> void:
 	# Only move to food target if we need to collect from map
 	if npc and npc.steering_agent and food_target:
 		npc.steering_agent.set_arrive_target(food_target.global_position)
-	# If food_target is null, we're eating from inventory (no movement needed)
+	else:
+		_stand_still_to_eat()
 
 
 func exit() -> void:
@@ -48,6 +49,41 @@ func exit() -> void:
 func _hide_eat_progress() -> void:
 	if npc and npc.progress_display:
 		npc.progress_display.stop_collection(false)
+
+
+func _stand_still_to_eat() -> void:
+	if not npc:
+		return
+	npc.velocity = Vector2.ZERO
+	if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+		npc.steering_agent.hold_still()
+
+
+func _meal_resource_type() -> ResourceData.ResourceType:
+	var npc_type_str: String = npc.get("npc_type") if npc else ""
+	var best := ResourceData.ResourceType.NONE
+	var best_nutrient := 0
+	var food_types: Array = ResourceData.EDIBLE_FOOD_TYPES
+	if npc_type_str == "sheep" or npc_type_str == "goat":
+		food_types = [ResourceData.ResourceType.GRAIN, ResourceData.ResourceType.BERRIES]
+	var piles: Array = []
+	if npc.inventory:
+		piles.append(npc.inventory)
+	var claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+	var claim_inv: Variant = claim.get("inventory") if claim else null
+	if claim_inv and claim_inv.has_method("get_count"):
+		piles.append(claim_inv)
+	for pile in piles:
+		for food_type in food_types:
+			if pile.get_count(food_type) <= 0:
+				continue
+			var nutrient: int = ResourceData.get_food_nutrient_value(food_type)
+			if nutrient > best_nutrient:
+				best_nutrient = nutrient
+				best = food_type
+	if best == ResourceData.ResourceType.NONE:
+		return ResourceData.ResourceType.BERRIES
+	return best
 
 func update(delta: float) -> void:
 	if not npc:
@@ -145,10 +181,12 @@ func update(delta: float) -> void:
 			return  # Keep moving toward food
 	
 	# We're either close to food target OR eating from inventory
+	if not food_target:
+		_stand_still_to_eat()
 	# Start progress display if not already started (for eating from inventory)
 	if npc and npc.progress_display and not npc.progress_display.is_collecting():
 		var icon: Texture2D = null
-		var resource_type = ResourceData.ResourceType.BERRIES
+		var resource_type = _meal_resource_type()
 		if food_target and food_target.has("resource_type"):
 			resource_type = food_target.get("resource_type")
 		var icon_path: String = ResourceData.get_resource_icon_path(resource_type)

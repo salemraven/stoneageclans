@@ -30,6 +30,12 @@ func _run() -> void:
 	for locus_id in Catalog.locus_ids():
 		if not founder.has(locus_id):
 			_fail("founder missing %s" % locus_id)
+	var founder_nose: Array[String] = GenomeOps.get_pair(founder, Catalog.NOSE)
+	var founder_brow: Array[String] = GenomeOps.get_pair(founder, Catalog.BROW)
+	if founder_nose[0] != founder_nose[1]:
+		_fail("spawned nose should have no hidden copy, got %s/%s" % [founder_nose[0], founder_nose[1]])
+	if founder_brow[0] != founder_brow[1]:
+		_fail("spawned brow should have no hidden copy, got %s/%s" % [founder_brow[0], founder_brow[1]])
 
 	var mom_bb: Dictionary = {}
 	GenomeOps.set_pair(mom_bb, Catalog.HAIR_DARK, ["B", "B"])
@@ -274,6 +280,79 @@ func _run() -> void:
 		_fail("baby apply_genome should store short body_scale Y")
 	if Phenotype.body_scale_from_genome(tall, "baby") != Phenotype.body_scale_from_genome(tall, "male"):
 		_fail("baby gene scale should match male while dimorph off")
+
+	var mom_nose: Dictionary = {}
+	GenomeOps.set_pair(mom_nose, Catalog.NOSE, ["1", "1"])
+	GenomeOps.set_pair(mom_nose, Catalog.NOSE_STRENGTH, ["5", "5"])
+	var dad_nose: Dictionary = {}
+	GenomeOps.set_pair(dad_nose, Catalog.NOSE, ["2", "2"])
+	GenomeOps.set_pair(dad_nose, Catalog.NOSE_STRENGTH, ["1", "1"])
+	var wore_mom := 0
+	var wore_dad := 0
+	var strength_crossed := 0
+	for i in range(80):
+		var nose_kid: Dictionary = GenomeOps.recombine(mom_nose, dad_nose, _rng(1100 + i), false)
+		var nose_pair: Array[String] = GenomeOps.get_pair(nose_kid, Catalog.NOSE)
+		var worn := Phenotype.nose_id_from_genome(nose_kid)
+		if worn != nose_pair[0]:
+			_fail("worn nose should be slot 0, got worn %s pair %s" % [worn, nose_pair])
+		if worn != "1" and worn != "2":
+			_fail("child of nose 1 and nose 2 wore %s with mutation off" % worn)
+		if nose_pair[0] == nose_pair[1]:
+			_fail("child of two different noses should keep the other copy, got %s" % nose_pair)
+		if worn == "1":
+			wore_mom += 1
+		else:
+			wore_dad += 1
+		var strength_pair: Array[String] = GenomeOps.get_pair(nose_kid, Catalog.NOSE_STRENGTH)
+		if worn == "2" and "5" in strength_pair:
+			strength_crossed += 1
+	if wore_mom <= wore_dad:
+		_fail("strength 5 parent should be worn more often than strength 1, mom=%d dad=%d" % [wore_mom, wore_dad])
+	if strength_crossed == 0:
+		_fail("a child who wears the father's nose should still be able to carry the mother's strength")
+	var hidden: Dictionary = {}
+	GenomeOps.set_pair(hidden, Catalog.NOSE, ["1", "2"])
+	if Phenotype.nose_id_from_genome(hidden) != "1":
+		_fail("slot 0 should be the worn nose")
+	var throwback: Dictionary = {}
+	GenomeOps.set_pair(throwback, Catalog.NOSE, ["2", "2"])
+	if Phenotype.nose_id_from_genome(throwback) != "2":
+		_fail("two copies of nose 2 should show nose 2")
+
+	var big_eyes: Dictionary = {}
+	var small_eyes: Dictionary = {}
+	var mid_eyes: Dictionary = {}
+	for eye_id in Catalog.eye_size_locus_ids():
+		GenomeOps.set_pair(big_eyes, eye_id, ["E", "E"])
+		GenomeOps.set_pair(small_eyes, eye_id, ["e", "e"])
+		GenomeOps.set_pair(mid_eyes, eye_id, ["E", "e"])
+	if not is_equal_approx(Phenotype.eye_scale_from_genome(big_eyes), Phenotype.EYE_SCALE_MAX):
+		_fail("all big eye genes should hit the max")
+	if not is_equal_approx(Phenotype.eye_scale_from_genome(small_eyes), Phenotype.EYE_SCALE_MIN):
+		_fail("all small eye genes should hit the min")
+	if not is_equal_approx(Phenotype.eye_scale_from_genome(mid_eyes), 1.0):
+		_fail("half eye genes should stay at the fitted size")
+	for shape_id in Catalog.eye_shape_locus_ids():
+		GenomeOps.set_pair(mid_eyes, shape_id, ["W", "w"])
+	if not is_equal_approx(Phenotype.eye_aspect_from_genome(mid_eyes), 1.0):
+		_fail("half shape genes should keep the drawn oval")
+
+	var warm_dark: Dictionary = {}
+	GenomeOps.set_pair(warm_dark, Catalog.EYE_DARK, ["D", "D"])
+	GenomeOps.set_pair(warm_dark, Catalog.EYE_HUE, ["H", "H"])
+	var cool_light: Dictionary = {}
+	GenomeOps.set_pair(cool_light, Catalog.EYE_DARK, ["d", "d"])
+	GenomeOps.set_pair(cool_light, Catalog.EYE_HUE, ["h", "h"])
+	if Phenotype.pupil_color_from_genome(warm_dark).is_equal_approx(Phenotype.pupil_color_from_genome(cool_light)):
+		_fail("dark warm pupils and light cool pupils should differ")
+
+	BirthEngine.apply_genome(man, GenomeOps.random_founder_genome(_rng(42)))
+	var face_profile: Dictionary = man["genetics_profile"]
+	if str(face_profile.get("nose_id", "")).is_empty() or str(face_profile.get("brow_id", "")).is_empty():
+		_fail("apply_genome should store nose and brow ids")
+	if not (face_profile.get("pupil_color") is Color):
+		_fail("apply_genome should store pupil color")
 
 	print("TEST_BIRTH_ALLELES_PASS")
 	quit(0)

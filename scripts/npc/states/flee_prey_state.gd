@@ -75,8 +75,10 @@ func _apply_run_steering(away_from: Vector2) -> void:
 	else:
 		dir = dir.normalized()
 	var goal: Vector2 = npc.global_position + dir * 480.0
-	if npc.steering_agent.has_method("set_target_position_immediate"):
-		npc.steering_agent.set_target_position_immediate(goal)
+	if npc.steering_agent.has_method("retarget_seek"):
+		npc.steering_agent.retarget_seek(goal)
+	elif npc.steering_agent.has_method("set_target_position"):
+		npc.steering_agent.set_target_position(goal)
 
 
 func update(delta: float) -> void:

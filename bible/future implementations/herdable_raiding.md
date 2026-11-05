@@ -1,6 +1,7 @@
 # Herdable raiding & multi-goal raids (future)
 
-**Status:** Design draft — **not implemented**.  
+**Status:** Design draft — **not implemented**.
+**Superseded for people (2026-10-18):** roping a person does **not** make them join your clan. Bound cordage is a captive (brown line, hotbar 1–2, shrine). Spec: [the_land.md](../the_land.md) §9. Sheep and goats are butchered and offered as meat, not led on that rope. Wild herding stays the white line. The STEAL goal below is history for human captures.  
 **Scope:** Extends §XI Raiding, §XV Herding, and `bible/raid.md`. Adds **cordage capture** for **claimed** herdables inside enemy territory and **four raid goals** chosen by ClanBrain (AI) or player intent (RTS).  
 **Drafted:** Sep 2026
 

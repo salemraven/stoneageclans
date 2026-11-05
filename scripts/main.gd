@@ -99,16 +99,6 @@ const STANCES_BY_MODE: Dictionary = {
 	RTS_MODE.HUNT: ["AMBUSH", "STALK", "ARC"],
 }
 
-## Stance tuning (matches party_state / FormationUtils / design doc)
-const STANCE_CONFIG := {
-	"FOLLOW": {"aggro_threshold": 0.0,   "chase_dist": 0.0,   "speed_mult": 1.0},
-	"GUARD":  {"aggro_threshold": 70.0,  "chase_dist": 150.0, "speed_mult": 0.75},
-	"ATTACK": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
-	"HIDE":   {"aggro_threshold": 0.0,   "chase_dist": 0.0,   "speed_mult": 0.15},
-	"STALK":  {"aggro_threshold": 0.0,   "chase_dist": 0.0,   "speed_mult": 0.5},
-	"ARC":    {"aggro_threshold": 50.0,  "chase_dist": 200.0, "speed_mult": 0.7},
-	"AMBUSH": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.05},
-}
 ## Shared RTS tuning (see scripts/config/rts_formation_config.gd)
 const RTS_CONFIG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
 var _follower_cache: Array = []  # Step 4: commander's list of follower entity IDs (for BREAK)
@@ -496,9 +486,10 @@ func spawn_seeded_ai_clan_at(
 	cave_world_pos: Vector2,
 	clan_name: String,
 	parent: Node2D,
-	spawn_source: String = "chunk_seeded_clan"
+	spawn_source: String = "chunk_seeded_clan",
+	force_spawn: bool = false
 ) -> Node:
-	if DebugConfig and DebugConfig.no_ai_clans:
+	if DebugConfig and DebugConfig.no_ai_clans and not force_spawn:
 		return null
 	if not parent:
 		parent = world_objects
@@ -545,6 +536,7 @@ func spawn_seeded_ai_clan_at(
 	land_claim.owner_npc = npc
 	land_claim.owner_npc_name = npc_name
 	land_claim.set_meta("owner_npc_name", npc_name)
+	npc.set_meta("bound_land_claim_id", land_claim.get_instance_id())
 	call_deferred("_deferred_finish_caveman_visual", npc)
 	_equip_spear_to_npc(npc)
 	npc.visible = true
@@ -2453,6 +2445,8 @@ func _clear_player_hunt_party_engagements() -> void:
 	for n in selected_clansmen:
 		if n and is_instance_valid(n):
 			PlayerPartyHuntScript.clear_hunt_engagement(n)
+	if player and is_instance_valid(player):
+		PlayerPartyHuntScript.begin_butcher(player)
 
 
 func _sync_rts_mode_buttons() -> void:
@@ -2562,11 +2556,8 @@ func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
 	var npc: Node = NPC_SCENE.instantiate()
 	if not npc:
 		return
-	var nid: int = int(data.get("network_id", -1))
-	if EntityRegistry and nid > 0:
-		EntityRegistry.register_with_network_id(npc, nid)
-	parent.add_child(npc)
-	npc.global_position = data.get("position", Vector2.ZERO) as Vector2
+	# Type and clan must be set before add_child. _ready builds health, combat, and
+	# weapons from npc_type. Setting them after left materialized men with no body to hit.
 	npc.set("npc_name", str(data.get("npc_name", "NPC")))
 	npc.set("npc_type", str(data.get("npc_type", "generic")))
 	npc.set("age", int(data.get("age", 13)))
@@ -2596,6 +2587,11 @@ func spawn_npc_from_sleep_data(data: Dictionary, parent: Node2D) -> void:
 		npc.set_meta("land_claim_clan_name", clan)
 	if npc.has_method("set_clan_name") and clan != "":
 		npc.set_clan_name(clan, "main.spawn_npc_from_sleep_data")
+	var nid: int = int(data.get("network_id", -1))
+	if EntityRegistry and nid > 0:
+		EntityRegistry.register_with_network_id(npc, nid)
+	parent.add_child(npc)
+	npc.global_position = data.get("position", Vector2.ZERO) as Vector2
 	if npc.has_method("apply_sleep_data"):
 		npc.call("apply_sleep_data", data)
 	if EntityRegistry and nid < 1:
@@ -2753,12 +2749,9 @@ func _on_stance_pressed(mode: String) -> void:
 
 func _build_command_context(npc: Node, commander_id: int, is_hostile: bool) -> Dictionary:
 	var mode: String = npc.get_follow_mode_string() if npc.has_method("get_follow_mode_string") else "FOLLOW"
-	var cfg: Dictionary = STANCE_CONFIG.get(mode, STANCE_CONFIG["FOLLOW"])
 	return {
 		"commander_id": commander_id,
 		"mode": mode,
-		"stance_aggro_threshold": cfg.get("aggro_threshold", 0.0),
-		"stance_chase_dist": cfg.get("chase_dist", 0.0),
 		"is_hostile": is_hostile,
 		"rts_hunt": _player_rts_mode == RTS_MODE.HUNT,
 		"issued_at_time": Time.get_ticks_msec() / 1000.0,
@@ -3188,8 +3181,6 @@ func _npc_drag_show_preview() -> void:
 			tex = AssetRegistry.get_sheep_sprite()
 		elif t == "goat":
 			tex = AssetRegistry.get_goat_sprite()
-	if not tex:
-		tex = AssetRegistry.get_player_sprite()
 	if tex:
 		icon.texture = tex
 	icon.position = get_viewport().get_mouse_position() + Vector2(16, 16)
@@ -3849,6 +3840,24 @@ func _set_ordered_follow(npc: Node, follow_source: String = "unknown") -> void:
 	if pi_of and pi_of.has_method("ordered_follow_started") and npc.get("npc_name") != null:
 		pi_of.ordered_follow_started(str(npc.npc_name), str(ctx.get("mode", "FOLLOW")), follow_source)
 
+func _break_has_open_work(npc: Node) -> bool:
+	if int(npc.get("herded_count") if npc.get("herded_count") != null else 0) > 0:
+		return true
+	if not npc.has_meta("build_hut_queue"):
+		return false
+	var q: Variant = npc.get_meta("build_hut_queue")
+	return q is Array and not (q as Array).is_empty()
+
+
+func _break_is_outside_claim(npc: Node) -> bool:
+	if not (npc is Node2D) or not npc.has_method("get_my_land_claim"):
+		return false
+	var claim: Node = npc.call("get_my_land_claim") as Node
+	if claim == null or not is_instance_valid(claim) or not (claim is Node2D):
+		return false
+	return (npc as Node2D).global_position.distance_to((claim as Node2D).global_position) > 120.0
+
+
 func _break_and_dismiss_all() -> void:
 	"""BREAK — clear herd, defend/search/hostile/follow; reset speed; deselect HUD."""
 	if is_player_in_nomad_mode():
@@ -3858,6 +3867,12 @@ func _break_and_dismiss_all() -> void:
 		return
 	var cleared: int = _follower_cache.size()
 	var ids: Array = _follower_cache.duplicate()
+	# Read this before the herd is cleared. A wife in hand or a hut queue is still work.
+	var walk_home: Dictionary = {}
+	for id in ids:
+		var marked = EntityRegistry.get_entity_node(id) if EntityRegistry else null
+		if marked and is_instance_valid(marked):
+			walk_home[id] = not _break_has_open_work(marked) and _break_is_outside_claim(marked)
 	for id in ids:
 		var n = EntityRegistry.get_entity_node(id) if EntityRegistry else null
 		if not n or not is_instance_valid(n):
@@ -3887,11 +3902,6 @@ func _break_and_dismiss_all() -> void:
 			n2.invalidate_land_claim_cache()
 		# Cooldown prevents immediate herd_wildnpc re-entry after BREAK
 		n2.set_meta("herd_wildnpc_delivery_cooldown_until", Time.get_ticks_msec() / 1000.0 + RTS_CONFIG["break_herd_cooldown"])
-		# Walk back to clan land claim (caveman + clansman); cleared on arrival or after break_return_max_sec
-		var now_br: float = Time.get_ticks_msec() / 1000.0
-		var max_sec: float = float(RTS_CONFIG.get("break_return_max_sec", 300.0))
-		n2.set_meta("returning_from_break", true)
-		n2.set_meta("returning_from_break_expire", now_br + max_sec)
 		var sa = n2.get("steering_agent")
 		if sa:
 			if sa.has_method("restore_original_speed"):
@@ -3899,11 +3909,27 @@ func _break_and_dismiss_all() -> void:
 			elif "speed_multiplier" in sa:
 				sa.speed_multiplier = 1.0
 		var fsm = n2.get_node_or_null("FSM")
-		if fsm:
-			# Always send to wander so they walk back to their claim/home area
-			fsm.change_state("wander")
-			# Normal evaluation cadence — don't force-evaluate, let wander run
-			fsm.evaluation_timer = 0.0
+		# A hut queue or a woman in hand is still work. Break only clears follow.
+		# Walk-home is only for a man outside the claim with nothing else to do.
+		if not bool(walk_home.get(id, false)):
+			if n2.has_meta("returning_from_break"):
+				n2.remove_meta("returning_from_break")
+			if n2.has_meta("returning_from_break_expire"):
+				n2.remove_meta("returning_from_break_expire")
+			if fsm and fsm.has_method("drop_cached_priority"):
+				fsm.drop_cached_priority("wander")
+			if fsm and fsm.has_method("force_evaluation"):
+				fsm.force_evaluation()
+		else:
+			var now_br: float = Time.get_ticks_msec() / 1000.0
+			var max_sec: float = float(RTS_CONFIG.get("break_return_max_sec", 300.0))
+			n2.set_meta("returning_from_break", true)
+			n2.set_meta("returning_from_break_expire", now_br + max_sec)
+			if fsm and fsm.has_method("drop_cached_priority"):
+				fsm.drop_cached_priority("wander")
+			if fsm and fsm.has_method("change_state"):
+				fsm.change_state("wander")
+				fsm.evaluation_timer = 0.0
 	_follower_cache.clear()
 	if player:
 		if player.has_meta("formation_guard"):
@@ -5986,8 +6012,7 @@ func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign
 		if place_pos != Vector2.ZERO:
 			break
 	if place_pos == Vector2.ZERO:
-		print("⚠️ Herder could not find valid position for Living Hut")
-		return false
+		place_pos = claim_center + Vector2(140.0, 0.0)
 	var building: BuildingBase = BUILDING_SCENE.instantiate() as BuildingBase
 	if not building:
 		return false
@@ -6001,7 +6026,11 @@ func _place_herder_hut(claim: Node, woman: Node, father_npc: Node = null, assign
 	building.visible = true
 	_handle_building_placed(building, claim)
 	if assign_woman_to_hut and woman and is_instance_valid(woman) and OccupationSystem:
-		OccupationSystem.force_assign(woman, building, 0, "woman")
+		var seated: bool = OccupationSystem.force_assign(woman, building, 0, "woman")
+		if not seated:
+			print("⚠️ Living Hut at %s did not take %s" % [place_pos, str(woman.get("npc_name"))])
+		else:
+			print("🏠 %s is in the Living Hut at %s" % [str(woman.get("npc_name")), place_pos])
 	if woman and is_instance_valid(woman) and father_npc and is_instance_valid(father_npc):
 		var rc = woman.get("reproduction_component")
 		if rc and rc.has_method("set_designated_father_from_herder"):
@@ -7605,6 +7634,7 @@ func _write_productivity_compare(tag: String) -> void:
 	## This session only. Awake camps are counted from their bodies. Asleep camps are counted from the camp record.
 	if not _session_ai_clan_instrument_active():
 		return
+	invalidate_npcs_cache()
 	var elapsed := 0.0
 	if _session_quit_start_time >= 0.0:
 		elapsed = Time.get_ticks_msec() / 1000.0 - _session_quit_start_time
@@ -7648,42 +7678,47 @@ func _write_productivity_compare(tag: String) -> void:
 				babies = int(rec.get("babies", 0))
 				clansmen = int(rec.get("clansmen", 0))
 		var food := 0
+		var days := 0.0
 		if ClanFoodBuffer:
 			var pantry: Dictionary = ClanFoodBuffer.compute(claim)
 			food = int(pantry.get("food_total", 0))
+			days = float(pantry.get("pantry_days", 0.0))
 		var births := int(_productivity_births.get(clan.to_lower(), 0))
 		var away := 0
 		var edible := 0
 		var hunts := 0
 		var raids := 0
+		var brain_dormant := 1
 		var brain_row: Variant = claim.get("clan_brain")
+		if brain_row:
+			brain_dormant = 1 if bool(brain_row.get("is_dormant")) else 0
 		if brain_row and brain_row.has_method("session_activity"):
 			var act: Dictionary = brain_row.call("session_activity")
 			away = int(act.get("away", 0))
 			edible = int(act.get("edible", 0))
 			hunts = int(act.get("hunts", 0))
 			raids = int(act.get("raids", 0))
+		var deposited := int(claim.get_meta("session_food_deposited", 0))
+		var side := "player" if owned == 1 else "ai"
 		var row := (
-			"PRODUCTIVITY_ROW tag=%s side=%s clan=%s source=%s women=%d pregnant=%d babies=%d clansmen=%d births=%d food=%d away=%d edible=%d hunts=%d raids=%d"
+			"PRODUCTIVITY_ROW tag=%s side=%s clan=%s source=%s brain_dormant=%d women=%d pregnant=%d babies=%d clansmen=%d births=%d food=%d food_days=%.1f deposited=%d edible=%d away=%d hunts=%d raids=%d"
 			% [
-				tag,
-				"player" if owned == 1 else "ai",
-				clan,
-				source,
-				women,
-				pregnant,
-				babies,
-				clansmen,
-				births,
-				food,
-				away,
-				edible,
-				hunts,
-				raids,
+				tag, side, clan, source, brain_dormant,
+				women, pregnant, babies, clansmen, births,
+				food, days, deposited, edible, away, hunts, raids,
 			]
 		)
 		lines.append(row)
 		print(row)
+		var pi_row: Node = get_node_or_null("/root/PlaytestInstrumentor")
+		if pi_row and pi_row.has_method("clan_compare"):
+			pi_row.clan_compare({
+				"tag": tag, "side": side, "clan": clan, "source": source,
+				"brain_dormant": brain_dormant, "women": women, "pregnant": pregnant,
+				"babies": babies, "clansmen": clansmen, "births": births,
+				"food": food, "food_days": days, "deposited": deposited,
+				"edible": edible, "away": away, "hunts": hunts, "raids": raids,
+			})
 	var path := ProjectSettings.globalize_path("res://Tests/logs/productivity_compare_latest.txt")
 	var mode := FileAccess.READ_WRITE if _productivity_log_ready else FileAccess.WRITE
 	var f := FileAccess.open(path, mode)
@@ -8396,9 +8431,7 @@ func _log_eval_camp_ai_status(tag: String = "") -> void:
 
 
 func _session_ai_clan_instrument_active() -> bool:
-	if DebugConfig == null or not DebugConfig.enable_session_quickstart:
-		return false
-	return int(DebugConfig.session_nearby_clans_count) > 0
+	return DebugConfig != null and DebugConfig.enable_session_quickstart
 
 
 func _tick_session_ai_clan_instrumentation(delta: float) -> void:
@@ -8409,10 +8442,7 @@ func _tick_session_ai_clan_instrumentation(delta: float) -> void:
 		return
 	_session_ai_clan_instr_accum = 0.0
 	_emit_session_ai_clan_snapshots("tick")
-	_productivity_compare_accum += SESSION_AI_CLAN_INSTR_INTERVAL_SEC
-	if _productivity_compare_accum >= 60.0:
-		_productivity_compare_accum = 0.0
-		_write_productivity_compare("minute")
+	_write_productivity_compare("tick")
 
 
 func register_session_ai_clan_repro(clan: String, event: String, detail: String, extra: Dictionary = {}) -> void:
@@ -8578,12 +8608,14 @@ func _stock_session_quickstart_claim_inventory(building_inventory: InventoryData
 		return
 	for i in range(building_inventory.slot_count):
 		building_inventory.slots[i] = null
-	building_inventory.add_item(ResourceData.ResourceType.WOOD, 20)
-	building_inventory.add_item(ResourceData.ResourceType.STONE, 12)
-	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 80)
-	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 40)
-	building_inventory.add_item(ResourceData.ResourceType.MEAT, 15)
-	building_inventory.add_item(ResourceData.ResourceType.BREAD, 10)
+	building_inventory.add_item(ResourceData.ResourceType.WOOD, 400)
+	building_inventory.add_item(ResourceData.ResourceType.STONE, 400)
+	building_inventory.add_item(ResourceData.ResourceType.FIBER, 80)
+	building_inventory.add_item(ResourceData.ResourceType.HIDE, 80)
+	building_inventory.add_item(ResourceData.ResourceType.GRAIN, 400)
+	building_inventory.add_item(ResourceData.ResourceType.BERRIES, 200)
+	building_inventory.add_item(ResourceData.ResourceType.MEAT, 120)
+	building_inventory.add_item(ResourceData.ResourceType.BREAD, 80)
 
 
 func _spawn_session_quickstart_women(
@@ -8831,9 +8863,230 @@ func _setup_session_quickstart_environment() -> void:
 		var tick_sec: float = WorldGenConfig.settlement_tick_interval_sec if WorldGenConfig else 30.0
 		pi_qs.phase7_playtest_briefing(clan_canon, preg_sec, tick_sec)
 	print("=== SESSION QUICKSTART: complete (clan '%s', claim center %s — you are inside; ~%.0fs pregnancy) ===" % [clan_canon, land_claim_pos, BalanceConfig.pregnancy_seconds if BalanceConfig else 15.0])
-	if DebugConfig and int(DebugConfig.session_nearby_clans_count) > 0:
+	var near_claim: LandClaim = await _spawn_wake_line_neighbor(center_pos)
+	if DebugConfig and DebugConfig.enable_pace_arena:
+		var far_claim: LandClaim = await _spawn_pace_arena_far_clan(center_pos)
+		_lay_pace_arena_grounds(land_claim, near_claim, far_claim)
+	elif DebugConfig and int(DebugConfig.session_nearby_clans_count) > 0:
 		# Claim radius 400. 3200 center-to-center leaves ~2400px of open ground between borders.
 		await _spawn_session_nearby_ai_clans(center_pos, int(DebugConfig.session_nearby_clans_count), 3200.0, "session_nearby_clan")
+
+
+## One AI camp just past the wake circle, with the same stock, woman, hut, and pregnancy as the player quickstart.
+func _spawn_wake_line_neighbor(player_center: Vector2) -> LandClaim:
+	if not world_objects or not player:
+		return null
+	var wake_r := 1200.0
+	if WorldGenConfig:
+		wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+	var claim_r := 400.0
+	var dist := wake_r + claim_r + 80.0
+	var claim_pos := player_center + Vector2(dist, 0.0)
+	var cave_pos := claim_pos + Vector2(90.0, 0.0)
+	var ws: int = _playtest_world_seed_value()
+	var seed_h: int = hash(Vector3i(int(claim_pos.x), int(claim_pos.y), ws + 4242))
+	var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
+	if world and world.has_method("ensure_chunks_for_position"):
+		world.ensure_chunks_for_position(claim_pos)
+	var leader: Node = spawn_seeded_ai_clan_at(
+		claim_pos, cave_pos, clan_name, world_objects, "session_wake_neighbor", true
+	)
+	if leader == null or not is_instance_valid(leader):
+		print("WAKE NEIGHBOR: spawn failed")
+		return null
+	var ai_claim: LandClaim = null
+	if leader.has_meta("bound_land_claim_id"):
+		var bound: Variant = instance_from_id(int(leader.get_meta("bound_land_claim_id")))
+		if bound is LandClaim and is_instance_valid(bound):
+			ai_claim = bound as LandClaim
+	if ai_claim == null and leader.has_method("get_my_land_claim"):
+		ai_claim = leader.get_my_land_claim() as LandClaim
+	if ai_claim == null:
+		print("WAKE NEIGHBOR: no claim for %s" % clan_name)
+		return null
+	await _apply_player_quickstart_to_ai_camp(ai_claim, leader, "NEAR")
+	var gap: float = ai_claim.global_position.distance_to(player_center) - wake_r - float(ai_claim.radius)
+	print("✓ Wake-line neighbor '%s' is %.0fpx east of you (%.0fpx past the wake line). Walk east." % [
+		clan_name, ai_claim.global_position.distance_to(player_center), gap
+	])
+	_write_productivity_compare("spawn")
+	return ai_claim
+
+
+## Farther east than the wake-line neighbor, so standing at that neighbor still leaves this camp asleep.
+func _spawn_pace_arena_far_clan(player_center: Vector2) -> LandClaim:
+	if not world_objects or not player:
+		return null
+	var dist := _wake_neighbor_center_distance() + 2200.0
+	var claim_pos := player_center + Vector2(dist, 0.0)
+	var cave_pos := claim_pos + Vector2(90.0, 0.0)
+	var ws: int = _playtest_world_seed_value()
+	var seed_h: int = hash(Vector3i(int(claim_pos.x), int(claim_pos.y), ws + 8484))
+	var clan_name: String = str(_NAMING_UTILS_SCRIPT.call("generate_landclaim_name_seeded", seed_h))
+	if world and world.has_method("ensure_chunks_for_position"):
+		world.ensure_chunks_for_position(claim_pos)
+	var leader: Node = spawn_seeded_ai_clan_at(
+		claim_pos, cave_pos, clan_name, world_objects, "pace_arena_far", true
+	)
+	if leader == null or not is_instance_valid(leader):
+		print("PACE ARENA: far clan spawn failed")
+		return null
+	var ai_claim: LandClaim = leader.get_my_land_claim() as LandClaim if leader.has_method("get_my_land_claim") else null
+	if ai_claim == null:
+		print("PACE ARENA: far clan has no claim")
+		return null
+	await _apply_player_quickstart_to_ai_camp(ai_claim, leader, "FAR")
+	var wake_r := 1200.0
+	if WorldGenConfig:
+		wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+	print("✓ Far clan '%s' is %.0fpx east (%.0fpx past the wake line). It stays asleep when you stand at the near camp." % [
+		clan_name, ai_claim.global_position.distance_to(player_center), ai_claim.global_position.distance_to(player_center) - wake_r
+	])
+	return ai_claim
+
+
+func _wake_neighbor_center_distance() -> float:
+	var wake_r := 1200.0
+	if WorldGenConfig:
+		wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+	return wake_r + 400.0 + 80.0
+
+
+## Same stock is already on the claims. Same women, sheep, goats, and bushes, placed so the rings do not overlap.
+func _lay_pace_arena_grounds(player_claim: LandClaim, near_claim: LandClaim, far_claim: LandClaim) -> void:
+	var camps: Array[Dictionary] = []
+	if player_claim:
+		camps.append({"claim": player_claim, "dir": Vector2.LEFT, "dormant_list": false, "label": "you"})
+	if near_claim:
+		camps.append({"claim": near_claim, "dir": Vector2.UP, "dormant_list": true, "label": "near"})
+	if far_claim:
+		camps.append({"claim": far_claim, "dir": Vector2.UP, "dormant_list": true, "label": "far"})
+	if camps.is_empty():
+		return
+	for entry in camps:
+		var claim: LandClaim = entry["claim"]
+		_clear_arena_pocket(claim.global_position, 1100.0)
+	var distances: Array[float] = [500.0, 650.0, 800.0, 950.0]
+	var kinds: Array[String] = ["woman", "sheep", "goat", "woman"]
+	var resource_types: Array = [
+		ResourceData.ResourceType.BERRIES,
+		ResourceData.ResourceType.FIBER,
+		ResourceData.ResourceType.WOOD,
+		ResourceData.ResourceType.STONE,
+	]
+	for entry in camps:
+		var claim: LandClaim = entry["claim"]
+		var dir: Vector2 = entry["dir"]
+		var side := Vector2(-dir.y, dir.x)
+		var rows: Array = []
+		for i in distances.size():
+			var pos: Vector2 = claim.global_position + dir * distances[i]
+			var kind: String = kinds[i]
+			var key := "arena:%s:%s:%d" % [claim.clan_name, kind, i]
+			var node := _spawn_arena_herdable(claim, kind, pos, key, i)
+			rows.append({
+				"type": kind,
+				"position": pos,
+				"name": str(node.get("npc_name")) if node else kind,
+				"age": 25,
+				"seed_key": key,
+				"node": node,
+			})
+			_spawn_resource(resource_types[i], claim.global_position + dir * (distances[i] + 40.0) + side * 90.0)
+		claim.set_meta("parity_herd_candidates", rows)
+		print("✓ Pace arena %s (%s): 1 woman, 1 hut, herd ring %s (woman 500, sheep 650, goat 800, woman 950)." % [
+			entry["label"], claim.clan_name, "north" if dir.y < 0.0 else "west"
+		])
+	var wake_r := 1200.0
+	if WorldGenConfig:
+		wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+	print("=== PACE ARENA: walk east. Wake line %.0fpx. Near camp is just outside it. Far camp stays asleep while you visit the near one. ===" % wake_r)
+
+
+func _spawn_arena_herdable(claim: LandClaim, kind: String, pos: Vector2, seed_key: String, index: int) -> Node:
+	if not world_objects:
+		return null
+	var npc: Node = NPC_SCENE.instantiate()
+	if npc == null:
+		return null
+	var label := "Woman" if kind == "woman" else ("Sheep" if kind == "sheep" else "Goat")
+	npc.set("npc_name", "%s %d" % [label, index + 1])
+	npc.set("npc_type", kind)
+	npc.set("age", 25)
+	if kind == "woman":
+		npc.set("traits", ["herd"])
+		_apply_placeholder_card_to_npc(npc)
+	elif kind == "sheep":
+		npc.set("traits", ["herd", "group"])
+	else:
+		npc.set("traits", ["herd"])
+	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+	if sprite and kind != "woman":
+		var tex: Texture2D = AssetRegistry.get_sheep_sprite() if kind == "sheep" else AssetRegistry.get_goat_sprite()
+		if tex:
+			sprite.texture = tex
+			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			sprite.modulate = Color.WHITE
+			sprite.visible = true
+			if npc.has_method("apply_sprite_offset_for_texture"):
+				npc.apply_sprite_offset_for_texture()
+	npc.set_meta("herd_seed_key", seed_key)
+	npc.set_meta("pace_arena_ring", true)
+	world_objects.add_child(npc)
+	npc.global_position = pos
+	npc.set("spawn_position", pos)
+	npc.visible = true
+	return npc
+
+
+func _clear_arena_pocket(center: Vector2, radius: float) -> void:
+	for npc in get_tree().get_nodes_in_group("npcs"):
+		if not is_instance_valid(npc) or not (npc is Node2D):
+			continue
+		if bool(npc.get_meta("pace_arena_ring", false)):
+			continue
+		var kind := str(npc.get("npc_type"))
+		if kind != "woman" and kind != "sheep" and kind != "goat":
+			continue
+		var clan := str(npc.get("clan_name")) if npc.get("clan_name") != null else ""
+		if clan != "":
+			continue
+		if (npc as Node2D).global_position.distance_to(center) > radius:
+			continue
+		npc.queue_free()
+	for node in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(node) or not (node is Node2D):
+			continue
+		if (node as Node2D).global_position.distance_to(center) > radius:
+			continue
+		node.queue_free()
+
+
+func _apply_player_quickstart_to_ai_camp(land_claim: LandClaim, leader: Node, name_prefix: String = "NB") -> void:
+	if land_claim == null or leader == null or not is_instance_valid(leader):
+		return
+	var clan_canon: String = str(land_claim.clan_name)
+	if land_claim.inventory == null:
+		land_claim.inventory = _new_land_claim_inventory()
+	_stock_session_quickstart_claim_inventory(land_claim.inventory)
+	await get_tree().process_frame
+	var women: Array[Node] = _spawn_session_quickstart_women(land_claim, clan_canon, name_prefix, 1)
+	await get_tree().process_frame
+	for w in women:
+		if w and is_instance_valid(w):
+			_place_herder_hut(land_claim, w, leader, true)
+			await get_tree().process_frame
+	for w in women:
+		if not w or not is_instance_valid(w):
+			continue
+		var rc: Node = w.get("reproduction_component") if w.has_method("get") else null
+		if rc and rc.has_method("session_quickstart_start_pregnancy_now"):
+			rc.session_quickstart_start_pregnancy_now(leader)
+	var brain: Variant = land_claim.get("clan_brain")
+	if brain and brain.has_method("capture_record_after_productive_start"):
+		brain.capture_record_after_productive_start()
+	elif brain and brain.has_method("_refresh_clan_members"):
+		brain._refresh_clan_members()
 
 
 func _spawn_session_nearby_ai_clans(
@@ -9757,10 +10010,15 @@ func _spawn_wild_women_for_loaded_chunk(chunk: Vector2i, women_data: Array) -> v
 		if npc == null:
 			continue
 		var npc_name: String = _seeded_caveman_name(name_seed)
+		var seed_key := str(desc.get("seed_key", "woman:%d:%d:%d" % [chunk.x, chunk.y, name_seed]))
+		if MutationStore and MutationStore.has_method("herd_seed_spent") and MutationStore.herd_seed_spent(seed_key):
+			npc.free()
+			continue
 		npc.set("npc_name", npc_name)
 		npc.set("npc_type", "woman")
 		npc.set("traits", ["herd"])
 		npc.set("age", age)
+		npc.set_meta("herd_seed_key", seed_key)
 		_apply_placeholder_card_to_npc(npc)
 		world_objects.add_child(npc)
 		npc.global_position = pos
@@ -9780,120 +10038,60 @@ func _spawn_wild_women_for_loaded_chunk(chunk: Vector2i, women_data: Array) -> v
 
 ## ChunkManager calls this once per streamed terrain chunk — migratory herds are parented under world_objects.
 func _spawn_wildlife_for_loaded_chunk(chunk: Vector2i) -> void:
-	var wgc: Node = get_node_or_null("/root/WorldGenConfig")
-	if wgc == null:
+	if not world_objects:
 		return
-	if not bool(wgc.get("wild_migratory_chunk_spawns_enabled")):
-		return
-	if not ChunkUtils or not world_objects:
-		return
-	var ws := int(wgc.world_seed)
-	var rng: RandomNumberGenerator = _wildlife_rng_for_chunk(ws, chunk.x, chunk.y, _wildlife_chunk_rng_salt_v1)
-	if rng.randf() > float(wgc.get("wild_migratory_chunk_pass_chance")):
-		return
-	var pmin: int = int(wgc.get("wild_migratory_packs_min"))
-	var pmax: int = maxi(pmin, int(wgc.get("wild_migratory_packs_max")))
-	var packs: int = rng.randi_range(pmin, pmax)
-	var origin: Vector2 = Vector2(float(chunk.x), float(chunk.y)) * ChunkUtils.CHUNK_SIZE
+	var WildlifeRoll = load("res://scripts/world/wildlife_chunk_roll.gd")
+	var described: Array = WildlifeRoll.describe(chunk)
 	var wild_trace: Node = get_node_or_null("/root/WildNpcTrace")
 	if wild_trace and wild_trace.has_method("trace"):
-		wild_trace.trace("wild_chunk_spawn_start", {"cx": chunk.x, "cy": chunk.y, "packs": packs})
-	for pack_i in packs:
-		var roll: float = rng.randf()
-		var corr: Dictionary = _wildlife_chunk_migratory_corridor(origin, rng)
-		var probe: Vector2 = origin + Vector2(ChunkUtils.CHUNK_SIZE * 0.5, ChunkUtils.CHUNK_SIZE * 0.5)
-		var tq_spawn: Node = get_node_or_null("/root/TerrainQuery")
-		var eff_b := 1
-		var rd := 1.0
-		if tq_spawn and tq_spawn.has_method("get_effective_biome"):
-			eff_b = int(tq_spawn.get_effective_biome(probe))
-			rd = float(tq_spawn.river_distance_01(probe))
-		var LifeCat: Node = get_node_or_null("/root/BiomeLifeCatalog")
-		var want_type := "deer" if roll < 0.38 else ("sheep" if roll < 0.72 else "goat")
-		if LifeCat and LifeCat.has_method("can_spawn_fauna"):
-			if not bool(LifeCat.can_spawn_fauna(want_type, eff_b, rd, rng)):
-				continue
-		var entry_side: int = int(corr["entry_side"])
-		var exit_x_chunk: float = float(corr["exit_x"])
-		var entry_edge_x: float = float(corr["entry_edge_x"])
-		var base_y: float = origin.y + rng.randf_range(140.0, ChunkUtils.CHUNK_SIZE - 140.0)
-		if roll < 0.38:
-			var deer_cap: int = BalanceConfig.deer_initial if BalanceConfig else 8
-			var herd_n := rng.randi_range(2, mini(12, deer_cap + 3))
-			for hh in herd_n:
-				var sx := entry_edge_x + float(hh) * 30.0 * float(entry_side)
-				var sy := base_y + rng.randf_range(-44.0, 44.0)
-				var dnpc := NPC_SCENE.instantiate()
-				if dnpc == null:
-					continue
-				dnpc.set("npc_name", "Deer %d" % (Time.get_ticks_msec() ^ (pack_i << 12) ^ (hh + 991)))
-				dnpc.set("npc_type", "deer")
-				dnpc.set("traits", [])
-				var dspr: Sprite2D = dnpc.get_node_or_null("Sprite")
-				if dspr:
-					var dtex := AssetRegistry.get_deer_sprite()
-					if dtex:
-						dspr.texture = dtex
-						dspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-						var dtint := _get_random_sheep_goat_tint(rng)
-						dspr.modulate = dtint
-						dnpc.set_meta("sheep_goat_tint", dtint)
-						dspr.visible = true
-						if dnpc.has_method("apply_sprite_offset_for_texture"):
-							dnpc.apply_sprite_offset_for_texture()
-				world_objects.add_child(dnpc)
-				_finalize_migratory_npc(dnpc, Vector2(sx, sy), entry_side, exit_x_chunk)
-				dnpc.visible = true
-		elif roll < 0.72:
-			var herd_s := rng.randi_range(2, mini(6, BalanceConfig.sheep_initial + 5 if BalanceConfig else 15))
-			for ss in herd_s:
-				var spx := entry_edge_x + float(ss) * 22.0 * float(entry_side)
-				var spy := base_y + rng.randf_range(-50.0, 50.0)
-				var snpc := NPC_SCENE.instantiate()
-				if snpc == null:
-					continue
-				snpc.set("npc_name", "Sheep %d" % (Time.get_ticks_msec() ^ (pack_i << 8) ^ (ss << 4)))
-				snpc.set("npc_type", "sheep")
-				snpc.set("traits", ["herd", "group"])
-				var sspr: Sprite2D = snpc.get_node_or_null("Sprite")
-				if sspr:
-					var stex := AssetRegistry.get_sheep_sprite()
-					if stex:
-						sspr.texture = stex
-						sspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-						var stint := _get_random_sheep_goat_tint(rng)
-						sspr.modulate = stint
-						snpc.set_meta("sheep_goat_tint", stint)
-						sspr.visible = true
-						if snpc.has_method("apply_sprite_offset_for_texture"):
-							snpc.apply_sprite_offset_for_texture()
-				world_objects.add_child(snpc)
-				_finalize_migratory_npc(snpc, Vector2(spx, spy), entry_side, exit_x_chunk)
-				snpc.visible = true
+		wild_trace.trace("wild_chunk_spawn_start", {"cx": chunk.x, "cy": chunk.y, "packs": described.size()})
+	for desc in described:
+		if typeof(desc) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = desc as Dictionary
+		var seed_key := str(row.get("seed_key", ""))
+		if MutationStore and MutationStore.has_method("herd_seed_spent") and MutationStore.herd_seed_spent(seed_key):
+			continue
+		var kind := str(row.get("type", ""))
+		var npc := NPC_SCENE.instantiate()
+		if npc == null:
+			continue
+		var pack_i := int(row.get("pack_i", 0))
+		var index := int(row.get("index", 0))
+		if kind == "deer":
+			npc.set("npc_name", "Deer %d" % (Time.get_ticks_msec() ^ (pack_i << 12) ^ (index + 991)))
+			npc.set("npc_type", "deer")
+			npc.set("traits", [])
+		elif kind == "sheep":
+			npc.set("npc_name", "Sheep %d" % (Time.get_ticks_msec() ^ (pack_i << 8) ^ (index << 4)))
+			npc.set("npc_type", "sheep")
+			npc.set("traits", ["herd", "group"])
 		else:
-			var gpx := entry_edge_x
-			var gpy := origin.y + rng.randf_range(140.0, ChunkUtils.CHUNK_SIZE - 140.0)
-			var goat := NPC_SCENE.instantiate()
-			if goat == null:
-				continue
-			goat.set("npc_name", "Goat %d" % (Time.get_ticks_msec() ^ (pack_i << 10)))
-			goat.set("npc_type", "goat")
-			goat.set("traits", ["herd"])
-			var gspr: Sprite2D = goat.get_node_or_null("Sprite")
-			if gspr:
-				var gtex := AssetRegistry.get_goat_sprite()
-				if gtex:
-					gspr.texture = gtex
-					gspr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-					var gtint := _get_random_sheep_goat_tint(rng)
-					gspr.modulate = gtint
-					goat.set_meta("sheep_goat_tint", gtint)
-					gspr.visible = true
-					if goat.has_method("apply_sprite_offset_for_texture"):
-						goat.apply_sprite_offset_for_texture()
-			world_objects.add_child(goat)
-			_finalize_migratory_npc(goat, Vector2(gpx, gpy), entry_side, exit_x_chunk)
-			goat.visible = true
+			npc.set("npc_name", "Goat %d" % (Time.get_ticks_msec() ^ (pack_i << 10)))
+			npc.set("npc_type", "goat")
+			npc.set("traits", ["herd"])
+		npc.set_meta("herd_seed_key", seed_key)
+		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
+		if sprite:
+			var tex: Texture2D = null
+			if kind == "deer":
+				tex = AssetRegistry.get_deer_sprite()
+			elif kind == "sheep":
+				tex = AssetRegistry.get_sheep_sprite()
+			else:
+				tex = AssetRegistry.get_goat_sprite()
+			if tex:
+				sprite.texture = tex
+				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				var tint := Color(float(row.get("tint", 1.0)), float(row.get("tint", 1.0)), float(row.get("tint", 1.0)))
+				sprite.modulate = tint
+				npc.set_meta("sheep_goat_tint", tint)
+				sprite.visible = true
+				if npc.has_method("apply_sprite_offset_for_texture"):
+					npc.apply_sprite_offset_for_texture()
+		world_objects.add_child(npc)
+		_finalize_migratory_npc(npc, row.get("position", Vector2.ZERO) as Vector2, int(row.get("entry_side", 1)), float(row.get("exit_x", 0.0)))
+		npc.visible = true
 
 
 func _get_migration_bounds() -> Rect2:

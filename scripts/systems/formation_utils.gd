@@ -2,11 +2,11 @@ extends Object
 class_name FormationUtils
 
 ## Shared formation slot math for player-led and NPC-led parties.
-## Keep slot geometry in sync with main.gd STANCE_CONFIG / RTS_CONFIG consumers.
+## Slot geometry uses RTS_CONFIG. Walker speeds live in party_state.gd.
 
 const RTS_CONFIG := preload("res://scripts/config/rts_formation_config.gd").RTS_CONFIG
 
-## Speed multipliers — keep in sync with main.gd STANCE_CONFIG speed_mult values.
+## Leader slowdown. HIDE and AMBUSH do not slow the leader. Arc matches Attack (0.85).
 const STANCE_SPEED_MULT := {
 	"FOLLOW": 1.0,
 	"GUARD": 0.75,

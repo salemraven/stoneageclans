@@ -6,6 +6,7 @@ const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat.gd")
 const ThrownProjectile = preload("res://scripts/combat/thrown_projectile.gd")
 const ThrowHitResolver = preload("res://scripts/combat/throw_hit_resolver.gd")
+const NPCRoleBodyScript = preload("res://scripts/npc/npc_role_body.gd")
 
 # Combat Component - handles attack logic, damage calculation, combat state
 # Now with event-driven windup/recovery system
@@ -423,8 +424,8 @@ func _is_valid_strike_candidate(node: Node) -> bool:
 		return false
 	if node.is_in_group("buildings"):
 		return _is_damageable_enemy_building(node)
-	var hc: HealthComponent = node.get_node_or_null("HealthComponent")
-	if hc and hc.is_dead:
+	var issue: String = NPCRoleBodyScript.attack_target_issue(node)
+	if issue != "":
 		return false
 	return node is NPCBase or node.is_in_group("player")
 
@@ -999,7 +1000,10 @@ func _hit_validation_failure_reason(target: Node) -> String:
 		return ""
 	var target_health: HealthComponent = target.get_node_or_null("HealthComponent")
 	if not target_health or target_health.is_dead:
-		return "dead"
+		var issue: String = NPCRoleBodyScript.attack_target_issue(target)
+		if issue == "":
+			return "dead"
+		return issue if issue != "" else "dead"
 	var distance: float = npc.global_position.distance_to(target.global_position)
 	var strike_range: float = attack_range * STRIKE_RANGE_SLACK_MULT
 	if distance > strike_range:

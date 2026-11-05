@@ -3,7 +3,7 @@
 **Stone Age Clans** — lightweight RTS layer on top of the sim: you **order clansmen**, set **stance**, **rally** with the horn, **defend** territory, and **break** so they go back to work.
 
 **This file:** how the RTS layer **works in code today** (May–Sep 2026).  
-**Agreed next (not shipped):** party dock, short horn, pile, Walk/Hunt/Fight, mode shout — **[party_ui.md](party_ui.md)**. Do not implement the old HUD as the long-term UI.
+**Next party UI (not shipped):** press **H**, the leader blows the horn, the clansmen are called in, and a circle asks **Follow**, **Raid**, or **Hunt**. A second menu then picks that party’s modes, and every second menu has **Break**. **[party_ui.md](party_ui.md)**. The dock, pile, short horn, and I/X sheet in that file are scrap. Do not build them. The in-game HUD stays until this menu exists.
 
 **Wild herdables** use **`herd` state**, not party. Horn+herd ignore: [earlygame_vision.md](earlygame_vision.md) §5.
 
@@ -13,7 +13,7 @@
 
 **Lore / UX:** Early *Homo sapiens* would **not** have had spoken language capable of **detailed tactical orders** or “army-scale” micromanagement. Leadership is modeled as **crude, bodily signals**: stay close (**follow**), watch my back (**guard**), push forward with me (**attack**), hold this place (**defend** claim), come when called (**horn**), **disperse** and get back to work (**break**). No flanking hotkeys, stances-within-stances, or chat-style command strings — that would break the fantasy.
 
-**Engineering:** One shared **`command_context`**, **`formation_slots`** on the leader each frame (player via `main`; NPC leader via `FormationUtils`), tuning in **`RTS_CONFIG`** / **`STANCE_CONFIG`**, behavior in **`party_state.gd`** (fighters) and **`main`** ordering paths. New ideas should prefer **new tuning** or **one new verb** over splintering special cases across many files.
+**Engineering:** One shared **`command_context`**, **`formation_slots`** on the leader each frame (player via `main`; NPC leader via `FormationUtils`), tuning in **`RTS_CONFIG`**, speeds and leaving the shape in **`party_state.gd`** (fighters) and **`main`** ordering paths. New ideas should prefer **new tuning** or **one new verb** over splintering special cases across many files.
 
 ---
 
@@ -54,7 +54,6 @@ Each ordered clansman carries a **`command_context`** dictionary (on `NPCBase`),
 
 - **`commander_id`**: leader’s instance id (usually player)
 - **`mode`**: `"FOLLOW"` \| `"GUARD"` \| `"ATTACK"` \| `"HIDE"` \| `"STALK"` \| `"ARC"` \| `"AMBUSH"`
-- **`stance_aggro_threshold`**, **`stance_chase_dist`**: from **STANCE_CONFIG** (see §5)
 - **`is_hostile`**: derived from player weapon / RTS rules
 - **`issued_at_time`**: timestamp
 
@@ -83,23 +82,22 @@ Ideal distances / lookahead are tuned in **`main._update_formation_slots()`** (n
 | Role | Rule |
 |------|------|
 | **Player `move_speed`** | **110** px/s baseline (aligned with clansman ~95 base + formation tuning) |
-| **Player formation debuff** | **`formation_speed_mult`** meta: slowest stance among **active** ordered followers — **Guard 0.75×**, **Attack 0.85×**, **Follow 1.0×** (`STANCE_CONFIG` + `_update_player_formation_speed`) |
-| **Clansman stance multiplier** | Same 1.0 / 0.75 / 0.85 via steering **`set_speed_multiplier`** when “in slot” and leader moving |
+| **Player formation debuff** | **`formation_speed_mult`** meta: slowest stance among **active** ordered followers — **Follow 1.0×**, **Guard 0.75×**, **Attack** and **Arc 0.85×**, **Stalk 0.5×**. Hide and Ambush do not slow the leader. |
+| **Clansman stance multiplier** | Same numbers, applied in `party_state.gd` while they hold a slot. **Arc walks at 0.85×**, the same as Attack. |
 | **Catch-up** | If farther than **`slot_settled_dist`** (~35 px) from assigned slot, **2×** speed (`catchup_speed_mult`) even while leader moves — keeps the blob from lagging |
 
 **Leash:** extreme **ordered leash** (~1200 px) can break follow; see `RTS_CONFIG` / herd_state.
 
-### 4.3 Agro & combat vs stance
+### 4.3 When they leave the shape
 
-**STANCE_CONFIG** (in `main.gd`):
+`party_state.gd` compares **`agro_meter`** to a stance cap. Past the cap they stop holding the slot and move with the leader until **fight or flight** takes over ([fight_or_flight.md](fight_or_flight.md)). Do not use **anger** as a separate term.
 
-| Mode | `aggro_threshold` | `chase_dist` | `speed_mult` |
-|------|---------------------|--------------|--------------|
-| FOLLOW | 0 | 0 | 1.0 |
-| GUARD | 70 | 150 | 0.75 |
-| ATTACK | 100 | 300 | 0.85 |
-
-Higher threshold = easier to enter combat / chase. **FOLLOW** is passive; **ATTACK** is full offensive band.
+| Mode | Leave the shape when **agro_meter** reaches |
+|------|---------------------------------------------|
+| **FOLLOW**, **STALK**, **HIDE** | 40 |
+| **GUARD** | 70 |
+| **AMBUSH** | 95 |
+| **ATTACK**, **ARC** | 100 |
 
 ### 4.4 Recommended flow — hunt, raid, and long movement
 
@@ -201,9 +199,9 @@ The bottom RTS HUD has a **mode strip** (**PEACE**, **AGRO**, **HUNT**) plus **t
 | **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** |
 | **HUNT** | **AMBUSH**, **STALK**, **ARC** |
 
-- **HIDE / AMBUSH** use `hide_state.gd` (cover query + stationary hide). **AMBUSH** releases into combat when the **leader starts a melee swing** (windup).  
-- **STALK** uses a **wider rear arc** and **quiet footsteps** (see `SoundDetection`).  
-- **ARC** uses a **curved ahead-of-leader** slot layout (see `FormationUtils.compute_formation_slots`).  
+- **HIDE / AMBUSH** use `hide_state.gd` (cover query + stationary hide). **AMBUSH** joins the fight when the leader is in combat and has a target. That can be before the swing starts. **HIDE** does not jump out.
+- **STALK** uses a **wider rear arc**, half speed, and **quiet footsteps** (see `SoundDetection`).
+- **ARC** uses a **curved ahead-of-leader** slot layout (see `FormationUtils.compute_formation_slots`) and walks at **0.85×**, the same as Attack.  
 - **War Horn (H)** while in **HUNT** mode: **aborts the hunt** — switches to **PEACE**, forces **FOLLOW**, emits a **very loud sound** (spooks prey). Normal horn rally still applies in **PEACE** / **AGRO**.
 
 ---
@@ -211,7 +209,7 @@ The bottom RTS HUD has a **mode strip** (**PEACE**, **AGRO**, **HUNT**) plus **t
 ## 11. Related docs
 
 - **bible.md** — §XVIII (summary), §I primitive command, hunt/raid travel bullets
-- **[party_ui.md](party_ui.md)** — **Agreed next** party dock / pile / H / B / I+X
+- **[party_ui.md](party_ui.md)** — **H** rally plus Follow / Raid / Hunt, then modes and **Break**. Dock / pile / short horn / I+X in that file are scrap.
 - **`bible/rtsguide.md`** — Player-facing RTS guide (selection, drag, stances; links here for numbers)
 - **bible/earlygame.md**, **bible/Phase4/config.md** — economy / tuning may mention move speeds
 - **.cursor/plans/** — historical RTS cleanup plans (read-only reference)

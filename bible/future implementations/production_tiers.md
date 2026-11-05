@@ -8,7 +8,7 @@
 
 **Superseded 2026-10-13 ([director_locks_2026_10.md](../director_locks_2026_10.md) wins):** **claim tier is the only gate** for hut tier. The population and food-day thresholds below (10+, 15–20+ clanspeople, food-day buffers) are **retired as gates**. Staffing (women in slots) and food decide what actually runs, and an empty slot drops the operating tier. Output quality comes only from input quality, not from tier. Keep the numbers below only as tuning hints for how many people a workshop needs to feel staffed.
 
-**Recipe note (Sep 2026):** Examples below that say `2 hide → cloak` are **old**. Canonical clothes path: hide → Rack/Tannery/Workshop (**1 sheet + 4 strips**) → Tailor (**sheet + cordage**). Same material **cost** at T1 and T3; tier/mastery change **work grade**, not the bill.
+**Recipe note:** Examples below that say `2 hide → cloak`, or that building tier makes Common / Good / Master gear, are **old**. Clothes path: hide → sheet + strips → Tailor (sheet + cordage). Same material cost at every tier. **Quality comes from the materials**, not the hut tier ([director_locks_2026_10.md](../director_locks_2026_10.md) §2).
 
 ---
 
@@ -86,7 +86,7 @@ Every crafted item has a quality tier based on the **building tier** that made i
 
 **Legendary** items are **truly rare** — maybe a 1% chance even at Tier 3 with perfect materials, or special drops from hunt/raid events. They have unique properties (cloak grants stealth, spear ignores armor, etc.).
 
-**Simple rule:** Tier 1 = Common, Tier 2 = Good, Tier 3 = Master. Legendary is special.
+**Old rule (retired):** Tier 1 = Common, Tier 2 = Good, Tier 3 = Master. Current rule: quality comes from the materials. Tier sets women, recipes, and capacity.
 
 ---
 
@@ -225,7 +225,7 @@ Same tier structure applies to all crafts:
 
 Same flow for **Workshop (T2) → Master compound (T3)**.
 
-**Dismantle production:** Revert to **unspecialized Living Hut** (lose specialty + tier; 1-hut footprint; base HP; +5 baby cap only). Optional UI on any specialized hut — [economy_catalog.md](../economy_catalog.md) §8.5.
+**Convert craft:** Swap industry on the same hut. Tier and materials stay. Work in progress is cancelled. No return to an empty living hut — [economy_catalog.md](../economy_catalog.md) §8.5.
 
 **Raid:** Building destroyed = **total loss** (no T3→T2). Each production upgrade adds **+25% max HP** from living-hut base (T2 125%, T3 150%). **Baby cap does not increase** with Workshop/Master.
 
@@ -285,9 +285,7 @@ You might **not want** Tier 3 buildings early — they're expensive and tie up w
 1. **Skill XP** — do workers improve over time (e.g. 100 cloaks → +5% Legendary chance)?
 2. **Worker death** — if a Tier 3 artisan dies, do you lose the slot or just need a replacement?
 3. **Multi-building tiers** — can you have 2 Workshop Tailors, or only 1 per type per claim?
-4. **Dismantle refund** — partial materials back when reverting to living hut?
-
-**Locked:** Raid destroy = **total loss**. HP **+25%** per T2/T3 upgrade step. Dismantle **allowed**. Baby cap **+5 only** on hut place, not on production upgrades.
+**Locked:** Raid destroy = **total loss**. HP **+25%** per T2/T3 upgrade step. **Convert** swaps craft (no dismantle to empty). Baby room is **+5 per woman** ([director_locks_2026_10.md](../director_locks_2026_10.md) §2).
 
 ---
 

@@ -18,6 +18,7 @@
 #   bash tools/launch_tuner_mac.sh --none-idle-play
 #   bash tools/launch_tuner_mac.sh --hair-edit
 #   bash tools/launch_tuner_mac.sh --clothing-edit --fiber1
+#   bash tools/launch_tuner_mac.sh --eyes-edit    # A/D or arrows = walk + turn
 #   bash tools/launch_tuner_mac.sh --walk1-edit --tuner-elbow-instrument
 
 set -euo pipefail

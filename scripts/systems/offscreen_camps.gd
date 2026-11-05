@@ -8,6 +8,7 @@ const PARKED_CHUNK_META := &"parked_chunk"
 var _parked: Array[Node] = []
 var _cursor: int = 0
 var _pending_stock: Dictionary = {}
+var _owed_sec: Dictionary = {}
 
 
 func _process(delta: float) -> void:
@@ -15,19 +16,28 @@ func _process(delta: float) -> void:
 		return
 	if not _server_sim():
 		return
+	var live: Array[Node] = []
+	for claim in _parked:
+		if not is_instance_valid(claim):
+			continue
+		var id: int = claim.get_instance_id()
+		_owed_sec[id] = float(_owed_sec.get(id, 0.0)) + delta
+		live.append(claim)
+	_parked = live
+	if _parked.is_empty():
+		return
 	var n: int = mini(MAX_CAMPS_PER_FRAME, _parked.size())
 	for _i in n:
-		if _parked.is_empty():
-			return
 		_cursor = _cursor % _parked.size()
 		var claim: Node = _parked[_cursor]
 		_cursor += 1
-		if not is_instance_valid(claim):
-			_parked.erase(claim)
-			continue
+		var id: int = claim.get_instance_id()
+		var owed: float = float(_owed_sec.get(id, 0.0))
+		_owed_sec[id] = 0.0
 		var brain: Variant = claim.get("clan_brain")
 		if brain and brain.has_method("dormant_update"):
-			brain.call("dormant_update", delta)
+			brain.call("dormant_update", owed, delta)
+			_log_tick(claim, brain, owed)
 
 
 func park_chunk_root(chunk_root: Node, chunk: Vector2i) -> void:
@@ -46,13 +56,17 @@ func park_claim(claim: Node, chunk: Vector2i) -> void:
 		return
 	if claim in _parked:
 		return
+	_owed_sec[claim.get_instance_id()] = 0.0
 	claim.set_meta(PARKED_CHUNK_META, chunk)
 	var buildings: Array = []
 	if ClaimBuildingIndex:
 		buildings = ClaimBuildingIndex.get_buildings_in_claim(claim)
 	_reparent_keep_global(claim, self)
 	claim.visible = false
+	claim.process_mode = Node.PROCESS_MODE_DISABLED
 	claim.set_process(false)
+	if claim.has_method("set_sim_zones_monitoring"):
+		claim.call("set_sim_zones_monitoring", false)
 	var slot := 0
 	for building in buildings:
 		if building == null or not is_instance_valid(building):
@@ -61,6 +75,7 @@ func park_claim(claim: Node, chunk: Vector2i) -> void:
 		slot += 1
 		_reparent_keep_global(building, self)
 		building.visible = false
+		building.process_mode = Node.PROCESS_MODE_DISABLED
 		building.set_process(false)
 	var brain: Variant = claim.get("clan_brain")
 	if brain and brain.has_method("set_dormant"):
@@ -84,24 +99,30 @@ func restore_chunk(chunk: Vector2i, chunk_root: Node) -> bool:
 	if claim == null or chunk_root == null:
 		return false
 	_parked.erase(claim)
+	_owed_sec.erase(claim.get_instance_id())
 	var buildings: Array = []
 	if ClaimBuildingIndex:
 		buildings = ClaimBuildingIndex.get_buildings_in_claim(claim)
 	_reparent_keep_global(claim, chunk_root)
+	claim.process_mode = Node.PROCESS_MODE_INHERIT
 	claim.visible = true
 	claim.set_process(true)
+	if claim.has_method("set_sim_zones_monitoring"):
+		claim.call("set_sim_zones_monitoring", true)
 	for building in buildings:
 		if building == null or not is_instance_valid(building):
 			continue
 		_reparent_keep_global(building, chunk_root)
+		building.process_mode = Node.PROCESS_MODE_INHERIT
 		building.visible = true
 		building.set_process(true)
 		_apply_pending_stock(building)
 	var brain: Variant = claim.get("clan_brain")
-	if brain and brain.has_method("materialize_clan_for_combat"):
+	var woke := _should_wake(claim, brain)
+	if woke and brain and brain.has_method("materialize_clan_for_combat"):
 		brain.call("materialize_clan_for_combat")
 	_rebind_owner(claim)
-	_log_camp("camp_restored", claim, chunk)
+	_log_camp("camp_restored", claim, chunk, woke)
 	return true
 
 
@@ -226,7 +247,30 @@ func _server_sim() -> bool:
 	return mp.is_server()
 
 
-func _log_camp(evt_name: String, claim: Node, chunk: Vector2i) -> void:
+func _should_wake(claim: Node, brain: Variant) -> bool:
+	if claim and claim.has_method("has_village_intruder") and bool(claim.call("has_village_intruder")):
+		return true
+	if brain and brain.has_method("_player_in_sim_wake"):
+		return bool(brain.call("_player_in_sim_wake"))
+	return false
+
+
+func _log_tick(claim: Node, brain: Variant, owed: float) -> void:
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("camp_tick"):
+		var slices_v: Variant = brain.get("_last_settlement_slices")
+		var accum_v: Variant = brain.get("_settlement_accum")
+		pi.call(
+			"camp_tick",
+			str(claim.get("clan_name")),
+			owed,
+			int(slices_v) if slices_v != null else 0,
+			float(accum_v) if accum_v != null else 0.0,
+			_parked.size()
+		)
+
+
+func _log_camp(evt_name: String, claim: Node, chunk: Vector2i, woke: bool = false) -> void:
 	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
 	if pi and pi.has_method("camp_park_event"):
-		pi.call("camp_park_event", evt_name, str(claim.get("clan_name")), chunk.x, chunk.y)
+		pi.call("camp_park_event", evt_name, str(claim.get("clan_name")), chunk.x, chunk.y, evt_name == "camp_restored", woke)

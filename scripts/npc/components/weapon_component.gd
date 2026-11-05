@@ -9,9 +9,7 @@ var npc: NPCBase = null
 var equipped_weapon: ResourceData.ResourceType = ResourceData.ResourceType.NONE
 var weapon_damage_bonus: int = 0  # Axe +0 (base damage is 10, so 3 hits = 30 HP)
 
-const NORMAL_SPRITE_PATH := "res://assets/sprites/PlayerB.png"
 const AXE_SPRITE_PATH := "res://assets/sprites/male1a.png"
-var _tex_normal: Texture2D = null
 var _tex_axe: Texture2D = null
 var _last_show_axe: bool = false  # Avoid redundant texture swaps
 var _last_show_club: bool = false
@@ -181,8 +179,6 @@ func force_apply_idle() -> void:
 	var sprite: Sprite2D = npc.get_node_or_null("Sprite")
 	if not sprite:
 		return
-	if _tex_normal == null:
-		_tex_normal = load(NORMAL_SPRITE_PATH) as Texture2D
 	if _tex_axe == null:
 		_tex_axe = load(AXE_SPRITE_PATH) as Texture2D
 	var show_axe: bool = false
@@ -263,11 +259,30 @@ func _update_card_weapon_overlay() -> void:
 	_sync_npc_weapon_ready(should_show)
 
 
+func _guarding_without_a_fight() -> bool:
+	if not npc:
+		return false
+	var dt = npc.get("defend_target")
+	if dt == null or not is_instance_valid(dt):
+		return false
+	if bool(npc.get("is_agro")) or bool(npc.get("is_hostile")):
+		return false
+	var ct = npc.get("combat_target")
+	if ct != null and is_instance_valid(ct):
+		return false
+	return true
+
+
 func _sync_npc_weapon_ready(should_show_weapon: bool) -> void:
 	if not npc or npc.is_in_group("player"):
 		return
 	var combat: CombatComponent = npc.get_node_or_null("CombatComponent") as CombatComponent
 	if combat == null:
+		return
+	# A posted guard holds the spear in the idle pose. Windup is only for a real fight.
+	if should_show_weapon and _guarding_without_a_fight():
+		if combat.state == CombatComponent.CombatState.READY:
+			combat.cancel_ready()
 		return
 	if should_show_weapon:
 		var aim: Vector2 = _get_npc_combat_aim(combat)

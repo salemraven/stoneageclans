@@ -57,6 +57,30 @@ func _can_start_processing() -> bool:
 	return true
 
 
+func advance_while_asleep(elapsed_sec: float) -> int:
+	if elapsed_sec <= 0.0 or not building or not is_instance_valid(building) or building.inventory == null:
+		return 0
+	var craft_time: float = float(recipe.get("craft_time", 120.0))
+	if craft_time <= 0.0:
+		return 0
+	var produced := 0
+	var left := elapsed_sec
+	while left > 0.0:
+		if not _can_start_processing() and not is_processing:
+			break
+		var need := craft_time - process_timer
+		if left + 0.0001 < need:
+			process_timer += left
+			is_processing = true
+			break
+		left -= need
+		process_timer = craft_time
+		is_processing = true
+		_complete_processing()
+		produced += 1
+	return produced
+
+
 func _complete_processing() -> void:
 	if not building or not building.inventory:
 		is_processing = false

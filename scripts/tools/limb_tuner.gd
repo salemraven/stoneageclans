@@ -69,6 +69,11 @@ const CharacterAnimationPresetStoreScript = preload(
 @onready var _weapon_rotation_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponRotationRow/WeaponRotationSpin
 @onready var _weapon_size_slider: HSlider = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow/WeaponSizeSlider
 @onready var _weapon_size_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/WeaponSection/WeaponSizeRow/WeaponSizeSpin
+var _nose_picker_label: Label
+var _nose_catalog: PackedStringArray = PackedStringArray()
+var _brow_size_slider: HSlider
+var _brow_size_spin: SpinBox
+var _syncing_brow_size_ui := false
 @onready var _summary_label: Label = $UI/Panel/Margin/Scroll/VBox/SummaryLabel
 @onready var _status_label: Label = $UI/Panel/Margin/Scroll/VBox/StatusLabel
 @onready var _upper_arm_length_spin: SpinBox = $UI/Panel/Margin/Scroll/VBox/TunerSection/ArmsSection/ArmLengthRow/UpperArmLengthSpin
@@ -106,6 +111,10 @@ var _weapon_elbow_handle: LimbTunerHandle
 var _support_elbow_handle: LimbTunerHandle
 var _head_handle: LimbTunerHandle
 var _hair_handle: LimbTunerHandle
+var _eye_left_handle: LimbTunerHandle
+var _eye_right_handle: LimbTunerHandle
+var _nose_handle: LimbTunerHandle
+var _brow_handle: LimbTunerHandle
 var _was_combat_preview_busy: bool = false
 var _club_combat_pins_sync_queued: bool = false
 ## Attack row spear: "windup" | "strike" — which overlay row Save all writes.
@@ -294,6 +303,8 @@ func _finish_startup() -> void:
 		call_deferred("_begin_walk1_preview_session")
 	elif _wants_none_idle_play_startup() or _wants_none_idle_edit_startup():
 		call_deferred("_begin_none_idle_session")
+	elif _wants_eyes_edit_startup():
+		call_deferred("_begin_eyes_edit_session")
 	elif _wants_hair_edit_startup():
 		call_deferred("_begin_hair_edit_session")
 	elif _wants_clothing_edit_startup():
@@ -1309,6 +1320,12 @@ func _wants_hair_edit_startup() -> bool:
 	return "--hair-edit" in OS.get_cmdline_args()
 
 
+func _wants_eyes_edit_startup() -> bool:
+	if "--eyes-edit" in OS.get_cmdline_user_args():
+		return true
+	return "--eyes-edit" in OS.get_cmdline_args()
+
+
 func _wants_clothing_edit_startup() -> bool:
 	if "--clothing-edit" in OS.get_cmdline_user_args():
 		return true
@@ -1421,6 +1438,7 @@ func _has_special_startup() -> bool:
 		or _wants_none_idle_play_startup()
 		or _wants_none_idle_edit_startup()
 		or _wants_hair_edit_startup()
+		or _wants_eyes_edit_startup()
 		or _wants_clothing_edit_startup()
 		or 		_wants_club_windup_edit_startup()
 		or _wants_club_walk_edit_startup()
@@ -1943,6 +1961,8 @@ func _hide_clothing_edit_extras() -> void:
 		_support_elbow_handle,
 		_head_handle,
 		_hair_handle,
+		_eye_left_handle,
+		_eye_right_handle,
 		_spear_handle,
 		_spear_grip_2_handle,
 	]:
@@ -1983,6 +2003,241 @@ func _hide_clothing_edit_extras() -> void:
 		_weapon_size_spin.step = 0.05
 		_weapon_size_spin.value = _rig.clothing_scale_mul()
 	_syncing_weapon_size_ui = false
+
+
+func _begin_eyes_edit_session() -> void:
+	_mode = AppMode.ASSEMBLE
+	_set_weapon(ResourceData.ResourceType.NONE, false)
+	_selected_category = AnimCatalog.CATEGORY_IDLE
+	_set_anim_mode(AnimMode.IDLE)
+	_anim_playing = false
+	_pose_index = 0
+	_sync_preview_playback()
+	if _rig:
+		_rig.reload_mannequin_from_layout()
+	_refresh_rig_from_preset()
+	if _rig:
+		_rig.clear_idle_pose_edit()
+	_update_ui()
+	if _weapon_section and _weapon_section.get_parent():
+		_weapon_section.get_parent().move_child(_weapon_section, 0)
+	_apply_eyes_edit_view()
+	_sync_eye_handle_positions()
+	if _status_label:
+		_status_label.text = (
+			"Brow — ← → keys or buttons swap the picture · drag to move · Copy saves it"
+		)
+
+
+func _apply_eyes_edit_view() -> void:
+	if not _wants_eyes_edit_startup() or _rig == null:
+		return
+	_hide_eyes_edit_extras()
+	if _rig.has_method("apply_preview_skin"):
+		_rig.apply_preview_skin(Color(0.72, 0.52, 0.38, 1.0))
+	if _weapon_section:
+		_weapon_section.visible = true
+	var header := _weapon_section.get_node_or_null("WeaponHeader") as CanvasItem if _weapon_section else null
+	var help := _weapon_section.get_node_or_null("WeaponHelp") as CanvasItem if _weapon_section else null
+	var rotation_row := _weapon_section.get_node_or_null("WeaponRotationRow") as CanvasItem if _weapon_section else null
+	_ensure_nose_picker()
+	_sync_nose_picker_label()
+	_ensure_brow_size_row()
+	_sync_brow_size_ui()
+	if header is Label:
+		header.visible = true
+		header.text = "Brow"
+	elif header:
+		header.visible = true
+	if help is Label:
+		help.visible = true
+		var look := ""
+		if _rig.body_visual and _rig.body_visual.has_method("gaze_caption"):
+			look = " " + str(_rig.body_visual.call("gaze_caption"))
+		help.text = "← → keys or the buttons swap the brow. Drag the brow to move it." + look
+	elif help:
+		help.visible = false
+	if rotation_row:
+		rotation_row.visible = false
+	var size_row := _weapon_section.get_node_or_null("WeaponSizeRow") as CanvasItem if _weapon_section else null
+	if size_row:
+		size_row.visible = true
+	var size_label := _weapon_section.get_node_or_null("WeaponSizeRow/WeaponSizeLabel") as Label if _weapon_section else null
+	if size_label:
+		size_label.text = "Nose size"
+	_syncing_weapon_size_ui = true
+	if _weapon_size_slider:
+		_weapon_size_slider.min_value = 0.25
+		_weapon_size_slider.max_value = 2.5
+		_weapon_size_slider.step = 0.05
+		_weapon_size_slider.value = _rig.nose_scale_mul()
+	if _weapon_size_spin:
+		_weapon_size_spin.min_value = 0.25
+		_weapon_size_spin.max_value = 2.5
+		_weapon_size_spin.step = 0.05
+		_weapon_size_spin.value = _rig.nose_scale_mul()
+	_syncing_weapon_size_ui = false
+
+
+func _ensure_nose_picker() -> void:
+	if _nose_picker_label != null or _weapon_section == null:
+		return
+	_nose_catalog = _load_nose_catalog()
+	var row := HBoxContainer.new()
+	row.name = "BrowPickerRow"
+	row.add_theme_constant_override("separation", 8)
+	var prev := Button.new()
+	prev.text = "←"
+	prev.custom_minimum_size = Vector2(48, 32)
+	prev.pressed.connect(_step_nose.bind(-1))
+	var next := Button.new()
+	next.text = "→"
+	next.custom_minimum_size = Vector2(48, 32)
+	next.pressed.connect(_step_nose.bind(1))
+	_nose_picker_label = Label.new()
+	_nose_picker_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_nose_picker_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_nose_picker_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(prev)
+	row.add_child(_nose_picker_label)
+	row.add_child(next)
+	_weapon_section.add_child(row)
+	_weapon_section.move_child(row, 1)
+
+
+func _load_nose_catalog() -> PackedStringArray:
+	## Raw pngs in this folder are not imported yet, so a res:// folder listing comes back empty.
+	var out := PackedStringArray()
+	for i in range(1, 33):
+		var path := "res://assets/characters/Brow/brow%d.png" % i
+		if FileAccess.file_exists(path):
+			out.append(path)
+	return out
+
+
+func _step_nose(delta: int) -> void:
+	if _rig == null or not _rig.has_method("set_brow_texture_path"):
+		return
+	if _nose_catalog.is_empty():
+		_nose_catalog = _load_nose_catalog()
+	if _nose_catalog.is_empty():
+		return
+	var current := ""
+	if _rig.has_method("brow_texture_path"):
+		current = _rig.brow_texture_path()
+	var idx := _nose_catalog_index(current)
+	if idx < 0:
+		idx = 0 if delta >= 0 else _nose_catalog.size() - 1
+	else:
+		idx = posmod(idx + delta, _nose_catalog.size())
+	_rig.set_brow_texture_path(_nose_catalog[idx])
+	_sync_nose_picker_label()
+	_mark_pose_dirty()
+	if _status_label:
+		_status_label.text = "Showing brow %d of %d. Spot and size stay put." % [idx + 1, _nose_catalog.size()]
+
+
+func _sync_nose_picker_label() -> void:
+	if _nose_picker_label == null:
+		return
+	if _nose_catalog.is_empty():
+		_nose_catalog = _load_nose_catalog()
+	var current := ""
+	if _rig != null and _rig.has_method("brow_texture_path"):
+		current = _rig.brow_texture_path()
+	var idx := _nose_catalog_index(current)
+	var shown := idx + 1 if idx >= 0 else 1
+	var total := maxi(_nose_catalog.size(), 1)
+	_nose_picker_label.text = "brow %d of %d" % [shown, total]
+
+
+func _try_eyes_edit_nose_key(event: InputEvent) -> bool:
+	if not _wants_eyes_edit_startup():
+		return false
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return false
+	var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if key == KEY_LEFT:
+		_step_nose(-1)
+		return true
+	if key == KEY_RIGHT:
+		_step_nose(1)
+		return true
+	return false
+
+
+func _nose_catalog_index(current: String) -> int:
+	var want := current.get_file()
+	for i in _nose_catalog.size():
+		if _nose_catalog[i].get_file() == want:
+			return i
+	return -1
+
+
+func _pointer_event_hits_ui(event: InputEvent) -> bool:
+	if not event is InputEventMouse:
+		return false
+	var panel := get_node_or_null("UI/Panel") as Control
+	if panel == null or not panel.visible:
+		return false
+	return panel.get_global_rect().has_point(event.position)
+
+
+func _hide_eyes_edit_extras() -> void:
+	if not _wants_eyes_edit_startup() or _rig == null:
+		return
+	for handle in [
+		_shoulder_handle,
+		_hand_handle,
+		_support_shoulder_handle,
+		_support_hand_handle,
+		_weapon_elbow_handle,
+		_support_elbow_handle,
+		_head_handle,
+		_hair_handle,
+		_spear_handle,
+		_spear_grip_2_handle,
+	]:
+		if handle:
+			handle.visible = false
+	if _eye_left_handle:
+		_eye_left_handle.visible = false
+		_eye_left_handle.set_draggable(false)
+	if _eye_right_handle:
+		_eye_right_handle.visible = false
+		_eye_right_handle.set_draggable(false)
+	if _nose_handle:
+		_nose_handle.visible = false
+		_nose_handle.set_draggable(true)
+	if _brow_handle:
+		_brow_handle.visible = false
+		_brow_handle.set_draggable(true)
+	if _rig.arm_controller:
+		_rig.arm_controller.visible = false
+		_rig.arm_controller.force_show_arms = false
+		_rig.arm_controller.enabled = false
+		_rig.arm_controller.set_process(false)
+	for arm_draw_name in ["Arm1Draw", "Arm2Draw"]:
+		var arm_draw := _rig.get_node_or_null(arm_draw_name) as CanvasItem
+		if arm_draw:
+			arm_draw.visible = false
+	if _rig.has_method("set_head_and_hair_visible"):
+		_rig.set_head_and_hair_visible(true)
+	if _rig.has_method("set_hair_layer_visible"):
+		_rig.set_hair_layer_visible(_rig.has_hair_layer())
+	if _rig.has_method("set_clothing_layer_visible"):
+		_rig.set_clothing_layer_visible(false)
+
+
+func _sync_eye_handle_positions() -> void:
+	if not _wants_eyes_edit_startup() or _rig == null:
+		return
+	if _active_drag_handle != _eye_left_handle and _eye_left_handle:
+		_eye_left_handle.global_position = _rig.eye_left_global()
+	if _active_drag_handle != _eye_right_handle and _eye_right_handle:
+		_eye_right_handle.global_position = _rig.eye_right_global()
+	if _active_drag_handle != _nose_handle and _nose_handle and _rig.has_method("nose_global"):
+		_nose_handle.global_position = _rig.nose_global()
 
 
 func _begin_hair_edit_session() -> void:
@@ -3047,6 +3302,12 @@ func _mouse_hits_throw_spear(mouse_global: Vector2) -> bool:
 
 
 func _input(event: InputEvent) -> void:
+	## Clicks on the side panel must reach the nose arrows. This runs before the buttons.
+	if _pointer_event_hits_ui(event):
+		return
+	if _try_eyes_edit_nose_key(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _try_clothing_drag(event):
 		return
 	if _throw_spear_edit_active() and _try_throw_spear_drag(event):
@@ -3157,6 +3418,20 @@ func _input(event: InputEvent) -> void:
 func _pick_handle_at(global_pos: Vector2) -> LimbTunerHandle:
 	var best: LimbTunerHandle = null
 	var best_dist: float = INF
+	if _wants_eyes_edit_startup():
+		if _rig != null and _brow_handle != null and _rig.has_method("brow_contains_global") and _rig.brow_contains_global(global_pos):
+			return _brow_handle
+		if _rig != null and _nose_handle != null and _rig.has_method("nose_contains_global") and _rig.nose_contains_global(global_pos):
+			return _nose_handle
+		for handle in [_nose_handle]:
+			if handle == null or not handle.draggable or not handle.visible:
+				continue
+			var pick_radius: float = handle.handle_radius * absf(handle.global_scale.x) + 7.0
+			var dist: float = global_pos.distance_to(_handle_pick_center_global(handle))
+			if dist <= pick_radius and dist <= best_dist:
+				best_dist = dist
+				best = handle
+		return best
 	var handle_order: Array[LimbTunerHandle] = [
 		_hand_handle,
 		_support_hand_handle,
@@ -3539,6 +3814,18 @@ func _move_active_handle(global_pos: Vector2) -> void:
 	elif _active_drag_handle == _hair_handle:
 		_hair_handle.global_position = global_pos
 		_on_hair_dragged(global_pos)
+	elif _active_drag_handle == _eye_left_handle:
+		_eye_left_handle.global_position = global_pos
+		_on_eye_left_dragged(global_pos)
+	elif _active_drag_handle == _eye_right_handle:
+		_eye_right_handle.global_position = global_pos
+		_on_eye_right_dragged(global_pos)
+	elif _active_drag_handle == _nose_handle:
+		_nose_handle.global_position = global_pos
+		_on_nose_dragged(global_pos)
+	elif _active_drag_handle == _brow_handle:
+		_brow_handle.global_position = global_pos
+		_on_brow_dragged(global_pos)
 	elif _active_drag_handle == _spear_handle:
 		_on_spear_dragged(global_pos + _spear_grab_offset)
 	elif _active_drag_handle == _spear_grip_2_handle:
@@ -3611,6 +3898,11 @@ func _note_weapon_base_scale() -> void:
 
 
 func _apply_weapon_size_from_slider() -> void:
+	if _wants_eyes_edit_startup():
+		if _rig and _weapon_size_slider and _rig.has_method("set_nose_scale_mul"):
+			_rig.set_nose_scale_mul(float(_weapon_size_slider.value))
+			_mark_pose_dirty()
+		return
 	if _wants_clothing_edit_startup():
 		if _rig and _weapon_size_slider:
 			_rig.set_clothing_scale_mul(float(_weapon_size_slider.value))
@@ -3862,6 +4154,28 @@ func _spawn_handles() -> void:
 	_hair_handle.name = "HairAttachHandle"
 	_hair_handle.set_handle_color(Color(0.95, 0.55, 0.15, 1.0))
 	parent.add_child(_hair_handle)
+
+	_eye_left_handle = LimbTunerHandleScript.new()
+	_eye_left_handle.name = "EyeLeftHandle"
+	_eye_left_handle.set_handle_color(Color(0.55, 0.35, 0.95, 1.0))
+	parent.add_child(_eye_left_handle)
+
+	_eye_right_handle = LimbTunerHandleScript.new()
+	_eye_right_handle.name = "EyeRightHandle"
+	_eye_right_handle.set_handle_color(Color(0.35, 0.55, 0.95, 1.0))
+	parent.add_child(_eye_right_handle)
+
+	_nose_handle = LimbTunerHandleScript.new()
+	_nose_handle.name = "NoseHandle"
+	_nose_handle.set_handle_color(Color(0.85, 0.55, 0.35, 1.0))
+	_nose_handle.visible = false
+	parent.add_child(_nose_handle)
+
+	_brow_handle = LimbTunerHandleScript.new()
+	_brow_handle.name = "BrowHandle"
+	_brow_handle.visible = false
+	parent.add_child(_brow_handle)
+
 	for handle in [
 		_shoulder_handle,
 		_hand_handle,
@@ -3873,6 +4187,10 @@ func _spawn_handles() -> void:
 		_support_elbow_handle,
 		_head_handle,
 		_hair_handle,
+		_eye_left_handle,
+		_eye_right_handle,
+		_nose_handle,
+		_brow_handle,
 	]:
 		_apply_uniform_handle_radius(handle)
 	_apply_handle_number_labels()
@@ -3912,6 +4230,10 @@ func _refresh_all_handle_radii() -> void:
 		_support_elbow_handle,
 		_head_handle,
 		_hair_handle,
+		_eye_left_handle,
+		_eye_right_handle,
+		_nose_handle,
+		_brow_handle,
 	]:
 		_apply_uniform_handle_radius(handle)
 
@@ -3941,6 +4263,12 @@ func _apply_handle_number_labels() -> void:
 		_head_handle.set_side_label("H")
 	if _hair_handle:
 		_hair_handle.set_side_label("R")
+	if _eye_left_handle:
+		_eye_left_handle.set_side_label("L")
+	if _eye_right_handle:
+		_eye_right_handle.set_side_label("R")
+	if _nose_handle:
+		_nose_handle.set_side_label("N")
 
 
 func _sync_spear_windup_handles() -> void:
@@ -4037,6 +4365,9 @@ func _sync_dominant_grip_stack(mode: AnimMode, walk_swing: bool = false, gather_
 
 
 func _process(delta: float) -> void:
+	if _wants_eyes_edit_startup():
+		_apply_eyes_edit_view()
+		_sync_eye_handle_positions()
 	if _wants_clothing_edit_startup():
 		_hide_clothing_edit_extras()
 	if _rig == null or _preset == null:
@@ -4185,7 +4516,10 @@ func _poll_walk_input() -> void:
 		_rig.set_walk_direction(0)
 		return
 	if _workspace_mode == WorkspaceMode.TUNER and _mode == AppMode.ASSEMBLE:
-		_poll_tuner_walk_ad_preview()
+		if _wants_eyes_edit_startup():
+			_poll_eyes_edit_walk_ad_preview()
+		else:
+			_poll_tuner_walk_ad_preview()
 		return
 	if _is_thrust_animating() or _combat_animation_busy():
 		_rig.set_walk_direction(0)
@@ -4237,6 +4571,31 @@ func _poll_walk_input() -> void:
 				_sync_attack_windup_facing(dir)
 	else:
 		_rig.set_walk_direction(0)
+
+
+func _poll_eyes_edit_walk_ad_preview() -> void:
+	## Eyes session: A/D walk. Arrow keys swap noses and do not walk.
+	var dir := 0
+	if Input.is_physical_key_pressed(KEY_A):
+		dir = -1
+	elif Input.is_physical_key_pressed(KEY_D):
+		dir = 1
+	if dir != 0:
+		if not _walk_ad_preview_active:
+			_walk_ad_preview_active = true
+			_walk_ad_preview_elapsed = 0.0
+		if _rig:
+			_rig.apply_travel_facing_direction(dir)
+			_rig.set_walk_direction(dir)
+		return
+	if _walk_ad_preview_active:
+		_walk_ad_preview_active = false
+		_walk_ad_preview_elapsed = 0.0
+		if _rig:
+			_rig.set_walk_direction(0)
+		_refresh_rig_from_preset()
+		_sync_eye_handle_positions()
+		_lock_arm_lines_to_handles()
 
 
 func _poll_tuner_walk_ad_preview() -> void:
@@ -5969,6 +6328,103 @@ func _on_hair_dragged(global_pos: Vector2) -> void:
 	_sync_hair_handle_pin()
 
 
+func _on_brow_dragged(global_pos: Vector2) -> void:
+	if _rig == null or not _rig.has_method("set_brow_from_global"):
+		return
+	if _brow_handle:
+		_brow_handle.global_position = global_pos
+	_rig.set_brow_from_global(global_pos)
+	_mark_pose_dirty()
+
+
+func _ensure_brow_size_row() -> void:
+	if _brow_size_slider != null or _weapon_section == null:
+		return
+	var row := HBoxContainer.new()
+	row.name = "BrowSizeRow"
+	row.add_theme_constant_override("separation", 8)
+	var label := Label.new()
+	label.text = "Brow size"
+	_brow_size_slider = HSlider.new()
+	_brow_size_slider.custom_minimum_size = Vector2(0, 32)
+	_brow_size_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_brow_size_slider.min_value = 0.25
+	_brow_size_slider.max_value = 2.5
+	_brow_size_slider.step = 0.05
+	_brow_size_slider.value_changed.connect(_on_brow_size_slider_changed)
+	_brow_size_spin = SpinBox.new()
+	_brow_size_spin.custom_minimum_size = Vector2(88, 32)
+	_brow_size_spin.min_value = 0.25
+	_brow_size_spin.max_value = 2.5
+	_brow_size_spin.step = 0.05
+	_brow_size_spin.value_changed.connect(_on_brow_size_spin_changed)
+	row.add_child(label)
+	row.add_child(_brow_size_slider)
+	row.add_child(_brow_size_spin)
+	_weapon_section.add_child(row)
+
+
+func _sync_brow_size_ui() -> void:
+	if _brow_size_slider == null or _rig == null or not _rig.has_method("brow_scale_mul"):
+		return
+	_syncing_brow_size_ui = true
+	var mul := _rig.brow_scale_mul()
+	_brow_size_slider.value = mul
+	if _brow_size_spin:
+		_brow_size_spin.value = mul
+	_syncing_brow_size_ui = false
+
+
+func _on_brow_size_slider_changed(value: float) -> void:
+	if _syncing_brow_size_ui:
+		return
+	_syncing_brow_size_ui = true
+	if _brow_size_spin:
+		_brow_size_spin.value = value
+	_syncing_brow_size_ui = false
+	_apply_brow_size(value)
+
+
+func _on_brow_size_spin_changed(value: float) -> void:
+	if _syncing_brow_size_ui:
+		return
+	_syncing_brow_size_ui = true
+	if _brow_size_slider:
+		_brow_size_slider.value = value
+	_syncing_brow_size_ui = false
+	_apply_brow_size(value)
+
+
+func _apply_brow_size(value: float) -> void:
+	if _rig and _rig.has_method("set_brow_scale_mul"):
+		_rig.set_brow_scale_mul(value)
+		_mark_pose_dirty()
+
+
+func _on_nose_dragged(global_pos: Vector2) -> void:
+	if _rig == null or _nose_handle == null:
+		return
+	_nose_handle.global_position = global_pos
+	_rig.set_nose_from_global(global_pos)
+	_mark_pose_dirty()
+
+
+func _on_eye_left_dragged(global_pos: Vector2) -> void:
+	if _mode != AppMode.ASSEMBLE or _rig == null:
+		return
+	_eye_left_handle.global_position = global_pos
+	_rig.set_eye_left_from_global(global_pos)
+	_mark_pose_dirty()
+
+
+func _on_eye_right_dragged(global_pos: Vector2) -> void:
+	if _mode != AppMode.ASSEMBLE or _rig == null:
+		return
+	_eye_right_handle.global_position = global_pos
+	_rig.set_eye_right_from_global(global_pos)
+	_mark_pose_dirty()
+
+
 func _on_spear_dragged(global_pos: Vector2) -> void:
 	if _mode != AppMode.ASSEMBLE:
 		return
@@ -6207,6 +6663,11 @@ func _commit_all_poses_to_preset(force: bool = false) -> void:
 		_rig.set_neck_socket_from_global(_head_handle.global_position)
 	if _hair_handle and _rig and _rig.has_hair_layer():
 		_rig.set_hair_attach_from_global(_hair_handle.global_position)
+	if not _wants_eyes_edit_startup():
+		if _eye_left_handle and _rig:
+			_rig.set_eye_left_from_global(_eye_left_handle.global_position)
+		if _eye_right_handle and _rig:
+			_rig.set_eye_right_from_global(_eye_right_handle.global_position)
 	if _shoulder_handle:
 		_rig.set_shoulder_from_global(_preset, _shoulder_handle.global_position)
 	if _support_shoulder_handle:
@@ -6380,7 +6841,11 @@ func _on_copy_pressed() -> void:
 	var clipboard := AnimationReceiptScript.format_clipboard(receipt)
 	DisplayServer.clipboard_set(clipboard)
 	if _status_label:
-		if _wants_clothing_edit_startup():
+		if _wants_eyes_edit_startup():
+			_status_label.text = (
+				"Copied brow placement and size. Paste in chat and say: lock in this animation."
+			)
+		elif _wants_clothing_edit_startup():
 			var which := "hide"
 			if _wants_fiber1_clothing_edit():
 				which = "fiber1"
@@ -6542,6 +7007,8 @@ func _update_ui() -> void:
 	_sync_weapon_rotation_spin_from_rig()
 	_hide_throw_spear_pins()
 	_apply_clothing_edit_view()
+	if _wants_eyes_edit_startup():
+		_apply_eyes_edit_view()
 	_update_pose_row_ui()
 	_update_save_button_style()
 	if (

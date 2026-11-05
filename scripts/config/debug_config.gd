@@ -94,10 +94,14 @@ var enable_throw_debug: bool = false
 
 ## Session / productivity instruments (main.gd, FSM, task_runner, player herd debuff).
 var enable_session_quickstart: bool = false
+## Player camp, one AI just past the wake line, one AI farther east. Same stock and herd ring. CLI: `--pace-arena`
+var enable_pace_arena: bool = false
 ## Five living huts on a player claim, with claim wood and stone for one specialty each. CLI: `--hut-tier-test`
 var enable_hut_tier_test: bool = false
 ## Spawn N AI caveman+claim clans in a ring around the player on a normal start (not harnesses). CLI: `--eval-ai-claims` / `--eval-ai-claims 0` to off.
 var eval_ai_claims_near_start: int = 0
+## Skip chunk camps and density backfill. CLI: `--no-ai-clans`
+var no_ai_clans: bool = false
 ## Wild women in a ring around player spawn so you can see female mannequins. CLI: `--eval-wild-women N`
 var eval_wild_women_near_start: int = 0
 ## Ring of pawns at 240px: one of each hair style, cycling colors. CLI: `--eval-hair N`
@@ -355,6 +359,14 @@ func _parse_command_line_args() -> void:
 		enable_hut_tier_test = true
 		print("✓ Hut tier test: player claim, 5 living huts, claim wood and stone for one upgrade each")
 
+	if "--pace-arena" in args:
+		enable_pace_arena = true
+		enable_session_quickstart = true
+		no_ai_clans = true
+		if BalanceConfig:
+			BalanceConfig.ai_use_dev_food_bootstrap = true
+		print("✓ Pace arena: your camp, one AI just past the wake line, one AI farther east. No other AI clans.")
+
 	# Session quickstart: player claim + 2 women + 2 Living Huts (reproduction smoke)
 	if "--session-quickstart" in args:
 		enable_session_quickstart = true
@@ -377,6 +389,10 @@ func _parse_command_line_args() -> void:
 			eval_ai_claims_near_start = n_eval
 			print("✓ Eval AI land claims near start: %d" % n_eval)
 			break
+
+	if "--no-ai-clans" in args:
+		no_ai_clans = true
+		print("✓ No AI clans this session")
 
 	for i in range(args.size()):
 		if args[i] == "--eval-wild-women":

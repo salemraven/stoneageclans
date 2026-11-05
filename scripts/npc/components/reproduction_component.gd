@@ -705,6 +705,18 @@ func _log_baby_pregnancy_started(source: String) -> void:
 			father_name = str(current_mate.get("npc_name"))
 	pi.baby_pregnancy_started(clan_name, npc_name, father_name, source)
 
+func _ai_productivity_delta(delta: float) -> float:
+	if npc and npc.has_method("is_sim_dormant") and npc.is_sim_dormant():
+		return delta
+	var sandbox: Node = get_node_or_null("/root/SandboxSettings")
+	if sandbox == null or not sandbox.has_method("scale_ai_time"):
+		return delta
+	var player_camp := false
+	if sandbox.has_method("npc_in_player_camp"):
+		player_camp = bool(sandbox.npc_in_player_camp(npc))
+	return sandbox.scale_ai_time(player_camp, delta)
+
+
 func _update_birth_timer(delta: float) -> void:
 	# Nomad transit: timer frozen on pack-up — do NOT cancel (see campfire.gd _freeze_clan_pregnancies).
 	if npc and npc.has_meta("nomad_pregnancy_frozen"):
@@ -718,7 +730,7 @@ func _update_birth_timer(delta: float) -> void:
 	if not _clan_food_allows_pregnancy_while_pregnant():
 		cancel_pregnancy("starvation")
 		return
-	birth_timer -= delta
+	birth_timer -= _ai_productivity_delta(delta)
 	if birth_timer <= 0.0:
 		_spawn_baby()
 

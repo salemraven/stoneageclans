@@ -169,6 +169,31 @@ func _start_crafting() -> void:
 	craft_timer = 0.0
 	print("🔵 ProductionComponent: Started crafting at %s" % ResourceData.get_resource_name(building.building_type))
 
+## Dormant settlement slice. Same recipe and craft time. The live _process stays paused while the camp is asleep.
+func advance_while_asleep(elapsed_sec: float) -> int:
+	if elapsed_sec <= 0.0 or not building or not is_instance_valid(building) or building.inventory == null:
+		return 0
+	var craft_time: float = float(recipe.get("craft_time", 60.0))
+	if craft_time <= 0.0:
+		return 0
+	var produced := 0
+	var left := elapsed_sec
+	while left > 0.0:
+		if not _has_required_materials():
+			break
+		var need := craft_time - craft_timer
+		if left + 0.0001 < need:
+			craft_timer += left
+			is_crafting = true
+			break
+		left -= need
+		craft_timer = craft_time
+		is_crafting = true
+		_complete_crafting()
+		produced += 1
+	return produced
+
+
 func _complete_crafting() -> void:
 	if not building:
 		return

@@ -190,20 +190,12 @@ func _process(delta: float) -> void:
 	if clan_brain and not is_queued_for_deletion():
 		var mp: MultiplayerAPI = get_multiplayer()
 		if mp == null or not mp.has_multiplayer_peer() or mp.is_server():
-			var interest: Node = get_node_or_null("/root/WorldInterestManager")
-			var claim_active: bool = interest == null or interest.call("is_claim_active", self)
-			if claim_active:
-				if clan_brain.is_dormant and clan_brain.has_method("set_dormant"):
-					clan_brain.set_dormant(false)
+			if clan_brain.has_method("tick_sim"):
+				clan_brain.tick_sim(delta)
+			elif player_owned or not clan_brain.is_dormant:
 				clan_brain.update(delta)
 			else:
-				if not clan_brain.is_dormant:
-					if clan_brain.has_method("_refresh_clan_members"):
-						clan_brain._refresh_clan_members()
-					if clan_brain.has_method("set_dormant"):
-						clan_brain.set_dormant(true)
-				if clan_brain.has_method("dormant_update"):
-					clan_brain.dormant_update(delta)
+				clan_brain.dormant_update(delta)
 	_update_nomadic_crowding()
 
 	if clan_brain and clan_brain.is_dormant:

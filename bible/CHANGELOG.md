@@ -2,6 +2,28 @@
 
 This document tracks updates to guides based on implementation changes and design decisions.
 
+## November 5, 2026 (AI camp pacing, party UI lock, RTS doc sync)
+
+### Simulation & AI clans
+
+- **People clocks** — Herd/hut/pregnancy/baby growth advance on real delta while dormant; settlement slice skips duplicate people tick when `is_dormant`.
+- **Herders** — Grown **clansmen** only (no pop/6 cap); defender room preserved; combat still zeros searchers.
+- **Food** — Abstract edible gather capped to ~`clan_food_buffer_target_days` per living person (`abstract_gather.gd`).
+- **Dormant herd trips** — `dormant_camp_progress.gd`: measured chase + depart wait; one wife per son slot (`phase done` after hut).
+- **Sandbox** — `sandbox_settings.gd` autoload; pace arena forces AI productivity 1.0.
+- **Tests** — `tools/test_ai_camp_parity.gd`, `tools/launch_pace_arena.sh`.
+
+### Party UI & RTS (documentation + small code cleanup)
+
+- **[party_ui.md](party_ui.md)** — Locked **H** circle: Follow / Raid / Hunt, stance submenus + Break; scrap dock/pile/short horn; **formation fixes before UI build**.
+- **[rts.md](rts.md)**, **[Phase4/raiding_hunting.md](Phase4/raiding_hunting.md)**, **[bible.md](bible.md)** — Match code: Arc **0.85×**, formation break thresholds in `party_state.gd`, ambush on leader in combat (not windup-only).
+- **Code** — Removed unused `STANCE_CONFIG` / `stance_aggro_*` on `command_context` (`main.gd`, `party_command_utils.gd`).
+
+### Other bible / design
+
+- Raid, director locks, story_data, traits, genetics, fight_or_flight, clan feud stubs, README index updates.
+- **Dev blog (Discord):** [dev_blog/2026-11-05-discord-update.md](dev_blog/2026-11-05-discord-update.md).
+
 ## June 13, 2026 (Production economy — Tier 1 Oven/Rack)
 
 - **Tier 1 campfire** may place **Oven** and **Drying Rack**; ClanBrain WorkRequests run when camp is not marching.

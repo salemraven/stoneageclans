@@ -29,13 +29,15 @@ func can_enter() -> bool:
 	# Must have Living Hut (or Oven/Farm/Dairy) to reproduce - otherwise occupy_building takes priority
 	if not npc.reproduction_component.has_living_hut_assigned():
 		return false
-	
-	return true
+	# The hut state moves her. This state does not, and it was pinning her on the fire.
+	return false
 
 func get_priority() -> float:
+	# Must stay under work-at-hut (7). This state does not move her.
+	# At 8 she beat the hut and kept the old wander, so she shuffled by the fire.
 	if NPCConfig:
-		return NPCConfig.priority_reproduction
-	return 8.0
+		return minf(NPCConfig.priority_reproduction, 6.5)
+	return 6.5
 
 func enter() -> void:
 	# State entered - reproduction logic handled by component

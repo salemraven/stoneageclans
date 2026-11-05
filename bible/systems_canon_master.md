@@ -63,7 +63,7 @@ A system is **Locked** when:
 | W4 | **ResourceIndex (spatial gather)** | 💻 | [GatherGuide.md](GatherGuide.md) | P1 |
 | W5 | **Island / biomes / environment** | 🔒 | [environment_goal.md](environment_goal.md) | — |
 | W6 | **Terrain & water (passability)** | 🟡 | environment_goal §17–18 | P1 |
-| W7 | **Weather & seasons** | ⬜ | environment_goal §19 | P2 |
+| W7 | **Weather & seasons** | ⬜ | environment_goal §19, zones §3.7, [the_land.md](the_land.md) | P2 |
 | W8 | **Wildlife spawn & roles** | 🟡 | [wildlife_movement.md](wildlife_movement.md), environment_goal §6 | P1 |
 | W9 | **Wildlife migration (seasonal)** | 🔒 | [wildlife_migration.md](wildlife_migration.md) | — |
 | W10 | **Settlement sim (warm / off-screen)** | 🟡 | [settlement_sim.md](settlement_sim.md), [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md) | P0 |
@@ -197,7 +197,7 @@ A system is **Locked** when:
 | U1 | **Universal controls & hotkeys** | 🔒 | [UI.md](UI.md) | — |
 | U2 | **Inventory & drag-drop** | 🔒 | UI.md (DragAndDrop guide stale) | — |
 | U3 | **RTS / War Horn / formations** | 🟡 | [rts.md](rts.md), [party_ui.md](party_ui.md) (next) | P0 |
-| U4 | **Party command & pile** | ⬜ | party_ui.md | P0 |
+| U4 | **Party command (H circle)** | ⬜ | party_ui.md | P0 |
 | U5 | **Context menus (herd, raid, build)** | 💻 | phase2 dropdown, rtsguide | P1 |
 | U6 | **Vitals (health, calories, water)** | 💻 | bible §III, BalanceConfig | P1 |
 | U7 | **Clan menu (C)** | ⬜ | future Clan_Menu.md | P2 |

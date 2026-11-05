@@ -6,6 +6,8 @@ class_name LocusCatalog
 const KIND_DISCRETE := "discrete"
 const INHERIT_MENDELIAN := "mendelian"
 const INHERIT_ADDITIVE := "additive"
+## Slot 0 is the picture on the face. Slot 1 is hidden.
+const INHERIT_PAIR := "pair"
 
 const HAIR_DARK := "hair_dark"
 const HAIR_RED := "hair_red"
@@ -21,10 +23,25 @@ const WIDTH_A := "width_a"
 const WIDTH_B := "width_b"
 const WIDTH_C := "width_c"
 const WIDTH_D := "width_d"
+const NOSE := "nose"
+const NOSE_STRENGTH := "nose_strength"
+const BROW := "brow"
+const BROW_STRENGTH := "brow_strength"
+const EYE_SIZE_A := "eye_size_a"
+const EYE_SIZE_B := "eye_size_b"
+const EYE_SIZE_C := "eye_size_c"
+const EYE_SIZE_D := "eye_size_d"
+const EYE_SHAPE_A := "eye_shape_a"
+const EYE_SHAPE_B := "eye_shape_b"
+const EYE_DARK := "eye_dark"
+const EYE_HUE := "eye_hue"
+const NOSE_ART_COUNT := 14
+const BROW_ART_COUNT := 12
 ## Planned (not in locus_ids yet): dimorph_on D/d, dimorph_sex M/F; head_height_* / head_width_*.
-## Planned: "eye_pigment" with alleles P/p — not expressed until eye layers exist.
 
 const MUTATION_PER_ALLELE := 0.001
+## Nose and brow pictures only. About one new face in a family of 12 children.
+const FACE_MUTATION_PER_ALLELE := 0.02
 
 
 static func locus_ids() -> Array[String]:
@@ -33,6 +50,10 @@ static func locus_ids() -> Array[String]:
 		SKIN_A, SKIN_B, SKIN_C, SKIN_D,
 		HEIGHT_A, HEIGHT_B, HEIGHT_C, HEIGHT_D,
 		WIDTH_A, WIDTH_B, WIDTH_C, WIDTH_D,
+		NOSE, NOSE_STRENGTH, BROW, BROW_STRENGTH,
+		EYE_SIZE_A, EYE_SIZE_B, EYE_SIZE_C, EYE_SIZE_D,
+		EYE_SHAPE_A, EYE_SHAPE_B,
+		EYE_DARK, EYE_HUE,
 	]
 
 
@@ -46,6 +67,21 @@ static func height_locus_ids() -> Array[String]:
 
 static func width_locus_ids() -> Array[String]:
 	return [WIDTH_A, WIDTH_B, WIDTH_C, WIDTH_D]
+
+
+static func eye_size_locus_ids() -> Array[String]:
+	return [EYE_SIZE_A, EYE_SIZE_B, EYE_SIZE_C, EYE_SIZE_D]
+
+
+static func eye_shape_locus_ids() -> Array[String]:
+	return [EYE_SHAPE_A, EYE_SHAPE_B]
+
+
+static func _art_alleles(count: int) -> Array[String]:
+	var alleles: Array[String] = []
+	for i in count:
+		alleles.append(str(i + 1))
+	return alleles
 
 
 static func _additive_locus(locus_id: String, tall_or_wide: String, short_or_narrow: String) -> Dictionary:
@@ -92,8 +128,50 @@ static func get_locus(locus_id: String) -> Dictionary:
 			return _additive_locus(locus_id, "H", "h")
 		WIDTH_A, WIDTH_B, WIDTH_C, WIDTH_D:
 			return _additive_locus(locus_id, "W", "w")
+		NOSE:
+			return _pair_locus(NOSE, NOSE_ART_COUNT)
+		BROW:
+			return _pair_locus(BROW, BROW_ART_COUNT)
+		NOSE_STRENGTH, BROW_STRENGTH:
+			return _strength_locus(locus_id)
+		EYE_SIZE_A, EYE_SIZE_B, EYE_SIZE_C, EYE_SIZE_D:
+			return _additive_locus(locus_id, "E", "e")
+		EYE_SHAPE_A, EYE_SHAPE_B:
+			return _additive_locus(locus_id, "W", "w")
+		EYE_DARK:
+			return _additive_locus(locus_id, "D", "d")
+		EYE_HUE:
+			return {
+				"id": EYE_HUE,
+				"kind": KIND_DISCRETE,
+				"inherit": INHERIT_MENDELIAN,
+				"alleles": ["H", "h"],
+				"dominant": ["H", "h"],
+			}
 		_:
 			return {}
+
+
+static func _pair_locus(locus_id: String, art_count: int) -> Dictionary:
+	var alleles: Array[String] = _art_alleles(art_count)
+	return {
+		"id": locus_id,
+		"kind": KIND_DISCRETE,
+		"inherit": INHERIT_PAIR,
+		"alleles": alleles,
+		"dominant": alleles,
+	}
+
+
+static func _strength_locus(locus_id: String) -> Dictionary:
+	var alleles: Array[String] = ["1", "2", "3", "4", "5"]
+	return {
+		"id": locus_id,
+		"kind": KIND_DISCRETE,
+		"inherit": INHERIT_ADDITIVE,
+		"alleles": alleles,
+		"dominant": alleles,
+	}
 
 
 static func inherit_mode(locus_id: String) -> String:

@@ -57,8 +57,17 @@ static func read_member_id(npc: Node) -> int:
 
 
 func alloc_stable_id() -> int:
+	var taken: Dictionary = {}
+	for m in members:
+		if m is Dictionary:
+			taken[int((m as Dictionary).get("id", 0))] = true
+	for row in herd_animals:
+		if row is Dictionary:
+			taken[int((row as Dictionary).get("id", 0))] = true
 	var mid := _next_stable_id
-	_next_stable_id += 1
+	while mid <= 0 or taken.has(mid):
+		mid += 1
+	_next_stable_id = mid + 1
 	return mid
 
 
@@ -152,6 +161,15 @@ func snapshot_from_live_npcs(
 		members.append(sleep_entry)
 
 
+func _home_hut_id(npc: Node) -> String:
+	if npc == null or OccupationSystem == null or not OccupationSystem.has_method("get_home_living_hut"):
+		return ""
+	var hut: Node = OccupationSystem.call("get_home_living_hut", npc) as Node
+	if hut == null or not is_instance_valid(hut) or not hut.has_meta("hut_net_id"):
+		return ""
+	return str(hut.get_meta("hut_net_id"))
+
+
 func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 	if npc == null or not is_instance_valid(npc):
 		return {}
@@ -225,6 +243,7 @@ func _member_from_live_npc(npc: Node, leader_npc: Node) -> Dictionary:
 		"traits": traits,
 		"position": pos,
 		"npc_type": npc_type,
+		"home_hut_id": _home_hut_id(npc),
 	}
 
 
@@ -479,6 +498,7 @@ func add_baby_member(mother_id: int, father_id: int, baby_name: String, fallback
 		"genetics_profile": {},
 		"traits": [],
 		"position": mother.get("position", fallback_pos) if not mother.is_empty() else fallback_pos,
+		"mother_id": mother_id,
 		"mother_name": str(mother.get("name", "unknown")) if not mother.is_empty() else "unknown",
 		"father_name": str(father.get("name", "unknown")) if not father.is_empty() else "unknown",
 	}
@@ -498,11 +518,15 @@ func upsert_from_live_npc(npc: Node, leader_npc: Node, dead_ids: Dictionary = {}
 	if mid != 0 and dead_ids.has(mid):
 		return
 	var previous_away := false
+	var previous_hut := ""
 	for existing in members:
 		if existing is Dictionary and int((existing as Dictionary).get("id", 0)) == mid:
 			previous_away = bool((existing as Dictionary).get("away", false))
+			previous_hut = str((existing as Dictionary).get("home_hut_id", ""))
 			break
 	entry["away"] = previous_away
+	if str(entry.get("home_hut_id", "")) == "" and previous_hut != "":
+		entry["home_hut_id"] = previous_hut
 	for i in members.size():
 		if int((members[i] as Dictionary).get("id", 0)) == mid:
 			members[i] = entry
@@ -547,6 +571,47 @@ func promote_baby_to_clansman(member_id: int) -> Dictionary:
 
 func get_baby_count() -> int:
 	return get_babies().size()
+
+
+var herd_animals: Array = []
+
+
+func add_herd_animal(kind: String, animal_name: String, seed_key: String) -> Dictionary:
+	var entry := {
+		"id": alloc_stable_id(),
+		"type": kind,
+		"name": animal_name,
+		"alive": true,
+		"seed_key": seed_key,
+	}
+	herd_animals.append(entry)
+	return entry
+
+
+func count_herd_animals(kind: String) -> int:
+	var n := 0
+	for row in herd_animals:
+		if row is Dictionary and bool((row as Dictionary).get("alive", false)) and str((row as Dictionary).get("type", "")) == kind:
+			n += 1
+	return n
+
+
+func note_awaiting_hut(member_id: int, father_id: int) -> void:
+	var m := find_member(member_id)
+	if m.is_empty():
+		return
+	m["awaiting_hut"] = true
+	if father_id > 0:
+		m["designated_father_id"] = father_id
+
+
+func clear_awaiting_hut(member_id: int, hut_id: String) -> void:
+	var m := find_member(member_id)
+	if m.is_empty():
+		return
+	m["awaiting_hut"] = false
+	if hut_id != "":
+		m["home_hut_id"] = hut_id
 
 
 func _balance_type_for(member_type: String) -> String:

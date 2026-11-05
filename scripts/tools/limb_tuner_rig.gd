@@ -1053,6 +1053,138 @@ func set_head_and_hair_visible(show: bool) -> void:
 		body_visual.call("set_head_and_hair_visible", show)
 
 
+func set_hair_layer_visible(show: bool) -> void:
+	if body_visual and body_visual.has_method("set_hair_layer_visible"):
+		body_visual.call("set_hair_layer_visible", show)
+
+
+func set_clothing_layer_visible(show: bool) -> void:
+	if body_visual and body_visual.has_method("set_clothing_layer_visible"):
+		body_visual.call("set_clothing_layer_visible", show)
+
+
+func eye_left_global() -> Vector2:
+	if body_visual and body_visual.has_method("eye_left_global"):
+		return body_visual.call("eye_left_global")
+	return Vector2.ZERO
+
+
+func eye_right_global() -> Vector2:
+	if body_visual and body_visual.has_method("eye_right_global"):
+		return body_visual.call("eye_right_global")
+	return Vector2.ZERO
+
+
+func set_eye_left_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_eye_left_from_global"):
+		body_visual.call("set_eye_left_from_global", global_pos)
+
+
+func set_eye_right_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_eye_right_from_global"):
+		body_visual.call("set_eye_right_from_global", global_pos)
+
+
+func set_nose_texture_path(path: String) -> void:
+	if body_visual and body_visual.has_method("set_nose_texture_path"):
+		body_visual.call("set_nose_texture_path", path)
+
+
+func nose_texture_path() -> String:
+	if body_visual and body_visual.has_method("nose_texture_path"):
+		return str(body_visual.call("nose_texture_path"))
+	return ""
+
+
+func set_brow_texture_path(path: String) -> void:
+	if body_visual and body_visual.has_method("set_brow_texture_path"):
+		body_visual.call("set_brow_texture_path", path)
+
+
+func brow_texture_path() -> String:
+	if body_visual and body_visual.has_method("brow_texture_path"):
+		return str(body_visual.call("brow_texture_path"))
+	return ""
+
+
+func set_brow_scale_mul(mul: float) -> void:
+	if body_visual and body_visual.has_method("set_brow_scale_mul"):
+		body_visual.call("set_brow_scale_mul", mul)
+
+
+func brow_scale_mul() -> float:
+	if body_visual and body_visual.has_method("brow_scale_mul"):
+		return float(body_visual.call("brow_scale_mul"))
+	return 1.0
+
+
+func brow_global() -> Vector2:
+	if body_visual and body_visual.has_method("brow_global"):
+		return body_visual.call("brow_global")
+	return Vector2.ZERO
+
+
+func set_brow_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_brow_from_global"):
+		body_visual.call("set_brow_from_global", global_pos)
+
+
+func brow_contains_global(global_pos: Vector2) -> bool:
+	if body_visual and body_visual.has_method("brow_contains_global"):
+		return bool(body_visual.call("brow_contains_global", global_pos))
+	return false
+
+
+func set_nose_scale_mul(mul: float) -> void:
+	if body_visual and body_visual.has_method("set_nose_scale_mul"):
+		body_visual.call("set_nose_scale_mul", mul)
+
+
+func nose_scale_mul() -> float:
+	if body_visual and body_visual.has_method("nose_scale_mul"):
+		return float(body_visual.call("nose_scale_mul"))
+	return 1.0
+
+
+func nose_global() -> Vector2:
+	if body_visual and body_visual.has_method("nose_global"):
+		return body_visual.call("nose_global")
+	return Vector2.ZERO
+
+
+func set_nose_from_global(global_pos: Vector2) -> void:
+	if body_visual and body_visual.has_method("set_nose_from_global"):
+		body_visual.call("set_nose_from_global", global_pos)
+
+
+func nose_contains_global(global_pos: Vector2) -> bool:
+	if body_visual and body_visual.has_method("nose_contains_global"):
+		return bool(body_visual.call("nose_contains_global", global_pos))
+	return false
+
+
+func apply_preview_skin(skin: Color) -> void:
+	if body_visual and body_visual.has_method("apply_preview_skin"):
+		body_visual.call("apply_preview_skin", skin)
+
+
+func set_eye_scale_mul(mul: float) -> void:
+	if body_visual and body_visual.has_method("set_eye_scale_mul"):
+		body_visual.call("set_eye_scale_mul", mul)
+
+
+func eye_scale_mul() -> float:
+	if body_visual and body_visual.has_method("eye_scale_mul"):
+		return float(body_visual.call("eye_scale_mul"))
+	return 1.0
+
+
+func eyes_receipt_fields() -> Dictionary:
+	if body_visual and body_visual.has_method("eyes_receipt_fields"):
+		return body_visual.call("eyes_receipt_fields")
+	return {}
+
+
 func clothing_hit_rect_global() -> Rect2:
 	if body_visual and body_visual.has_method("clothing_hit_rect_global"):
 		return body_visual.call("clothing_hit_rect_global")

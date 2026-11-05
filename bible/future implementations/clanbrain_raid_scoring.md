@@ -1,6 +1,6 @@
 # ClanBrain raid scoring (future)
 
-**Status:** Design draft — **replaces hunger-boosts-raid behavior.**  
+**Status:** Old draft. **Do not build this.** The point-score table is retired. A march now needs a motive and the odds gate in [raid.md](../raid.md). A rival can tip a close call and cannot force a suicide march.  
 **See:** [herdable_raiding.md](herdable_raiding.md) · [earlygame_vision.md](../earlygame_vision.md) §6 · `scripts/ai/clan_brain.gd`  
 **Drafted:** September 2026
 

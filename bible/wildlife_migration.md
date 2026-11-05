@@ -117,7 +117,7 @@ Prefer **(2) for perf** with **deterministic spawn positions** so MP clients agr
 | **Hunting / AoH** | Migratory prey pauses despawn while `combat_target` / hunt meta active ([wildlife_movement.md](wildlife_movement.md)) |
 | **Herding** | `pause_migration()` / `resume_migration()` on herd attach — sheep/goats |
 | **Clan settlements** | Villages are fixed; migrations **pass through** wilderness — creates timed hunting opportunities |
-| **Biomes / seasons** | Route availability from [environment_goal.md](environment_goal.md); drought/ice may cancel or shorten waves |
+| **Biomes / seasons** | Route availability from [environment_goal.md](environment_goal.md); drought/ice may cancel or shorten waves. Zone **Favor** can thicken the next wave ([the_land.md](the_land.md)) |
 | **Multiplayer** | Server owns wave schedule + spawn; clients render herds in interest range |
 
 ---

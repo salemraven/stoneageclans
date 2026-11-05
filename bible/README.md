@@ -1,6 +1,6 @@
 # Stone Age Clans — Bible folder index
 
-**Last updated:** September 2026
+**Last updated:** October 2026
 
 All design documentation lives in this **`bible/`** folder. The repo root **`bible.md`** file is only a redirect.
 
@@ -9,9 +9,11 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | Doc | Use for |
 |-----|---------|
 | **[bible.md](bible.md)** | Lore, mechanics, code map, implementation snapshot — **start here** |
-| **[director_locks_2026_10.md](director_locks_2026_10.md)** | **Newest locks (Oct 13 2026)** — heirs, huts and daughters, raids with no size rule, bravery, multiplayer shape, build order. **Wins over older docs.** |
+| **[director_locks_2026_10.md](director_locks_2026_10.md)** | **Newest locks (Oct 13 2026, Land on Oct 18, memory on Oct 31)** — heirs, huts, raids, bravery, multiplayer, **The Land**, **memory**. **Wins over older docs.** |
+| **[bible_conflicts_2026_10.md](bible_conflicts_2026_10.md)** | Conflict list. October 19 answers are locked there. Not a second design bible. |
 | **Director interview (remote)** | In Cursor: **“Use grill-me-director”** or Cloud Agent on this repo — skill at `.cursor/skills/grill-me-director/SKILL.md` (resume §8 open items). |
-| **[story_data.md](story_data.md)** | **What the game remembers** about each person and clan (next build phase) |
+| **[story_data.md](story_data.md)** | **Memory system** — what the game remembers (lives, ties, calls, moodles, rivals). Not built. |
+| **[../emotion.md](../emotion.md)** | **NPC emoji face** — procedural eyes/mouth, idle genetics, moodle-driven emotions, LOD + above-head fallback. Design lock Nov 2026; not built. |
 | **[earlygame_vision.md](earlygame_vision.md)** | **Opening 10 min**, tiers, food, raids, horn — design owner (Sep 2026) |
 | **[economy_catalog.md](economy_catalog.md)** | **Items / craft / buildings / gather** — classes, stations; **Living hut → specialize → workshop** (§8.5) |
 | **[village_and_economy_rundown.md](village_and_economy_rundown.md)** | **Synthesis** — gatherables, buildings I/O, authentic camp reframing (Oct 2026) |
@@ -20,7 +22,8 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 | **[player_fantasy_skeleton.md](player_fantasy_skeleton.md)** | **Player fantasy Q&A lock** — survival spine, HUD, campfire, sandbox, succession (Oct 2026) |
 | **[systems/gather_canon.md](systems/gather_canon.md)** | **Gather** — jobs, deposit, tools, v1 nodes (partial lock) |
 | **[systems/production_canon.md](systems/production_canon.md)** | **Production** — WorkRequests, bread/leather, campfire (partial lock) |
-| **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
+| **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, nine climate zones (§3.7), map, weather, resources, wildlife |
+| **[the_land.md](the_land.md)** | **The Land** — Favor, Listening, offerings, and future capture (club, bound cordage, shrine). Not built. |
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | **[roadmap_2026.md](roadmap_2026.md)** | **Unified build order** Phases 0–7 |
 | **[game_dictionary.md](game_dictionary.md)** | Terminology (wins over bible table if they conflict) |
@@ -33,7 +36,7 @@ All design documentation lives in this **`bible/`** folder. The repo root **`bib
 
 Unimplemented mechanics belong in **§XXII** or `future implementations/` — not in core docs unless marked *planned*.
 
-**Doc hygiene (Sep 2026):** If a guide disagrees with **`bible.md`**, **`main.md`**, or **[earlygame_vision.md](earlygame_vision.md)**, treat those three as current. **`future implementations/main.md`** is a historical snapshot — ignore its “not implemented” lines for War Horn, Farm, etc.
+**Doc hygiene (Oct 2026):** If two docs disagree, the **newer dated lock wins**. Order: [director_locks_2026_10.md](director_locks_2026_10.md) (Oct 13, Land Oct 18, memory Oct 31), then [story_data.md](story_data.md), [player_fantasy_skeleton.md](player_fantasy_skeleton.md), [the_land.md](the_land.md), [dormancy.md](dormancy.md), then [economy_catalog.md](economy_catalog.md) only where those are silent. `bible.md` and `main.md` are the code snapshot, not the design winner. The October 19 answers are in [bible_conflicts_2026_10.md](bible_conflicts_2026_10.md). There is no open ask row left in that file. **`future implementations/main.md`** is a historical snapshot.
 
 **Old path:** former `guides/` folder → merged here (May 2026). Stub: `guides/README.md`.
 
@@ -50,28 +53,30 @@ Unimplemented mechanics belong in **§XXII** or `future implementations/` — no
 | [hunting.md](hunting.md) | **Hunting hub** — NPC AoH hunts + player RTS hunt modes |
 | [Phase4/raiding_hunting.md](Phase4/raiding_hunting.md) | RTS PEACE/AGRO/HUNT, stances, deer flee |
 | [rts.md](rts.md) | War Horn, formations — **as implemented today** |
-| **[party_ui.md](party_ui.md)** | **Agreed next** — party dock, pile, short horn, I/X |
+| **[party_ui.md](party_ui.md)** | **H** circle: Follow, Raid, or Hunt, then modes plus **Break**. Not built. Fix standing speed and Hide/Ambush cover first. Dock plan is scrap in that file. |
 | [wildlife_movement.md](wildlife_movement.md) | Deer, mammoth, herdables, `WildRole` — **current code** |
 | [wildlife_migration.md](wildlife_migration.md) | **Seasonal cross-plane** herd migration (design lock) |
-| [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) | Herd influence, steal, claim join |
+| [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) | Herd influence, steal, claim join. **Captive cord** (brown line, planned) lives here too. |
 | [movement.md](movement.md) | Speed, formation debuffs, steering |
 | [GatherGuide.md](GatherGuide.md) | Gather jobs, deposit, ResourceIndex |
 | [tasks_guide.md](tasks_guide.md) | Tasks, jobs, TaskRunner |
 | [raid.md](raid.md) | Raiding flow (player + AI). **Next raid** (motives, goals, destroy-to-take) is design only |
-| [AgroGuide.md](AgroGuide.md) | Agro meter, combat entry |
+| [fight_or_flight.md](fight_or_flight.md) | **Locked** — Fight vs Flight vs technical **agro** |
+| [AgroGuide.md](AgroGuide.md) | **`agro_meter`** implementation (align with fight_or_flight.md) |
 | [reproduction_guide.md](reproduction_guide.md) | Huts, pregnancy, babies, **baby feeding gap (planned)** |
-| [genetics.md](genetics.md) | **Genetics vision** — inheritance, metabolism, evolution (planned) |
+| [genetics.md](genetics.md) | **Genetics** — face, hair, skin, body size shipped; metabolism and selection still planned |
 | [Buildings.md](Buildings.md) | Building list, placement (**menu today**; design → [economy_catalog.md](economy_catalog.md)) |
 | **[economy_catalog.md](economy_catalog.md)** | **Canonical** item classes, recipes, stations, food/containers |
 | [items_guide.md](items_guide.md) | Hotbar/slots — **item list stale**; use economy_catalog |
-| [traits.md](traits.md) | Species, traits, stats |
+| [traits.md](traits.md) | **Locked perks** (species + general), clan quorum; cores in [character_attributes.md](future%20implementations/character_attributes.md) |
 | [game_map.md](game_map.md) | Chunks, seed, streaming, `MutationStore` |
 | [clan_founding_and_exile.md](clan_founding_and_exile.md) | **Planned (major):** wild cavemen, exile, clan slots, founder spawn |
 | [dormancy.md](dormancy.md) | **Dormancy canon** — why camps sleep, what the record keeps alive, what the player character sees |
 | [settlement_sim.md](settlement_sim.md) | Older off-screen note. Plane lock still useful. Intent lives in dormancy.md |
 | [future implementations/off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md) | **Environment-first survival** — dormant gather/hunt/regen/slaughter; placeholder pseudo-biomes; long test tooling |
 | [visual_vs_sim_layers.md](visual_vs_sim_layers.md) | Chunk visual/sim/data layers + NPC tier A/B/C |
-| **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, map, weather, resources, wildlife |
+| **[environment_goal.md](environment_goal.md)** | **Canonical environment** — wedge biomes, nine climate zones (§3.7), map, weather, resources, wildlife |
+| **[the_land.md](the_land.md)** | **The Land** — rites, and future capture (club, bound cordage, shrine). Not built. |
 | **[island_map.md](island_map.md)** | **Art reference + progress tracker** — map2 layout, **`rebuild_island_biomes.sh` pipeline**, layer status |
 | [roadmap_2026.md](roadmap_2026.md) | Phased build order (nomad → island MP) |
 | [multiplayer.md](multiplayer.md) | MP roadmap + repo stubs |
@@ -109,6 +114,7 @@ Older phase docs may be partially stale — cross-check **`bible.md` §XXI** bef
 | [Phase4/](Phase4/) | Raid/hunt phase, playtest readiness |
 | [IMPLEMENTATION_CHECKLIST.md](IMPLEMENTATION_CHECKLIST.md) | Open engineering items |
 | [CHANGELOG.md](CHANGELOG.md) | Doc/code changelog |
+| [dev_blog/2026-11-05-discord-update.md](dev_blog/2026-11-05-discord-update.md) | **Nov 2026** player-facing update (Discord paste) |
 
 ---
 
@@ -134,6 +140,16 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 
 **Lineage (planned):** [future implementations/lineage.md](future%20implementations/lineage.md) — Person ids for genetics + female babies.
 
+**Clan hierarchy (idea, not built):** [future implementations/clan_hierarchy.md](future%20implementations/clan_hierarchy.md) — drag an heir and a few high seats. Laws include warriors, shamans, and elders. Seats weigh the clan’s average traits.
+
+**Clan feud (locked 2026-11-04, not built):** [future implementations/clan_feud.md](future%20implementations/clan_feud.md) — the nemesis is a clan. Brains remember who killed whom. One stamped rival. Unseen blood raids kill two named fighters once. A rival cannot force a suicide march.
+
+**Character attributes (locked 2026-11-04, build spec):** [future implementations/character_attributes.md](future%20implementations/character_attributes.md) — eight cores, four derived each; Spirituality, Storytelling, Constitution + pain tolerance; UI Born / Learned / Now / Under pressure / Life.
+
+**Perks (locked 2026-11-04):** [traits.md](traits.md) — 15 species + 12 v1 general perks; clan quorum at 40%; core/derived modifiers.
+
+**Fight or flight (locked 2026-11-04):** [fight_or_flight.md](fight_or_flight.md) — **Fight** + red `!!!` vs **Flight** + `!!`; keep **agro** in code for meter, AOA, FSM, RTS Agro mode.
+
 **Next raid (design, not built):** [raid.md](raid.md) § Next raid — motives, goals, temper hook, destroy a hut or pen before the prize can be herded. Older scoring note: [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md).
 
 ---
@@ -144,7 +160,7 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 |-------|--------|
 | [godot_save_scene_help.md](godot_save_scene_help.md) | Editor save conflicts |
 | **[UI.md](UI.md)** | **Canon** — look, layout, keys, **drag-and-drop**, compact stockpile, **remembered window positions** (Sep 2026) |
-| **[party_ui.md](party_ui.md)** | **Agreed next (not shipped)** — party dock, short horn, pile, I/X, Walk/Hunt/Fight |
+| **[party_ui.md](party_ui.md)** | **H** circle: Follow, Raid, or Hunt, then modes plus **Break**. Not built. Fix standing speed and Hide/Ambush cover first. Dock plan is scrap in that file. |
 | [rts.md](rts.md) | RTS **as implemented today** + pointer to party_ui |
 | [UI_IMPLEMENTATION_STATUS.md](UI_IMPLEMENTATION_STATUS.md) | **Stale** checklist — do not follow “1 item per drag” |
 | [DragAndDropInventoryGuide.md](DragAndDropInventoryGuide.md) | **Stale** (grid / 1-item drag / “undraggable panels”). Use **UI.md** |

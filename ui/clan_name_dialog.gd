@@ -1,10 +1,12 @@
 extends AcceptDialog
 
-signal name_confirmed(name: String)
+signal name_confirmed(clan_name: String, dye_index: int)
 signal dialog_cancelled()
 
 var name_input: LineEdit = null
 var confirm_button: Button = null
+var _swatches: Array[Button] = []
+var dye_index := 0
 
 var max_length := 4
 
@@ -38,6 +40,7 @@ func _ready() -> void:
 			print("  Found ConfirmButton at alternative path")
 	
 	title = "What will you name your clan?"
+	_build_color_row()
 	name_input.max_length = max_length
 	name_input.text_changed.connect(_on_text_changed)
 	confirm_button.pressed.connect(_on_confirm)
@@ -79,7 +82,7 @@ func _on_confirm() -> void:
 	print("  Clan name: ", clan_name, " length: ", clan_name.length())
 	if clan_name.length() == max_length:
 		print("  Emitting name_confirmed signal with name: ", clan_name)
-		name_confirmed.emit(clan_name)
+		name_confirmed.emit(clan_name, dye_index)
 		# Close and remove dialog
 		queue_free()
 		print("  Dialog closed")
@@ -89,6 +92,54 @@ func _on_confirm() -> void:
 func _on_cancel() -> void:
 	dialog_cancelled.emit()
 	queue_free()
+
+func _build_color_row() -> void:
+	var pcs: Node = get_node_or_null("/root/PlaceholderCardService")
+	var vbox: Node = get_node_or_null("VBox")
+	if pcs == null or vbox == null or not pcs.has_method("dye_option_count"):
+		return
+	var label := Label.new()
+	label.text = "Clan color"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	var count: int = int(pcs.call("dye_option_count"))
+	for i in count:
+		var swatch := Button.new()
+		swatch.custom_minimum_size = Vector2(28, 28)
+		swatch.focus_mode = Control.FOCUS_NONE
+		swatch.pressed.connect(_pick_dye.bind(i))
+		row.add_child(swatch)
+		_swatches.append(swatch)
+	var buttons: Node = vbox.get_node_or_null("Buttons")
+	vbox.add_child(label)
+	vbox.add_child(row)
+	if buttons:
+		vbox.move_child(label, buttons.get_index())
+		vbox.move_child(row, buttons.get_index())
+	_refresh_swatches()
+
+
+func _pick_dye(index: int) -> void:
+	dye_index = index
+	_refresh_swatches()
+
+
+func _refresh_swatches() -> void:
+	var pcs: Node = get_node_or_null("/root/PlaceholderCardService")
+	if pcs == null:
+		return
+	for i in _swatches.size():
+		var color: Color = pcs.call("dye_option_color", i)
+		var box := StyleBoxFlat.new()
+		box.bg_color = color
+		box.set_border_width_all(3 if i == dye_index else 1)
+		box.border_color = Color.WHITE if i == dye_index else Color(0.15, 0.12, 0.08)
+		var swatch: Button = _swatches[i]
+		for state_name in ["normal", "hover", "pressed", "focus"]:
+			swatch.add_theme_stylebox_override(state_name, box)
+
 
 func _hide_builtin_buttons() -> void:
 	# AcceptDialog has built-in OK and Cancel buttons

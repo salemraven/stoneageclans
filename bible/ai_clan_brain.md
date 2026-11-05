@@ -26,13 +26,13 @@ The ClanBrain is not only quotas and raid math. It also **mirrors the fighting c
 
 | Layer | Rule |
 |-------|------|
-| **Stats** | Each numeric stat on the brain = **average** of that stat across **clansmen** (male roster). Recompute when membership changes. |
-| **Traits** | If **enough** clansmen share a trait, the brain **inherits that trait** for clan-level AI (threshold = headcount or % — TBD at implementation). |
+| **Stats** | Each **core attribute** on the brain = **average** of that core across **clansmen** (male roster). Recompute when membership changes. Do not average derived stats. Spec: [future implementations/character_attributes.md](future%20implementations/character_attributes.md). |
+| **Traits** | **Clan traits** = perks from [traits.md](../traits.md) when **≥40%** of weighted clansmen share the id (threshold measured in play). Apply listed bonus **once**, cap **+25%**. Emergent labels (Bold, Timid) are UI-only from core averages, not perks. |
 | **Skills** | The brain has its own **skill** list (clan-scale modifiers on defend/raid/hunt pressure and job bias). Skill roster TBD. |
 | **Morale bar** | **Clan-level** mood on the brain (bold vs brittle). Drives strategic appetite and ties to future defection/morale systems. **Not** the per-fighter morale / flight bar — see [morale_bar_flight.md](future%20implementations/morale_bar_flight.md). |
 | **Buffs / debuffs** | Relics, shrine, events, shame after losses, temporary rally, etc. Stack with averaged stats and quorum traits. |
 
-**UI target:** Tab / clan panel shows brain stats, quorum traits, morale, and active buffs so the player reads the tribe as one character.
+**UI target:** One clan screen shows the heir, the high seats, the clan traits, morale, buffs and debuffs, and the feud list (one stamped rival), so the player reads the tribe as one character. The seats are a weight on that same average, not a second brain: [future implementations/clan_hierarchy.md](future%20implementations/clan_hierarchy.md). Feud lines live on this brain: [future implementations/clan_feud.md](future%20implementations/clan_feud.md).
 
 **Wiki:** `wiki/terms/clan-brain.md`, `wiki/terms/morale-bar-clan.md`.
 
@@ -113,7 +113,7 @@ When **`_start_raid`** succeeds, **`_form_raid_party`** picks the first availabl
 
 ### When raids are considered
 
-**Built:** [raid.md](raid.md) is the current raid design: motives `blood`, `theft`, `food`, `thin`, `restless`, one goal each, neighbor list, and a building must fall before a sheltered woman or penned animal can be taken (`raid_motive_picker.gd`). **The score-based list under "Score-based raid evaluation" below is the old system. It no longer decides when a raid starts (`raid_aggression`, `raid_population_pressure` and `raid_opportunity_weight` are leftover variables in `clan_brain.gd`).** It is kept only as history. **Locked change pending:** the "not larger" rule is dropped, and clan aggression comes from fighters' bravery ([director_locks_2026_10.md](director_locks_2026_10.md)).
+**Built:** [raid.md](raid.md) is the current raid design: motives `blood`, `theft`, `food`, `thin`, `restless`, one goal each, neighbor list, and a building must fall before a sheltered woman or penned animal can be taken (`raid_motive_picker.gd`). **The score-based list under "Score-based raid evaluation" below is the old system. It no longer decides when a raid starts (`raid_aggression`, `raid_population_pressure` and `raid_opportunity_weight` are leftover variables in `clan_brain.gd`).** It is kept only as history. **Locked change pending:** the blunt "not larger" skip is dropped. A march starts only when opportunity, distance, and winnability say the odds are good. A rival can tip a close call and cannot force a suicide march. Clan aggression still comes from fighters' bravery ([director_locks_2026_10.md](director_locks_2026_10.md) §3 and §11).
 
 - Raid evaluation runs for NPC clans that are not in survival mode, including while **DEFENSIVE**. A known neighbor is not the same as being under attack. **alert_level ≥ SKIRMISH** still refuses.
 - **RAID_COOLDOWN** (60s) must have passed since last raid start.
@@ -191,7 +191,7 @@ ClanBrain populates **clan_metrics** each evaluation cycle; these drive quota an
 | population | Total clan members (cavemen + clansmen + women + animals) |
 | breeding_females | Women in clan |
 | food_total | All edible food items in land claim inventory (`ResourceData.EDIBLE_FOOD_TYPES`) |
-| food_days_buffer | **Pantry days (canonical):** `ClanFoodBuffer` — kcal in claim ÷ daily kcal need; meta matches `calories_days_buffer` |
+| food_days_buffer | **Land claim inventory days** (do not say pantry): `ClanFoodBuffer` — kcal in claim ÷ daily kcal need; meta matches `calories_days_buffer` |
 | calories_in_storage | Total kcal in land claim food inventory |
 | calories_daily_need | Sum of daily kcal need for roster / live members |
 | calories_days_buffer | **Same as `food_days_buffer`** (alias on claim meta + JSONL) |

@@ -4,7 +4,6 @@ extends Node2D
 
 const BIOME_SHADER := preload("res://assets/shaders/biome_ground.gdshader")
 const MaskTopologyRes := preload("res://scripts/world/mask_topology.gd")
-const SCALE_MARKER_TEX := preload("res://assets/sprites/PlayerB.png")
 const META_PATH := "res://maps/island/island_meta.json"
 const MASK_PATH := "res://maps/island/biome_mask.png"
 const MASK_SAVE_PATH := "res://maps/island/biome_mask.png"
@@ -286,7 +285,9 @@ func _setup_ground_shader() -> void:
 func _setup_scale_marker() -> void:
 	var marker := Sprite2D.new()
 	marker.name = "ScaleMarker"
-	marker.texture = SCALE_MARKER_TEX
+	var marker_img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	marker_img.fill(Color(0.85, 0.75, 0.55, 0.9))
+	marker.texture = ImageTexture.create_from_image(marker_img)
 	marker.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	marker.scale = PLAYER_SPRITE_SCALE
 	marker.position = _world_size * 0.5 + Vector2(0, -6)

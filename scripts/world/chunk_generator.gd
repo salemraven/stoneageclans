@@ -81,6 +81,17 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 				"position": pos,
 				"stable_id": str(cfg.call("generate_stable_id", chunk, "resource", i)),
 			})
+	# Extra berry bushes and wheat so a fast birth clock still has something to pick.
+	var food_extra := 10
+	for j in food_extra:
+		var fx := rng_res.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
+		var fy := rng_res.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
+		var food_type: ResourceData.ResourceType = ResourceData.ResourceType.BERRIES if j % 2 == 0 else ResourceData.ResourceType.WHEAT
+		out["resources"].append({
+			"type": food_type,
+			"position": origin + Vector2(fx, fy),
+			"stable_id": str(cfg.call("generate_stable_id", chunk, "food", j)),
+		})
 
 	var rng_trees := _rng(world_seed, cx, cy, _SALT_TREES)
 	var num_groups: int = tree_groups if rng_trees.randf() < tree_chance else 1
@@ -175,13 +186,20 @@ func generate_chunk(world_seed: int, chunk: Vector2i, cfg: Node) -> Dictionary:
 	if rng_women.randf() < woman_chance:
 		var count: int = rng_women.randi_range(1, woman_max)
 		for wi in count:
+			var name_seed: int = rng_women.randi()
+			var age: int = rng_women.randi_range(13, 50)
+			var pos := origin + Vector2(
+				rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0),
+				rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
+			)
+			var seed_key := "woman:%d:%d:%d" % [cx, cy, name_seed]
+			if MutationStore and MutationStore.has_method("herd_seed_spent") and bool(MutationStore.call("herd_seed_spent", seed_key)):
+				continue
 			out["wild_women"].append({
-				"position": origin + Vector2(
-					rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0),
-					rng_women.randf_range(64.0, ChunkUtils.CHUNK_SIZE - 64.0)
-				),
-				"name_seed": rng_women.randi(),
-				"age": rng_women.randi_range(13, 50),
+				"position": pos,
+				"name_seed": name_seed,
+				"age": age,
+				"seed_key": seed_key,
 			})
 
 	return out

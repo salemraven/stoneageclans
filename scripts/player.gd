@@ -6,7 +6,6 @@ const WeaponOverlayCombat = preload("res://scripts/systems/weapon_overlay_combat
 const CardVisualController = preload("res://scripts/systems/card_visual_controller.gd")
 
 @export var move_speed := 110.0  # Matches clansman pace (agility 10 * 9.5 = 95; formation_speed_mult brings both in sync)
-@export var sprite_texture_path := "res://assets/sprites/PlayerB.png"
 ## Flat textures only (male1a / pick / travois). Sheet animations (walk/club/spear) use WalkAnimation scale — spear sheet is matched to walk cell size in walk_animation.gd.
 @export var sprite_equipment_scale: float = 0.46
 @export var bounce_amplitude := 2.0
@@ -265,6 +264,8 @@ func set_player_name(name: String) -> void:
 	set_meta(_player_name_meta_key, name)
 	# Mirror for combat / ally resolution (same value as land claim clan_name)
 	set_meta("player_clan_name", name)
+	if PlaceholderCardService and PlaceholderCardService.has_method("apply_hide_clan_color"):
+		PlaceholderCardService.apply_hide_clan_color(self)
 
 func _physics_process(_delta: float) -> void:
 	if HostileEntityIndex and not (DebugConfig and DebugConfig.is_ignored_by_npcs(self)):

@@ -35,6 +35,9 @@
 |-------|--------|--------|
 | Body + head | `TunerBodyVisual` + `head1.png` / `body1.png` | Same + morphology scale on pivots |
 | Skin tint | `skin_tone` / `genetics_profile.skin_modulate` | Same tint on head, body, ear layers |
+| Nose + brow | Placed sprites, file chosen by genes | Same |
+| Eyes | White oval, pupil, blink, shared look | Same |
+| Mouth / emoji face | **Not built** | Procedural mouth + moodle presets + idle genetics; LOD + above-head fallback ([emotion.md](../emotion.md)) |
 | Weapon | `WeaponOverlay` on `Sprite` | Same (combat poses separate from face stack) |
 | Hair / ears / clothing / hats | Hair on layered mannequin (`hair1` + tuner attach) | More slots on `HeadPivot` / `BodyVisual` |
 | **Circle hands** (see below) | **Not built** — weapon floats on overlay only | Two skin-tinted hand discs on hand pivots; weapons parent to grip |
@@ -89,6 +92,18 @@ Fixed stack (see [animation_tuner.md § Draw order](animation_tuner.md)):
 8. Weapon overlay (when in front; huge shields may bump z later)
 
 **Rule:** `Sprite.flip_h` is the only facing flag; layers mirror via position + `flip_h` on sprites — not `scale.x = -1` on children independently.
+
+### Shipped face (2026-10-17)
+
+On `HeadPivot`, back to front: **head, nose, brow, hair, eyes, hat**. Eyes stay above hair and brows so the blink stays readable. Nose and brow use the skin tint. The eye white stays white. Only the pupil is tinted.
+
+| Part | Art | Locked place (head pixels, east-facing) |
+|------|-----|------------------------------------------|
+| Nose | `assets/characters/Noses/nose1.png`–`nose14.png` | `(19.81, -147.61)`, scale `0.9` |
+| Brow | `assets/characters/Brow/brow1.png`–`brow12.png` | `(17.13, -173.5)`, scale `0.9` |
+| Eyes | Generated white oval + pupil | Left `(5.12, -179.43)`, right `(98.14, -184.33)` |
+
+Which nose, which brow, eye size, eye shape, and pupil color come from the genome. The drawn nose and brow are slot 0. A separate strength gene, one for the nose and one for the brow, makes one parent more likely to pass the feature they wear. A new picture shows up about 1 in 50 copies. Rules: [bible/genetics.md](../bible/genetics.md) § Face genes. Blink and gaze are cosmetic only (not genes, not networked).
 
 ---
 
@@ -284,6 +299,20 @@ Based on **camera distance** (and optional story flags: player party, selected, 
 | **3 — Far** | e.g. > 1400 px | Body + head **or** single baked portrait | 1–2 |
 | **Sleep** | Off-chunk | **Zero** | 0 |
 
+### Emoji face LOD (lock 2026-11-04)
+
+Full spec: [emotion.md](../emotion.md). Summary on top of visual tiers:
+
+| LOD | Face on head | Above-head emoji fallback |
+|-----|----------------|---------------------------|
+| **0 — Hero** | Procedural eyes + mouth (idle or strongest moodle) | Off |
+| **1 — Near** | Off (or static eyes only if cheap — default **off**) | One atlas icon (strongest moodle / neutral) |
+| **2+** | Off | Off |
+
+- **Mouth** layer joins the head stack (with eyes); nose/brow PNGs unchanged.
+- Caps: ≤ **15–25** full animated faces; budget counters downgrade heroes to icon if needed.
+- Mood/sim: [story_data.md](../bible/story_data.md) §11; genetics for idle + mouth size: [emotion.md](../emotion.md) § Idle mouths.
+
 **Reference:** procedural arm cull already at **1400 px** (`NPC_ARM_CULL_DISTANCE_PX`) — cosmetic LOD should use the **same distance bands** for consistency.
 
 **Hero cap (starting target):** ≤ **15–25** pawns at LOD 0 on screen; ≤ **80** total visible pawns at LOD ≤ 2 ([lag.md](lag.md)).
@@ -359,6 +388,14 @@ Each frame (only for **visible, awake** pawns):
 - [ ] `CharacterVisualLOD` — distance bands, hero list  
 - [ ] Hide cosmetic layers at LOD ≥ 2  
 - [ ] Profile gate in `lag.md` baseline  
+
+### Phase 4b — Emoji face (see [emotion.md](../emotion.md))
+
+- [ ] Procedural mouth on `HeadPivot`; preset table (6 idle + 4 emotion)  
+- [ ] Moodle → strongest → face preset; event-driven updates  
+- [ ] Hero face vs near **above-head icon** fallback; shared atlas  
+- [ ] Mouth size + `idle_mouth_default_id` from genome (new loci)  
+- [ ] `face_anim_budget` / `icon_budget` with automatic downgrade  
 
 ### Phase 5 — Crowd optimization (if profiling demands)
 

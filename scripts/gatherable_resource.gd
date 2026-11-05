@@ -468,6 +468,14 @@ func _enter_cooldown_state() -> void:
 		MutationStore.note_visible_harvest(self, _pool_key_for_type())
 
 
+func show_spent_without_recording() -> void:
+	is_in_cooldown = true
+	cooldown_start_time = Time.get_ticks_msec() / 1000.0
+	gather_count = MAX_GATHERS_BEFORE_COOLDOWN
+	_update_cooldown_visual()
+	_schedule_cooldown_expiry()
+
+
 func _pool_key_for_type() -> String:
 	match resource_type:
 		ResourceData.ResourceType.WOOD:

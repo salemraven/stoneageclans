@@ -55,9 +55,9 @@ Not a Minecraft grid. Last UI pass locked the list.
 
 | Key | What it does |
 |-----|----------------|
-| **I** | **Today:** toggles bag + nearby building together. **Agreed next:** open **every** panel that applies (bag, party sheet, nearby building — yours or enemy); **I again re-opens** ones you hid. See [party_ui.md](party_ui.md). |
+| **I** | **Today:** toggles bag + nearby building together. The party-sheet plan is scrap. [party_ui.md](party_ui.md). |
 | **Tab** | Stats panel (**planned**; not bound today — `toggle_inventory` is **I** only) |
-| **ESC** | Close open **sheets** (bag, building, expanded party). **Agreed:** party **bar** stays if you still have followers. |
+| **ESC** | Close open sheets (bag, building). |
 | **9 / 0** | Eat from hotbar food slots |
 | **Right-click** | Context menu on NPC / building / claim |
 | **Left-click hold** | Start a drag (menu closed) |
@@ -72,15 +72,24 @@ Not a Minecraft grid. Last UI pass locked the list.
 
 **Corpse** — same panel as a building stockpile. Title: “Corpse of [name]”.
 
-**Character menu** — right-click → Info. NPC freezes while open. **Tabs:** Info \| Body \| Kin \| Story. **Info — split hide:** left = Now + Carrying; right = Born with (8 stats; bravery bar only on left) + **Traits** (`traits[]`). **No species line** — lineage only when known. **Body:** **Wounds now** (red row + heal bar starts full, drains left; empty = healed) and **Scars** (grey rows, permanent). **Line tab (layout C):** Two scroll panes — **↑ Ancestors** on top, **this person** in the center, **↓ Descendants** below. Generation subtitles inside each scroll (Parents, Children, …). **Lineage only** — no siblings/peers. **Clickable** gold names when on map; grey *not here* for name-only. More gens when `person_id` lands. Mock: `soc planning/character-kin-layout-options.html` option C. **Story** = chronicle.
+**Character menu** — right-click → Info. NPC freezes while open. **Tabs:** Info \| Body \| Kin \| Story. Build to [future implementations/character_attributes.md](future%20implementations/character_attributes.md) § What the player sees.
+
+**Info — layout:** Do not show every sim variable as a bar.
+
+| Block | Content |
+|-------|---------|
+| **Born with** | Eight **core** attributes (birth snapshot), **Traits** (`traits[]`), compact genes. Not carry or pain as separate cores. |
+| **Learned** | Skills (when shipped). |
+| **Now** | Carrying, job/order, **moodles** (max 12, strongest first), buffs/debuffs. Vitals only when hurt, starving, or thirsty. |
+| **Under pressure** | **Fight or flight** summary: **Fight** (max **`agro_meter`**, red `!!!`) vs **Flight** (`!!`). Not thirty-two derived stat bars. [fight_or_flight.md](fight_or_flight.md). |
+
+**No species line** — lineage only when known. Moodle rules: [story_data.md](story_data.md) §11. **Not shipped.** **Body:** **Wounds now** (red row + heal bar) and **Scars** (grey, permanent). **Kin (layout C):** ↑ Ancestors, center person, ↓ Descendants. **Story** = life beats + tally summary (own clan). Mock: `soc planning/character-kin-layout-options.html` option C.
 
 **Context menu** — right-click target, hover highlight, left-click confirms. See `bible/phase2/dropdownmenu.md`.
 
 **Build icons** — on the claim stockpile. Click spends claim materials and puts a building **item** in the player bag. Place it by **dragging that item onto the world**.
 
-**X on panels (agreed next)** — each inventory gets a close control. Bag / building **X** hides that window only. Party sheet **X** **collapses the dock to the bar** (does not **B**). Full rules: [party_ui.md](party_ui.md).
-
-**Party dock (agreed next, not shipped)** — if fighters are following you: a **narrow bar** (Walk / Hunt / Fight + mode shout) stays up. **I** expands **that same dock** into slider + pile. Details: [party_ui.md](party_ui.md). Today’s `CombatHUD` (PEACE / AGRO / HUNT) stays until that lands.
+**Party controls** — not built. **H** still calls the clansmen in. The leader blows the horn (animation and a sound around him), and a circle offers **Follow**, **Raid**, or **Hunt**. They form up, then a second menu picks that party’s modes. **Break** is on every second menu. **B** still breaks. The dock, pile, short horn, and I/X sheet are scrap. [party_ui.md](party_ui.md). Today’s `CombatHUD` stays until this menu exists.
 
 ---
 
@@ -105,7 +114,7 @@ You pick up a **whole row**. The ghost shows the count (Wood x47). The source ro
 - Clansman → player = ordered follow.
 - Clansman → land claim = defend.
 - Box-select clansmen = RTS selection (`bible/rts.md`).
-- **Agreed:** party **pile** is a stockpile (loot + spare kit). Drag like a claim. Cap **5 × party fighters**. Player bag does not count. [party_ui.md](party_ui.md).
+- The party pile is scrap. [party_ui.md](party_ui.md).
 
 ### Feedback
 
@@ -148,6 +157,20 @@ Minimum layout target: 1280×720. Do not hard-clip stack numbers outside the row
 
 ---
 
+## 6b. Wheels and floating words
+
+The **hold-H horn wheel** below is scrap. Party commands are the **H** circle in [party_ui.md](party_ui.md): Follow, Raid, or Hunt, then that party’s modes and **Break**. Hold G and the floating words are unchanged.
+
+Same brown panel and gold hover as the other windows. Cave-painting silhouettes. No letters on the icon. The slice name sits in the hole in the middle while it is hovered. Release on a slice to do it. Release in the middle, or **Esc**, cancels. A tap never opens a wheel.
+
+**Hold H** — horn wheel, on you. Slices: **Come** (hand hooked inward), **At ease** (weapons lowered), **Spook** (hands flung up), **Taunt** (chest forward, weapon out).
+
+**Hold G** — social wheel, on a clansperson or the campfire. Starts with four: **Praise** (hand on a shoulder), **Dominance** (chest beat, arms wide), **Displeasure** (flat hand pushing them off), **Joke** (crouch, hands on the knees). Later slices appear from camp life, not a research list, and the wheel stops at eight: **Share** (hand holding meat), **Comfort** (arm around a bent figure), **Mourn** (head bowed over a still body), **Boast** (a kill held up). A locked slice is not drawn. When one is ready, a scratch shows on the rim until it is used once. Out of the hearing ring, the slices go dark. **Right-click** stays Follow, Defend, Search, Work, Info.
+
+**Words over a head** — during a bark or a showing, a 4-letter clan word and a 2-letter feeling word. Color matches the strongest moodle. Your own gloss fades after a few sightings. An enemy word stays glossed. Word lists: [story_data.md](story_data.md) §10.
+
+---
+
 ## 7. Out of scope / planned
 
 Not shipped. Do not treat as current:
@@ -156,7 +179,8 @@ Not shipped. Do not treat as current:
 - Controller / touch drag
 - Stats panel (Tab)
 - Auto-nudge so two **remembered** windows never overlap (today: you place them; clamp only keeps them on screen)
-- **Party dock / pile / short horn / I+X** — **agreed**, not shipped: [party_ui.md](party_ui.md)
+- **Party dock / pile / short horn / I+X** — scrap, not the plan: [party_ui.md](party_ui.md)
+- **Hold-H horn wheel** — scrap with the old party plan: [party_ui.md](party_ui.md). **Hold-G social wheel, moodle row, floating words** — [story_data.md](story_data.md) §6b in this file.
 
 Placement / oven history: `bible/phase2/build_menu.md`.  
 Old grid / “1 item per drag” notes: `bible/DragAndDropInventoryGuide.md` (stale).
@@ -175,4 +199,4 @@ Old grid / “1 item per drag” notes: `bible/DragAndDropInventoryGuide.md` (st
 | Whole-stack ghost | `scripts/inventory/drag_manager.gd` |
 | Stack vs one-per-empty-slot | `scripts/inventory/inventory_data.gd` |
 | Combat HUD **today** | `main.gd` (`CombatHUD`) |
-| Party UI **agreed** | [party_ui.md](party_ui.md) |
+| Party UI | [party_ui.md](party_ui.md) — **H** circle: Follow, Raid, Hunt, then modes and **Break**. Dock plan is scrap. |

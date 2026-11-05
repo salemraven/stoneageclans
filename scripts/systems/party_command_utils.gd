@@ -2,14 +2,6 @@ extends Object
 class_name PartyCommandUtils
 
 ## Command context for NPC-led parties — same dict shape as main._build_command_context.
-## Keep STANCE_CONFIG in sync with main.gd STANCE_CONFIG.
-
-const STANCE_CONFIG := {
-	"FOLLOW": {"aggro_threshold": 0.0, "chase_dist": 0.0, "speed_mult": 1.0},
-	"GUARD": {"aggro_threshold": 70.0, "chase_dist": 150.0, "speed_mult": 0.75},
-	"ATTACK": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
-	"ARC": {"aggro_threshold": 100.0, "chase_dist": 300.0, "speed_mult": 0.85},
-}
 
 const ENTITY_REGISTRY_PATH := "/root/EntityRegistry"
 
@@ -25,7 +17,6 @@ static func build_command_context(leader: Node, follower: Node) -> Dictionary:
 	var mode: String = "FOLLOW"
 	if follower and follower.has_method("get_follow_mode_string"):
 		mode = follower.get_follow_mode_string()
-	var cfg: Dictionary = STANCE_CONFIG.get(mode, STANCE_CONFIG["FOLLOW"])
 	var commander_id: int = -1
 	if leader and is_instance_valid(leader):
 		var er: Node = _entity_registry()
@@ -41,8 +32,6 @@ static func build_command_context(leader: Node, follower: Node) -> Dictionary:
 	return {
 		"commander_id": commander_id,
 		"mode": mode,
-		"stance_aggro_threshold": cfg.get("aggro_threshold", 0.0),
-		"stance_chase_dist": cfg.get("chase_dist", 0.0),
 		"is_hostile": is_hostile,
 		"issued_at_time": Time.get_ticks_msec() / 1000.0,
 	}

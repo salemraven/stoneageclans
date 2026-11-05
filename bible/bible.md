@@ -5,7 +5,7 @@ Compiled from guides, GDD, and implementation docs. Covers both design intent an
 
 **Scope:** §I–§XXI describe **implemented or agreed-in-code** behavior (with *planned* callouts where noted). Ideas without implementation live in **§XXII Future implementations** and linked docs — not as shipped systems.
 
-**Newest design locks (Oct 2026 director interview):** [director_locks_2026_10.md](director_locks_2026_10.md) · [story_data.md](story_data.md). Where they disagree with a section below, they win.
+**Newest design locks (Oct 2026 director interview):** [director_locks_2026_10.md](director_locks_2026_10.md) · [story_data.md](story_data.md). Where they disagree with a section below, they win. This file is the code snapshot, not the design winner. Open fights: [bible_conflicts_2026_10.md](bible_conflicts_2026_10.md).
 
 **Opening loop & tiers (design owner):** [earlygame_vision.md](earlygame_vision.md) · **Tier 1 = Campfire** land claim · **Tier 2 = Flag** (settled).
 
@@ -20,7 +20,7 @@ Definitions of project-specific terms used throughout design and code.
 | Term | Meaning |
 |------|---------|
 | **AOP** | Area of Perception. Design term. Universal radius — what each NPC can sense. Implemented by PerceptionArea. |
-| **AOA** | Area of Agro. Inner zone within AOP. When hostile enters AOA, agro increases (fight-or-flight). |
+| **AOA** | Area of Agro. Inner zone within AOP. Hostiles here pump **`agro_meter`** ([fight_or_flight.md](fight_or_flight.md)). |
 | **PerceptionArea** | Component (Area2D) that implements AOP. Tracks entities in range. Feeds AOA, combat, agro. |
 | **Herd** | Wild herdables only (women, sheep, goats). FSM state **`herd`**: tethered follow; influence/steal; join clan when delivered. White line. |
 | **Captive cord** | *Planned.* Bound cordage is an adult captive. Brown line. Not the `herd` state. They do not join the clan. [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) § Captive cord. |
@@ -28,7 +28,7 @@ Definitions of project-specific terms used throughout design and code.
 | **Follow** | Stance/mode within a party (`command_context.mode`), not the FSM state name. |
 | **Herdable** | NPC that can be herded: animals, women. Has HerdInfluenceArea. |
 | **Herder** | NPC leading herdables: player or caveman. |
-| **Agro** | Aggro meter 0–100. Enter combat at 70, exit at 60. Triggers: intrusion, AOA, damage, herd steal. |
+| **Fight or flight** | **Fight** (max **`agro_meter`** + attack + red `!!!`) vs **Flight** (`!!`, flee). Technical **`agro_meter`**, AOA, **`agro_state`**: [fight_or_flight.md](fight_or_flight.md). |
 | **ClanBrain** | AI strategy RefCounted on **territory** (land claim or campfire). Defender/searcher quotas, **raid_intent**, **hunt_intent** (AI clans), pressures, strategic state. **Planned:** averaged **stats**, quorum **traits**, **skills**, clan **morale bar**, buffs/debuffs from the clansmen roster — `ai_clan_brain.md` § Clan identity. |
 | **Morale bar (ClanBrain)** | *Planned.* Clan mood on the brain. Distinct from per-fighter morale in `morale_bar_flight.md`. |
 | **Area of Hunt (AoH)** | Ring on land claim **wider than** the claim footprint. Counts **PREY** wildlife (deer, mammoth) for **`hunt_intent`**. Herdables in the zone still use **search**, not hunt. |
@@ -36,7 +36,7 @@ Definitions of project-specific terms used throughout design and code.
 | **Defender quota** | ClanBrain-assigned number of NPCs to patrol claim border. |
 | **Searcher quota** | ClanBrain-assigned number of NPCs to search for herdables (Herd Wild NPC state). |
 | **defend/search/gather pressure** | ClanBrain floats (0–1, renormalized) that bias quota and job urgency alongside legacy economic weights. |
-| **food_days_buffer** | Claim **pantry days** (canonical): stored food kcal ÷ clan daily kcal need — same as `calories_days_buffer` on claim meta. Gates workforce, hunt, raid, breeding, off-screen sim. Computed by `ClanFoodBuffer`. |
+| **food_days_buffer** | Days of food in the **land claim inventory** (do not say pantry): stored food kcal ÷ clan daily kcal need — same as `calories_days_buffer` on claim meta. Gates workforce, hunt, raid, breeding, off-screen sim. Computed by `ClanFoodBuffer`. |
 | **calories_days_buffer** | **Same number as `food_days_buffer`** on claims (legacy/sync alias). Detail fields: `calories_in_storage`, `calories_daily_need`. |
 | **pseudo-biome** | **Code-only** per-chunk label (`forest`, `plains`, `rocky`, `swamp`) in `ChunkGenerator.get_chunk_biome()` — drives **off-screen abstract gather** only. **Not** player-facing biomes (not shipped). See [off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md). |
 | **SimulationManager** | Autoload: fixed sim tick (~120s) drains personal calories, farm/dairy pools; emits `simulation_tick`. |
@@ -81,7 +81,7 @@ All major systems in one place. Each row links to the section where that system 
 | **Hunting** | **AI:** AoH prey → **hunt_intent** → **hunt_state** (party phases). **Player:** RTS **PEACE / AGRO / HUNT** + stalk/arc/ambush; deer **flee_prey**. | §XV-A Hunting, §XVI, §XVIII, `bible/Phase4/raiding_hunting.md` |
 | **ClanBrain (AI)** | One brain per territory; defender/searcher/raid/**hunt** intent; pressures + food buffer; survival mode; strategic state; alert decay. | §XVI ClanBrain |
 | **FSM (NPC states)** | Priority-based state machine; eval every 0.1s; **`party`**, **`herd`**, **`hunt_state`**, **`flee_prey`**, Agro, Combat, Defend, Raid, Gather, Wander, etc. | §XVII FSM states |
-| **RTS controls** | **Today:** H ~1500 px; PEACE/AGRO/HUNT HUD. **Agreed next:** short horn, party dock, pile — [party_ui.md](party_ui.md). Formations / **B** home: [rts.md](rts.md). | §XVIII, **[party_ui.md](party_ui.md)**, [rts.md](rts.md) |
+| **RTS controls** | **Today:** H ~1500 px; PEACE/AGRO/HUNT HUD. **Next:** a radial party menu — [party_ui.md](party_ui.md). The dock, pile, and short horn in that file are scrap. Formations / **B** home: [rts.md](rts.md). | §XVIII, **[party_ui.md](party_ui.md)**, [rts.md](rts.md) |
 | **Playtest / tuning** | JSONL capture → **ClanBrain report** (growth, hunts, stuck parties, gates). | §XX-B Verification, `bible/clanbrain_report.md` |
 | **Multiplayer (target)** | Server-authoritative sim; commands in, events out; partial stubs today. | §XX-A Multiplayer, `bible/multiplayer.md` |
 | **Gather & deposit** | 40% slots → deposit; land claim generates GatherJob (ResourceIndex); MoveTo → GatherTask → MoveTo(claim); auto-deposit 100px. | §XIX Gather & deposit |
@@ -102,7 +102,7 @@ All major systems in one place. Each row links to the section where that system 
 
 ### Primitive command model (RTS scope)
 - **Lore constraint:** Early Sapiens are **not** modeled as giving **sophisticated verbal orders** or modern-style **army micromanagement**. There is no in-fiction “general barking complex tactics” — only **simple, bodily/social signals** the band can follow: **follow**, **guard** (stay close in a protective ring), **attack** (push forward with the leader), **defend** this territory, **rally** to the horn, **break** and return to chores.
-- **Code constraint:** Player → clansmen RTS stays **minimal and modular** — shared `command_context`, single formation slot pass, config-driven tuning (`RTS_CONFIG`, `STANCE_CONFIG`) — so behavior stays **maintainable and optimizable**. See **`bible/rts.md`** for the full RTS doc.
+- **Code constraint:** Player → clansmen RTS stays **minimal and modular** — shared `command_context`, single formation slot pass, config-driven tuning (`RTS_CONFIG`) — so behavior stays **maintainable and optimizable**. See **`bible/rts.md`** for the full RTS doc.
 
 ### Art Direction
 - **Gritty 64×64 pixel art**, top-down isometric (RimWorld angle: 30° tilt).
@@ -146,7 +146,7 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 - **Direct control** of player character only; clansmen are AI.
 - **Vitals HUD** (above hotbar): full-width **health** bar; half-width **calories** (red) + **water** (blue, placeholder). Colors: green → yellow below 65% → red below 25%. Empty calories → health drains (`hunger_health_drain_per_min`).
 - **Calories:** tick-based via `SimulationManager`; eating adds kcal from food; `calories_max` = daily need.
-- **Speed**: **~110** px/s base (`player.gd` `move_speed`, aligned with clansman pace for formation); calorie bar **&lt;30%** = 0.7× speed; herding = 0.97× per herded NPC; with **ordered clansmen**, **`formation_speed_mult`** slows the leader to match the strictest stance (**Guard** 0.75×, **Attack** 0.85×, **Follow** 1.0×).
+- **Speed**: **~110** px/s base (`player.gd` `move_speed`, aligned with clansman pace for formation); calorie bar **&lt;30%** = 0.7× speed; herding = 0.97× per herded NPC; with **ordered clansmen**, **`formation_speed_mult`** slows the leader to match the strictest stance (**Follow** 1.0×, **Guard** 0.75×, **Attack** and **Arc** 0.85×, **Stalk** 0.5×).
 
 ---
 
@@ -154,16 +154,16 @@ Verified constants in `scripts/world/chunk_utils.gd`:
 
 | Key / Action | Effect |
 |--------------|--------|
-| **I** | **Today:** bag + nearby building together. **Agreed:** every panel that applies; **X** hides one; party **X** collapses dock. [UI.md](UI.md), [party_ui.md](party_ui.md). |
+| **I** | **Today:** bag + nearby building together. The old “X collapses the party dock” rule is scrap. [UI.md](UI.md). |
 | **Tab** | Stats panel (**planned**, not bound). Inventory is **I** only. |
 | **9 / 0** | Consume item in hotbar slot 9 or 0 |
 | **Right-click NPC** | **Context menu** (Follow, Defend, Search, Work, Info — depends on target). **Wild herdables:** walk within **~250px** so **HerdInfluenceArea** attaches (not instant follow from menu alone). |
-| **H** (War Horn) | **Today:** ~1500 px; in HUNT **aborts** hunt. **Agreed:** always short shout (~400 px), fighters only; hunt abort is **Spook**. [party_ui.md](party_ui.md). |
-| **B** | **Break** — dismiss follow; **agreed:** also split party pile into pockets, walk **home**, unload. |
+| **H** (War Horn) | **Today:** ~1500 px; in HUNT **aborts** hunt. **Planned:** the same call, with a horn animation and sound, then Follow / Raid / Hunt and a mode menu that includes **Break**. [party_ui.md](party_ui.md). |
+| **B** | **Break** — dismiss follow; they walk **home**. The “split the party pile first” step is scrap. [party_ui.md](party_ui.md). |
 | **Space** | **Gather** active resource / ground item (must overlap hitbox; berries use sprite-aligned collision) |
 | **Drag-and-drop** | **Whole stack** from stockpiles. Player bag: **only the slot you drop on** (1 wood/stone; food up to 5). See **[UI.md](UI.md)**. Drop clansman on player = ordered follow |
 | **Drag box** | Multi-select clansmen (player clan must resolve) |
-| **Follow / Guard / Attack / Break** | **Today:** bottom HUD PEACE/AGRO/HUNT. **Agreed:** party **bar** Walk/Hunt/Fight + mode shout. [party_ui.md](party_ui.md). |
+| **Follow / Guard / Attack / Break** | **Today:** bottom HUD PEACE/AGRO/HUNT. **Planned:** those stances sit on the second menu under Follow, Raid, or Hunt. **Break** is on every second menu. [party_ui.md](party_ui.md). |
 
 ---
 
@@ -388,7 +388,7 @@ Genetics drive **species**, **traits**, and **numeric stats**. **Appearance** in
 ## XI. Raiding
 
 - **Built:** ClanBrain sets `raid_intent` from one **motive** and one **goal** (`raid_motive_picker.gd`). The old score-based start is removed. NPCs self-assign **Raid** state and march. Motives, in order: `blood`, `theft`, `food`, `thin`, `restless`. The first one that is fully true wins. Hard stops print `too_few`, `outnumbered`, `alert`, `hunting`, `cooldown`, or `trade`. Target is a camp on `get_neighbor_claims()`. Full rules: [raid.md](raid.md).
-- **Locked, code pending (Oct 2026):** the "never attack a larger camp" rule is removed, so any clan may raid any neighbor. How often a clan raids comes from the bravery and aggression of its fighters, not from a separate temper number. See [director_locks_2026_10.md](director_locks_2026_10.md) §3–§4.
+- **Locked, code pending (refined 2026-11-04):** there is no blunt “never attack a larger camp” rule. A march starts only when opportunity, distance, and winnability say the odds are good. A rival can tip a close call and cannot force a suicide march. How often a clan raids comes from the bravery and aggression of its fighters, not from a separate temper number. See [director_locks_2026_10.md](director_locks_2026_10.md) §3, §4, and §11.
 - **Goals:** take food, take one or two women, take penned animals, or kill two fighters and leave. The party does not switch goals. Morale under 30 still calls the raid off.
 - **Sheltered prizes:** a woman in a building, sheep in a Farm, and goats in a Dairy are not raidable until that building is destroyed. Then they are on the claim and can be herded. People and animals already loose need no building.
 - **Temper (today):** `raid_temper` from -1 peaceful to +1 warlike, stuck at 0. It only changes how often `thin` and `restless` fire. **Locked:** bravery and the aggression bar replace it (see the lock doc §4).
@@ -506,7 +506,8 @@ Edge cases: **`docs/hunting_system_edge_cases.md`**. Phase design: **`bible/Phas
 - HUD modes: **PEACE · AGRO · HUNT** (one active). Stance row changes per mode (e.g. HUNT: **AMBUSH · STALK · ARC**).
 - **H** in **HUNT** mode **aborts** the hunt (switches to PEACE, loud cue — spooks prey); **H** in PEACE/AGRO still **rallies** fighters.
 - Deer use **`flee_prey_state`** + perception centroid / sound — see §XVIII and **`bible/Phase4/raiding_hunting.md`**.
-- **Engagement token (Oct 2026):** while the player is in **HUNT**, an ordered clansman gets one `hunt_engagement` on `player_party_hunt.gd`. He takes the nearest huntable prey (deer, mammoth) within about **520 px** of himself or the player, and stays in **combat** until the prey is dead, HUNT ends (mode change or horn), or the prey is past about **750 px**. Hide and party do not steal him mid-fight, and leaving combat does not wipe a live token. Playtest: `hunt_engage`, `hunt_release`, `hunt_state_held`.
+- **Engagement token (Oct 2026):** while the player is in **HUNT**, an ordered clansman gets one `hunt_engagement` on `player_party_hunt.gd`. He takes the nearest huntable prey (deer, mammoth) within about **520 px** of himself or the player, and stays in **combat** until the prey is dead, HUNT ends (mode change or horn), or the prey is past about **750 px**. Hide and party do not steal him mid-fight, and leaving combat does not wipe a live token. A kill is queued on the player (`player_hunt_kills`) and the party keeps hunting. Playtest: `hunt_engage`, `hunt_release`, `hunt_state_held`, `hunt_kill_queued`.
+- **Butcher on hunt break:** leaving **HUNT** (mode or horn) cancels a live chase. If any queued carcass still has yield, every ordered hunter butchers those bodies in order (existing `ButcherCorpseJob`: slice, then walk to the land claim). They do not follow until the queue is empty, the packs are walking home, or a body stays unreachable for about **20 s**. Playtest: `hunt_loot_start`, `hunt_loot_done`, `hunt_loot_abort`.
 
 ### Wife search clock
 
@@ -595,32 +596,32 @@ Authoritative detail: **`bible/phase2/STATE_PRIORITIES.md`**.
 
 ### Combat HUD modes (**PEACE · AGRO · HUNT**)
 
-**In game today.** **Agreed replacement:** Walk / Hunt / Fight on the party dock — [party_ui.md](party_ui.md). Do not add more stance buttons to the old HUD.
+**In game today.** The replacement is the **H** circle — Follow, Raid, or Hunt, then that party’s modes and **Break** — [party_ui.md](party_ui.md). The dock plan is scrap.
 
 One **mode** active at a time when clansmen are selected. The **stance row** (three buttons + **Break**) changes labels per mode. Full table: **`bible/Phase4/raiding_hunting.md`**.
 
 | Mode | Typical stances | Use |
 |------|-----------------|-----|
 | **PEACE** | FOLLOW, GUARD, HIDE | Travel, escort, crouch in cover |
-| **AGRO** | ATTACK, GUARD, AMBUSH | Fight push; ambush releases on leader melee windup |
+| **AGRO** | ATTACK, GUARD, AMBUSH | Fight push; ambush joins when the leader is in combat and has a target |
 | **HUNT** | AMBUSH, STALK, ARC | Stalk/arc on prey; quiet wide rear arc; half-moon ahead |
 
 ### Stances (PEACE / AGRO — core three)
 
-Applied to **selected** ordered clansmen; stored in **`command_context.mode`** with stance-tuned **agro threshold**, **chase distance**, and **speed multiplier**:
+The stance is **`command_context.mode`**. Speed and when they leave the shape: **`bible/rts.md`** §4.2 and §4.3. The old agro-threshold and chase-distance columns were unused and are scrap.
 
-| Stance | Aggro threshold | Chase dist (px) | Clansman speed mult | Player formation mult |
-|--------|-----------------|-----------------|---------------------|------------------------|
-| **FOLLOW** | 0 | 0 | 1.0 | 1.0 |
-| **GUARD** | 70 | 150 | 0.75 | 0.75 |
-| **ATTACK** | 100 | 300 | 0.85 | 0.85 |
+| Stance | Clansman speed | Leave the shape (**agro_meter** cap) |
+|--------|----------------|-------------------------|
+| **FOLLOW** | 1.0× | 40 |
+| **GUARD** | 0.75× | 70 |
+| **ATTACK** | 0.85× | 100 |
 
-**HUNT stances** (STALK ~0.5× travel, ARC curved ahead, AMBUSH/HIDE use cover + `hide_state`) — see **`bible/rts.md`** §11a and Phase4 guide.
+**HUNT stances:** Stalk is 0.5× and leaves the shape at 40. Arc is a curve ahead and walks at **0.85×**, the same as Attack. Ambush and Hide use cover (`hide_state`). See **`bible/rts.md`** §11a.
 
 ### War Horn vs hunt
 
 - **Today:** PEACE/AGRO **H** rallies (~1500 px); **HUNT** **H** aborts hunt.
-- **Agreed:** **H** always rallies at **short** range; **Spook** is the hunt mode shout. [party_ui.md](party_ui.md).
+- **Planned:** **H** always calls them in. The leader blows the horn, and the circle chooses Follow, Raid, or Hunt. Cancelling a hunt is **Break**, not a second meaning of **H**. [party_ui.md](party_ui.md).
 
 ### Hunt, raid, and long movement (recommended play)
 - **Cross terrain at full pace:** For **hunting**, **raiding**, or any **long** move with clansmen, use **Follow** — leader and followers run at **1.0×** formation speed and the group escorts **behind** you.
@@ -1027,7 +1028,7 @@ Below: every doc in that folder, with a short summary and **implementation-orien
 | **island_mp.md** | Island MP: four quadrant spawns, claim non-overlap, disconnect → ClanBrain, domination panel, server herd/raid authority. | **Not implemented.** See [future implementations/island_mp.md](future%20implementations/island_mp.md). |
 | **lineage.md** | **Person** records (`person_id`, `mother_id`, `father_id`); prerequisite for female babies, genetics UI, inbreeding. | **Not implemented.** See [future implementations/lineage.md](future%20implementations/lineage.md). |
 | **clanbrain_raid_scoring.md** | **food_days_buffer** drives hunt/forage vs raid goal pick; removes hunger-boosts-raid; STEAL/LOOT/KILL/WIPE scoring sketch. | **Not implemented.** See [future implementations/clanbrain_raid_scoring.md](future%20implementations/clanbrain_raid_scoring.md). |
-| **production_tiers.md** | **No tech tree:** **Living hut** → **specialize** → **Workshop (T2)** → **Master compound (T3)**; housing+baby cap kept on specialized huts; Common/Good/Master; Legendary rare. See [economy_catalog.md](economy_catalog.md) §8.5. | **Not implemented.** [future implementations/production_tiers.md](future%20implementations/production_tiers.md). Dev blog: `devblog/2026-09-13_no_tech_tree.md`. |
+| **production_tiers.md** | **No tech tree.** Living hut → specialize → workshop. Layer 1 crafts: Oven, Weaver, Rack, Crop. Baby room is **+5 per woman**. Quality comes from **materials**, not building tier. Convert swaps craft; no dismantle to empty. | Older Common/Good/Master lines in that file are retired. Current: [director_locks_2026_10.md](director_locks_2026_10.md) §2 and [economy_catalog.md](economy_catalog.md) §8.5. |
 | **roadmap_2026.md** | **Unified build order** Phases 0–7: nomad → lineage → raiding → farming → island → MP → wounds. | Hub: [roadmap_2026.md](roadmap_2026.md). |
 
 **Also see (not in `future implementations/` folder):** `bible/README.md` (guide index), **[environment_goal.md](environment_goal.md)** (canonical island environment), [island_map.md](island_map.md), [roadmap_2026.md](roadmap_2026.md), `bible/hunting.md` (hunt hub), `bible/Phase4/raiding_hunting.md` (RTS hunt stances), `bible/multiplayer.md` (MP roadmap), `bible/game_map.md` (chunks + streaming).

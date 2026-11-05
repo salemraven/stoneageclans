@@ -137,6 +137,11 @@ func update(delta: float) -> void:
 		return
 	if npc.is_dead():
 		return
+	if PlayerPartyHunt.loot_is_active(npc):
+		if fsm and fsm.has_method("force_evaluation"):
+			fsm.evaluation_timer = 0.0
+			fsm.force_evaluation()
+		return
 	if PlayerPartyHunt.refresh(npc):
 		if fsm and fsm.has_method("force_evaluation"):
 			fsm.evaluation_timer = 0.0
@@ -182,7 +187,7 @@ func can_enter() -> bool:
 	var nt: String = str(npc.get("npc_type")) if npc.get("npc_type") != null else ""
 	if nt != "caveman" and nt != "clansman":
 		return false
-	if PlayerPartyHunt.token_is_live(npc):
+	if PlayerPartyHunt.loot_is_active(npc) or PlayerPartyHunt.token_is_live(npc):
 		return false
 	if npc.get("follow_is_ordered") != true:
 		return false

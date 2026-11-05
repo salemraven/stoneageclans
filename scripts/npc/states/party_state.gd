@@ -48,6 +48,9 @@ func update(delta: float) -> void:
 		return
 	if npc.is_dead():
 		return
+	if PlayerPartyHunt.loot_is_active(npc):
+		PlayerPartyHunt.service_loot(npc)
+		return
 	if PlayerPartyHunt.refresh(npc):
 		if fsm and fsm.has_method("force_evaluation"):
 			fsm.evaluation_timer = 0.0
@@ -378,7 +381,7 @@ func can_enter() -> bool:
 	var same_clan_npc: bool = PartyCommandUtils.same_clan_warband_herder(npc.herder, npc)
 	var ctxm: Dictionary = npc.get("command_context") if npc.get("command_context") != null else {}
 	var mode_str: String = str(ctxm.get("mode", "FOLLOW"))
-	if mode_str == "HIDE" or mode_str == "AMBUSH":
+	if not PlayerPartyHunt.loot_is_active(npc) and (mode_str == "HIDE" or mode_str == "AMBUSH"):
 		if npc_type_str == "caveman":
 			npc._clear_herd()
 		return false

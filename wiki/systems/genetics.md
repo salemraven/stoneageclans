@@ -6,6 +6,8 @@ Species, traits, and how a child is mixed.
 
 This page does not add rules. It only links the words.
 
+Shipped face, hair, skin, and body genes: [bible/genetics.md](../../bible/genetics.md). How the face is drawn: [guides/character_layers.md](../../guides/character_layers.md).
+
 ## Your words
 
 - [Bloodline](../terms/bloodline.md)

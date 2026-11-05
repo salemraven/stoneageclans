@@ -1,7 +1,7 @@
 # Stone Age Clans – Main Mechanics & Implementation Report
 
 **Date**: Sep 2026  
-**Status**: Living **implementation** report (what ships in code). **Design canon:** `bible.md` + `bible/game_dictionary.md`. **Early-game vision (Tier 1 campfire, food, raids, horn):** [earlygame_vision.md](earlygame_vision.md). **Index:** `bible/README.md`. **World / streaming:** `bible/game_map.md`. **Hunting:** `bible/hunting.md`.
+**Status**: Living **implementation** report (what ships in code). **Design winner:** [director_locks_2026_10.md](director_locks_2026_10.md). This file and `bible.md` are the code snapshot, not the design lock. **Index:** `bible/README.md`. **World / streaming:** `bible/game_map.md`. **Hunting:** `bible/hunting.md`.
 
 ---
 
@@ -47,14 +47,14 @@
 ### Controls (implemented)
 
 - **WASD / Arrow keys** – Move.
-- **I** – **Today:** player + nearby building/corpse. **Agreed:** all applicable panels; party dock expands; **X** per window. [party_ui.md](party_ui.md).
+- **I** – **Today:** player + nearby building/corpse. The party-dock plan is scrap. [party_ui.md](party_ui.md).
 - **Tab** – Stats panel **planned** (not bound; inventory is **I**).
 - **9 / 0** – Consume item in hotbar slot 9 or 0.
 - **Click NPC** – Attack (if weapon equipped).
 - **Right-click NPC** – Context menu (Follow, Defend, Search, Work, Info). **Wild herdables:** influence attach when you walk within ~250px.
 - **Right-click campfire** – **ABANDON CAMP**, INFO, etc. ([camp_relocation.md](camp_relocation.md)).
 - **Right-click land claim / flag** – Context menu (INFO → inventory / build menu).
-- **H** (War Horn) – Rally clansmen within ~1500 px (`RTS_CONFIG`); ordered follow + `command_context`. In **HUNT** mode, **H aborts** the hunt (does not rally). See `bible/rts.md`.
+- **H** (War Horn) – Rally clansmen within ~1500 px (`RTS_CONFIG`); ordered follow + `command_context`. In **HUNT** mode, **H aborts** the hunt (does not rally). See `bible/rts.md`. **Planned:** the rally stays, and the horn opens Follow / Raid / Hunt — [party_ui.md](party_ui.md).
 - **B** – Break ordered follow; clansmen return toward claim.
 - **Box select / drag to player** – Multi-select clansmen; ordered follow (RTS).
 - **PEACE / AGRO / HUNT** – Combat HUD modes when clansmen selected (`bible/Phase4/raiding_hunting.md`).

@@ -362,7 +362,7 @@ func controls_movement() -> bool:
 	if script_path == "drop_off_task.gd":
 		# DropOffTask creates internal MoveToTask when too far - task controls velocity
 		return current_task.get("_move_task") != null
-	if script_path == "butcher_task.gd":
+	if script_path == "butcher_corpse_task.gd" or script_path == "butcher_task.gd":
 		# Approach phase uses an internal MoveToTask; must win over herd steering like gather/move jobs.
 		var internal_move_task: Variant = current_task.get("_move_task") if current_task else null
 		return internal_move_task != null

@@ -127,7 +127,11 @@ func _run() -> void:
 	_check("clan eats from the pantry while parked", berries_after != berries_before, "%d -> %d" % [berries_before, berries_after])
 	_check("asleep haul moved crop grain to the claim or oven", stock.get_count(ResourceData.ResourceType.GRAIN) > 0 or oven.inventory.get_count(ResourceData.ResourceType.GRAIN) > 0, "claim=%d oven=%d hut=%d" % [stock.get_count(ResourceData.ResourceType.GRAIN), oven.inventory.get_count(ResourceData.ResourceType.GRAIN), hut.inventory.get_count(ResourceData.ResourceType.GRAIN)])
 
-	# Reload: same nodes come back, people respawn from the roster.
+	# Reload inside sim-wake so the village is allowed to appear.
+	var watcher := Node2D.new()
+	main.add_child(watcher)
+	main.player = watcher
+	watcher.global_position = claim.global_position
 	var new_root := Node2D.new()
 	world_objects.add_child(new_root)
 	var restored: bool = bool(camps.call("restore_chunk", CHUNK, new_root))

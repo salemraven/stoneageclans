@@ -78,7 +78,7 @@ const MAX_STATE_DURATION_SEC: Dictionary = {
 }
 ## After exiting these states, NPC cannot re-enter same state for this many seconds (reduces flicker).
 const STATE_REENTER_COOLDOWN_SEC: float = 2.0
-const STATE_REENTER_COOLDOWN_ON_EXIT: Array[String] = ["combat", "flee_combat", "agro", "defend", "raid", "hunt", "eat", "gather"]
+const STATE_REENTER_COOLDOWN_ON_EXIT: Array[String] = ["combat", "flee_combat", "agro", "defend", "raid", "hunt", "eat", "gather", "work_at_building"]
 var _state_reenter_not_before: Dictionary = {}  # state_name -> Time.get_ticks_msec/1000
 
 # Priority cache: state_name -> float; invalidated when combat_target, defend_target, herded_count, follow_is_ordered change
@@ -893,6 +893,23 @@ func _evaluate_states() -> void:
 				"selected_priority": "%.1f" % best_priority
 			}, UnifiedLogger.Level.INFO)
 	
+	# A state that can no longer be entered must be left, even when the replacement
+	# has a lower priority. Otherwise a woman stays in occupy/reproduction and keeps
+	# the old steering target (the fire, or the middle of the hut).
+	if not found_better_state and best_state == current_state_name:
+		var stuck_st: Node = _get_state(current_state_name)
+		var stuck_valid: bool = stuck_st != null and stuck_st.has_method("can_enter") and stuck_st.can_enter()
+		if not stuck_valid:
+			for entry in priority_list:
+				var next_name: String = str(entry["name"])
+				if next_name == current_state_name:
+					continue
+				var next_st: Node = entry["state"]
+				if next_st and next_st.has_method("can_enter") and next_st.can_enter():
+					best_state = next_name
+					best_priority = float(entry["priority"])
+					found_better_state = true
+					break
 	# If no higher-priority state could enter, only fallback to wander when CURRENT state can_enter is false
 	# (When in herd_wildnpc we don't re-evaluate it (priority <= current), so we must not force wander if current is still valid)
 	if not found_better_state and best_state == current_state_name:
@@ -923,9 +940,18 @@ func _evaluate_states() -> void:
 	if in_production_work_and_busy and best_state != "combat" and best_state != "flee_combat":
 		best_state = current_state_name
 
-	# Gather lock: only defend/combat may interrupt an active gather job (herd_wildnpc must wait)
+	# Gather lock: defend and combat may interrupt. A fed man with no wife may leave to fetch one.
+	# A starving camp keeps him on the food job.
+	var may_fetch_wife := false
+	if npc != null and not bool(npc.get_meta("wife_brought_home", false)) and best_state == "herd_wildnpc":
+		var food_claim: Node = npc.get_my_land_claim() if npc.has_method("get_my_land_claim") else null
+		var camp_starving := false
+		if food_claim:
+			camp_starving = str(food_claim.get_meta("workforce_mode", "")) == "STARVING" or bool(food_claim.get_meta("food_buffer_critical", false))
+		may_fetch_wife = not camp_starving
 	if in_gather_and_busy and best_state != "combat" and best_state != "defend":
-		best_state = current_state_name
+		if not may_fetch_wife:
+			best_state = current_state_name
 	
 	# Switch to best state if different
 	if best_state != current_state_name:
@@ -1426,14 +1452,19 @@ func _fsm_cache_node_ref(v: Variant) -> bool:
 		return false
 	return v is Object and is_instance_valid(v as Object)
 
+func drop_cached_priority(state_name: String) -> void:
+	_cached_priority.erase(state_name)
+
+
 func _get_cached_priority(state_name: String, state_node: Node) -> float:
-	"""Return cached get_priority() or compute and cache. Eat is never cached (claim storage + hunger)."""
-	if state_name != "eat" and _cached_priority.has(state_name):
+	"""Return cached get_priority() or compute and cache. Eat and wander are never cached."""
+	# Wander flips between the break-home rank and the fallback. A cached 13 kept sons planted after the mark cleared.
+	if state_name != "eat" and state_name != "wander" and _cached_priority.has(state_name):
 		return _cached_priority[state_name] as float
 	var pri: float = state_priorities.get(state_name, 1.0) as float
 	if state_node and state_node.has_method("get_priority"):
 		pri = state_node.get_priority() as float
-	if state_name != "eat":
+	if state_name != "eat" and state_name != "wander":
 		_cached_priority[state_name] = pri
 	return pri
 

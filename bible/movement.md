@@ -19,7 +19,7 @@ NPCs use a **SteeringAgent** for movement; the player uses direct velocity. Both
 - **Modifiers (multiplied together):**
   - Below 30% hunger: ×0.7
   - **Herd leader debuff:** only when leading **herd animals** (women / sheep / goats) — `HerdManager.get_herd_animal_count(self) > 0` → ×`NPCConfig.herd_leader_speed_multiplier` (default **0.97**). **Ordered clansmen-only** parties do **not** apply this debuff.
-  - **Formation stance debuff:** `formation_speed_mult` meta — slowest stance among active ordered followers: **Follow 1.0×**, **Guard 0.75×**, **Attack 0.85×** (see `FormationUtils.STANCE_SPEED_MULT` / `main` stance updates).
+  - **Formation stance debuff:** `formation_speed_mult` meta — slowest stance among active ordered followers: **Follow 1.0×**, **Guard 0.75×**, **Attack** and **Arc 0.85×**, **Stalk 0.5×**. Hide and Ambush do not slow the leader. (`FormationUtils.STANCE_SPEED_MULT`)
 - **Output:** `velocity = input_vector * (move_speed * speed_mult)`
 - **`formation_velocity`** meta is set each frame to the player’s actual pixel velocity so followers can match facing / slot math.
 - No ramp-up/ramp-down; instant speed changes

@@ -12,7 +12,7 @@ This guide is for **how your warband should feel** when you raid or hunt: **spre
 
 **Intent:** Whether you’re marching to a fight or stalking deer, followers should read as a **group**: each has a **slot** (ring, line, or arc), with **spacing** and **matching pace**, not everyone stacked on the same pixel.
 
-**Implementation (high level):** Ordered fighters use FSM **`party`** and read **`formation_slots`** from the leader (player or NPC leader). Slot math lives in **`FormationUtils.compute_formation_slots`**; tuning in **`rts_formation_config.gd`** / **`STANCE_CONFIG`** in `main.gd`.
+**Implementation (high level):** Ordered fighters use FSM **`party`** and read **`formation_slots`** from the leader (player or NPC leader). Slot math lives in **`FormationUtils.compute_formation_slots`**; tuning in **`rts_formation_config.gd`**. Walk speed and when they leave the shape live in **`party_state.gd`**.
 
 **Raid-style tip:** For **long marches**, keep **Peace** mode and **FOLLOW** (or **GUARD** if you want a tighter ring at the cost of speed). Switch to **Agro** and **ATTACK** when you’re **close** to contact so the line forms **ahead** — same idea as before the hunt update (`bible/rtsguide.md` §4).
 
@@ -30,7 +30,7 @@ Default mode is **PEACE** — closest to “classic” Follow / Guard travel.
 | Mode | Stances (left → right on HUD) | Role |
 |------|-------------------------------|------|
 | **PEACE** | **FOLLOW**, **GUARD**, **HIDE** | Escort, defense ring, or **hide / crouch** (cover when available). |
-| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** | Offensive line/ring, or **ambush** (hidden until your leader **starts a melee swing** — windup). |
+| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** | Offensive line/ring, or **ambush** (hidden until the leader is in combat and has a target). |
 | **HUNT** | **AMBUSH**, **STALK**, **ARC** | Hide-and-release, **slow quiet** wide rear arc, or **arc ahead** of you for a closing semicircle. |
 
 **`command_context.mode`** stores the stance string (`FOLLOW`, `STALK`, `ARC`, …). Formations and speed multipliers use that same pipeline as the original three stances.
@@ -50,7 +50,7 @@ Default mode is **PEACE** — closest to “classic” Follow / Guard travel.
 ### ARC (Hunt mode)
 
 - **Formation:** Slots on a **curved “half moon” ahead** of the leader (same forward anchor idea as **ATTACK**, but **angles** instead of a straight lateral line).
-- **Speed:** Tuned between Follow and Attack (`STANCE_CONFIG` **`ARC`**).
+- **Speed:** **0.85×**, the same as **Attack**. Not a speed between Follow and Attack.
 - **No target ping:** The arc is **only relative to you** — you **physically** aim the group toward prey (`bible/rts.md` §11a).
 
 **Good for:** Wrapping or presenting a front **before** you commit.
@@ -59,7 +59,7 @@ Default mode is **PEACE** — closest to “classic” Follow / Guard travel.
 
 - **Behavior:** Enters **`hide_state`**: moves to **nearest cover** (trees / bushes / tall grass via **`CoverQuery`** + **ResourceIndex**) or **open crouch** if nothing is near.
 - Sets **`is_hidden`** when settled; **footsteps suppressed** while hidden.
-- **Release:** When you (the **commander** in `command_context`) **start a melee windup**, hidden followers copy your combat target (ally-safe) and spike **agro** into **`combat`** — **simple “attack with me” trigger**, not detection polling on deer.
+- **Release:** When the leader is **in combat and has a target**, hidden followers copy that target (ally-safe) and spike **agro** into **`combat`**. This can be before the swing starts. It is not a deer-detection poll.
 
 **Spear-first on ambush:** Design lock-in was **throw if 2+ spears** then melee — wire-up may still be partial; check **`combat_state`** / weapon path if throws don’t appear yet.
 

@@ -2,7 +2,7 @@
 
 **Status:** Design lock (2026-09-05). Not fully shipped.
 **Depends on:** proximity herd (`bible/HERDING_SYSTEM_GUIDE.md`), raid flow (`bible/raid.md`), claim wipe (flag destroy).
-**Not this system:** deer/mammoth (hunt prey), fighter FOLLOW/party, prisoner cages, rope item, right-click Herd.
+**Not this system:** deer/mammoth (hunt prey), fighter FOLLOW/party, right-click Herd. **Captive cord** (brown line, hotbar 1–2, does not join the clan) is [HERDING_SYSTEM_GUIDE.md](HERDING_SYSTEM_GUIDE.md) § Captive cord and [the_land.md](the_land.md) §9. It is not influence herding.
 
 Right-click does **not** herd. Right-click is a context menu. Herdables attach when a herder enters their influence bubble.
 

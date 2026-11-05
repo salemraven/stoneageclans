@@ -1,22 +1,36 @@
 # This session. Awake camp = live bodies. Asleep camp = camp record. Births counted this session.
-PRODUCTIVITY_COMPARE tag=minute t=0 player_moved_px=0
-PRODUCTIVITY_ROW tag=minute side=player clan=TEST source=live women=2 pregnant=0 babies=2 clansmen=6 births=8 food=148 away=0 edible=0 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=RA DIEY source=record women=2 pregnant=0 babies=2 clansmen=2 births=4 food=162 away=0 edible=18 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=FO QOBI source=record women=2 pregnant=0 babies=2 clansmen=2 births=4 food=162 away=0 edible=18 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=YO VAIB source=record women=2 pregnant=0 babies=2 clansmen=2 births=4 food=159 away=0 edible=15 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=CE VIUN source=record women=2 pregnant=0 babies=2 clansmen=2 births=4 food=159 away=0 edible=15 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=FU NEIV source=record women=2 pregnant=0 babies=2 clansmen=2 births=4 food=162 away=0 edible=18 hunts=0 raids=0
-PRODUCTIVITY_COMPARE tag=minute t=0 player_moved_px=0
-PRODUCTIVITY_ROW tag=minute side=player clan=TEST source=live women=2 pregnant=0 babies=2 clansmen=14 births=16 food=167 away=0 edible=0 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=RA DIEY source=record women=2 pregnant=0 babies=2 clansmen=10 births=12 food=232 away=4 edible=92 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=FO QOBI source=record women=2 pregnant=0 babies=2 clansmen=10 births=12 food=223 away=4 edible=83 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=YO VAIB source=record women=2 pregnant=0 babies=2 clansmen=10 births=12 food=221 away=4 edible=81 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=CE VIUN source=record women=2 pregnant=0 babies=2 clansmen=10 births=12 food=207 away=4 edible=67 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=FU NEIV source=record women=2 pregnant=0 babies=2 clansmen=10 births=12 food=207 away=4 edible=67 hunts=0 raids=1
-PRODUCTIVITY_COMPARE tag=minute t=0 player_moved_px=2059
-PRODUCTIVITY_ROW tag=minute side=player clan=TEST source=live women=2 pregnant=0 babies=1 clansmen=21 births=22 food=160 away=0 edible=0 hunts=0 raids=0
-PRODUCTIVITY_ROW tag=minute side=ai clan=RA DIEY source=live women=2 pregnant=2 babies=0 clansmen=16 births=16 food=297 away=0 edible=159 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=FO QOBI source=record women=2 pregnant=0 babies=0 clansmen=16 births=16 food=295 away=0 edible=149 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=YO VAIB source=record women=2 pregnant=0 babies=0 clansmen=16 births=16 food=284 away=0 edible=146 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=CE VIUN source=record women=2 pregnant=0 babies=0 clansmen=16 births=16 food=251 away=0 edible=113 hunts=0 raids=1
-PRODUCTIVITY_ROW tag=minute side=ai clan=FU NEIV source=record women=2 pregnant=0 babies=0 clansmen=12 births=12 food=240 away=0 edible=102 hunts=0 raids=1
+PRODUCTIVITY_COMPARE tag=spawn t=0 player_moved_px=0
+PRODUCTIVITY_ROW tag=spawn side=player clan=TEST source=live brain_dormant=0 women=1 pregnant=1 babies=0 clansmen=0 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=spawn side=ai clan=CA ZOTA source=live brain_dormant=1 women=1 pregnant=1 babies=0 clansmen=0 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=11 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=1 pregnant=0 babies=1 clansmen=0 births=1 food=400 food_days=14.0 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=1 pregnant=0 babies=1 clansmen=0 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=1 pregnant=0 babies=1 clansmen=0 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=23 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=1 pregnant=1 babies=0 clansmen=1 births=1 food=400 food_days=9.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=1 pregnant=1 babies=0 clansmen=1 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=1 pregnant=1 babies=0 clansmen=1 births=0 food=400 food_days=28.2 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=35 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=1 pregnant=1 babies=1 clansmen=1 births=2 food=400 food_days=8.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=1 pregnant=1 babies=1 clansmen=1 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=1 pregnant=1 babies=1 clansmen=1 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=47 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=2 pregnant=1 babies=1 clansmen=2 births=3 food=400 food_days=7.0 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=1 pregnant=1 babies=1 clansmen=2 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=1 pregnant=1 babies=1 clansmen=2 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=59 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=2 pregnant=0 babies=1 clansmen=3 births=4 food=400 food_days=4.8 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=1 pregnant=0 babies=1 clansmen=3 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=1 pregnant=0 babies=1 clansmen=3 births=0 food=399 food_days=8.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=71 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=2 pregnant=1 babies=1 clansmen=4 births=5 food=400 food_days=4.0 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=2 pregnant=0 babies=1 clansmen=4 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=2 pregnant=0 babies=1 clansmen=4 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=tick t=83 player_moved_px=0
+PRODUCTIVITY_ROW tag=tick side=player clan=TEST source=live brain_dormant=0 women=3 pregnant=1 babies=1 clansmen=5 births=6 food=400 food_days=2.9 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=CA ZOTA source=record brain_dormant=1 women=2 pregnant=1 babies=0 clansmen=5 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=tick side=ai clan=DA HOXI source=record brain_dormant=1 women=2 pregnant=1 babies=0 clansmen=5 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_COMPARE tag=end t=90 player_moved_px=0
+PRODUCTIVITY_ROW tag=end side=player clan=TEST source=live brain_dormant=0 women=3 pregnant=2 babies=1 clansmen=6 births=7 food=400 food_days=2.8 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=end side=ai clan=CA ZOTA source=record brain_dormant=1 women=3 pregnant=1 babies=1 clansmen=5 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0
+PRODUCTIVITY_ROW tag=end side=ai clan=DA HOXI source=record brain_dormant=1 women=3 pregnant=0 babies=1 clansmen=5 births=0 food=397 food_days=5.4 deposited=0 edible=0 away=0 hunts=0 raids=0

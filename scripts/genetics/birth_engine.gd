@@ -67,6 +67,7 @@ static func apply_genome(entity: Variant, genome: Dictionary) -> String:
 		profile["skin_modulate"] = skin_col
 		profile["body_scale"] = body_sc
 		profile["head_scale"] = head_sc
+		_write_face(profile, genome)
 		d["genetics_profile"] = profile
 		d["hair_tone"] = hair
 		d["skin_tone"] = skin_label
@@ -78,6 +79,7 @@ static func apply_genome(entity: Variant, genome: Dictionary) -> String:
 	profile_e["skin_modulate"] = skin_col
 	profile_e["body_scale"] = body_sc
 	profile_e["head_scale"] = head_sc
+	_write_face(profile_e, genome)
 	entity.set("genetics_profile", profile_e)
 	entity.set("hair_tone", hair)
 	entity.set("skin_tone", skin_label)
@@ -122,6 +124,14 @@ static func apply_child_to_entity(child: Variant, mother: Variant, father: Varia
 		"father_count": Phenotype.skin_dark_count(genome_from_entity(father)),
 	})
 	return genome
+
+
+static func _write_face(profile: Dictionary, genome: Dictionary) -> void:
+	profile["nose_id"] = Phenotype.nose_id_from_genome(genome)
+	profile["brow_id"] = Phenotype.brow_id_from_genome(genome)
+	profile["eye_scale_mul"] = Phenotype.eye_scale_from_genome(genome)
+	profile["eye_aspect"] = Phenotype.eye_aspect_from_genome(genome)
+	profile["pupil_color"] = Phenotype.pupil_color_from_genome(genome)
 
 
 static func _entity_name(entity: Variant) -> String:

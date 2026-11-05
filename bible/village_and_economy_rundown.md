@@ -153,7 +153,7 @@ Superseded for clothing by economy catalog. Kept for reference:
 Living Hut  →  Specialize (pick craft)  →  Workshop (T2)  →  Master compound (T3)
 ```
 
-- Specialized hut **keeps** home + **+5 baby cap** (no extra cap on T2/T3). **Dismantle** → back to empty living hut.  
+- Specialized hut **keeps** home. Baby room is **+5 per woman** (T3 = +15). **Convert** swaps the craft and keeps tier. No dismantle back to an empty hut. First build layer: Oven, Weaver, Rack, Crop.  
 - Raid: building **destroyed = total loss**; T2/T3 get **+25% HP** per upgrade step.  
 - **Test costs:** specialize 1w+1s; T2 2w+1s; T3 2w+2s+1 hide — [economy_catalog.md](economy_catalog.md) §8.5.  
 - Leave some huts **unspecialized** for extra housing (+5 cap each).  
@@ -161,7 +161,7 @@ Living Hut  →  Specialize (pick craft)  →  Workshop (T2)  →  Master compou
 
 ### 3.7 Other mentions
 
-- **Land claim upgrades:** Flag → Tower → Keep → Castle (costs not locked).  
+- **Land claim upgrades:** Tower, Keep, and Castle are **retired**. Claim tier 3 is a totem or great fire ring and needs a relic ([director_locks_2026_10.md](director_locks_2026_10.md) §2).  
 - **Proto farming Field:** crop ring on flag only — [future implementations/proto_farming.md](future%20implementations/proto_farming.md).  
 - **Defense drums:** occupy for defense buff — [future implementations/future_buildings.md](future%20implementations/future_buildings.md).  
 - **Quality / gates:** common/good/master + population/food — [future implementations/production_tiers.md](future%20implementations/production_tiers.md).
@@ -178,7 +178,7 @@ Living Hut  →  Specialize (pick craft)  →  Workshop (T2)  →  Master compou
 |------|------------|
 | Hearth | Campfire → **central hearth** on flag |
 | Lean-to / hut | **Dwelling** (+ baby cap) |
-| Work near fire | Recipes on **fire + props**, not separate shops |
+| Work near fire | **Old flavor.** Production is a specialty on the living hut (layer 1: Oven, Weaver, Rack, Crop). |
 | Rack / frame | **Drying frame** (meat, hide) |
 | Pen | **One corral** (sheep + goats) |
 | Garden patch | **Field / garden ring** (settled) |
@@ -220,7 +220,7 @@ Wood, stone/flint, clay, fiber, hide/fat/bone, grain/roots, meat, resin (later),
 ### 4.5 How play should feel
 
 1. **Nomad:** fire + 1–3 lean-tos + travois + ground piles; brain assigns gather/hunt/craft at fire.  
-2. **Settled:** fire + ring of **living huts** (some specialized, some pure housing) + corral + garden; workshops **grow on the same huts**, not a separate shop row.  
+2. **Settled:** fire + ring of **living huts**. Production is a **specialty on the hut** (layer 1: Oven, Weaver, Rack, Crop), not a separate shop row and not “only at the fire.”  
 3. **ClanBrain:** deficits → assign woman → work at **her specialized hut** (or haul to corral/hearth).
 
 ### 4.6 Migration from current code

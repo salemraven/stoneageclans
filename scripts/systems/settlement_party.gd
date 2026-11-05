@@ -230,6 +230,266 @@ static func _resolve_hunt(token: Dictionary, inventory: InventoryData) -> void:
 	token["meat"] = meat
 
 
+static func scores_auto_hunt(player_owned: bool) -> bool:
+	return not player_owned
+
+
+static func has_haul_job(worker: Node) -> bool:
+	if worker == null or not is_instance_valid(worker):
+		return false
+	var kind := str(worker.get_meta("next_job_kind", ""))
+	return kind == "chunk" or kind == "gather"
+
+
+static func park_field_gather(claim: Node, worker: Node) -> bool:
+	if claim == null or worker == null or not is_instance_valid(worker):
+		return false
+	if not has_haul_job(worker):
+		return false
+	var trips := _field_trips(claim)
+	var body_id := worker.get_instance_id()
+	for trip_v in trips:
+		if trip_v is Dictionary and int((trip_v as Dictionary).get("body_id", 0)) == body_id:
+			if worker.has_method("set_sim_dormant"):
+				worker.set_sim_dormant(true)
+			return true
+	var chunk := Vector2i.ZERO
+	var key := str(worker.get_meta("next_job_chunk", ""))
+	var parts := key.split(",")
+	if parts.size() == 2:
+		chunk = Vector2i(int(parts[0]), int(parts[1]))
+	elif worker.has_meta("next_job_pos") and worker.get_meta("next_job_pos") is Vector2 and ChunkUtils:
+		chunk = ChunkUtils.get_chunk_coords(worker.get_meta("next_job_pos"))
+	elif worker is Node2D and ChunkUtils:
+		chunk = ChunkUtils.get_chunk_coords((worker as Node2D).global_position)
+	var home := Vector2.ZERO
+	if claim is Node2D:
+		home = (claim as Node2D).global_position
+	var there := home
+	if ChunkUtils:
+		there = ChunkUtils.get_chunk_center(chunk)
+	var travel := maxf(there.distance_to(home) / MARCH_PX_PER_SEC, 1.0)
+	trips.append({
+		"body_id": body_id,
+		"chunk": chunk,
+		"phase": "out",
+		"travel_left": travel,
+		"travel_total": travel,
+		"paid": false,
+	})
+	claim.set_meta("field_trips", trips)
+	if worker.has_method("set_sim_dormant"):
+		worker.set_sim_dormant(true)
+	return true
+
+
+static func release_unpaid_field_trip(claim: Node, worker: Node) -> void:
+	if claim == null or worker == null:
+		return
+	var body_id := worker.get_instance_id()
+	var trips := _field_trips(claim)
+	var kept: Array = []
+	for trip_v in trips:
+		if not (trip_v is Dictionary):
+			continue
+		var trip: Dictionary = trip_v
+		if int(trip.get("body_id", 0)) == body_id and not bool(trip.get("paid", false)):
+			continue
+		kept.append(trip)
+	claim.set_meta("field_trips", kept)
+
+
+static func advance_field_trips(claim: Node, delta: float, player_pos: Vector2, wake_r: float) -> void:
+	if claim == null:
+		return
+	var accum := float(claim.get_meta("field_trip_accum", 0.0)) + delta
+	var interval := 30.0
+	if WorldGenConfig:
+		interval = maxf(float(WorldGenConfig.settlement_tick_interval_sec), 1.0)
+	if accum < interval:
+		claim.set_meta("field_trip_accum", accum)
+		return
+	claim.set_meta("field_trip_accum", 0.0)
+	step_field_trips(claim, accum, player_pos, wake_r)
+
+
+static func step_field_trips(claim: Node, elapsed: float, player_pos: Vector2, wake_r: float) -> void:
+	if claim == null or not claim.has_meta("field_trips"):
+		return
+	var trips := _field_trips(claim)
+	var kept: Array = []
+	for trip_v in trips:
+		if not (trip_v is Dictionary):
+			continue
+		var trip: Dictionary = trip_v
+		var worker := _body_from_id(claim, int(trip.get("body_id", 0)))
+		if worker == null:
+			continue
+		var chunk: Vector2i = trip.get("chunk", Vector2i.ZERO)
+		if _player_reached_work(player_pos, chunk, worker, wake_r) and not bool(trip.get("paid", false)):
+			if worker.has_method("set_sim_dormant"):
+				worker.set_sim_dormant(false)
+			continue
+		var left := float(trip.get("travel_left", 0.0)) - elapsed
+		trip["travel_left"] = left
+		if left > 0.0:
+			kept.append(trip)
+			continue
+		if str(trip.get("phase", "")) == "out":
+			_pay_field_haul(claim, worker, chunk, trip)
+			trip["phase"] = "back"
+			trip["travel_left"] = float(trip.get("travel_total", 1.0))
+			kept.append(trip)
+			continue
+		_wake_carrier_on_circle(claim, worker, chunk, player_pos, wake_r)
+	claim.set_meta("field_trips", kept)
+
+
+static func _field_trips(claim: Node) -> Array:
+	if claim != null and claim.has_meta("field_trips"):
+		var stored: Variant = claim.get_meta("field_trips")
+		if stored is Array:
+			return stored
+	return []
+
+
+static func _body_from_id(claim: Node, body_id: int) -> Node:
+	if body_id == 0 or claim == null:
+		return null
+	var found: Variant = instance_from_id(body_id)
+	if found is Node and is_instance_valid(found):
+		return found as Node
+	return null
+
+
+static func _player_reached_work(player_pos: Vector2, chunk: Vector2i, worker: Node, wake_r: float) -> bool:
+	if player_pos == Vector2.INF:
+		return false
+	if ChunkUtils and ChunkUtils.get_chunk_coords(player_pos) == chunk:
+		return true
+	if worker is Node2D and player_pos.distance_to((worker as Node2D).global_position) <= wake_r:
+		return true
+	return false
+
+
+static func _pay_field_haul(claim: Node, worker: Node, chunk: Vector2i, trip: Dictionary) -> void:
+	if bool(trip.get("paid", false)):
+		return
+	trip["paid"] = true
+	var done: Dictionary = {}
+	if claim.has_meta("away_trip_resolved"):
+		var stored: Variant = claim.get_meta("away_trip_resolved")
+		if stored is Dictionary:
+			done = stored
+	var key_id := str(worker.get_instance_id())
+	if done.has(key_id):
+		return
+	done[key_id] = true
+	claim.set_meta("away_trip_resolved", done)
+	if MutationStore == null:
+		return
+	if WorldGenConfig:
+		MutationStore.ensure_abstract_resource_pool(chunk, int(WorldGenConfig.world_seed), WorldGenConfig)
+	var yields: Dictionary = {
+		"berries": 2.0, "grain": 3.0, "wood": 1.0, "stone": 1.0, "fiber": 1.0, "nuts": 1.0, "bugs": 1.0,
+	}
+	if WorldGenConfig:
+		yields = WorldGenConfig.gather_yield_per_population
+	var keys: Array[String] = ["berries", "grain", "nuts", "bugs", "wood", "stone", "fiber"]
+	var types: Array[int] = [
+		ResourceData.ResourceType.BERRIES,
+		ResourceData.ResourceType.GRAIN,
+		ResourceData.ResourceType.NUTS,
+		ResourceData.ResourceType.BUGS,
+		ResourceData.ResourceType.WOOD,
+		ResourceData.ResourceType.STONE,
+		ResourceData.ResourceType.FIBER,
+	]
+	var hands: Variant = worker.get("inventory")
+	for i in keys.size():
+		var want := int(floor(float(yields.get(keys[i], 0.0))))
+		if want <= 0:
+			continue
+		var got := int(MutationStore.deplete_abstract_resource(chunk, keys[i], want))
+		if got > 0 and hands != null and hands.has_method("add_item"):
+			hands.add_item(types[i], got)
+
+
+static func _wake_carrier_on_circle(claim: Node, worker: Node, chunk: Vector2i, player_pos: Vector2, wake_r: float) -> void:
+	if not (worker is Node2D) or not (claim is Node2D):
+		return
+	var home: Vector2 = (claim as Node2D).global_position
+	var there := home + Vector2(wake_r, 0.0)
+	if ChunkUtils:
+		there = ChunkUtils.get_chunk_center(chunk)
+	var away := there - home
+	if away.length_squared() < 1.0:
+		away = Vector2.RIGHT
+	var spot := home + away.normalized() * maxf(wake_r - 48.0, 32.0)
+	if player_pos != Vector2.INF and spot.distance_to(player_pos) > wake_r - 16.0:
+		var from_player := spot - player_pos
+		if from_player.length_squared() < 1.0:
+			from_player = away
+		spot = player_pos + from_player.normalized() * maxf(wake_r - 48.0, 32.0)
+	(worker as Node2D).global_position = spot
+	if worker.has_method("set_sim_dormant"):
+		worker.set_sim_dormant(false)
+	worker.set_meta("moving_to_deposit", true)
+	worker.set_meta("is_depositing", true)
+	worker.set_meta("next_job_kind", "")
+	var steer: Variant = worker.get("steering_agent")
+	if steer != null and steer.has_method("retarget_seek"):
+		steer.retarget_seek(home)
+
+
+static func wake_party_on_circle(claim: Node, roster: RefCounted, token: Dictionary, wake_r: float) -> void:
+	if claim == null or roster == null or token.is_empty() or bool(token.get("materialized", false)):
+		return
+	token["materialized"] = true
+	if not (claim is Node2D):
+		return
+	var home: Vector2 = (claim as Node2D).global_position
+	var aim := home + Vector2(wake_r, 0.0)
+	var chunk_v: Variant = token.get("target_chunk", token.get("chunk", null))
+	if chunk_v is Vector2i and ChunkUtils:
+		aim = ChunkUtils.get_chunk_center(chunk_v)
+	elif token.get("target") is Node2D and is_instance_valid(token.get("target")):
+		aim = (token.get("target") as Node2D).global_position
+	var away := aim - home
+	if away.length_squared() < 1.0:
+		away = Vector2.RIGHT
+	var spot := home + away.normalized() * maxf(wake_r - 48.0, 32.0)
+	var ids: Array = token.get("member_ids", [])
+	for mid_v in ids:
+		var mid := int(mid_v)
+		var rec: Dictionary = roster.find_member(mid)
+		if rec.is_empty():
+			continue
+		rec["position"] = spot
+		rec["away"] = false
+	mark_away(roster, ids, false)
+	var tree := claim.get_tree()
+	if tree == null:
+		return
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if int(SettlementRoster.read_member_id(npc)) not in _int_list(ids):
+			continue
+		if npc is Node2D:
+			(npc as Node2D).global_position = spot
+		if npc.has_method("set_sim_dormant"):
+			npc.set_sim_dormant(false)
+		npc.set_meta("moving_to_deposit", true)
+
+
+static func _int_list(ids: Array) -> Array:
+	var out: Array = []
+	for mid_v in ids:
+		out.append(int(mid_v))
+	return out
+
+
 static func _finish_party(token: Dictionary, roster: RefCounted) -> void:
 	mark_away(roster, token.get("member_ids", []), false)
 	token["phase"] = "done"

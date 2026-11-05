@@ -128,8 +128,9 @@ func try_transfer(animal: Node2D, new_herder: Node2D) -> bool:
 	if not _is_herd_animal(animal):
 		return false
 	var cur: Node2D = animal.get("herder") as Node2D if animal.get("herder") != null else null
+	# True means a new attach. Already following this herder is not a catch.
 	if cur == new_herder and animal.get("is_herded") == true:
-		return true
+		return false
 	if not can_add_herd_animal(new_herder, animal):
 		return false
 	if animal.has_method("_try_herd_chance"):

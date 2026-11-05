@@ -146,7 +146,7 @@ Update this section when a layer ships or validation passes.
 
 ### Later — Climate Change (Phase 6 flag; code exists)
 
-**Full spec:** [environment_goal.md](environment_goal.md) §19. **Implementation plan:** `living_world_map_system_815d153a.plan.md`.
+**Full spec:** [environment_goal.md](environment_goal.md) §19 and §3.7 (nine climate zones). **Rites:** [the_land.md](the_land.md). **Implementation plan:** `living_world_map_system_815d153a.plan.md`.
 
 | Feature | Summary |
 |---------|---------|
@@ -154,7 +154,7 @@ Update this section when a layer ships or validation passes.
 | **Drought** | Rivers **shrink** — overlay masks base water; global or per-system (`RIVER_NW`…`NE`) |
 | **Ice age** | Glacier biome grows from center |
 | **Aridification** | Desert creeps into savanna; villages abandon |
-| **Rituals** | Sacrifices / ceremonies → `ritual_pressure` → rain or slower drought |
+| **Rituals** | Sacrifices feed **Favor** (that zone) and **Listening** (the island). Spec: [the_land.md](the_land.md). Climate stays off until cells store a zone id. |
 
 **v1 rule:** Base PNGs (`water_layer.png`, `biome_mask.png`) are **never edited at runtime**. Climate = server overlays on top. Reserve **river system ids** at export time.
 

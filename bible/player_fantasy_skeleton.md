@@ -25,7 +25,7 @@ The game intends **survival, war chief, village, dynasty, explorer, and living s
 | Phase | Primary food |
 |-------|----------------|
 | **Opening** | **Forage** — hands, low risk; map must not feel empty |
-| **First escalation (player choice; most do both)** | **Hunt** (meat worth risk) + **settle/grain** (flag, wild wheat, bread stability) |
+| **First escalation (player choice; most do both)** | **Hunt** (meat worth risk) + **settle/grain** (flag, wild wheat, **bread** stability). People do **not** eat raw grain. Sheep and goats can. |
 | **Not the default teach** | Forced nomad move or raid as *first* homework |
 
 ### Fairness rule #1

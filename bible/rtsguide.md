@@ -109,7 +109,7 @@ When clansmen are on **ordered follow**, you set **mode** and **stance** with th
 | Mode | Stances (typical) |
 |------|-------------------|
 | **PEACE** | **FOLLOW**, **GUARD**, **HIDE** — escort, defense ring, or hold cover/crouch |
-| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** — closing line, tight ring, or hide until you swing |
+| **AGRO** | **ATTACK**, **GUARD**, **AMBUSH** — closing line, tight ring, or hide until you are in a fight |
 | **HUNT** | **AMBUSH**, **STALK**, **ARC** — hide-until-swing, slow quiet rear arc, semicircle ahead |
 
 **Peace — travel vs caution**
@@ -120,8 +120,8 @@ When clansmen are on **ordered follow**, you set **mode** and **stance** with th
 
 **Agro — raid closing**
 
-- **ATTACK:** line **ahead**; tuned for combat closing (**~0.85×** march vs Follow — numbers in `STANCE_CONFIG`).
-- **AMBUSH:** hide near cover; followers jump in when **your melee windup** starts (simple trigger).
+- **ATTACK:** line **ahead**; **0.85×** while closing. **Arc** uses that same speed.
+- **AMBUSH:** hide near cover; followers jump in when you are **in combat and have a target**. That can be before the swing starts.
 
 **Hunt — approach prey**
 

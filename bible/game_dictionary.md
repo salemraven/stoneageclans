@@ -1,6 +1,6 @@
 # Game dictionary
 
-**Last updated:** May 2026 · **Index:** `bible/README.md`
+**Last updated:** October 2026
 
 Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, design docs, and **new** code comments. When old code uses a different name, add a short note or refactor toward these terms.
 
@@ -51,10 +51,10 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | **command_context** | Dictionary on ordered clansmen: `mode` (FOLLOW / GUARD / ATTACK), tuning, `commander_id`, `issued_at_time`. Player path: `main.gd`; NPC leader path: **`PartyCommandUtils`**. |
 | **formation_slots** | Leader **meta** (player or male NPC): slot positions / steer targets for each follower. Player: `main._update_formation_slots`; NPC leader: **`FormationUtils.publish_slots_for_npc_leader`**. |
 | **follow_is_ordered** | True while clansmen are in ordered party follow (player drag, menu, **War Horn** rally, or **ClanBrain** raid party). Blocks cross-clan **herd steal** on wild herdables. |
-| **Break** | **B**: dismiss ordered follow; walk **home**. **Agreed:** split **party pile** into pockets first, then auto-deposit at **your** claim. [party_ui.md](party_ui.md). |
-| **War Horn** | **H**: rally. **Today** ~1500 px; Hunt **H** = abort. **Agreed:** ~400 px always rally; fighters only. |
-| **Party dock / pile** | **Agreed, not shipped:** one dock (bar + I sheet), loot+spare kit, cap 5× fighters, melee/ranged slider. [party_ui.md](party_ui.md). |
-| **Stance** | **Follow**, **Guard**, **Attack** — affects agro threshold, chase distance, and **formation_speed_mult** (player + clansmen). **Guard** while moving = ring around leader; **not** the same as static **defend** on the claim border. |
+| **Break** | **B**, and a choice on every party submenu: dismiss ordered follow; walk **home**; end the call. Splitting a party pile first is scrap. [party_ui.md](party_ui.md). |
+| **War Horn** | **H**: rally. **Today** ~1500 px; Hunt **H** = abort. **Planned:** the same call, with a horn animation and a sound around the leader, then a circle for Follow, Raid, or Hunt. [party_ui.md](party_ui.md). |
+| **Party UI** | Not built. **H** calls the clansmen in and opens **Follow / Raid / Hunt**. A second menu picks that party’s modes and always includes **Break**. The dock and the pile are scrap. [party_ui.md](party_ui.md). |
+| **Stance** | **Follow**, **Guard**, **Attack**, plus the hunt shapes. Sets walk speed and when **`agro_meter`** breaks formation. **Guard** while moving = ring around leader; **not** the same as static **defend** on the claim border. [rts.md](rts.md) §4.3. |
 | **RTS_CONFIG** | `scripts/config/rts_formation_config.gd` — rally radius, horn cooldown, leash, catch-up multiplier, snapshot interval, stance numbers. |
 
 ### Herding targets (types)
@@ -90,14 +90,20 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 
 ---
 
-## Perception & agro
+## Perception & fight or flight
+
+Canon glossary: [fight_or_flight.md](fight_or_flight.md).
 
 | Term | Definition |
 |------|------------|
+| **Fight or flight** | Combat decision system: **Bravery**, perks, **`agro_meter`**, **morale bar**, standoff, orders. |
+| **Fight** | Player word: **`agro_meter` at max**, attacking, **red `!!!`**. |
+| **Flight** | Player word: morale below flight line, **yellow `!!`**, flee / break. |
 | **AOP** | **Area of Perception** — how far an NPC **senses** others (design); implemented by **`PerceptionArea`**. |
-| **AOA** | **Area of Agro** — inner zone inside AOP; hostiles here ramp **agro** (fight-or-flight pressure). |
+| **AOA** | **Area of Agro** — inner zone inside AOP; hostiles here pump **`agro_meter`**. |
 | **PerceptionArea** | **Area2D** on NPC implementing AOP: tracks bodies, feeds AOA, combat targeting, herd detection, proximity events. |
-| **Agro** | 0–100 **tension meter**: enter **combat** at **≥ 70**, exit at **< 60** (hysteresis). Raised by claim intrusion, AOA, damage, **herd steal**, etc. Tuned in **NPCConfig** / combat tick. |
+| **agro_meter** | Technical 0–100 fill toward **Fight**. Enter/leave combat thresholds in **NPCConfig** / **CombatTick** (often 70/60). Not the same word as player **Fight**. |
+| **agro_state** | FSM for defend / herd recover — technical name, not player **Fight**. |
 | **Herd steal** | Pulling another clan’s **herdable** via herding contest. **Same-clan** herders can’t steal from each other; **cross-clan** allowed. Blocked while target’s herder has **`follow_is_ordered`**. |
 | **EnemiesInClaim** | Land-claim **Area2D** that detects intruders for **defender** logic (event-driven border threat). |
 
@@ -122,12 +128,12 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 |------|------------|
 | **ClanBrain** | **RefCounted** AI strategy object owned by a **territory** node (**LandClaim** flag or **Campfire**). Sets **defender quota**, **searcher quota**, **raid_intent** and **hunt_intent** (NPC clans; see **Area of Hunt**), strategic mood, economic weights. NPCs **pull** quotas and self-assign states. Player clans get neighbor/threat parity; NPC raids still skip the player unless design adds them. **Planned:** clan **skills**, **traits**, and **stats** derived from **clansmen** (averaged stats; traits when enough clansmen share one), a clan **morale bar**, and **buffs/debuffs** on the brain — see `ai_clan_brain.md` § Clan identity. |
 | **ClanBrain stats** | *Planned.* Numeric attributes on the brain = **average** of each stat across clansmen in the clan. |
-| **ClanBrain traits** | *Planned.* When a **quorum** of clansmen share a trait, the brain gains that trait for clan-level decisions (threshold TBD). |
+| **ClanBrain traits** | Quorum **perks** on the brain; spec [traits.md](traits.md) § Clan traits. |
 | **ClanBrain skills** | *Planned.* Clan-scale skills that modify defend/raid/hunt and job bias (roster TBD). |
 | **Morale bar (ClanBrain)** | *Planned.* Clan-level mood on the brain (bold vs brittle). **Not** the per-fighter morale / flight bar in `morale_bar_flight.md`. |
 | **ClanBrain buff / debuff** | *Planned.* Temporary or lasting modifiers on the brain (relics, events, rally, shame) stacked with averaged stats and quorum traits. |
 | **Area of Hunt (AoH)** | Zone on **land claim** wider than the claim footprint. Counts **`WildRole.PREY`** wildlife (**deer**, **mammoth** via **`NPCConfig.is_ai_hunt_prey_type`**) that ClanBrain uses for **`hunt_intent`**. **Herdables** (sheep, goat, woman) can be in the zone but are **not** AoH hunt targets — they route through **`herd_wildnpc`** / search. |
-| **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties. In RTS **Hunt**, each ordered clansman holds one **`hunt_engagement`** token (`player_party_hunt.gd`) on the nearest huntable prey until it dies, the mode ends, or it leaves the release radius. |
+| **Hunt intent** | **NPC clans:** when prey is counted in AoH and economics allow, ClanBrain **`_start_hunt()`** exposes **`hunt_intent`**; **`hunt_state`** self-assigns like raids. **Player clans:** brain does not steer hunt parties. In RTS **Hunt**, each ordered clansman holds one **`hunt_engagement`** token (`player_party_hunt.gd`) on the nearest huntable prey until it dies, the mode ends, or it leaves the release radius. Kills queue on the player. Leaving Hunt sends the party to butcher that queue before they follow again. |
 | **Defender quota** | How many clansmen **ClanBrain** wants on **defend** duty at the claim edge. |
 | **Searcher quota** | How many clansmen should **search / herd wild** herdables (wilderness recruitment). |
 | **Strategic state** | ClanBrain mood: **PEACEFUL**, **DEFENSIVE**, **AGGRESSIVE**, **RAIDING**, **RECOVERING** (gates budgets and intent). |
@@ -164,10 +170,14 @@ Canonical vocabulary for **Stone Age Clans**. Use these definitions in UI, desig
 | Term | Definition |
 |------|------------|
 | **Species** | One of five hominid lines (Sapiens, Neanderthal, Heidelbergensis, Denisovan, Floresiensis) — defines **trait pool** and flavor. |
-| **Trait** | Inheritable bonus (e.g. +% Strength); up to **6** per NPC; passed **~50/50** per slot from mother/father; only traits valid for a parent’s species can roll. |
+| **Perk** | Named inherited bonus on a person (`traits[]`). Modifies a **core** or **derived** stat. Max **6**. Full list: [traits.md](traits.md). |
+| **Clan trait** | Same perk id on the clan when **≥40%** weighted clansmen have it; bonus applied **once** (cap **+25%**). |
+| **Trait** | Same as **perk** in new docs. Old text may say “trait” for species bonuses. |
 | **Gene** | Optional **allele** layer (dominant/recessive) for a trait — finer reproduction model in design docs. |
 | **Hybridization** | Child **species** from parents (e.g. 50/50 which parent’s species); **traits** can mix across species pools. |
-| **Stats** | Numeric attributes (strength, intelligence, …) — often **average of parents ± small mutation** at birth. |
+| **Core attribute** | One of **eight** stored stats (Strength, Intelligence, Endurance, Agility, Perception, Social, Constitution, Bravery). Build spec: [future implementations/character_attributes.md](future%20implementations/character_attributes.md). |
+| **Derived statistic** | Gameplay value computed from a core (and traits, gear, context). Not a separate core; usually not its own UI bar. |
+| **Stats** | **Eight cores** at birth (average of parents ± mutation). Old nine-stat code is pre-spec. |
 | **Appearance (2D)** | Look = **sprite sheets** / **DirectionalSpriteSheet** / **AssetRegistry** — **not** MakeHuman, morph genomes, or Mixamo. |
 
 ---
@@ -185,6 +195,24 @@ High-level priority stack (not every state): **Agro** → **Combat** → **Herd 
 | **Sandbox / domination** | No mandatory win screen; goal is **generational dominance** with **brutal raiding** and permadeath tone. |
 | **Primitive command model** | **Lore:** early humans don’t issue modern tactical vocabulary — only **gesture-level** orders: follow, guard ring, attack push, defend claim, **War Horn** rally, **Break**. **Code:** keep RTS **small** (`command_context`, `RTS_CONFIG`, one formation pass). |
 | **Direct control** | Only the **player character** is fully direct-driven; **clansmen** are AI plus RTS orders / quotas. |
+
+---
+
+## Memory
+
+Full rules: [story_data.md](story_data.md). Not built.
+
+| Term | Definition |
+|------|------------|
+| **Memory system** | What the game remembers. Own clans get life stories, ties, moodles, and a dawn note. AI clans get no diary. A crossing stores a rival mark. The sim still decides the work. |
+| **Tie** | One person in your clan leaning warm or sour toward another, plus the last act. At most four per person. Not blood (that is **Kin**). |
+| **Showing** | A social act from the **hold-G** wheel, or the same act when clanspeople do it in the ring: praise, dominance, displeasure, joke, and later share, comfort, mourn, boast. It moves mood and a tie. It does not change a job. |
+| **Call** | A short bark in the hearing ring (danger, found, come, no, hurt, baby, dead), or one carried fact that can be passed twice. A **horn call** (Come, At ease, Spook, Taunt) is remembered only when a life beat follows. |
+| **Moodle** | A small feeling icon on the character Info tab, caused by a real event or an existing need. They stack, up to 12 shown. The **strongest** one may drive the pawn face (hero LOD) or an above-head icon (near LOD). A moodle never decides a job. |
+| **Emoji face** | Shared procedural **eyes + mouth** on the head — stone-age body language every clan reads the same. **Idle** mouth from genetics; **emotion** mouths from the strongest moodle. Spec: [emotion.md](../emotion.md). Not built. |
+| **Rival** | The neighbor clan with the worst open kill score against us. One stamp on the clan screen. Also called the nemesis. Not one man who remembers you. |
+| **Feud** | One line on the clan brain per neighbor: kill counts both ways, the last three death pairs, and whether blood or theft is still open. AI clans keep this list only. Not a diary. |
+| **Nemesis** | The stamped rival clan on the feud list. The clan-scale version of a personal enemy. No power ladder and no return from the dead. |
 
 ---
 
@@ -227,3 +255,4 @@ Godot still uses two `npc_type` strings for males: **`"caveman"`** and **`"clans
 - Replaced ad-hoc **warband** wording with **clansmen** / **caveman** per project canon.
 - **Fighter** limited to **fighter activity** (combat posture), not roster counts.
 - Pulled **bible.md** terminology (AOP/AOA, RTS, ClanBrain, jobs, genetics, buildings, FSM, relics, etc.) into sections above; **dictionary overrides** old bible lines that called cavemen “wild.”
+- **2026-10-31:** Memory system, Tie, Showing, Call, Moodle, Rival. Spec: [story_data.md](story_data.md).

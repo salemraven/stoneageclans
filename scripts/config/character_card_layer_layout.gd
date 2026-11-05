@@ -46,3 +46,30 @@ class_name CharacterCardLayerLayout
 @export var clothing4_offset_px: Vector2 = Vector2(-9.79, -34.27)
 
 @export var clothing4_scale_mul: float = 1.2
+
+## Dot eyes on HeadPivot (east-facing; X mirrors when the body faces left).
+## Receipt 2026-10-18T00:14:32 (eyes-edit idle copy).
+@export var eye_left_local_px: Vector2 = Vector2(5.12, -179.43)
+
+@export var eye_right_local_px: Vector2 = Vector2(98.14, -184.33)
+
+## Scales both eye ovals. 1.0 is the fitted middle. Genes nudge this a little.
+@export var eye_scale_mul: float = 1.0
+
+## 1.0 is the drawn oval. Higher is a bit wider, lower a bit rounder.
+@export var eye_aspect: float = 1.0
+
+## Pupil tint. The white of the eye stays white.
+@export var pupil_color: Color = Color(0.05, 0.04, 0.03, 1.0)
+
+## nose2.png on HeadPivot. East-facing; X mirrors when the body faces left.
+## Receipt 2026-10-18T02:11:13 (eyes-edit idle copy).
+@export var nose_texture_path: String = "res://assets/characters/Noses/nose2.png"
+@export var nose_local_px: Vector2 = Vector2(19.81, -147.61)
+@export var nose_scale_mul: float = 0.9
+
+## brow4.png on HeadPivot. East-facing; X mirrors when the body faces left.
+## Receipt 2026-10-18T02:15:06.
+@export var brow_texture_path: String = "res://assets/characters/Brow/brow4.png"
+@export var brow_local_px: Vector2 = Vector2(17.13, -173.5)
+@export var brow_scale_mul: float = 0.9

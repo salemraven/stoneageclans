@@ -62,7 +62,7 @@
 
 ## Art File Conventions (For New Assets)
 
-- **Pawns / characters:** 64×64 standard; 128×128 if scaled down to 64 px in code (e.g. PlayerB, walk sheet).
+- **Pawns / characters:** 64×64 standard; 128×128 if scaled down to 64 px in code (walk sheet). People use placeholder cards, not a baked body sprite.
 - **Buildings:** 64×64 or 128×128; bottom of sprite = ground line.
 - **Gatherables / ground items:** 64×64 typical; centered, any size supported.
 - **Tall grass / decor:** Any size; centered; uses `update_draw_order` to Y-sort with entities.

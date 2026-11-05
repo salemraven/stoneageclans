@@ -32,7 +32,8 @@ static func tick(
 	include_hunt_and_slaughter: bool = true,
 	skip_member_ids: Dictionary = {},
 	player_father_alive: bool = false,
-	slice_id: int = -1
+	slice_id: int = -1,
+	include_people: bool = true
 ) -> Dictionary:
 	var events: Dictionary = {
 		"fed": [],
@@ -92,6 +93,55 @@ static func tick(
 		)
 		events["slaughter"] = slaughter_events
 
+	if include_people:
+		_tick_people(claim, roster, elapsed_sec, events, clan_starving, skip, player_father_alive)
+
+	_run_passive_production(claim, inventory, passive_state, elapsed_sec, events)
+	_burn_wood(claim, inventory, passive_state, elapsed_sec, events)
+
+	_feed_roster(inventory, roster, events, skip)
+	_haul_asleep_specialty_huts(claim, inventory)
+	_resolve_starvation(clan, roster, events, skip)
+
+	claim.set_meta("settlement_passive_state", passive_state)
+	return events
+
+
+static func tick_people(
+	claim: Node,
+	roster: RefCounted,
+	elapsed_sec: float,
+	clan_starving: bool = false,
+	skip_member_ids: Dictionary = {},
+	player_father_alive: bool = false
+) -> Dictionary:
+	var events: Dictionary = {
+		"births": [],
+		"pregnancies_started": [],
+		"pregnancies_cancelled": [],
+		"births_blocked": [],
+		"grew_up": [],
+		"husband_reassigned": [],
+	}
+	if claim == null or roster == null or elapsed_sec <= 0.0:
+		return events
+	var skip := skip_member_ids.duplicate()
+	for m in roster.members:
+		if m is Dictionary and bool((m as Dictionary).get("away", false)):
+			skip[int((m as Dictionary).get("id", 0))] = true
+	_tick_people(claim, roster, elapsed_sec, events, clan_starving, skip, player_father_alive)
+	return events
+
+
+static func _tick_people(
+	claim: Node,
+	roster: RefCounted,
+	elapsed_sec: float,
+	events: Dictionary,
+	clan_starving: bool,
+	skip: Dictionary,
+	player_father_alive: bool
+) -> void:
 	# One second at a time so a birth only grows for the time after it happens,
 	# and a cooldown can start another pregnancy inside the same interval.
 	var people_left: float = elapsed_sec
@@ -103,16 +153,6 @@ static func tick(
 		_tick_new_conceptions(claim, roster, events, skip, player_father_alive)
 		_tick_aging(roster, step, skip)
 		people_left -= step
-
-	_run_passive_production(claim, inventory, passive_state, elapsed_sec, events)
-	_burn_wood(claim, inventory, passive_state, elapsed_sec, events)
-
-	_feed_roster(inventory, roster, events, skip)
-	_haul_asleep_specialty_huts(claim, inventory)
-	_resolve_starvation(clan, roster, events, skip)
-
-	claim.set_meta("settlement_passive_state", passive_state)
-	return events
 
 
 static func _get_passive_state(claim: Node) -> Dictionary:
@@ -434,6 +474,8 @@ static func _tick_new_conceptions(
 			continue
 		var w: Dictionary = woman as Dictionary
 		if skip_member_ids.has(int(w.get("id", 0))):
+			continue
+		if bool(w.get("awaiting_hut", false)):
 			continue
 		var father_id: int = _pick_father_id(roster, w, events, player_father_alive)
 		if father_id < 1:

@@ -66,7 +66,7 @@ Reports often show: strong pop growth, **low food_days_buffer**, **one hunt per 
 | Mode | Stances (examples) | Role |
 |------|-------------------|------|
 | **PEACE** | FOLLOW, GUARD, HIDE | Travel, ring, crouch in cover |
-| **AGRO** | ATTACK, GUARD, AMBUSH | Fight; ambush on leader windup |
+| **AGRO** | ATTACK, GUARD, AMBUSH | Fight; ambush joins when the leader is in combat and has a target |
 | **HUNT** | AMBUSH, STALK, ARC | Quiet approach, arc ahead of leader |
 
 Stored in `command_context.mode`. Formations: `FormationUtils` + `rts_formation_config.gd`.

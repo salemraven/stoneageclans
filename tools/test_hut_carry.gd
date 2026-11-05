@@ -225,8 +225,10 @@ class TickBrain extends RefCounted:
 	var ticks: int = 0
 	func set_dormant(_value: bool) -> void:
 		pass
-	func dormant_update(_delta: float) -> void:
+	func dormant_update(_delta: float, _alert_delta: float = -1.0) -> void:
 		ticks += 1
+		owed += _delta
+	var owed: float = 0.0
 
 
 class CampProbe extends Node2D:
@@ -237,6 +239,7 @@ class CampProbe extends Node2D:
 
 class FakeMain extends Node:
 	var npcs_container: Node = null
+	var player: Node2D = null
 	var spawned: Array = []
 	func spawn_npc_from_sleep_data(data: Dictionary, parent: Node) -> void:
 		var body := NPCBase.new()
@@ -363,6 +366,10 @@ func _test_park_camp() -> void:
 		_pass("a parked hut still crafts while it is not processing")
 	else:
 		_fail("a parked hut still crafts while it is not processing", str(hut.inventory.get_count(ResourceData.ResourceType.GRAIN)))
+	var watcher := Node2D.new()
+	main.add_child(watcher)
+	main.player = watcher
+	watcher.global_position = claim.global_position
 	var restored: bool = bool(camps.call("restore_chunk", coords, chunk))
 	var claims := 0
 	for node in root.find_children("", "LandClaim", true, false):

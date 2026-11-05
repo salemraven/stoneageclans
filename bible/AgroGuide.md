@@ -1,6 +1,7 @@
 # Agro & Combat Guide — Overhaul Plan
 
-**Last Updated:** Feb 18, 2026
+**Last Updated:** Feb 18, 2026  
+**Vocabulary (locked 2026-11-04):** Player **Fight** / **Flight** / **fight or flight** — [fight_or_flight.md](fight_or_flight.md). This guide’s **agro** = technical **`agro_meter`**, AOA, and combat tick (not the player word **Fight**).
 
 ## Test process: validate the overhaul combat and agro system
 

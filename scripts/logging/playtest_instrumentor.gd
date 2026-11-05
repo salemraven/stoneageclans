@@ -303,6 +303,18 @@ func hunt_engage(npc_name: String, prey_name: String, reason: String) -> void:
 func hunt_release(npc_name: String, prey_name: String, reason: String) -> void:
 	_write({"evt": "hunt_release", "npc": npc_name, "prey": prey_name, "reason": reason})
 
+func hunt_kill_queued(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_kill_queued", "npc": npc_name, "prey": prey_name, "reason": reason})
+
+func hunt_loot_start(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_loot_start", "npc": npc_name, "prey": prey_name, "reason": reason})
+
+func hunt_loot_done(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_loot_done", "npc": npc_name, "prey": prey_name, "reason": reason})
+
+func hunt_loot_abort(npc_name: String, prey_name: String, reason: String) -> void:
+	_write({"evt": "hunt_loot_abort", "npc": npc_name, "prey": prey_name, "reason": reason})
+
 func hunt_state_held(npc_name: String, state_name: String, dist: float) -> void:
 	_write({
 		"evt": "hunt_state_held",
@@ -541,6 +553,24 @@ func combat_hit(npc_name: String, target_name: String, attacker_clan: String = "
 
 func combat_whiff(npc_name: String, target_name: String, reason: String) -> void:
 	_write({"evt": "combat_whiff", "npc": npc_name, "target": target_name, "reason": reason})
+
+func npc_body_incomplete(npc_name: String, npc_type: String, source: String, clan_name: String = "") -> void:
+	_write({
+		"evt": "npc_body_incomplete",
+		"npc": npc_name,
+		"type": npc_type,
+		"source": source,
+		"clan": clan_name,
+	})
+
+func npc_body_repaired(npc_name: String, npc_type: String, source: String, clan_name: String = "") -> void:
+	_write({
+		"evt": "npc_body_repaired",
+		"npc": npc_name,
+		"type": npc_type,
+		"source": source,
+		"clan": clan_name,
+	})
 
 func stagger_self_blocked(npc_name: String, target_name: String) -> void:
 	_write({"evt": "stagger_self_blocked", "npc": npc_name, "target": target_name})
@@ -1081,6 +1111,13 @@ func session_nearby_clan_spawned(
 		"ring_index": ring_index,
 		"ring_radius_px": ring_radius_px,
 	})
+
+
+func clan_compare(row: Dictionary) -> void:
+	var out: Dictionary = {"evt": "clan_compare"}
+	for k in row:
+		out[k] = row[k]
+	_write(out)
 
 
 func ai_clan_snapshot(payload: Dictionary) -> void:

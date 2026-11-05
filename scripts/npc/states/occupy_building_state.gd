@@ -63,6 +63,9 @@ func can_enter() -> bool:
 	# Must be in clan
 	if npc.is_wild():
 		return false
+	# Already housed. This state walks to the building center and fights the hut line.
+	if HutWomanWorkPresence.is_living_hut_occupant(npc):
+		return false
 	
 	# CRITICAL: Cannot occupy while defending or in combat - these take priority
 	if _is_defending():

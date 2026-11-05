@@ -22,7 +22,7 @@ An AI clan that the player character is not looking at must still eat, gather, g
 
 The player character should be able to meet one of that clan's men in the wilderness, follow him toward the claim, and then see a village that is already arranged: defenders on the circle, women at the huts and the oven, gatherers out in the ring, animals by the farm. Nothing in that picture is allowed to require a second simulation of the same food, the same birth, or the same raid.
 
-The owning player's camp does not use this picture. His people stay awake for the whole session so he never sees his own clan pop into existence. That cost is accepted. If a huge player roster later hurts the frame, the same record can be applied to camps no player is standing in. It is not applied to his camp in this design.
+The owning player's camp does not use this picture. His people stay awake for the whole session so he never sees his own clan pop into existence. That cost is accepted. The one-settlement-clock idea of putting the player camp on the sleeping record is **not** the rule (locked 2026-10-19). If a huge player roster later hurts the frame, the same record can be applied to camps no player is standing in. It is not applied to his camp in this design.
 
 ## The rule
 
@@ -128,9 +128,9 @@ The live gate today calls every fighter within twice the claim radius. That call
 
 AI clans can call both. The player clan cannot call them for him.
 
-**Unseen.** The party is a token on the brain: who went, which way, and how much travel time is left. Defenders are not taken. A hunt needs enough men left at home and low meat. It removes one deer from the chunk's wildlife pool and adds that carcass's meat and hide to the pantry once. A raid needs a neighbor, a motive, and at least two men who are not the home guard. It moves a bounded amount of food from the other pantry once, then the men are on the way home. No pathfinding. No bodies. No chunks loaded for the trip.
+**Unseen.** The party is a token on the brain: who went, which way, and how much travel time is left. Defenders are not taken. A hunt needs enough men left at home and low meat. It removes one deer from the chunk's wildlife pool and adds that carcass's meat and hide to the pantry once. A raid needs a neighbor, a motive, the odds gate (they think they can win; a rival does not override a bad bet), and at least two men who are not the home guard. A food raid moves a bounded amount of food from the other pantry once. A blood raid removes two named fighters from the defender's roster once, and both brains write that feud line once ([director_locks_2026_10.md](director_locks_2026_10.md) §11). The two names are a seeded roll among that clan's fighters. Then the men are on the way home. No pathfinding. No bodies. No chunks loaded for the trip.
 
-**Seen.** If the party's point lies in a loaded chunk, those men become bodies and the token is marked materialized. A hunt that is still outbound gets a real deer or mammoth in that chunk, and the pool meat is not added. A raid wakes the other camp's posted defenders and they fight, and the food transfer does not also run. A party already on the way home is spawned walking in. The goods are already in the pantry. They are not paid again.
+**Seen.** If the party's point lies in a loaded chunk, those men become bodies and the token is marked materialized. A hunt that is still outbound gets a real deer or mammoth in that chunk, and the pool meat is not added. A raid wakes the other camp's posted defenders and they fight, and the food transfer does not also run. The two off-screen deaths do not also run if the fight is real. A party already on the way home is spawned walking in. The goods are already in the pantry. They are not paid again. The deaths are not applied again.
 
 If the player character never comes near the party, it finishes on the record and the men are home on a later slice.
 

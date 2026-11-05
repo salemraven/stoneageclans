@@ -184,6 +184,33 @@ static func _build_morphology(preset: WeaponLimbPreset, rig: LimbTunerRig) -> Di
 			out["clothing_texture"] = str(clothing.get("clothing_texture", ""))
 			out["clothing_offset_px"] = _vec2_array(clothing_offset)
 			out["clothing_scale_mul"] = float(clothing.get("clothing_scale_mul", 1.0))
+			var eyes := {}
+			if rig.has_method("eyes_receipt_fields"):
+				eyes = rig.eyes_receipt_fields()
+			if not eyes.is_empty():
+				var eye_l: Vector2 = eyes.get("eye_left_local_px", Vector2.ZERO)
+				var eye_r: Vector2 = eyes.get("eye_right_local_px", Vector2.ZERO)
+				out["eye_left_local_px"] = _vec2_array(eye_l)
+				out["eye_right_local_px"] = _vec2_array(eye_r)
+				out["eye_scale_mul"] = float(eyes.get("eye_scale_mul", 1.0))
+				if eyes.has("nose_local_px"):
+					out["nose_texture"] = str(eyes.get("nose_texture", ""))
+					out["nose_local_px"] = _vec2_array(eyes["nose_local_px"])
+					out["nose_scale_mul"] = float(eyes.get("nose_scale_mul", 1.0))
+				if eyes.has("brow_local_px"):
+					out["brow_texture"] = str(eyes.get("brow_texture", ""))
+					out["brow_local_px"] = _vec2_array(eyes["brow_local_px"])
+					out["brow_scale_mul"] = float(eyes.get("brow_scale_mul", 1.0))
+			elif layout != null:
+				out["eye_left_local_px"] = _vec2_array(layout.eye_left_local_px)
+				out["eye_right_local_px"] = _vec2_array(layout.eye_right_local_px)
+				out["eye_scale_mul"] = layout.eye_scale_mul
+				out["nose_texture"] = layout.nose_texture_path
+				out["nose_local_px"] = _vec2_array(layout.nose_local_px)
+				out["nose_scale_mul"] = layout.nose_scale_mul
+				out["brow_texture"] = layout.brow_texture_path
+				out["brow_local_px"] = _vec2_array(layout.brow_local_px)
+				out["brow_scale_mul"] = layout.brow_scale_mul
 		if rig.has_method("get_mannequin_layout"):
 			var mannequin = rig.get("_mannequin_layout")
 			if mannequin != null:

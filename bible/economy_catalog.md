@@ -167,6 +167,8 @@ Shrine / trophy. **Relics are hunt trophies:** rare horns, fangs, quadrant rares
 
 **Shrine job:** park relics → clan-wide small buff **while they stay**. Buff type is on the **relic** (morale / hunt / babies). Remove or steal → that buff ends. **No production.** Not the Shaman Hut.
 
+**Sacrifice slot (locked 2026-10-18, not built):** one slot that is **not** a relic slot. Bound cordage dropped here spends a captive or kin. One body, one rite. Rules: [the_land.md](the_land.md) §2 and §9.
+
 **Slots by tier:** T1 = 1 relic · T2 = 2 · T3 = 3. Relics **full-stack**, even two of the same (two fangs = double hunt buff).
 
 ### 3.11 Seed
@@ -331,13 +333,15 @@ Place Living Hut  →  (optional: leave as housing-only)
 
 **Daughters (locked 2026-10-13):** when a daughter grows up, the clan builds a plain Living Hut from the claim stockpile and specializes it to the industry with the **biggest surplus**, if the stockpile can pay. If it can't, she waits in her family's hut. Applies to every clan, the player's too. The player can convert any hut afterward (same swap rule: tier and materials stay, craft in progress is cancelled).
 
-**Housing rule (locked):** A **specialized** hut **keeps** living-hut duties for assigned women: **home binding**, walk-loop start, **same +5 baby cap**, reproduction gates.
+**Housing rule (locked):** A **specialized** hut **keeps** living-hut duties for assigned women: **home binding**, walk-loop start, baby room (**+5 per woman**), reproduction gates.
+
+**Layers (locked 2026-10-19):** The first build layer is four crafts on a living hut: **Oven, Weaver, Rack, Crop**. Tier 2, Tier 3, more women, and more industries are **later layers** on the same hut line. They are not cancelled. See [director_locks_2026_10.md](director_locks_2026_10.md) §2.
 
 **Building HP (locked):** Use one **base max HP** for unspecialized living hut and **Specialty (T1)**. Each **production upgrade** (T2, then T3) adds **+25% max HP** from that base (T2 = 125%, T3 = 150%). Bigger workshops are harder to burn down.
 
 **Raid destruction (locked):** If a hut is **destroyed** in a raid, it is **total loss** — **no** downgrade (T3 does not become T2). Rebuild from a new Living Hut kit.
 
-**Dismantle production (locked):** Player can **revert** a specialized hut to an **unspecialized Living Hut** (clears specialty + workshop tier, footprint back to 1 hut, HP back to base, women unassigned from production). **Baby cap stays +5.** Materials are **not** refunded in v1 (tune later).
+**Convert craft (locked 2026-10-19):** The player **converts** a specialized hut to another industry. **Tier and materials stay.** Work in progress is cancelled. There is **no** dismantle back to an empty living hut. A hut that was never specialized can still sit as housing only.
 
 **Upgrade & specialize costs (test placeholders — tune for real balance later):**
 
@@ -347,7 +351,7 @@ Place Living Hut  →  (optional: leave as housing-only)
 | **Specialize** → T1 specialty | 1 wood + 1 stone |
 | **Upgrade** → Workshop (T2) | 2 wood + 1 stone |
 | **Upgrade** → Master compound (T3) | 2 wood + 2 stone + 1 hide |
-| **Dismantle production** | Free (no refund) |
+| **Convert** to another craft | No extra materials (tier stays) |
 
 Implement in `BuildingRegistry` / upgrade UI when the flow ships; numbers are for **playtests only**.
 
@@ -659,7 +663,7 @@ Sheet + cordage at Tailor. T1 or T3: **same cost**. T3 more likely **master** wo
 - Imbue slot rules  
 - Water gathering (skins, gourds, rivers)  
 - Axe / pick / blade / spear recipes  
-- Dismantle **material refund** %  
+- Convert craft cost if we ever charge materials (today: free, tier stays)  
 - Cultivation grow time; seed-drop %  
 - Weaver UI: sheet vs rope in the same building  
 - Pit fire T2 storage-jar clay/wood counts  

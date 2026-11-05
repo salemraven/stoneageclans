@@ -1,6 +1,8 @@
 extends RefCounted
 class_name FightOver
 
+const NPCRoleBodyScript = preload("res://scripts/npc/npc_role_body.gd")
+
 ## Single path: everyone targeting a dead/corpse node leaves combat.
 
 
@@ -11,16 +13,7 @@ static func is_corpse_node(n: Node) -> bool:
 
 
 static func is_living_attack_target(target: Node) -> bool:
-	if not target or not is_instance_valid(target):
-		return false
-	if is_corpse_node(target):
-		return false
-	var hc: Node = target.get_node_or_null("HealthComponent")
-	if hc != null and "is_dead" in hc and bool(hc.is_dead):
-		return false
-	if target.has_method("is_dead") and bool(target.is_dead()):
-		return false
-	return true
+	return NPCRoleBodyScript.is_living_attack_target(target)
 
 
 static func actor_targets_node(actor: Node, corpse: Node) -> bool:

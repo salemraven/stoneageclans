@@ -5,12 +5,26 @@ extends "res://scripts/npc/states/base_state.gd"
 
 var last_target_update_time: float = 0.0
 var _herd_instrument_timer: float = 0.0
+var _leash_open_sec: float = 0.0
 const HERD_INSTRUMENT_INTERVAL: float = 2.0
+## One frame past the snap is her catching up, not a lost follow.
+const LEASH_OPEN_SEC: float = 1.0
+
+func _drop_follow() -> void:
+	# Leave herd now. Zeroing the eval timer every frame never reaches the interval, so she froze.
+	if not npc:
+		return
+	npc._clear_herd()
+	if npc.progress_display:
+		npc.progress_display.stop_collection()
+	if fsm and fsm.has_method("get_current_state_name") and fsm.get_current_state_name() == "herd" and fsm.has_method("change_state"):
+		fsm.change_state("wander")
+
 
 func enter() -> void:
+	_leash_open_sec = 0.0
 	if not npc or not npc.herder or not is_instance_valid(npc.herder):
-		if npc:
-			npc._clear_herd()
+		_drop_follow()
 		return
 	_cancel_tasks_if_active()
 	last_target_update_time = Time.get_ticks_msec() / 1000.0
@@ -26,22 +40,14 @@ func update(delta: float) -> void:
 	if npc.is_dead():
 		return
 	if not npc.herder or not is_instance_valid(npc.herder):
-		npc._clear_herd()
-		if npc.progress_display:
-			npc.progress_display.stop_collection()
-		if fsm:
-			fsm.evaluation_timer = 0.0
+		_drop_follow()
 		return
 	if npc.herder.has_method("is_dead") and npc.herder.is_dead():
-		npc._clear_herd()
 		var npc_type_str: String = npc.get("npc_type") if npc else ""
 		if npc_type_str == "woman" or npc_type_str == "sheep" or npc_type_str == "goat":
 			if npc.clan_name != "":
 				npc.clan_name = ""
-		if npc.progress_display:
-			npc.progress_display.stop_collection()
-		if fsm:
-			fsm.evaluation_timer = 0.0
+		_drop_follow()
 		return
 
 	_check_clan_joining()
@@ -55,9 +61,7 @@ func update(delta: float) -> void:
 
 	var herder_ref: Node2D = npc.herder
 	if not is_instance_valid(herder_ref):
-		npc._clear_herd()
-		if fsm:
-			fsm.evaluation_timer = 0.0
+		_drop_follow()
 		return
 
 	var herder_type: String = herder_ref.get("npc_type") as String if herder_ref.get("npc_type") != null else ""
@@ -81,12 +85,12 @@ func update(delta: float) -> void:
 	if NPCConfig and "herd_max_distance_before_break" in NPCConfig:
 		herd_break_dist = NPCConfig.herd_max_distance_before_break as float
 	if dist_to_herder >= herd_break_dist and not bool(npc.get("follow_is_ordered")):
-		npc._clear_herd()
-		if npc.progress_display:
-			npc.progress_display.stop_collection()
-		if fsm:
-			fsm.evaluation_timer = 0.0
-		return
+		_leash_open_sec += delta
+		if _leash_open_sec >= LEASH_OPEN_SEC:
+			_drop_follow()
+			return
+	else:
+		_leash_open_sec = 0.0
 
 	var current_time: float = Time.get_ticks_msec() / 1000.0
 	if current_time - last_target_update_time >= refresh_interval:
@@ -111,11 +115,7 @@ func _check_clan_joining() -> void:
 			return
 		if npc.get("follow_is_ordered"):
 			return
-		npc._clear_herd()
-		if npc.progress_display:
-			npc.progress_display.stop_collection()
-		if fsm:
-			fsm.evaluation_timer = 0.0
+		_drop_follow()
 		return
 	var skip_release: bool = npc.get("follow_is_ordered") as bool if npc.get("follow_is_ordered") != null else false
 	if npc._try_join_clan_from_claim(skip_release):

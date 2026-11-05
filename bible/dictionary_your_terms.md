@@ -53,16 +53,16 @@ From `clan_founding_and_exile.md`. Not built yet.
 |------|------------|-------------------------|
 | **Herd** | Leading **herdables** (women, sheep, goats). They can be stolen, or join the clan when brought inside the claim. Not used for cavemen. | — |
 | **Follow** | Order for **clansmen**: stay with you or a leader, in formation, for travel and combat. You break it. It is not stolen like a herd. | Older notes treated Follow as the clansman’s state. Current dictionary: Follow is a **stance**. The squad itself is a **party**. |
-| **Party** | Clansmen in ordered follow, with stances Follow / Guard / Attack (agreed next names: **Walk / Hunt / Fight**). | Added when Follow was narrowed to a stance. |
+| **Party** | Clansmen in ordered follow. **Planned:** **H** makes a Follow party, a Raid party, or a Hunt party. | Added when Follow was narrowed to a stance. Walk / Hunt / Fight was an older label set and is scrap. |
 | **Guard** | Moving bodyguard stance: ring around the leader, tighter, more ready to fight. | Not the same as **Defender** on the claim border. |
-| **Attack** | Party stance: push to fight. Agreed next label is **Fight**. Raid is Fight while you are away from home, not a fourth mode. | — |
+| **Attack** | Party stance: push to fight. On the planned menu it stays **Attack**, under **Raid**. | — |
 | **Stance** | Follow, Guard, or Attack. Changes how eager they are to fight and how they stand around you. | — |
-| **Break** | **B**. Dismiss ordered follow. They walk **home**. | Agreed next, not shipped: also split the party pile into pockets, then drop it at your claim. |
-| **War Horn** | **H**. Rally clansmen to you. | **Today** in docs: about 1500 px, and H during a hunt aborts the hunt. **Agreed next:** about 400 px, fighters only, and a searcher who is already herding ignores the horn. |
+| **Break** | **B**, and a choice on every planned party submenu. Dismiss ordered follow. They walk **home**. The call ends. | The old “split the pile first” step is scrap. |
+| **War Horn** | **H**. Rally clansmen to you, and open the party circle. | **Today** in docs: about 1500 px, and H during a hunt aborts the hunt. **Planned:** same call, horn animation and sound around the leader, then Follow, Raid, or Hunt. The short horn (~400 px) is scrap. |
 | **Direct control** | You steer only your own body. Clansmen are AI plus these orders. | — |
 | **Primitive command model** | Lore limit: gesture-level orders only (follow, guard, attack, defend the claim, horn, break). No modern tactic menu. | — |
 
-**Agreed next, not shipped** (`party_ui.md`): **Walk**, **Hunt**, **Fight** replace the stance labels. **Party dock** is one window (thin bar, or a bigger sheet on **I**). **Party pile** is shared kit and loot for that band.
+**Planned, not shipped** (`party_ui.md`): **H** calls them in. The circle is **Follow**, **Raid**, or **Hunt**. The second menu is that party’s modes, and **Break** is on every one. The dock, the pile, and Walk / Hunt / Fight are scrap.
 
 ---
 

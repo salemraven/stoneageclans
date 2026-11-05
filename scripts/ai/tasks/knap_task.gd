@@ -7,7 +7,6 @@ const MoveToTaskScript = preload("res://scripts/ai/tasks/move_to_task.gd")
 # Handles: Move to land claim → Wait (show knapp sprite) → Consume 2 stone, add 1 stone + 1 blade
 
 const KNAPP_SPRITE_PATH := "res://assets/sprites/knapp.png"
-const NORMAL_SPRITE_PATH := "res://assets/sprites/PlayerB.png"
 const STONES_REQUIRED: int = 2
 
 var land_claim: Node2D
@@ -160,13 +159,6 @@ func _cleanup_knap_sprite(npc: NPCBase, cancelled: bool = false) -> void:
 	npc.set("is_crafting", false)
 	if npc.progress_display:
 		npc.progress_display.stop_collection(cancelled)
-	if npc.sprite:
-		var tex: Texture2D = load(NORMAL_SPRITE_PATH) as Texture2D
-		if tex:
-			npc.sprite.texture = tex
-			npc.sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			if npc.has_method("apply_sprite_offset_for_texture"):
-				npc.apply_sprite_offset_for_texture()
 	var weapon: Node = npc.get_node_or_null("WeaponComponent")
 	if weapon and weapon.has_method("force_apply_idle"):
 		weapon.force_apply_idle()

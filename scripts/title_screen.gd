@@ -1,6 +1,7 @@
 extends Control
 
 ## Title screen - NEW GAME starts the game. LOAD GAME and SETTINGS disabled for now.
+## Future menu: bible/future implementations/title_screen.md
 
 @onready var new_game_button: Button = $MenuContainer/VBox/NewGameButton
 @onready var load_game_label: Label = $MenuContainer/VBox/LoadGameLabel

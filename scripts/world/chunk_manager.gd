@@ -328,8 +328,7 @@ func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
 		var res_type: ResourceData.ResourceType = desc.get("type", ResourceData.ResourceType.STONE) as ResourceData.ResourceType
 		var res_key: String = _resource_key_for_type(res_type)
 		var already: int = int(spawned_by_key.get(res_key, 0))
-		if not _spawn_budget_ok(chunk, res_key, already):
-			continue
+		var spent := not _spawn_budget_ok(chunk, res_key, already)
 		spawned_by_key[res_key] = already + 1
 		var res: GatherableResource = RESOURCE_SCENE.instantiate() as GatherableResource
 		res.resource_type = res_type
@@ -354,6 +353,8 @@ func _spawn_resources(root: Node2D, chunk: Vector2i, list: Array) -> void:
 		if desc.has("stable_id"):
 			res.set_meta(&"stable_id", str(desc["stable_id"]))
 		root.add_child(res)
+		if spent and res.has_method("show_spent_without_recording"):
+			res.show_spent_without_recording()
 
 
 func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, groups: Array) -> void:
@@ -371,8 +372,7 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 			if _ms and sid != "" and bool(_ms.call("is_depleted", sid)):
 				continue
 			if bool(desc.get("choppable", false)):
-				if not _spawn_budget_ok(chunk, "wood", wood_spawned):
-					continue
+				var wood_spent := not _spawn_budget_ok(chunk, "wood", wood_spawned)
 				wood_spawned += 1
 				var pos: Vector2 = desc.get("position", Vector2.ZERO) as Vector2
 				var tree_idx: int = int(desc.get("tree_idx", 0))
@@ -389,6 +389,8 @@ func _spawn_tree_groups(visual_root: Node2D, sim_root: Node2D, chunk: Vector2i, 
 				wood.max_amount = 6
 				wrapper.add_child(wood)
 				sim_root.add_child(wrapper)
+				if wood_spent and wood.has_method("show_spent_without_recording"):
+					wood.show_spent_without_recording()
 			else:
 				if not _spawn_budget_ok(chunk, "nuts", nut_spawned):
 					continue

@@ -6,6 +6,9 @@ extends "res://scripts/npc/states/base_state.gd"
 var working_building: Node = null
 var job_check_timer: float = 0.0
 const JOB_CHECK_INTERVAL: float = 2.0  # Check for jobs every 2 seconds
+## On the foot mark but the hut still does not own her. Leave instead of seeking the mark forever.
+var _foot_stuck_sec: float = 0.0
+const FOOT_STUCK_SEC: float = 4.0
 
 # Throttle "no job" log to avoid spam
 var _last_no_job_log_time: float = 0.0
@@ -52,6 +55,7 @@ func exit() -> void:
 					claim.release_items(npc)
 	
 	working_building = null
+	_foot_stuck_sec = 0.0
 
 func update(delta: float) -> void:
 	if not npc:
@@ -77,6 +81,21 @@ func update(delta: float) -> void:
 		return
 	
 	if HutWomanWorkPresence.is_living_hut_occupant(npc):
+		if HutWomanWorkPresence.standing_on_hut_foot(npc) and HutWomanWorkPresence.carrying_blocks_hangout(npc):
+			HutWomanWorkPresence.try_empty_carried_stack(npc)
+		if HutWomanWorkPresence.controls_npc(npc):
+			_foot_stuck_sec = 0.0
+			# A real hangout is not stuck. The two-minute watchdog must not pop her off the hut.
+			set_meta("entry_time", Time.get_ticks_msec() / 1000.0)
+			return
+		HutWomanWorkPresence.steer_to_hut_foot(npc)
+		if HutWomanWorkPresence.standing_on_hut_foot(npc):
+			_foot_stuck_sec += delta
+			if _foot_stuck_sec >= FOOT_STUCK_SEC and fsm and fsm.has_method("change_state"):
+				_foot_stuck_sec = 0.0
+				fsm.change_state("wander")
+		else:
+			_foot_stuck_sec = 0.0
 		return
 	
 	# Legacy behavior: If no job system active, use old building occupation logic

@@ -449,6 +449,7 @@ func _setup_visuals() -> void:
 		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		sprite.scale = Vector2.ONE  # Land claim: 1:1 (no scale)
 		sprite.position = Vector2.ZERO  # Land claim: centered on node
+	_apply_flag_dye()
 
 func _draw_radius() -> void:
 	if not radius_indicator:
@@ -508,8 +509,30 @@ func _layout_clan_name_label() -> void:
 	# Top-center of label sits above node origin (flag pole base)
 	_clan_name_label.position = Vector2(-sz.x * 0.5, CLAN_NAME_LABEL_OFFSET_Y)
 
+var _flag_dye: Color = Color.WHITE
+
+
+func _apply_flag_dye() -> void:
+	var pcs: Node = get_node_or_null("/root/PlaceholderCardService")
+	if pcs and pcs.has_method("hide_dye_for_clan") and clan_name != "":
+		_flag_dye = pcs.call("hide_dye_for_clan", clan_name)
+	else:
+		_flag_dye = Color.WHITE
+	_refresh_flag_modulate()
+
+
+func _refresh_flag_modulate() -> void:
+	if sprite == null:
+		return
+	var health_percent := 1.0
+	if is_decaying:
+		health_percent = decay_health / DECAY_MAX_HEALTH
+	sprite.modulate = Color(_flag_dye.r * health_percent, _flag_dye.g * health_percent, _flag_dye.b * health_percent, 1.0)
+
+
 func set_clan_name(clan_name_param: String) -> void:
 	clan_name = clan_name_param.to_upper()
+	_apply_flag_dye()
 	# Don't truncate - display full clan name (e.g., "DA KUEY", "HO GEEN")
 	# The naming convention generates names like "Cv CvCv" or "Cv CvvC" which can be up to 7 characters
 	
@@ -791,11 +814,11 @@ func _update_player_defender_quota() -> void:
 		clan_brain._update_defender_assignments()
 
 
-func set_sim_zones_monitoring(_enabled: bool) -> void:
+func set_sim_zones_monitoring(enabled: bool) -> void:
 	if _aoh_zone and is_instance_valid(_aoh_zone):
-		_aoh_zone.monitoring = false
+		_aoh_zone.monitoring = enabled
 	if _enemies_zone and is_instance_valid(_enemies_zone):
-		_enemies_zone.monitoring = false
+		_enemies_zone.monitoring = enabled
 
 
 func _process(delta: float) -> void:
@@ -815,20 +838,13 @@ func _process(delta: float) -> void:
 		if mp == null or not mp.has_multiplayer_peer() or mp.is_server():
 			if clan_brain.has_method("_tick_clan_morale_drift"):
 				clan_brain._tick_clan_morale_drift(delta)
-			var interest: Node = get_node_or_null("/root/WorldInterestManager")
-			var claim_active: bool = interest == null or interest.call("is_claim_active", self)
-			if claim_active:
-				if clan_brain.is_dormant and clan_brain.has_method("set_dormant"):
-					clan_brain.set_dormant(false)
+			# 2400px claim interest stays on zones and chunks. The brain follows who is actually awake.
+			if clan_brain.has_method("tick_sim"):
+				clan_brain.tick_sim(delta)
+			elif player_owned or not clan_brain.is_dormant:
 				clan_brain.update(delta)
 			else:
-				if not clan_brain.is_dormant:
-					if clan_brain.has_method("_refresh_clan_members"):
-						clan_brain._refresh_clan_members()
-					if clan_brain.has_method("set_dormant"):
-						clan_brain.set_dormant(true)
-				if clan_brain.has_method("dormant_update"):
-					clan_brain.dormant_update(delta)
+				clan_brain.dormant_update(delta)
 	
 	if not is_decaying:
 		return
@@ -839,8 +855,7 @@ func _process(delta: float) -> void:
 	
 	# Visual feedback: make building darker as it decays
 	if sprite:
-		var health_percent: float = decay_health / DECAY_MAX_HEALTH
-		sprite.modulate = Color(health_percent, health_percent, health_percent, 1.0)
+		_refresh_flag_modulate()
 	
 	# OPTIMIZATION: Throttle health bar updates (update every N frames instead of every frame)
 	_health_bar_update_frame += 1

@@ -22,6 +22,15 @@ const IDLE_ELBOW_1_BEND := -1.0
 const IDLE_ELBOW_2_BEND := 1.0
 const IDLE_OVERLAY := Vector2(22.0, -34.0)
 const NECK_SOCKET_PX := Vector2(179.21, 66.09)
+const EYE_LEFT_LOCAL_PX := Vector2(5.12, -179.43)
+const EYE_RIGHT_LOCAL_PX := Vector2(98.14, -184.33)
+const EYE_SCALE_MUL := 1.0
+const NOSE_TEXTURE_PATH := "res://assets/characters/Noses/nose2.png"
+const NOSE_LOCAL_PX := Vector2(19.81, -147.61)
+const NOSE_SCALE_MUL := 0.9
+const BROW_TEXTURE_PATH := "res://assets/characters/Brow/brow4.png"
+const BROW_LOCAL_PX := Vector2(17.13, -173.5)
+const BROW_SCALE_MUL := 0.9
 
 var _failures: Array[String] = []
 
@@ -145,6 +154,15 @@ func _apply_neck_layout() -> void:
 		_fail("layer layout missing")
 		return
 	layout.body_neck_socket_px = NECK_SOCKET_PX
+	layout.eye_left_local_px = EYE_LEFT_LOCAL_PX
+	layout.eye_right_local_px = EYE_RIGHT_LOCAL_PX
+	layout.eye_scale_mul = EYE_SCALE_MUL
+	layout.nose_texture_path = NOSE_TEXTURE_PATH
+	layout.nose_local_px = NOSE_LOCAL_PX
+	layout.nose_scale_mul = NOSE_SCALE_MUL
+	layout.brow_texture_path = BROW_TEXTURE_PATH
+	layout.brow_local_px = BROW_LOCAL_PX
+	layout.brow_scale_mul = BROW_SCALE_MUL
 
 
 func _validate(preset: WeaponLimbPreset) -> void:
@@ -178,6 +196,20 @@ func _validate(preset: WeaponLimbPreset) -> void:
 	var layout = CharacterCardPartsRegistry.get_layout()
 	if layout != null:
 		_expect_vec("neck socket", layout.body_neck_socket_px, NECK_SOCKET_PX)
+		_expect_vec("eye left", layout.eye_left_local_px, EYE_LEFT_LOCAL_PX)
+		_expect_vec("eye right", layout.eye_right_local_px, EYE_RIGHT_LOCAL_PX)
+		if absf(layout.eye_scale_mul - EYE_SCALE_MUL) > 0.001:
+			_fail("eye_scale_mul expected %.2f got %.2f" % [EYE_SCALE_MUL, layout.eye_scale_mul])
+		if layout.nose_texture_path != NOSE_TEXTURE_PATH:
+			_fail("nose texture expected %s got %s" % [NOSE_TEXTURE_PATH, layout.nose_texture_path])
+		_expect_vec("nose", layout.nose_local_px, NOSE_LOCAL_PX)
+		if absf(layout.nose_scale_mul - NOSE_SCALE_MUL) > 0.001:
+			_fail("nose_scale_mul expected %.2f got %.2f" % [NOSE_SCALE_MUL, layout.nose_scale_mul])
+		if layout.brow_texture_path != BROW_TEXTURE_PATH:
+			_fail("brow texture expected %s got %s" % [BROW_TEXTURE_PATH, layout.brow_texture_path])
+		_expect_vec("brow", layout.brow_local_px, BROW_LOCAL_PX)
+		if absf(layout.brow_scale_mul - BROW_SCALE_MUL) > 0.001:
+			_fail("brow_scale_mul expected %.2f got %.2f" % [BROW_SCALE_MUL, layout.brow_scale_mul])
 
 
 func _expect_vec(label: String, got: Vector2, want: Vector2) -> void:

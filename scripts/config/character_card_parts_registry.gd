@@ -107,6 +107,17 @@ static func clone_layout(src: CharacterCardLayerLayout) -> CharacterCardLayerLay
 	copy.clothing3_scale_mul = src.clothing3_scale_mul
 	copy.clothing4_offset_px = src.clothing4_offset_px
 	copy.clothing4_scale_mul = src.clothing4_scale_mul
+	copy.eye_left_local_px = src.eye_left_local_px
+	copy.eye_right_local_px = src.eye_right_local_px
+	copy.eye_scale_mul = src.eye_scale_mul
+	copy.eye_aspect = src.eye_aspect
+	copy.pupil_color = src.pupil_color
+	copy.nose_texture_path = src.nose_texture_path
+	copy.nose_local_px = src.nose_local_px
+	copy.nose_scale_mul = src.nose_scale_mul
+	copy.brow_texture_path = src.brow_texture_path
+	copy.brow_local_px = src.brow_local_px
+	copy.brow_scale_mul = src.brow_scale_mul
 	return copy
 
 
@@ -232,6 +243,19 @@ static func resolved_hair_pivot_px(layout: CharacterCardLayerLayout = null) -> V
 	if active.hair_pivot_px.x < 0.0 or active.hair_pivot_px.y < 0.0:
 		return default_hair_pivot_px(active)
 	return active.hair_pivot_px
+
+
+static func resolved_eye_local_px(
+	layout: CharacterCardLayerLayout,
+	left_eye: bool,
+	facing_left: bool = false
+) -> Vector2:
+	if layout == null:
+		return Vector2.ZERO
+	var p := layout.eye_left_local_px if left_eye else layout.eye_right_local_px
+	if facing_left:
+		p.x = -p.x
+	return p
 
 
 static func resolved_hair_attach_local_px(

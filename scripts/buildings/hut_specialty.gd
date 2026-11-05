@@ -133,14 +133,23 @@ static func can_specialize(building: Node) -> bool:
 	return str(building.get("hut_specialty")) == ""
 
 
+static func missing_pay(claim_inventory: InventoryData) -> String:
+	if claim_inventory == null:
+		return "no claim stash"
+	var parts: PackedStringArray = PackedStringArray()
+	if claim_inventory.get_count(ResourceData.ResourceType.WOOD) < 1:
+		parts.append("1 wood")
+	if claim_inventory.get_count(ResourceData.ResourceType.STONE) < 1:
+		parts.append("1 stone")
+	if parts.is_empty():
+		return ""
+	return "need %s in the claim" % " and ".join(parts)
+
+
 static func specialize(building: Node, claim_inventory: InventoryData, kind: String) -> bool:
 	if not can_specialize(building) or not is_known(kind):
 		return false
-	if claim_inventory == null:
-		return false
-	if claim_inventory.get_count(ResourceData.ResourceType.WOOD) < 1:
-		return false
-	if claim_inventory.get_count(ResourceData.ResourceType.STONE) < 1:
+	if missing_pay(claim_inventory) != "":
 		return false
 	if not claim_inventory.remove_item(ResourceData.ResourceType.WOOD, 1):
 		return false

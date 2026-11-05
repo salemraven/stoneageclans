@@ -191,7 +191,8 @@ func _setup_panel() -> void:
 			occupation_container.name = "OccupationContainer"
 			occupation_container.add_theme_constant_override("separation", 4)
 			occupation_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			occupation_container.clip_contents = true
+			occupation_container.clip_contents = false
+			occupation_container.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 			woman_slot_container = HBoxContainer.new()
 			woman_slot_container.name = "WomanSlotContainer"
 			woman_slot_container.add_theme_constant_override("separation", 4)
@@ -1942,6 +1943,8 @@ func _process(delta: float) -> void:
 				_update_land_claim_calorie_display()
 			elif building and character_info_label and character_info_label.visible:
 				_update_living_hut_info()
+			if building and building.building_type == ResourceData.ResourceType.LIVING_HUT:
+				_refresh_specialty_affordability()
 	# Update clan control display (defend slider) when land claim panel is visible
 	if land_claim and land_claim.player_owned and visible and clan_control_container:
 		_update_clan_control_display()
@@ -2007,6 +2010,8 @@ func _refresh_hut_specialty_controls() -> void:
 	if building == null or not is_instance_valid(building):
 		return
 	if building.building_type != ResourceData.ResourceType.LIVING_HUT:
+		if inventory_panel:
+			inventory_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
 		return
 	if occupation_container == null:
 		return
@@ -2017,10 +2022,11 @@ func _refresh_hut_specialty_controls() -> void:
 	if str(building.hut_specialty) == "":
 		for kind in HutSpecialtyScript.SPECIALTIES:
 			var button := Button.new()
-			button.text = "Specialize: %s" % HutSpecialtyScript.display_name(kind)
+			button.set_meta("specialty_kind", kind)
 			button.pressed.connect(_on_specialize_pressed.bind(kind))
 			specialty_box.add_child(button)
 			specialty_buttons.append(button)
+		_refresh_specialty_affordability()
 	else:
 		var button := Button.new()
 		button.text = "Dismantle production"
@@ -2029,12 +2035,45 @@ func _refresh_hut_specialty_controls() -> void:
 		specialty_buttons.append(button)
 
 
+func _specialty_pay_reason() -> String:
+	if building == null or not building.has_method("_find_land_claim"):
+		return "no claim stash"
+	var claim: Node = building._find_land_claim()
+	var stash: InventoryData = claim.get("inventory") as InventoryData if claim else null
+	return HutSpecialtyScript.missing_pay(stash)
+
+
+func _refresh_specialty_affordability() -> void:
+	if building == null or str(building.get("hut_specialty")) != "":
+		return
+	var reason := _specialty_pay_reason()
+	for button in specialty_buttons:
+		if not is_instance_valid(button):
+			continue
+		var kind := str(button.get_meta("specialty_kind", ""))
+		if kind == "":
+			continue
+		button.disabled = reason != ""
+		var label := "Specialize: %s" % HutSpecialtyScript.display_name(kind)
+		if reason != "":
+			label += " (%s)" % reason
+		button.text = label
+	if inventory_panel:
+		var extra := 160.0 if not specialty_buttons.is_empty() else 0.0
+		inventory_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT + extra)
+		inventory_panel.size.y = maxf(inventory_panel.size.y, PANEL_HEIGHT + extra)
+
+
 func _on_specialize_pressed(kind: String) -> void:
 	if building == null or not is_instance_valid(building):
 		return
 	if building.specialize_hut(kind):
 		_update_title()
 		_refresh_hut_specialty_controls()
+	else:
+		var reason := _specialty_pay_reason()
+		print("Cannot specialize hut: %s" % reason)
+		_refresh_specialty_affordability()
 
 
 func _on_dismantle_specialty_pressed() -> void:

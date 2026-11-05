@@ -2,6 +2,7 @@ extends Node
 class_name BaseState
 
 const FightOverScript = preload("res://scripts/systems/fight_over.gd")
+const NPCRoleBodyScript = preload("res://scripts/npc/npc_role_body.gd")
 
 # Base class for all FSM states
 # All states should extend this
@@ -235,7 +236,7 @@ func _cancel_tasks_if_active() -> void:
 
 ## True if node exists and optional HealthComponent is not dead (used by combat/hunt/raid).
 func is_attack_target_alive(target: Node) -> bool:
-	return FightOverScript.is_living_attack_target(target)
+	return NPCRoleBodyScript.is_living_attack_target(target)
 
 func _npc_rngf() -> float:
 	if npc == null:

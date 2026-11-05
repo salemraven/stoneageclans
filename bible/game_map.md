@@ -455,7 +455,7 @@ The old **one-shot radius burst** and **minigame ring** (`_initialize_minigame`)
 **Authored island + Climate Change (design lock)**
 
 - **v1:** One static authored island — base layers only (`biome_mask`, `water_layer`, chunk export). **`TerrainQuery`** reads base; no runtime climate. Rebuild: **`bash tools/rebuild_island_biomes.sh`** — see [island_map.md](island_map.md) §1c.  
-- **Phase 6:** **Climate Change** — server `ClimateState` + per-chunk overlays (flood swell, **drought shrink**, glacier grow, aridification, ritual pressure). Base PNGs **never** edited at runtime. Spec: [environment_goal.md](environment_goal.md) §19.  
+- **Phase 6:** **Climate Change** — server `ClimateState` + per-chunk overlays (flood swell, **drought shrink**, glacier grow along a front, aridification into east savanna, **Favor / Listening** from [the_land.md](the_land.md)). Base PNGs **never** edited at runtime. Zones: [environment_goal.md](environment_goal.md) §3.7. Spec: §19.  
 - **`MutationStore`** today = depletions / grass clear; climate may extend it or use a parallel **`ClimateOverlayStore`**.
 
 ---

@@ -100,6 +100,8 @@ func _clear_return_home_metas() -> void:
 		npc.remove_meta("returning_from_break")
 	if npc.has_meta("returning_from_break_expire"):
 		npc.remove_meta("returning_from_break_expire")
+	if fsm and fsm.has_method("drop_cached_priority"):
+		fsm.drop_cached_priority("wander")
 
 func enter() -> void:
 	# Sheep/goats headed to Farm/Dairy: do NOT overwrite steering - let them reach assigned building
@@ -383,8 +385,9 @@ func update(delta: float) -> void:
 			var break_claim: Node2D = _get_land_claim()
 			if break_claim and is_instance_valid(break_claim) and npc.steering_agent:
 				var dist_to_claim: float = npc.global_position.distance_to(break_claim.global_position)
+				# Stand inside the line. The old point sat on the 120px gate, so arrival never counted.
 				if dist_to_claim > 120.0:
-					npc.steering_agent.set_arrive_target(break_claim.global_position)
+					npc.steering_agent.retarget_seek(_stand_around_claim(break_claim, 80.0))
 					if npc.steering_agent.has_method("set_speed_multiplier"):
 						npc.steering_agent.set_speed_multiplier(1.0)
 					return
@@ -418,9 +421,12 @@ func update(delta: float) -> void:
 						# TESTING: deposit movement at full speed (was 0.4x)
 						if npc.steering_agent.has_method("set_speed_multiplier"):
 							npc.steering_agent.set_speed_multiplier(1.0)
-						npc.steering_agent.set_arrive_target(land_claim.global_position)
+						npc.steering_agent.retarget_seek(_stand_around_claim(land_claim, deposit_range))
 					return
 				else:
+					if npc.steering_agent and npc.steering_agent.has_method("hold_still"):
+						npc.steering_agent.hold_still()
+						npc.velocity = Vector2.ZERO
 					npc.remove_meta("moving_to_deposit")
 					if npc.has_meta("is_depositing"):
 						npc.remove_meta("is_depositing")
@@ -1104,6 +1110,13 @@ func _get_used_slots() -> int:
 		if slot != null and slot.get("count", 0) > 0:
 			count += 1
 	return count
+
+# Spread arrivals around the claim so a deposit walk does not pile every man on the center.
+func _stand_around_claim(claim: Node2D, radius: float) -> Vector2:
+	var slot := int(npc.get_instance_id()) if npc else 0
+	var angle := float(posmod(slot * 137, 360)) * TAU / 360.0
+	return claim.global_position + Vector2.from_angle(angle) * radius
+
 
 # Get land claim for this NPC (uses NPC's cached get_my_land_claim)
 func _get_land_claim() -> Node2D:

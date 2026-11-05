@@ -649,6 +649,8 @@ func can_enter() -> bool:
 		if Time.get_ticks_msec() / 1000.0 - lf < cd and am_now < thr:
 			return false
 	
+	if PlayerPartyHunt.loot_is_active(npc):
+		return false
 	if PlayerPartyHunt.refresh(npc):
 		var hunt_prey: Node2D = PlayerPartyHunt.token_prey(npc)
 		if hunt_prey != null:

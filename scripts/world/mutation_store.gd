@@ -27,6 +27,23 @@ func _default_record() -> Dictionary:
 
 
 var _chunks: Dictionary = {}
+var _spent_herd_seeds: Dictionary = {}
+
+
+func spend_herd_seed(key: String) -> void:
+	if key.is_empty():
+		return
+	_spent_herd_seeds[key] = true
+
+
+func unspend_herd_seed(key: String) -> void:
+	if key.is_empty():
+		return
+	_spent_herd_seeds.erase(key)
+
+
+func herd_seed_spent(key: String) -> bool:
+	return not key.is_empty() and _spent_herd_seeds.has(key)
 
 
 func chunk_from_stable_id(stable_id: String) -> Vector2i:

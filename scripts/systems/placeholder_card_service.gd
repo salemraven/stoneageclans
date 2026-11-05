@@ -802,13 +802,36 @@ func _hair_genetics_rng(entity: Node, allow_npc_rng: bool) -> RandomNumberGenera
 
 func _layer_layout_for_entity(entity: Node) -> CharacterCardLayerLayout:
 	var allow_rng := not (entity != null and entity.is_in_group("player"))
+	var layout: CharacterCardLayerLayout
 	if entity != null and str(entity.get("npc_type")) == "baby":
-		var baby_layout: CharacterCardLayerLayout = PartsRegistry.clone_layout(PartsRegistry.get_layout())
-		baby_layout.hair_texture_path = ""
-		return baby_layout
-	var hair_id: int = _resolve_hair_id(entity, allow_rng)
-	_resolve_hair_tone(entity, allow_rng)
-	return PartsRegistry.layout_with_hair(hair_id, _entity_uses_female_mannequin(entity))
+		layout = PartsRegistry.clone_layout(PartsRegistry.get_layout())
+		layout.hair_texture_path = ""
+	else:
+		var hair_id: int = _resolve_hair_id(entity, allow_rng)
+		_resolve_hair_tone(entity, allow_rng)
+		layout = PartsRegistry.layout_with_hair(hair_id, _entity_uses_female_mannequin(entity))
+	_apply_genetic_face(layout, entity)
+	return layout
+
+
+func _apply_genetic_face(layout: CharacterCardLayerLayout, entity: Node) -> void:
+	if layout == null or entity == null:
+		return
+	var BirthEngineScript = load("res://scripts/genetics/birth_engine.gd")
+	var PhenotypeScript = load("res://scripts/genetics/phenotype.gd")
+	var GenomeOpsScript = load("res://scripts/genetics/genome_ops.gd")
+	var allow_rng := not entity.is_in_group("player")
+	BirthEngineScript.ensure_genome(entity, _hair_genetics_rng(entity, allow_rng))
+	var genome: Dictionary = BirthEngineScript.genome_from_entity(entity)
+	if not GenomeOpsScript.has_complete_genome(genome):
+		return
+	var nose_id: String = PhenotypeScript.nose_id_from_genome(genome)
+	var brow_id: String = PhenotypeScript.brow_id_from_genome(genome)
+	layout.nose_texture_path = PhenotypeScript.nose_texture_path(nose_id)
+	layout.brow_texture_path = PhenotypeScript.brow_texture_path(brow_id)
+	layout.eye_scale_mul = PhenotypeScript.eye_scale_from_genome(genome)
+	layout.eye_aspect = PhenotypeScript.eye_aspect_from_genome(genome)
+	layout.pupil_color = PhenotypeScript.pupil_color_from_genome(genome)
 
 
 func _overlay_local_offset(sprite: Sprite2D, offset_px: Vector2) -> Vector2:
@@ -1447,6 +1470,19 @@ func _apply_skin_modulate(entity: Node) -> void:
 		var hair_sprite: Sprite2D = head.get_node_or_null("HairFront") as Sprite2D
 		if hair_sprite:
 			hair_sprite.modulate = hair_color
+		for eye_name in ["EyeLeft", "EyeRight"]:
+			var eye_sprite: Sprite2D = head.get_node_or_null(eye_name) as Sprite2D
+			if eye_sprite:
+				eye_sprite.modulate = Color.WHITE
+				eye_sprite.visible = true
+		var nose_sprite: Sprite2D = head.get_node_or_null("Nose") as Sprite2D
+		if nose_sprite:
+			nose_sprite.modulate = skin
+			nose_sprite.visible = true
+		var brow_sprite: Sprite2D = head.get_node_or_null("Brow") as Sprite2D
+		if brow_sprite:
+			brow_sprite.modulate = skin
+			brow_sprite.visible = true
 		_apply_hide_clan_color(entity)
 		return
 	sprite.modulate = skin
@@ -1458,16 +1494,42 @@ const HIDE_CLOTHING_DYE_SHADER := preload("res://assets/shaders/hide_clothing_dy
 ## hide3 teeth stay near-white; leather takes clan dye.
 const HIDE3_TEETH_PRESERVE_MIN := 0.91
 
+## One earth dye per clan. Everyone in that clan wears the same color. The player picks theirs when the clan is named.
 const CLAN_HIDE_DYES: Array[Color] = [
-	Color(0.62, 0.40, 0.24),
-	Color(0.48, 0.30, 0.24),
-	Color(0.42, 0.46, 0.28),
-	Color(0.55, 0.44, 0.30),
-	Color(0.36, 0.32, 0.28),
-	Color(0.58, 0.34, 0.26),
-	Color(0.46, 0.38, 0.26),
-	Color(0.40, 0.36, 0.24),
+	Color(0.92, 0.72, 0.48),
+	Color(0.88, 0.58, 0.46),
+	Color(0.74, 0.54, 0.42),
+	Color(0.72, 0.80, 0.52),
+	Color(0.60, 0.74, 0.52),
+	Color(0.96, 0.86, 0.64),
+	Color(0.88, 0.56, 0.48),
+	Color(0.70, 0.76, 0.78),
+	Color(0.68, 0.56, 0.46),
+	Color(0.92, 0.82, 0.54),
 ]
+
+var _chosen_dye_index: Dictionary = {}
+
+
+func dye_option_count() -> int:
+	return CLAN_HIDE_DYES.size()
+
+
+func dye_option_color(index: int) -> Color:
+	if CLAN_HIDE_DYES.is_empty():
+		return Color.WHITE
+	return CLAN_HIDE_DYES[clampi(index, 0, CLAN_HIDE_DYES.size() - 1)]
+
+
+func choose_clan_dye(clan_name: String, index: int) -> void:
+	var key := clan_name.strip_edges().to_lower()
+	if key.is_empty():
+		return
+	_chosen_dye_index[key] = clampi(index, 0, CLAN_HIDE_DYES.size() - 1)
+
+
+func hide_dye_for_clan(clan_name: String) -> Color:
+	return _hide_dye_for_clan(clan_name)
 
 
 func apply_hide_clan_color(entity: Node) -> void:
@@ -1526,6 +1588,8 @@ func _hide_dye_for_clan(clan_name: String) -> Color:
 	var n := CLAN_HIDE_DYES.size()
 	if n <= 0:
 		return Color.WHITE
+	if _chosen_dye_index.has(key):
+		return dye_option_color(int(_chosen_dye_index[key]))
 	var idx := absi(key.hash()) % n
 	return CLAN_HIDE_DYES[idx]
 

@@ -25,6 +25,7 @@
 | **Off-screen village sim** | [settlement_sim.md](settlement_sim.md) · [visual_vs_sim_layers.md](visual_vs_sim_layers.md) |
 | **Early game on the island** | [earlygame_vision.md](earlygame_vision.md) · [nomad.md](nomad.md) |
 | **Proto farming (river valleys)** | [future implementations/proto_farming.md](future%20implementations/proto_farming.md) |
+| **The Land (rites, favor, ice delay)** | [the_land.md](the_land.md) |
 | **Build order** | [roadmap_2026.md](roadmap_2026.md) |
 | **Doc index** | [README.md](README.md) · [bible.md](bible.md) §XXII |
 
@@ -224,6 +225,41 @@ The island art map is the **tabletop** — all interactive objects are **sprites
 ### 3.6 Gameplay flow
 
 New clans start **coast / savanna** → forage and herd locally → travel to **desert** (salt, flint, heat) or **jungle/swamp** (exotic goods) → **glacier foothills** for stone/obsidian → **river valleys** for water, grain, and trade. **Cross-island trips** should require planning (water, cold/heat gear, genetics over generations — §9).
+
+### 3.7 Climate zones — dynamic, not patchy
+
+**Locked 2026-10-18.** How clans move these zones: [the_land.md](the_land.md). Shipping v1 does not move them. Painted files stay the base. Runtime only writes overlays (§19).
+
+The island is **nine climate zones**. A zone is one body of land that shares **one temperature** and **one rainfall**. Each cell has **one hard biome id**. The shader may soften the painted edge between two zones. It does not blend two biomes into a third color, and it does not sprinkle a second biome inside a zone.
+
+**Not patchy** means the climate never rolls random tiles. A border moves as a **front**: one distance number (how far the glacier has grown, or how far the desert edge has walked). Cells flip in that order only. Chunk squares are for loading, not for biome shape. The player sees a continuous edge ([§1](#1-vision-player-facing) look lock).
+
+**Shader patchiness** (`biome_ground.gdshader`, shared hash) is dirt and grass **inside** one biome. It never changes the biome id.
+
+**Forest clumps** stay a painted overlay on north savanna (~10% of land, [§3.2](#32-land-use-map2--approved-layout)). They are not a tenth zone. Climate does not grow new clumps or erase them one tree at a time. If a front crosses a clump, those cells flip with the front.
+
+| Zone id | Home biome | Where | What may move later |
+|---------|------------|--------|---------------------|
+| `GLACIER` | Glacier | Center disk, ~3–5% | Radius grows in an ice age, and can ease back a little afterward. Front = distance from center. |
+| `NORTH_SAVANNA` | Savanna + forest overlay | North of the glacier | The whole zone gets wetter or drier together. |
+| `EAST_SAVANNA` | Savanna | Between the glacier and the desert | Desert front eats this zone from the east, in order of distance from the authored desert edge. |
+| `DESERT` | Desert | Northeast wedge | Front advances or retreats. **No rivers.** Oases stay fixed points. |
+| `SOUTH_SAVANNA` | Savanna | South, including land by the SE delta | Whole-zone rain. Flood years widen river wetlands (water overlay), not holes of a new biome. |
+| `WEST_SAVANNA` | Savanna | West bay land between the swamp and the north | Whole-zone rain and heat. |
+| `JUNGLE` | Jungle | Southwest finger | The whole finger dries or stays wet together. A dry age does not punch savanna holes in it. |
+| `SWAMP` | Swamp | One body, mid-west coast | Stays one body. Drought pulls the wet edge back as a front. Still never crosses a river. |
+| `COAST` | Beach; mud where it meets swamp | Narrow rim | Stays the rim. Floods add wetland beside rivers. |
+
+Rivers are **not** zones. `RIVER_NW`, `RIVER_W`, `RIVER_SE`, and `RIVER_NE` are a water overlay on top of whichever zone they cross. None of them enter `DESERT`.
+
+**Local control (rules in [the_land.md](the_land.md)):** a camp's offerings bias the zone it sits in — more of that zone's plants and animals, a smaller rain/heat swing, and a slower front if that zone is on one. Offerings cannot turn desert into jungle. The ice age still comes. Many clans offering at once can slow the glacier everywhere and slip its start by about a season.
+
+**Export, when chunks are cut:** every land cell stores `climate_zone`, distance from the glacier center, and (on the desert side) distance from the authored desert edge. Same idea as river system ids on water cells.
+
+```text
+effective_biome = zone home biome, flipped only if a front distance has crossed this cell
+effective_water = base water + climate water delta (shrink inside the channel, swell outside it)
+```
 
 ---
 
@@ -1080,7 +1116,7 @@ Implemented as **runtime evaluation** on top of the static base map — **not** 
 
 **Intent:** A **living, breathing island** — rivers swell and shrink, glaciers grow, desert creeps, clans abandon dying villages, and rituals may slow or redirect climate pressure. **Shipping v1 = knobs at 0** (effective biome == base). Turn on with `--climate` or headless tests.
 
-**Locked model:** 9 regions each have temperature and rainfall. Shader and gameplay resolve the **same hard biome ID** (no cross-biome color blending). Patchiness is a shared 32-bit integer hash. Rivers use baked `river_distance.png`. Rituals only change daily nudge rate/target.
+**Locked model:** The nine climate zones in [§3.7](#37-climate-zones--dynamic-not-patchy) each have one temperature and one rainfall. Shader and gameplay resolve the **same hard biome ID** (no cross-biome color blending). Shader patchiness is ground texture inside one biome, not a second biome. Rivers use baked `river_distance.png`. Clan rites ([the_land.md](the_land.md)) change a zone's daily nudge and its front speed. They do not repaint the base PNGs.
 
 #### Base vs climate (never mix)
 
@@ -1125,31 +1161,32 @@ Each water cell in export metadata carries a **system id** (e.g. `rivers.json` o
 
 | Event | Overlay behavior | Gameplay |
 |-------|------------------|----------|
-| **Ice age pulse** | Glacier / cold-forest footprint **expands** from center | Cold hazard spreads; passes harder |
-| **Aridification** | Desert front **advances** into savanna edge | Farms fail; clans **migrate or abandon** |
+| **Ice age pulse** | `GLACIER` radius grows into neighboring savanna zones, in order of distance from center | Cold hazard spreads; passes harder. Listening slows this ([the_land.md](the_land.md)) |
+| **Aridification** | `DESERT` front advances into `EAST_SAVANNA` only | Farms on that front fail; clans migrate or abandon |
 | **Recovery** | Overlays **ease back** when climate improves | Map heals over sim-time |
 
 **Temporary vs permanent:** Seasonal flood/drought overlays **revert**. Multi-year aridification / ice-age pulses may leave a **small permanent delta** in world save (`climate_epoch` state) — still not edited PNGs.
 
 #### Rituals & player influence
 
-Climate is **not** purely scripted. Clan actions feed **`ritual_pressure`** (sacrifices, feasts, shamans — social system TBD):
+**Full rules:** [the_land.md](the_land.md). The single `ritual_pressure` float is retired as the design. Two numbers replace it: **Favor** (one clan, one zone) and **Listening** (the whole island).
 
-- ↑ short-term rain / slow aridification
-- ↓ drought severity on one river system
-- Never **instant** full reversal — momentum + decay
+- A clan's offerings raise wild crops and animals **in its climate zone**, and shrink that zone's rain/heat swing by one severity step.
+- Offerings on a front (desert edge, or savanna against the ice) slow **that** front. They never flip the island back in one day. Momentum and decay stay.
+- **Listening** slows the glacier everywhere and can slip the ice age by about a season. It has a ceiling. The ice age still comes. The glacier center stays full cold.
+- Drought can still target **one river system**. Favor on camps along that river drops their severity by one step.
 
-**Authority:** Server sim from `world_seed + sim_day + region + ClimateState + ritual_pressure`. Same for all MP clients.
+**Authority:** Server sim from `world_seed + sim_day + climate_zone + Listening + Favor in that zone + how crowded the zone is`. Same for all MP clients.
 
 #### Planned `ClimateState` (server-owned sketch)
 
 ```gdscript
-# Design sketch — not implemented
-var aridification_rate: float      # desert creep speed
-var drought_severity: float        # 0..1 global
+# Design sketch — not implemented. Social rules: bible/the_land.md
+var listening: float               # island pool; decays; has a ceiling
+var favor_by_clan: Dictionary      # clan id → favor; decays
+var zones: Dictionary              # climate_zone → temp, rain, front, severity, bounty
 var per_river_flow: Dictionary     # RIVER_NW..NE → 0..1
-var glacier_radius_bonus: int      # tiles expanded from center
-var ritual_pressure: float         # clan rituals; decays over time
+var glacier_radius_bonus: int      # tiles expanded from center (Listening slows this)
 var active_overlays: Dictionary    # chunk_key → overlay blob
 ```
 
@@ -1160,9 +1197,10 @@ Store overlays in **`ClimateOverlayStore`** or an extended **`MutationStore`** c
 While building the **static** map (Phase 1–2), reserve:
 
 1. **River system ids** on every water cell at export time  
-2. **`TerrainQuery.get_river_system(world_pos) -> String`** (stub OK)  
-3. **`get_effective_*()`** API that **delegates to base** until climate ships  
-4. Chunk export schema includes empty **`climate_overlay`** slot  
+2. **`climate_zone` id** on every land cell, plus distance from glacier center and from the authored desert edge ([§3.7](#37-climate-zones--dynamic-not-patchy))  
+3. **`TerrainQuery.get_river_system(world_pos) -> String`** and **`get_climate_zone(world_pos) -> String`** (stubs OK)  
+4. **`get_effective_*()`** API that **delegates to base** until climate ships  
+5. Chunk export schema includes empty **`climate_overlay`** slot  
 
 #### Phase gate
 
@@ -1230,7 +1268,7 @@ Springs, river mouths, and oasis **`SPRING`** cells = high-value claim sites. Ti
 - ClanBrain `trade_intent`; caravan FSM.  
 - Seasonal regrowth; river swell / drought shrink ([Climate Change mechanic](#climate-change-mechanic-long-term-design-lock)).  
 - **`ClimateState`** + per-chunk overlays; glacier grow / aridification / flood year.  
-- **Ritual pressure** — sacrifices and ceremonies influence rain and drought (social system TBD).  
+- **The Land** — Favor and Listening drive zone bounty, severity, and ice delay ([the_land.md](the_land.md)). Build rites only after a cell can name its climate zone.  
 - Village abandon when biome under claim becomes uninhabitable.
 
 ---
@@ -1254,7 +1292,7 @@ Springs, river mouths, and oasis **`SPRING`** cells = high-value claim sites. Ti
 15. ~~**Body paint stacking**~~ — TBD (cloak + skin slots?).  
 16. ~~**Jungle slow movement**~~ — **locked: props only**, no terrain debuff.
 17. **Drought river shrink** — mask base tiles vs narrow channel only? (see §19 Climate Change)
-18. **Ritual balance** — how strong can player influence on climate be before it breaks MP fairness?
+18. ~~**Ritual balance**~~ — **locked** in [the_land.md](the_land.md): one-step local soften, ice can be delayed about a season and not stopped, Listening has a ceiling. Exact numbers stay tuning (§8 there).
 
 ---
 
@@ -1281,6 +1319,7 @@ Springs, river mouths, and oasis **`SPRING`** cells = high-value claim sites. Ti
 | [future implementations/proto_farming.md](future%20implementations/proto_farming.md) | Grain / Field on river valleys |
 | [future implementations/world_systems_implementation_plan.md](future%20implementations/world_systems_implementation_plan.md) | Legacy chunk-ecology plan — cross-check against §3 here |
 | [future implementations/off_screen_clan_balance.md](future%20implementations/off_screen_clan_balance.md) | Pseudo-biomes in code today (not shipping biomes) |
+| [the_land.md](the_land.md) | Deity, Favor, Listening, how rites move §3.7 zones |
 
 ### Code & assets
 

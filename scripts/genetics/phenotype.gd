@@ -13,6 +13,17 @@ const SKIN_DARK := Color(0.32, 0.22, 0.16, 1.0)
 ## Height: 0.88–1.12 still shy side-by-side. 0.80–1.20 is ~40% (~22px on a 56px card).
 const HEIGHT_SCALE_MIN := 0.80
 const HEIGHT_SCALE_MAX := 1.20
+## Eyes stay near the fitted size. 1.0 is the middle of this range.
+const EYE_SCALE_MIN := 0.85
+const EYE_SCALE_MAX := 1.15
+## 1.0 keeps the oval as drawn. Higher is a bit wider, lower a bit rounder.
+const EYE_ASPECT_MIN := 0.92
+const EYE_ASPECT_MAX := 1.08
+const NOSE_PATH := "res://assets/characters/Noses/nose%s.png"
+const BROW_PATH := "res://assets/characters/Brow/brow%s.png"
+const DEFAULT_NOSE_ID := "2"
+const DEFAULT_BROW_ID := "4"
+const DEFAULT_PUPIL := Color(0.05, 0.04, 0.03, 1.0)
 ## Width: same 80–120% as height for the first side-by-side look.
 const WIDTH_SCALE_MIN := 0.80
 const WIDTH_SCALE_MAX := 1.20
@@ -161,6 +172,85 @@ static func head_scale_from_genome(_genome: Dictionary) -> Vector2:
 	return Vector2.ONE
 
 
+static func _has_all(genome: Dictionary, locus_ids: Array[String]) -> bool:
+	for locus_id in locus_ids:
+		if not GenomeOps.has_locus(genome, locus_id):
+			return false
+	return true
+
+
+## Visible nose art id. Slot 0 is the picture on the face.
+static func nose_id_from_genome(genome: Dictionary) -> String:
+	return _worn_art_id(genome, Catalog.NOSE, DEFAULT_NOSE_ID)
+
+
+static func brow_id_from_genome(genome: Dictionary) -> String:
+	return _worn_art_id(genome, Catalog.BROW, DEFAULT_BROW_ID)
+
+
+static func nose_texture_path(art_id: String) -> String:
+	return _art_path(NOSE_PATH, art_id, DEFAULT_NOSE_ID)
+
+
+static func brow_texture_path(art_id: String) -> String:
+	return _art_path(BROW_PATH, art_id, DEFAULT_BROW_ID)
+
+
+static func _worn_art_id(genome: Dictionary, part_locus: String, fallback: String) -> String:
+	if not GenomeOps.has_locus(genome, part_locus):
+		return fallback
+	var pair: Array[String] = GenomeOps.get_pair(genome, part_locus)
+	if pair.is_empty() or pair[0] == "":
+		return fallback
+	return pair[0]
+
+
+static func _art_path(pattern: String, art_id: String, fallback_id: String) -> String:
+	var path := pattern % art_id
+	if FileAccess.file_exists(path):
+		return path
+	return pattern % fallback_id
+
+
+static func eye_big_count(genome: Dictionary) -> int:
+	return _count_letter(Catalog.eye_size_locus_ids(), genome, "E")
+
+
+static func eye_wide_count(genome: Dictionary) -> int:
+	return _count_letter(Catalog.eye_shape_locus_ids(), genome, "W")
+
+
+static func eye_scale_from_genome(genome: Dictionary) -> float:
+	if not _has_all(genome, Catalog.eye_size_locus_ids()):
+		return 1.0
+	return _lerp_scale(
+		eye_big_count(genome), _slot_count(Catalog.eye_size_locus_ids()),
+		EYE_SCALE_MIN, EYE_SCALE_MAX
+	)
+
+
+static func eye_aspect_from_genome(genome: Dictionary) -> float:
+	if not _has_all(genome, Catalog.eye_shape_locus_ids()):
+		return 1.0
+	return _lerp_scale(
+		eye_wide_count(genome), _slot_count(Catalog.eye_shape_locus_ids()),
+		EYE_ASPECT_MIN, EYE_ASPECT_MAX
+	)
+
+
+static func pupil_color_from_genome(genome: Dictionary) -> Color:
+	if not GenomeOps.has_locus(genome, Catalog.EYE_DARK) or not GenomeOps.has_locus(genome, Catalog.EYE_HUE):
+		return DEFAULT_PUPIL
+	var dark_ids: Array[String] = [Catalog.EYE_DARK]
+	var dark: int = _count_letter(dark_ids, genome, "D")
+	var warm: bool = Catalog.expressed_allele(Catalog.EYE_HUE, GenomeOps.get_pair(genome, Catalog.EYE_HUE)) == "H"
+	if dark >= 2:
+		return Color(0.10, 0.06, 0.04) if warm else Color(0.04, 0.10, 0.16)
+	if dark == 1:
+		return Color(0.45, 0.24, 0.10) if warm else Color(0.16, 0.42, 0.24)
+	return Color(0.62, 0.40, 0.14) if warm else Color(0.28, 0.42, 0.78)
+
+
 static func skin_modulate_from_genome(genome: Dictionary) -> Color:
 	var m: float = clampf(skin_melanin(genome), 0.0, 1.0)
 	if m <= 0.5:
@@ -187,4 +277,9 @@ static func debug_snapshot(genome: Dictionary) -> Dictionary:
 		"body_scale": body_scale_from_genome(genome, "male"),
 		"head_scale": head_scale_from_genome(genome),
 		"dimorph_enabled": DIMORPH_ENABLED,
+		"nose_id": nose_id_from_genome(genome),
+		"brow_id": brow_id_from_genome(genome),
+		"eye_scale_mul": eye_scale_from_genome(genome),
+		"eye_aspect": eye_aspect_from_genome(genome),
+		"pupil_color": pupil_color_from_genome(genome),
 	}

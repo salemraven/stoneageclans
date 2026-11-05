@@ -13,6 +13,18 @@ func initialize(npc_ref: NPCBase) -> void:
 	var config = ReproductionConfig.new()
 	growth_time = BalanceConfig.baby_growth_seconds if BalanceConfig else config.baby_growth_time_testing
 
+func _ai_productivity_delta(delta: float) -> float:
+	if npc and npc.has_method("is_sim_dormant") and npc.is_sim_dormant():
+		return delta
+	var sandbox: Node = get_node_or_null("/root/SandboxSettings")
+	if sandbox == null or not sandbox.has_method("scale_ai_time"):
+		return delta
+	var player_camp := false
+	if sandbox.has_method("npc_in_player_camp"):
+		player_camp = bool(sandbox.npc_in_player_camp(npc))
+	return sandbox.scale_ai_time(player_camp, delta)
+
+
 func update(delta: float) -> void:
 	if not npc:
 		return
@@ -26,7 +38,7 @@ func update(delta: float) -> void:
 		return
 	
 	var previous_timer = growth_timer
-	growth_timer += delta
+	growth_timer += _ai_productivity_delta(delta)
 	
 	# Update age for display (0-13 years during growth phase only)
 	if growth_timer < growth_time and growth_time > 0:
@@ -98,10 +110,18 @@ func _grow_to_clansman(source: String = "timer") -> void:
 	if (mother_name == null or not mother_name is String) and npc and npc.has_meta("mother_name"):
 		mother_name = npc.get_meta("mother_name")
 	
-	# Change NPC type to clansman (update both property and set() for consistency)
-	npc.npc_type = "clansman"
-	npc.set("npc_type", "clansman")  # Also use set() to ensure all references are updated
+	# Change NPC type to clansman (single path: ensure_role builds combat body)
+	if npc.has_method("set_npc_type"):
+		npc.set_npc_type("clansman", "baby_growth:%s" % source)
+	else:
+		npc.npc_type = "clansman"
+		npc.set("npc_type", "clansman")
+		if npc.has_method("ensure_role"):
+			npc.ensure_role("baby_growth:%s" % source)
 	npc.set("age", 13)
+	# Babies are taken off the physics layer. A woman's herding circle only sees layer 2.
+	npc.collision_layer = 2
+	npc.collision_mask = 0
 	
 	# Preserve lineage information (father_name and mother_name) when baby becomes clansman
 	# Use both set() and meta for maximum persistence
@@ -142,21 +162,9 @@ func _grow_to_clansman(source: String = "timer") -> void:
 			"card_index": inherited_idx,
 		}, UnifiedLogger.Level.DEBUG)
 	else:
-		var sprite: Sprite2D = npc.get_node_or_null("Sprite")
-		if sprite:
-			var texture: Texture2D = AssetRegistry.get_player_sprite()
-			if texture:
-				sprite.texture = texture
-				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				if npc.has_method("apply_sprite_offset_for_texture"):
-					npc.apply_sprite_offset_for_texture()
-			UnifiedLogger.log_npc("WARNING: PlaceholderCardService missing — fallback PlayerB for %s" % baby_name, {
-				"npc": baby_name,
-			}, UnifiedLogger.Level.WARNING)
-		else:
-			UnifiedLogger.log_npc("WARNING: No sprite node found for %s" % baby_name, {
-				"npc": baby_name
-			}, UnifiedLogger.Level.WARNING)
+		UnifiedLogger.log_npc("WARNING: PlaceholderCardService missing — no body sprite for %s" % baby_name, {
+			"npc": baby_name,
+		}, UnifiedLogger.Level.WARNING)
 	
 	# Upgrade inventory to standard size (10 slots) when baby grows to clansman
 	if npc.inventory:
@@ -181,8 +189,8 @@ func _grow_to_clansman(source: String = "timer") -> void:
 			"new_slots": "10"
 		}, UnifiedLogger.Level.INFO)
 	
-	# Give clansman hotbar, wood (club) in hotbar slot 1 (right hand), and Combat/Weapon/Health so they can equip and fight (defend/hostile)
-	_setup_clansman_combat_and_club()
+	# Hotbar + spear (body comes from npc.ensure_role)
+	_equip_clansman_spear_hotbar()
 	
 	# Force FSM re-evaluation so clansman can transition to gather/herd_wildnpc states
 	# (babies can only wander/idle, but clansmen can gather/herd)
@@ -237,46 +245,15 @@ func _grow_to_clansman(source: String = "timer") -> void:
 	print("✓ Baby %s grew to clansman (clan: %s, inventory upgraded to 10 slots, spear equipped)" % [baby_name, clan_name])
 
 
-func _setup_clansman_combat_and_club() -> void:
-	"""Add hotbar, spear in slot 0, Combat / Weapon / Health, then equip spear."""
+func _equip_clansman_spear_hotbar() -> void:
 	if not npc or not is_instance_valid(npc):
 		return
 	var baby_name: String = npc.npc_name if npc else "unknown"
-	# Hotbar (babies don't have one)
 	if not npc.hotbar:
 		npc.hotbar = InventoryData.new(10, false, 1)
-	# Spear in hotbar slot 0 — shown when aggro/defense/combat (same visibility as old club stance)
 	if npc.hotbar:
 		npc.hotbar.set_slot(0, {"type": ResourceData.ResourceType.SPEAR, "count": 3, "quality": 0})
-	# Combat/Weapon/Health components (babies don't have them; reuse npc_base caveman logic)
-	var health_comp = npc.get_node_or_null("HealthComponent")
-	if not health_comp:
-		var health_script = load("res://scripts/npc/components/health_component.gd") as GDScript
-		if health_script:
-			health_comp = health_script.new()
-			health_comp.name = "HealthComponent"
-			npc.add_child(health_comp)
-	var combat_comp = npc.get_node_or_null("CombatComponent")
-	if not combat_comp:
-		var combat_script = load("res://scripts/npc/components/combat_component.gd") as GDScript
-		if combat_script:
-			combat_comp = combat_script.new()
-			combat_comp.name = "CombatComponent"
-			npc.add_child(combat_comp)
-	var weapon_comp = npc.get_node_or_null("WeaponComponent")
-	if not weapon_comp:
-		var weapon_script = load("res://scripts/npc/components/weapon_component.gd") as GDScript
-		if weapon_script:
-			weapon_comp = weapon_script.new()
-			weapon_comp.name = "WeaponComponent"
-			npc.add_child(weapon_comp)
-	# Initialize components: Health, Combat (npc ref), Weapon, equip spear — refresh attack sheet picks SPEAR sheet.
-	if health_comp and health_comp.has_method("initialize"):
-		health_comp.initialize(npc)
-	if combat_comp and combat_comp.has_method("initialize"):
-		combat_comp.initialize(npc)
-	if weapon_comp and weapon_comp.has_method("initialize"):
-		weapon_comp.initialize(npc)
+	var weapon_comp: WeaponComponent = npc.get_node_or_null("WeaponComponent") as WeaponComponent
 	if weapon_comp and weapon_comp.has_method("equip_weapon"):
 		weapon_comp.equip_weapon(ResourceData.ResourceType.SPEAR)
 		UnifiedLogger.log_npc("✓ %s equipped spear (melee for defend/hostile)" % baby_name, {

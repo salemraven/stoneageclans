@@ -8,6 +8,7 @@ const CombatAllyCheck = preload("res://scripts/systems/combat_ally_check.gd")
 const MovementDebugInstrument = preload("res://scripts/debug/movement_debug_instrument.gd")
 const CorpseJobs = preload("res://scripts/systems/corpse_job_service.gd")
 const FightOverScript = preload("res://scripts/systems/fight_over.gd")
+const NPCRoleBodyScript = preload("res://scripts/npc/npc_role_body.gd")
 const SoundDetection = preload("res://scripts/systems/sound_detection.gd")
 
 # Uses global WalkAnimation (class_name in walk_animation.gd)
@@ -231,6 +232,10 @@ func _try_join_clan_from_claim(skip_herd_release: bool = false) -> bool:
 			continue
 		# Join
 		set_clan_name(claim_clan, "npc_base._try_join_clan_from_claim")
+		if has_meta("herd_seed_key"):
+			var herd_key := str(get_meta("herd_seed_key"))
+			if MutationStore and MutationStore.has_method("spend_herd_seed") and not herd_key.is_empty():
+				MutationStore.spend_herd_seed(herd_key)
 		var reason := "wandered into player claim" if not is_herded else "entered herder's land claim"
 		print("NPC %s joined clan %s (%s)" % [npc_name, claim_clan, reason])
 		var join_line := "NPC %s joined clan %s (%s)" % [npc_name, claim_clan, reason]
@@ -359,6 +364,133 @@ func is_dead() -> bool:
 	if health_comp:
 		return health_comp.is_dead
 	return false
+
+
+func set_npc_type(value: String, source: String = "unknown") -> void:
+	var next: String = str(value)
+	if str(npc_type) == next:
+		ensure_role(source)
+		return
+	npc_type = next
+	set("npc_type", next)
+	ensure_role(source)
+
+
+func role_body_complete() -> bool:
+	if not NPCRoleBodyScript.type_needs_health_body(str(npc_type)):
+		return true
+	var hc: HealthComponent = get_node_or_null("HealthComponent") as HealthComponent
+	return hc != null and hc.max_hp > 0
+
+
+func ensure_role(source: String = "_ready") -> void:
+	var had_health: bool = get_node_or_null("HealthComponent") != null
+	# HerdableComponent + HerdInfluenceArea for herdables (woman, sheep, goat)
+	if npc_type == "woman" or npc_type == "sheep" or npc_type == "goat":
+		if not get_node_or_null("HerdableComponent"):
+			var hcomp = HerdableComponentScript.new()
+			hcomp.name = "HerdableComponent"
+			add_child(hcomp)
+		var herd_influence = get_node_or_null("HerdInfluenceArea")
+		if not herd_influence:
+			var hi_script = load("res://scripts/npc/components/herd_influence_area.gd")
+			if hi_script:
+				herd_influence = hi_script.new()
+				herd_influence.name = "HerdInfluenceArea"
+				add_child(herd_influence)
+	if npc_type == "woman" and not reproduction_component:
+		var repro_script = load("res://scripts/npc/components/reproduction_component.gd")
+		if repro_script:
+			var repro_comp = repro_script.new()
+			repro_comp.name = "ReproductionComponent"
+			add_child(repro_comp)
+			reproduction_component = repro_comp
+			if is_inside_tree() and reproduction_component.has_method("initialize"):
+				reproduction_component.initialize(self)
+	elif reproduction_component == null:
+		reproduction_component = get_node_or_null("ReproductionComponent")
+	if npc_type == "baby" and not baby_growth_component:
+		var growth_script = load("res://scripts/npc/components/baby_growth_component.gd")
+		if growth_script:
+			var growth_comp = growth_script.new()
+			growth_comp.name = "BabyGrowthComponent"
+			add_child(growth_comp)
+			baby_growth_component = growth_comp
+	elif baby_growth_component == null:
+		baby_growth_component = get_node_or_null("BabyGrowthComponent")
+	if not NPCRoleBodyScript.type_needs_health_body(str(npc_type)):
+		return
+	var health_comp: HealthComponent = get_node_or_null("HealthComponent") as HealthComponent
+	if not health_comp:
+		var health_script = load("res://scripts/npc/components/health_component.gd")
+		if health_script:
+			health_comp = health_script.new()
+			health_comp.name = "HealthComponent"
+			add_child(health_comp)
+	var combat_comp: CombatComponent = get_node_or_null("CombatComponent") as CombatComponent
+	if not combat_comp:
+		var combat_script = load("res://scripts/npc/components/combat_component.gd")
+		if combat_script:
+			combat_comp = combat_script.new()
+			combat_comp.name = "CombatComponent"
+			add_child(combat_comp)
+	var weapon_comp: WeaponComponent = null
+	if npc_type == "caveman" or npc_type == "clansman":
+		weapon_comp = get_node_or_null("WeaponComponent") as WeaponComponent
+		if not weapon_comp:
+			var weapon_script = load("res://scripts/npc/components/weapon_component.gd")
+			if weapon_script:
+				weapon_comp = weapon_script.new()
+				weapon_comp.name = "WeaponComponent"
+				add_child(weapon_comp)
+	if health_comp and health_comp.has_method("initialize"):
+		if not had_health or health_comp.max_hp <= 0:
+			health_comp.initialize(self)
+		if npc_type == "mammoth":
+			health_comp.max_hp = 100
+			health_comp.current_hp = 100
+		elif npc_type == "sheep" or npc_type == "goat":
+			health_comp.max_hp = 15
+			health_comp.current_hp = 15
+		elif npc_type == "deer":
+			var dh: int = NPCConfig.deer_hp if NPCConfig else 25
+			health_comp.max_hp = dh
+			health_comp.current_hp = dh
+	if combat_comp and combat_comp.has_method("initialize"):
+		combat_comp.initialize(self)
+		if npc_type == "mammoth":
+			combat_comp.attack_range = 150.0
+			combat_comp.base_damage = 25
+	if weapon_comp and weapon_comp.has_method("initialize"):
+		weapon_comp.initialize(self)
+	if not had_health and get_node_or_null("HealthComponent") != null and source != "_ready":
+		_log_npc_body_repaired(source)
+
+
+func _log_npc_body_repaired(source: String) -> void:
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("is_enabled") and pi.is_enabled() and pi.has_method("npc_body_repaired"):
+		pi.npc_body_repaired(str(npc_name), str(npc_type), source, str(clan_name))
+
+
+func _log_npc_body_incomplete(source: String) -> void:
+	push_warning("NPC %s (%s) incomplete body after ensure_role from %s" % [npc_name, npc_type, source])
+	var pi: Node = get_node_or_null("/root/PlaytestInstrumentor")
+	if pi and pi.has_method("is_enabled") and pi.is_enabled() and pi.has_method("npc_body_incomplete"):
+		pi.npc_body_incomplete(str(npc_name), str(npc_type), source, str(clan_name))
+
+
+func _verify_role_body_on_first_physics() -> void:
+	if has_meta("_role_body_verified"):
+		return
+	set_meta("_role_body_verified", true)
+	if role_body_complete():
+		return
+	ensure_role("physics_verify")
+	if role_body_complete():
+		_log_npc_body_repaired("physics_verify")
+	else:
+		_log_npc_body_incomplete("physics_verify")
 
 
 func _decision_slot_this_tick() -> bool:
@@ -1084,6 +1216,8 @@ func should_abort_work() -> bool:
 	# Hunt corpse job site workers must finish butcher → deposit trip even if formerly ordered.
 	if has_meta(CorpseJobs.WORKER_META):
 		return false
+	if has_meta("hunt_loot"):
+		return false
 	if has_meta("hunt_butchering") and get_meta("hunt_butchering") == true:
 		return false
 	if defend_target != null and is_instance_valid(defend_target):
@@ -1183,70 +1317,7 @@ func _ready() -> void:
 	fsm = get_node_or_null("FSM")
 	sprite = get_node_or_null("Sprite")
 	
-	# HerdableComponent + HerdInfluenceArea for herdables (woman, sheep, goat)
-	if npc_type == "woman" or npc_type == "sheep" or npc_type == "goat":
-		if not get_node_or_null("HerdableComponent"):
-			var hcomp = HerdableComponentScript.new()
-			hcomp.name = "HerdableComponent"
-			add_child(hcomp)
-		var herd_influence = get_node_or_null("HerdInfluenceArea")
-		if not herd_influence:
-			var hi_script = load("res://scripts/npc/components/herd_influence_area.gd")
-			if hi_script:
-				herd_influence = hi_script.new()
-				herd_influence.name = "HerdInfluenceArea"
-				add_child(herd_influence)
-	
-	# Create reproduction component for women if it doesn't exist
-	if npc_type == "woman" and not reproduction_component:
-		var repro_script = load("res://scripts/npc/components/reproduction_component.gd")
-		if repro_script:
-			var repro_comp = repro_script.new()
-			repro_comp.name = "ReproductionComponent"
-			add_child(repro_comp)
-			reproduction_component = repro_comp
-			# Initialize immediately if we're already in the scene tree
-			if is_inside_tree() and reproduction_component.has_method("initialize"):
-				reproduction_component.initialize(self)
-	
-	# Create baby growth component for babies if it doesn't exist
-	if npc_type == "baby" and not baby_growth_component:
-		var growth_script = load("res://scripts/npc/components/baby_growth_component.gd")
-		if growth_script:
-			var growth_comp = growth_script.new()
-			growth_comp.name = "BabyGrowthComponent"
-			add_child(growth_comp)
-			baby_growth_component = growth_comp
-	
-	# Create HealthComponent for cavemen, clansmen, women, sheep, goats, deer (so they can be killed/hunted)
-	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat" or npc_type == "deer":
-		# Health Component
-		var health_comp = get_node_or_null("HealthComponent")
-		if not health_comp:
-			var health_script = load("res://scripts/npc/components/health_component.gd")
-			if health_script:
-				health_comp = health_script.new()
-				health_comp.name = "HealthComponent"
-				add_child(health_comp)
-		
-		# Combat Component
-		var combat_comp = get_node_or_null("CombatComponent")
-		if not combat_comp:
-			var combat_script = load("res://scripts/npc/components/combat_component.gd")
-			if combat_script:
-				combat_comp = combat_script.new()
-				combat_comp.name = "CombatComponent"
-				add_child(combat_comp)
-		
-		# Weapon Component — fighters only
-		if npc_type == "caveman" or npc_type == "clansman":
-			var weapon_comp = get_node_or_null("WeaponComponent")
-			if not weapon_comp:
-				var weapon_script = load("res://scripts/npc/components/weapon_component.gd")
-				if weapon_script:
-					weapon_comp = weapon_script.new()
-					weapon_comp.name = "WeaponComponent"
-					add_child(weapon_comp)
+	ensure_role("_ready")
 	
 	_sprite_base_position = sprite.position if sprite else Vector2.ZERO
 	
@@ -1277,37 +1348,6 @@ func _ready() -> void:
 	if baby_growth_component:
 		baby_growth_component.initialize(self)
 	_apply_sensor_budget()
-	
-	# Initialize combat components for cavemen, clansmen, mammoths, women, sheep, goats, deer
-	if npc_type == "caveman" or npc_type == "clansman" or npc_type == "mammoth" or npc_type == "woman" or npc_type == "sheep" or npc_type == "goat" or npc_type == "deer":
-		var health_comp = get_node_or_null("HealthComponent")
-		if health_comp and health_comp.has_method("initialize"):
-			health_comp.initialize(self)
-			if npc_type == "mammoth":
-				# Mammoth: tougher (more HP)
-				health_comp.max_hp = 100
-				health_comp.current_hp = 100
-			elif npc_type == "sheep" or npc_type == "goat":
-				# Sheep/goat: weaker, 1-2 hits to kill
-				health_comp.max_hp = 15
-				health_comp.current_hp = 15
-			elif npc_type == "deer":
-				var dh: int = NPCConfig.deer_hp if NPCConfig else 25
-				health_comp.max_hp = dh
-				health_comp.current_hp = dh
-		
-		var combat_comp = get_node_or_null("CombatComponent")
-		if combat_comp and combat_comp.has_method("initialize"):
-			combat_comp.initialize(self)
-			if npc_type == "mammoth":
-				# Mammoth: bigger attack range, more damage
-				combat_comp.attack_range = 150.0
-				combat_comp.base_damage = 25
-		
-		if npc_type == "caveman" or npc_type == "clansman":
-			var weapon_comp = get_node_or_null("WeaponComponent")
-			if weapon_comp and weapon_comp.has_method("initialize"):
-				weapon_comp.initialize(self)
 	
 	if steering_agent and steering_agent.has_method("initialize"):
 		steering_agent.initialize(self)
@@ -1516,6 +1556,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _physics_tick(delta: float) -> void:
+	_verify_role_body_on_first_physics()
 	# Check if dead - if so, stop all processing
 	var health_comp: HealthComponent = get_node_or_null("HealthComponent")
 	if health_comp and health_comp.is_dead:
@@ -4045,6 +4086,8 @@ func _check_and_deposit_items() -> void:
 			continue
 		
 		total_deposited += amount
+		if ResourceData.is_food(item_type) and land_claim:
+			land_claim.set_meta("session_food_deposited", int(land_claim.get_meta("session_food_deposited", 0)) + amount)
 		var res_nm: String = ResourceData.get_resource_name(item_type) if item_type != null else str(item_type)
 		deposited_by_name[res_nm] = int(deposited_by_name.get(res_nm, 0)) + amount
 		
@@ -4772,6 +4815,7 @@ func apply_sleep_data(data: Dictionary) -> void:
 			repro.birth_timer = 0.0
 		if data.has("last_birth_time"):
 			repro.last_birth_time = float(data.get("last_birth_time", -1.0))
+	ensure_role("apply_sleep_data")
 	if str(npc_type) == "baby" or str(data.get("npc_type", "")) == "baby":
 		var gt: float = float(data.get("growth_timer", -1.0))
 		if gt >= 0.0:

@@ -30,6 +30,7 @@ const SettlementRosterScript = preload("res://scripts/systems/settlement_roster.
 const SettlementSimTickScript = preload("res://scripts/systems/settlement_sim_tick.gd")
 const SettlementPartyScript = preload("res://scripts/systems/settlement_party.gd")
 const AbstractGatherScript = preload("res://scripts/systems/abstract_gather.gd")
+const DormantCampProgressScript = preload("res://scripts/systems/dormant_camp_progress.gd")
 const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
 const RaidMotivePickerScript = preload("res://scripts/ai/raid_motive_picker.gd")
 
@@ -252,14 +253,15 @@ func update(delta: float) -> void:
 	if _camp_needs_materialize():
 		materialize_clan_for_combat()
 	_tick_settlement_clock(delta)
+	_advance_field_trips(delta)
 
 	# Update alert decay
 	_update_alert_decay(delta)
 	
 	# Phase 3: Update active hunt / raid — skip for player clans and AI survival mode
-	if not is_player_clan and not _is_survival_mode:
+	if SettlementPartyScript.scores_auto_hunt(is_player_clan) and not _is_survival_mode:
 		_update_hunt()
-	if not is_player_clan and not _is_survival_mode:
+	if SettlementPartyScript.scores_auto_hunt(is_player_clan) and not _is_survival_mode:
 		_update_raid(delta)
 	
 	# Periodic state evaluation
@@ -277,7 +279,113 @@ func update(delta: float) -> void:
 		_refresh_nearby_enemies()
 		_refresh_threat_cache()
 
+func _log_player_dormant_refused() -> void:
+	if _player_dormant_refused:
+		return
+	_player_dormant_refused = true
+	var pi := _get_playtest_instrumentor()
+	if pi and pi.has_method("camp_dormant_refused"):
+		pi.call("camp_dormant_refused", clan_name)
+
+
+## Player camp is always live. An AI camp is live only when someone must walk:
+## wake range, combat, party, or an intruder. A haul errand does not count.
+## An empty member list is asleep. The 2400px claim circle is not this switch.
+func should_run_live_sim() -> bool:
+	if territory == null or not is_instance_valid(territory):
+		return true
+	if territory.get("player_owned") == true:
+		return true
+	if _claim_has_intruder():
+		return true
+	if _eval_watch_keeps_camp_live():
+		return true
+	_refresh_clan_members()
+	var saw_person := false
+	for npc in clan_members:
+		if npc == null or not is_instance_valid(npc):
+			continue
+		if not SettlementRosterScript.is_person_type(str(npc.get("npc_type"))):
+			continue
+		if npc.is_in_group("player"):
+			return true
+		var health: Node = npc.get_node_or_null("HealthComponent")
+		if health and health.get("is_dead") == true:
+			continue
+		saw_person = true
+		if _member_requires_live_camp(npc):
+			return true
+	return false
+
+
+func _eval_watch_keeps_camp_live() -> bool:
+	var dc: Node = null
+	if territory and territory.is_inside_tree():
+		dc = territory.get_tree().root.get_node_or_null("DebugConfig")
+	if dc == null:
+		return false
+	if not (bool(dc.get("enable_eval_camp")) or bool(dc.get("enable_eval_ai_arena")) or bool(dc.get("enable_ai_combat_observe"))):
+		return false
+	var interest: Node = territory.get_tree().root.get_node_or_null("WorldInterestManager")
+	if interest == null or not interest.has_method("is_claim_active"):
+		return true
+	return bool(interest.call("is_claim_active", territory))
+
+
+func _member_requires_live_camp(npc: Node) -> bool:
+	var target: Variant = npc.get("combat_target")
+	if target != null and is_instance_valid(target):
+		return true
+	if npc.get("is_agro") == true:
+		return true
+	if EntityRegistry and territory and territory.get_tree():
+		var main: Node = territory.get_tree().get_first_node_in_group("main")
+		if main and main.has_method("_get_party_follower_network_ids"):
+			var nid: int = EntityRegistry.get_network_id(npc)
+			if nid > 0:
+				for id in main.call("_get_party_follower_network_ids") as Array:
+					if int(id) == nid:
+						return true
+	if npc is Node2D and _position_in_sim_wake((npc as Node2D).global_position):
+		return true
+	return false
+
+
+func _position_in_sim_wake(pos: Vector2) -> bool:
+	if territory == null or territory.get_tree() == null:
+		return false
+	var main: Node = territory.get_tree().get_first_node_in_group("main")
+	var player: Node2D = main.get("player") as Node2D if main and main.get("player") != null else null
+	var radius: float = 1200.0
+	if WorldGenConfig:
+		radius = float(WorldGenConfig.sim_wake_player_radius_px)
+	if player and is_instance_valid(player) and player.global_position.distance_to(pos) <= radius:
+		return true
+	if main:
+		for p in main.get_tree().get_nodes_in_group("player"):
+			if is_instance_valid(p) and p is Node2D and p != player:
+				if (p as Node2D).global_position.distance_to(pos) <= radius:
+					return true
+	return false
+
+
+## One branch. Live brain and walking bodies, or asleep brain and the roster. Never both.
+func tick_sim(delta: float) -> void:
+	if should_run_live_sim():
+		if is_dormant:
+			set_dormant(false)
+		update(delta)
+	else:
+		if not is_dormant:
+			_refresh_clan_members()
+			set_dormant(true)
+		dormant_update(delta)
+
+
 func set_dormant(value: bool) -> void:
+	if value and territory != null and territory.get("player_owned") == true:
+		_log_player_dormant_refused()
+		return
 	var was_dormant: bool = is_dormant
 	is_dormant = value
 	if value and not was_dormant:
@@ -360,8 +468,9 @@ func _roster_member_summaries() -> Array:
 	return out
 
 
-func dormant_update(delta: float) -> void:
-	"""Record tick while this claim is outside player interest. Same clock as the asleep branch of update."""
+func dormant_update(delta: float, alert_delta: float = -1.0) -> void:
+	"""Record tick while this claim is outside player interest. Same clock as the asleep branch of update.
+	alert_delta is the frame, when delta is a catch-up of owed seconds. A long gap must not clear an alert."""
 	if not is_dormant:
 		return
 	if not territory or not is_instance_valid(territory):
@@ -370,7 +479,8 @@ func dormant_update(delta: float) -> void:
 		return
 	if not _player_in_sim_wake():
 		_resolve_parked_trips()
-	_update_alert_decay(delta)
+	var decay_dt := delta if alert_delta < 0.0 else alert_delta
+	_update_alert_decay(decay_dt)
 	if _camp_needs_materialize():
 		materialize_clan_for_combat()
 	_tick_settlement_clock(delta)
@@ -461,7 +571,15 @@ func record_counts() -> Dictionary:
 	}
 
 
+var _last_settlement_slices: int = 0
+var _player_dormant_refused: bool = false
+var _herd_slots: Array = []
+var _dormant_milestones: Array = []
+const MATERIALIZE_PER_CALL := 4
+
+
 func _tick_settlement_clock(delta: float) -> void:
+	_last_settlement_slices = 0
 	if not territory or not is_instance_valid(territory):
 		return
 	if not _is_server_authoritative():
@@ -481,18 +599,50 @@ func _tick_settlement_clock(delta: float) -> void:
 	var asleep: int = _asleep_living_count(awake)
 	if asleep <= 0:
 		return
+	if is_dormant:
+		_advance_asleep_people(delta)
 	_settlement_accum += delta
 	var interval: float = _get_dormant_eval_interval()
 	var steps := 0
 	while _settlement_accum >= interval and steps < 4:
 		_settlement_accum -= interval
-		_run_settlement_slice(interval, awake, asleep)
+		# People clocks already ran on this delta while the camp is asleep.
+		_run_settlement_slice(interval, awake, asleep, not is_dormant)
 		steps += 1
+	_last_settlement_slices = steps
 
 
-func _run_settlement_slice(elapsed: float, awake: Dictionary, asleep: int) -> void:
+func _advance_asleep_people(delta: float) -> void:
+	## Herd trips, hut timers, pregnancy, and baby growth use real seconds.
+	## The 30s settlement slice must not run them again.
+	if not is_dormant or roster == null or territory == null or not territory.inventory:
+		return
+	var elapsed := delta
+	var sandbox: Node = _sandbox_settings()
+	if sandbox and sandbox.has_method("scale_ai_time"):
+		elapsed = sandbox.scale_ai_time(territory.get("player_owned") == true, elapsed)
+	if elapsed <= 0.0:
+		return
+	DormantCampProgressScript.advance(self, elapsed)
+	var events: Dictionary = SettlementSimTickScript.tick_people(
+		territory,
+		roster,
+		elapsed,
+		workforce_mode == WorkforceMode.STARVING,
+		_sim_awake_member_ids(),
+		_player_father_is_alive()
+	)
+	_record_births += int(events.get("births", []).size())
+
+
+func _run_settlement_slice(elapsed: float, awake: Dictionary, asleep: int, include_people: bool = true) -> void:
 	if roster == null or territory == null or not territory.inventory:
 		return
+	var sandbox: Node = _sandbox_settings()
+	if sandbox and sandbox.has_method("scale_ai_time"):
+		elapsed = sandbox.scale_ai_time(territory.get("player_owned") == true, elapsed)
+	if include_people and is_dormant:
+		DormantCampProgressScript.advance(self, elapsed)
 	var settlement_roster: RefCounted = roster
 	var timers_before: Dictionary = _pregnancy_timers()
 	_refresh_dormant_food_metrics(settlement_roster)
@@ -518,7 +668,8 @@ func _run_settlement_slice(elapsed: float, awake: Dictionary, asleep: int) -> vo
 		true,
 		awake,
 		_player_father_is_alive(),
-		slice_id
+		slice_id,
+		include_people
 	)
 	_record_births += int(events.get("births", []).size())
 	_note_session_edible(events)
@@ -546,12 +697,28 @@ func _run_settlement_slice(elapsed: float, awake: Dictionary, asleep: int) -> vo
 		territory.set_meta("settlement_roster_pop", pop_after)
 	_emit_tick_log(elapsed, asleep, awake.size(), true)
 	_emit_record_log("tick", elapsed)
+	_write_record_places()
 
 
 func _record_home_fighters() -> int:
 	if roster == null:
 		return cavemen.size()
 	return SettlementPartyScript.home_fighter_count(roster)
+
+
+func _advance_field_trips(delta: float) -> void:
+	if territory == null or not is_instance_valid(territory):
+		return
+	var player_pos := Vector2.INF
+	var wake_r := 1200.0
+	if WorldGenConfig:
+		wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+	var tree: SceneTree = territory.get_tree()
+	var main: Node = tree.get_first_node_in_group("main") if tree else null
+	var player: Node2D = main.get("player") as Node2D if main and main.get("player") != null else null
+	if player != null and is_instance_valid(player):
+		player_pos = player.global_position
+	SettlementPartyScript.advance_field_trips(territory, delta, player_pos, wake_r)
 
 
 func _advance_record_party(elapsed: float) -> void:
@@ -563,8 +730,13 @@ func _advance_record_party(elapsed: float) -> void:
 	if not _record_party.is_empty() and str(_record_party.get("phase", "")) != "done":
 		if str(_record_party.get("kind", "")) == "raid":
 			_advance_record_raid(elapsed, watching)
+		elif watching:
+			var wake_r := 1200.0
+			if WorldGenConfig:
+				wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+			SettlementPartyScript.wake_party_on_circle(territory, roster, _record_party, wake_r)
 		else:
-			SettlementPartyScript.advance(_record_party, roster, territory.inventory if territory else null, elapsed, watching)
+			SettlementPartyScript.advance(_record_party, roster, territory.inventory if territory else null, elapsed, false)
 			if bool(_record_party.get("resolved", false)):
 				_session_hunts = maxi(_session_hunts, 1)
 		if str(_record_party.get("phase", "")) == "done":
@@ -675,6 +847,10 @@ func _try_begin_record_raid() -> void:
 
 func _advance_record_raid(elapsed: float, watching: bool) -> void:
 	if watching:
+		var wake_r := 1200.0
+		if WorldGenConfig:
+			wake_r = float(WorldGenConfig.sim_wake_player_radius_px)
+		SettlementPartyScript.wake_party_on_circle(territory, roster, _record_party, wake_r)
 		_record_party["materialized"] = true
 		return
 	if bool(_record_party.get("materialized", false)):
@@ -999,17 +1175,30 @@ func materialize_clan_for_combat() -> void:
 	if not territory or not is_instance_valid(territory):
 		return
 	var now: float = Time.get_ticks_msec() / 1000.0
-	if _combat_materialize_at >= 0.0 and now - _combat_materialize_at < 0.5:
+	var missing_before := _unspawned_people()
+	if missing_before.is_empty() and _combat_materialize_at >= 0.0 and now - _combat_materialize_at < 0.5:
 		_wake_clan_actors()
 		return
-	_combat_materialize_at = now
 	_discard_clan_people_from_sleep_list()
 	if roster == null:
 		_snapshot_roster_for_dormant()
 		_remember_clock_edges()
-	_materialize_people_from_record()
+	var batch: Dictionary = _materialize_people_from_record()
+	var still: Array = _unspawned_people()
+	if still.is_empty():
+		_combat_materialize_at = now
 	_wake_clan_actors()
 	_remember_clock_edges()
+	var pi := _get_playtest_instrumentor()
+	if pi and pi.has_method("camp_materialize"):
+		pi.call(
+			"camp_materialize",
+			clan_name,
+			int(batch.get("spawned", 0)),
+			still.size(),
+			int(batch.get("babies_waiting", 0)),
+			int(batch.get("hut_fallback", 0))
+		)
 
 
 func _discard_clan_people_from_sleep_list() -> void:
@@ -1017,12 +1206,12 @@ func _discard_clan_people_from_sleep_list() -> void:
 		NPCSleepManager.call("discard_people_for_clan", clan_name)
 
 
-func _materialize_people_from_record() -> void:
+func _materialize_people_from_record() -> Dictionary:
 	if roster == null or not territory or not is_instance_valid(territory):
-		return
+		return {}
 	var tree: SceneTree = territory.get_tree()
 	if tree == null:
-		return
+		return {}
 	var main: Node = tree.get_first_node_in_group("main")
 	var parent: Node = main.get("npcs_container") if main and main.get("npcs_container") != null else territory.get_parent()
 	var fallback: Vector2 = territory.global_position if territory is Node2D else Vector2.ZERO
@@ -1058,21 +1247,35 @@ func _materialize_people_from_record() -> void:
 			continue
 		live_by_id[mid] = npc
 	var spawned := 0
+	var babies_waiting := 0
+	var hut_fallback := 0
 	var missing: PackedStringArray = PackedStringArray()
-	for mid in living.keys():
+	var order: Array = _materialize_order(living)
+	for mid in order:
 		var rec: Dictionary = living[mid] as Dictionary
 		if not SettlementPartyScript.should_spawn_at_claim(rec):
 			continue
-		var spawn_data: Dictionary = roster.call("to_spawn_data", rec, fallback) as Dictionary
 		var body: Node = live_by_id.get(mid, null) as Node
 		if body and is_instance_valid(body):
+			var spawn_data: Dictionary = roster.call("to_spawn_data", rec, fallback) as Dictionary
 			if body.has_method("apply_sleep_data"):
 				body.call("apply_sleep_data", spawn_data)
 			_emit_materialize_member(int(mid), rec, true)
 			continue
+		if str(rec.get("type", "")) == "baby" and not _mother_is_present(rec, live_by_id, living):
+			babies_waiting += 1
+			continue
+		if spawned >= MATERIALIZE_PER_CALL:
+			missing.append(str(int(mid)))
+			continue
+		var spawn_data_new: Dictionary = roster.call("to_spawn_data", rec, fallback) as Dictionary
 		if main and parent is Node2D and main.has_method("spawn_npc_from_sleep_data"):
-			main.call("spawn_npc_from_sleep_data", spawn_data, parent)
+			main.call("spawn_npc_from_sleep_data", spawn_data_new, parent)
 			spawned += 1
+			body = _find_spawned_member(tree, int(mid))
+			if body:
+				live_by_id[int(mid)] = body
+				hut_fallback += _bind_saved_hut(body, rec)
 			_emit_materialize_member(int(mid), rec, true)
 		else:
 			missing.append(str(int(mid)))
@@ -1081,6 +1284,169 @@ func _materialize_people_from_record() -> void:
 	if not missing.is_empty() or not duplicate_ids.is_empty() or herd_after != herd_before:
 		if herd_after != herd_before:
 			_emit_dirty("herd_changed", "%d->%d" % [herd_before, herd_after])
+	return {"spawned": spawned, "babies_waiting": babies_waiting, "hut_fallback": hut_fallback}
+
+
+func _unspawned_people() -> Array:
+	var out: Array = []
+	if roster == null or territory == null or not is_instance_valid(territory):
+		return out
+	var tree: SceneTree = territory.get_tree()
+	if tree == null:
+		return out
+	var live: Dictionary = {}
+	var clan_key: String = str(clan_name).strip_edges().to_lower()
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc == null or not is_instance_valid(npc) or npc.is_queued_for_deletion():
+			continue
+		if str(npc.get("clan_name")).strip_edges().to_lower() != clan_key:
+			continue
+		var mid: int = SettlementRosterScript.read_member_id(npc)
+		if mid != 0:
+			live[mid] = true
+	for mid in (roster as RefCounted).call("living_person_ids"):
+		var rec: Dictionary = (roster as RefCounted).find_member(int(mid))
+		if rec.is_empty() or not SettlementPartyScript.should_spawn_at_claim(rec):
+			continue
+		if not live.has(int(mid)):
+			out.append(int(mid))
+	return out
+
+
+func _materialize_order(living: Dictionary) -> Array:
+	var adults: Array = []
+	var babies: Array = []
+	for mid in living.keys():
+		var rec: Dictionary = living[mid] as Dictionary
+		if str(rec.get("type", "")) == "baby":
+			babies.append(mid)
+		else:
+			adults.append(mid)
+	adults.append_array(babies)
+	return adults
+
+
+func _mother_is_present(rec: Dictionary, live_by_id: Dictionary, living: Dictionary) -> bool:
+	var mother_id: int = int(rec.get("mother_id", 0))
+	if mother_id != 0 and live_by_id.has(mother_id) and is_instance_valid(live_by_id[mother_id]):
+		return true
+	var mother_name := str(rec.get("mother_name", ""))
+	if mother_name == "":
+		return false
+	for mid in living.keys():
+		var other: Dictionary = living[mid] as Dictionary
+		if str(other.get("name", "")) != mother_name:
+			continue
+		return live_by_id.has(mid) and is_instance_valid(live_by_id[mid])
+	return false
+
+
+func _find_spawned_member(tree: SceneTree, member_id: int) -> Node:
+	if tree == null:
+		return null
+	for npc in tree.get_nodes_in_group("npcs"):
+		if npc and is_instance_valid(npc) and SettlementRosterScript.read_member_id(npc) == member_id:
+			return npc
+	return null
+
+
+func _bind_saved_hut(body: Node, rec: Dictionary) -> int:
+	if str(rec.get("type", "")) != "woman" or body == null or OccupationSystem == null:
+		return 0
+	if not OccupationSystem.has_method("force_assign"):
+		return 0
+	var hut := _hut_by_net_id(str(rec.get("home_hut_id", "")))
+	var fallback := 0
+	if hut == null:
+		hut = _free_living_hut()
+		fallback = 1 if hut != null else 0
+	if hut != null:
+		OccupationSystem.call("force_assign", body, hut, 0, "woman")
+	return fallback
+
+
+func _hut_by_net_id(hut_net_id: String) -> Node:
+	if hut_net_id == "" or ClaimBuildingIndex == null or territory == null:
+		return null
+	for building in ClaimBuildingIndex.get_buildings_in_claim(territory):
+		if building and is_instance_valid(building) and str(building.get_meta("hut_net_id", "")) == hut_net_id:
+			return building
+	return null
+
+
+func _free_living_hut() -> Node:
+	if ClaimBuildingIndex == null or territory == null:
+		return null
+	for building in ClaimBuildingIndex.get_buildings_in_claim(territory):
+		if building == null or not is_instance_valid(building):
+			continue
+		if int(building.get("building_type")) != int(ResourceData.ResourceType.LIVING_HUT):
+			continue
+		if building.has_method("is_occupied") and bool(building.call("is_occupied")):
+			continue
+		return building
+	return null
+
+
+func _write_record_places() -> void:
+	if roster == null or territory == null or not (territory is Node2D):
+		return
+	var center: Vector2 = (territory as Node2D).global_position
+	var radius: float = float(territory.get("radius")) if territory.get("radius") != null else 400.0
+	var fighters: Array = []
+	var women: Array = []
+	var babies: Array = []
+	for member in roster.members:
+		if not (member is Dictionary):
+			continue
+		var rec: Dictionary = member as Dictionary
+		if not bool(rec.get("alive", false)) or bool(rec.get("away", false)):
+			continue
+		match str(rec.get("type", "")):
+			"woman":
+				women.append(rec)
+			"baby":
+				babies.append(rec)
+			"clansman", "caveman", "leader":
+				fighters.append(rec)
+	var defender_n := 0
+	if fighters.size() >= 2:
+		defender_n = maxi(1, int(fighters.size() / 4.0))
+	var hut_at: Dictionary = {}
+	if ClaimBuildingIndex:
+		for building in ClaimBuildingIndex.get_buildings_in_claim(territory):
+			if building and is_instance_valid(building) and building.has_meta("hut_net_id"):
+				hut_at[str(building.get_meta("hut_net_id"))] = building
+	for i in fighters.size():
+		var rec: Dictionary = fighters[i] as Dictionary
+		var angle := TAU * float(i) / float(maxi(fighters.size(), 1))
+		if i < defender_n:
+			rec["place_role"] = "defender"
+			rec["position"] = center + Vector2(cos(angle), sin(angle)) * radius * 0.9
+		else:
+			rec["place_role"] = "gatherer"
+			rec["position"] = center + Vector2(cos(angle), sin(angle)) * 900.0
+	for rec in women:
+		var row: Dictionary = rec as Dictionary
+		row["place_role"] = "woman"
+		var hut: Node = hut_at.get(str(row.get("home_hut_id", "")), null) as Node
+		if hut is Node2D:
+			row["position"] = (hut as Node2D).global_position + Vector2(16, 0)
+		else:
+			row["position"] = center + Vector2(48, 0)
+	for rec in babies:
+		var row: Dictionary = rec as Dictionary
+		row["place_role"] = "baby"
+		var mother_pos: Vector2 = center
+		var mother_id: int = int(row.get("mother_id", 0))
+		var placed := false
+		for woman in women:
+			var w: Dictionary = woman as Dictionary
+			if int(w.get("id", 0)) == mother_id or (mother_id == 0 and str(w.get("name", "")) == str(row.get("mother_name", "")) and str(row.get("mother_name", "")) != ""):
+				mother_pos = w.get("position", center) as Vector2
+				placed = true
+				break
+		row["position"] = mother_pos + Vector2(12, 8) if placed else center + Vector2(48, 12)
 
 
 func _herd_count() -> int:
@@ -1479,10 +1845,17 @@ func _evaluate_clan_state() -> void:
 				d.set("defend_target", null)
 				territory.remove_defender(d)
 			territory._prune_defenders()
-			# Single caveman: always allow 1 searcher so they go out herding (more women/sheep/goats)
-			if cavemen.size() == 1:
-				territory.set_meta("searcher_quota", 1)
-				territory.set_meta("defenders_can_search", true)
+			# Player camp: every grown man may go get a wife. The human is not in that list.
+			# AI: sons only. The founding caveman is not an extra herder.
+			if is_player_clan:
+				territory.set_meta("searcher_quota", maxi(cavemen.size(), 0))
+				territory.set_meta("max_active_herders", maxi(cavemen.size(), 0))
+				territory.set_meta("defenders_can_search", cavemen.size() > 0)
+			elif cavemen.size() == 1:
+				var sons: int = _pace_herder_count()
+				territory.set_meta("searcher_quota", sons)
+				territory.set_meta("max_active_herders", sons)
+				territory.set_meta("defenders_can_search", sons > 0)
 			else:
 				territory.set_meta("searcher_quota", 0)
 				territory.set_meta("defenders_can_search", false)
@@ -5479,28 +5852,18 @@ func _update_searcher_assignments() -> void:
 	"""Update searcher quota - NPCs will pull this and self-assign."""
 	if not territory:
 		return
+	if territory.get("player_owned") == true:
+		var n_men: int = cavemen.size()
+		territory.set_meta("searcher_quota", n_men)
+		territory.set_meta("max_active_herders", n_men)
+		territory.set_meta("defenders_can_search", n_men > 0)
+		territory._prune_searchers()
+		return
 	if cavemen.size() == 0:
 		territory.set_meta("searcher_quota", 0)
 		territory.set_meta("max_active_herders", 0)
 		territory.set_meta("reproduction_pressure", 0.0)
 		territory.set_meta("defenders_can_search", false)
-		territory._prune_searchers()
-		return
-
-	# Survival: max search/herd unless under skirmish+ — workforce mode caps herd when starving.
-	if _is_survival_mode and alert_level < AlertLevel.SKIRMISH:
-		var pressure: float = get_reproduction_pressure()
-		territory.set_meta("reproduction_pressure", pressure)
-		territory.set_meta("breeding_females", clan_metrics["breeding_females"])
-		var n_surv: int = cavemen.size()
-		if workforce_mode == WorkforceMode.STARVING:
-			territory.set_meta("searcher_quota", _workforce_searcher_cap(n_surv))
-			territory.set_meta("max_active_herders", _workforce_herder_cap(n_surv, n_surv))
-		else:
-			territory.set_meta("searcher_quota", n_surv)
-			territory.set_meta("max_active_herders", n_surv)
-		territory.set_meta("searcher_pressure", search_pressure)
-		territory.set_meta("defenders_can_search", true)
 		territory._prune_searchers()
 		return
 
@@ -5511,44 +5874,36 @@ func _update_searcher_assignments() -> void:
 		territory.set_meta("defenders_can_search", false)
 		return
 
-	# Reproduction pressure (0-1): drives search radius, persistence, herder cap
 	var pressure: float = get_reproduction_pressure()
 	territory.set_meta("reproduction_pressure", pressure)
-	# breeding_females: states use this to force herd-search when 0 (caveman MUST get a woman)
 	territory.set_meta("breeding_females", clan_metrics["breeding_females"])
-
-	# Cap active herders: 1 + pop/6 (prevents swarm, preserves competition)
-	var max_herders: int = get_max_active_herders()
-
-	# Population maxing: when we need women, more searchers (capped by max_herders)
-	var bf: int = clan_metrics["breeding_females"]
-	var target_searchers: int
-	if bf < 2:
-		target_searchers = cavemen.size()
-	else:
-		target_searchers = int(ceil(cavemen.size() * search_pressure))
-		target_searchers = clampi(target_searchers, 1, cavemen.size())
-		if cavemen.size() >= 2:
-			target_searchers = maxi(target_searchers, 2)
-		target_searchers = clampi(target_searchers, 1, cavemen.size())
-	target_searchers = mini(target_searchers, max_herders)
-
-	# Workforce mode caps (tunable via ClanBrainTuningConfig + dev menu F10).
-	var n_f: int = cavemen.size()
-	target_searchers = mini(target_searchers, _workforce_searcher_cap(n_f))
-	max_herders = _workforce_herder_cap(max_herders, n_f)
-
-	# Small clan optimization: defenders can also search (no exclusive roles)
-	var defenders_can_search: bool = cavemen.size() <= 3
-
-	# Store quota on land claim - NPCs will read this
-	territory.set_meta("searcher_quota", target_searchers)
-	territory.set_meta("max_active_herders", max_herders)
+	# Every grown son herds. The founding leader is not an extra herder.
+	# Leave room for defenders so the two quotas still fit the roster.
+	var sons: int = _pace_herder_count()
+	var room: int = maxi(0, cavemen.size() - int(territory.get_meta("defender_quota", 0)))
+	sons = mini(sons, room)
+	var scaled := Vector2i.ZERO
+	if sons > 0:
+		scaled = _scale_ai_herder_pair(sons, sons, sons)
+	territory.set_meta("searcher_quota", scaled.x)
+	territory.set_meta("max_active_herders", scaled.y)
 	territory.set_meta("searcher_pressure", search_pressure)
-	territory.set_meta("defenders_can_search", defenders_can_search)
-	
-	# Prune invalid searchers from pool
+	territory.set_meta("defenders_can_search", scaled.x > 0)
 	territory._prune_searchers()
+
+func _sandbox_settings() -> Node:
+	var loop := Engine.get_main_loop()
+	if not (loop is SceneTree):
+		return null
+	return (loop as SceneTree).root.get_node_or_null("SandboxSettings")
+
+
+func _scale_ai_herder_pair(searchers: int, herders: int, fighters: int) -> Vector2i:
+	var sandbox: Node = _sandbox_settings()
+	if sandbox == null or not sandbox.has_method("scale_ai_count"):
+		return Vector2i(searchers, herders)
+	return Vector2i(int(sandbox.scale_ai_count(searchers, fighters)), int(sandbox.scale_ai_count(herders, fighters)))
+
 
 func get_searcher_quota() -> int:
 	"""Get how many searchers the clan needs."""
@@ -5634,6 +5989,48 @@ func get_reproduction_pressure() -> float:
 	if desired_women <= 0:
 		return 0.0
 	return clampf(float(desired_women - women) / float(desired_women), 0.0, 1.0)
+
+func dormant_herder_slots() -> int:
+	## One trip per grown son. The founding caveman is not a herder, and there is no pop/6 cap.
+	if territory and territory.get("player_owned") == true:
+		return 0
+	var n := _roster_living_type_count("clansman")
+	if n <= 0:
+		return 0
+	var sandbox: Node = _sandbox_settings()
+	if sandbox and sandbox.has_method("scale_ai_count"):
+		n = int(sandbox.scale_ai_count(n, n))
+	return n
+
+
+func _pace_herder_count() -> int:
+	if is_dormant or cavemen.is_empty():
+		return _roster_living_type_count("clansman")
+	var live := 0
+	for c in cavemen:
+		if c != null and is_instance_valid(c) and str(c.get("npc_type")) == "clansman":
+			live += 1
+	return live
+
+
+func _roster_fighter_count() -> int:
+	return _roster_living_type_count("clansman") + _roster_living_type_count("caveman") + _roster_living_type_count("leader")
+
+
+func _roster_living_type_count(kind: String) -> int:
+	if roster == null:
+		return 0
+	var n := 0
+	for m in roster.get("members"):
+		if not (m is Dictionary):
+			continue
+		var rec: Dictionary = m
+		if not bool(rec.get("alive", false)) or bool(rec.get("away", false)):
+			continue
+		if str(rec.get("type", "")) == kind:
+			n += 1
+	return n
+
 
 func get_max_active_herders() -> int:
 	"""Max NPCs allowed in herd_wildnpc at once. Prevents swarm, preserves competition.

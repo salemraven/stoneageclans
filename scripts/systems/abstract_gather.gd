@@ -4,6 +4,7 @@ extends RefCounted
 
 const ChunkGeneratorScript = preload("res://scripts/world/chunk_generator.gd")
 const TerrainQueryScript = preload("res://scripts/world/terrain_query.gd")
+const ClanFoodBufferScript = preload("res://scripts/systems/clan_food_buffer.gd")
 const EDIBLE_KEYS: Array[String] = ["berries", "grain", "nuts", "bugs"]
 const OTHER_KEYS: Array[String] = ["wood", "stone", "fiber", "hide"]
 
@@ -106,9 +107,21 @@ static func gather_for_claim(
 	var tick_interval: float = maxf(float(WorldGenConfig.settlement_tick_interval_sec), 1.0)
 	var tick_fraction: float = elapsed_sec / tick_interval
 
+	var calorie_room: int = _calorie_room_to_people_ratio(claim, roster)
 	var carry_bonus: int = _consume_gather_carryover(claim)
 	if carry_bonus > 0:
-		_apply_carry_bonus(inventory, available, carry_bonus, events)
+		var carry_key: String = str(available[0]) if available.size() > 0 else "berries"
+		var bonus: int = carry_bonus
+		if carry_key in EDIBLE_KEYS:
+			var carry_type: ResourceData.ResourceType = RESOURCE_KEY_TO_TYPE.get(carry_key, ResourceData.ResourceType.BERRIES) as ResourceData.ResourceType
+			var per_carry: int = ResourceData.get_food_calories(carry_type)
+			if per_carry <= 0 or calorie_room <= 0:
+				bonus = 0
+			else:
+				bonus = mini(bonus, int(calorie_room / per_carry))
+				calorie_room -= bonus * per_carry
+		if bonus > 0:
+			_apply_carry_bonus(inventory, available, bonus, events)
 
 	var ordered: Array[String] = []
 	ordered.append_array(EDIBLE_KEYS)
@@ -125,6 +138,14 @@ static func gather_for_claim(
 		var rt: ResourceData.ResourceType = RESOURCE_KEY_TO_TYPE.get(resource_key, ResourceData.ResourceType.NONE) as ResourceData.ResourceType
 		if rt == ResourceData.ResourceType.NONE:
 			continue
+		var per_item: int = 0
+		if resource_key in EDIBLE_KEYS:
+			per_item = ResourceData.get_food_calories(rt)
+			if per_item <= 0 or calorie_room <= 0:
+				continue
+			desired = mini(desired, int(calorie_room / per_item))
+			if desired <= 0:
+				continue
 		var gathered: int = 0
 		var last_remaining := 0
 		var last_chunk := chunk_coords
@@ -153,6 +174,8 @@ static func gather_for_claim(
 				desired -= 1
 			last_remaining = remaining_pool
 			last_chunk = coords
+		if resource_key in EDIBLE_KEYS and per_item > 0:
+			calorie_room -= gathered * per_item
 		if gathered > 0:
 			events["gathered"].append({
 				"resource_key": resource_key,
@@ -236,6 +259,23 @@ static func _apply_carry_bonus(inventory: InventoryData, available: Array, bonus
 			"count": added,
 			"carryover": true,
 		})
+
+
+static func _calorie_room_to_people_ratio(claim: Node, roster: RefCounted) -> int:
+	# Stop edible gather once the camp holds target days of food per living person.
+	var target: float = 1.0
+	var tree := Engine.get_main_loop()
+	if tree is SceneTree:
+		var balance: Node = (tree as SceneTree).root.get_node_or_null("BalanceConfig")
+		if balance != null and "clan_food_buffer_target_days" in balance:
+			target = maxf(float(balance.clan_food_buffer_target_days), 0.25)
+	var days: float = ClanFoodBufferScript.get_pantry_days(claim, roster, [])
+	if days >= target - 0.01:
+		return 0
+	var daily: int = ClanFoodBufferScript.daily_need_from_roster(roster)
+	if daily <= 0:
+		return 0
+	return int(floor((target - days) * float(daily)))
 
 
 static func _get_terrain_query() -> Node:

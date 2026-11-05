@@ -2,7 +2,7 @@
 
 **Status:** **Core is built** (`scripts/combat/morale_bar.gd`, used for flight in fights; bravery shifts the flight line). The player-facing UI bar is **not** built. Replaces the split between `fight_flight` score-at-zero and the climbing `rout_meter`.
 
-**Locked 2026-10-13 ([director_locks_2026_10.md](../director_locks_2026_10.md) §3–§4):** bravery is a lasting trait that also feeds an individual **aggression bar** (attack at one end, flee at the other). Clan raid appetite is the fighters' average, tilted by the leader. An Attack or Guard order gives a courage bonus but does not stop a man from breaking. Today the raid nudge in code never lowers a `raid_joined` man's bar, which must change.
+**Fight or flight (locked 2026-11-04):** This bar is the **flight** half. Player **Flight** = below personal flight line + yellow **`!!`**. Player **Fight** = **`agro_meter` max** + attacking + red **`!!!`**. Glossary: [fight_or_flight.md](../fight_or_flight.md). **Bravery** core #8 and derived stats tune both sides. Clan raid appetite averages **Bravery core**. Attack/Guard orders add courage but men can still break. Today the raid nudge in code never lowers a `raid_joined` man's bar, which must change.
 
 **Clan vs fighter:** This doc is **per clansman** in combat. The **ClanBrain** has a separate **clan morale bar** (strategy, defection, raid appetite) — `ai_clan_brain.md` § Clan identity · `wiki/terms/morale-bar-clan.md`.
 

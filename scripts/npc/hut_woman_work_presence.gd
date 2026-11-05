@@ -6,6 +6,11 @@ const HutSpecialtyScript = preload("res://scripts/buildings/hut_specialty.gd")
 const CollectionProgressScript = preload("res://scripts/collection_progress.gd")
 
 const PATROL_SPEED := 34.0
+const HOME_PATROL_SPEED := 16.0
+const HOME_PAUSE_MIN_SEC := 2.8
+const HOME_PAUSE_MAX_SEC := 7.0
+const HOME_END_PAUSE_CHANCE := 0.72
+const HOME_RANDOM_PAUSE_WHILE_WALK_CHANCE := 0.012
 const FOOT_OFFSET_Y := 52.0
 const PATROL_WIDTH_RATIO := 0.2
 const MIN_PATROL_HALF_W := 28.0
@@ -20,7 +25,9 @@ const WALK_ANIM_MIN_SPEED_SCALE := 0.12
 ## Subtle idle/work at hut vs full patrol walk.
 const WORK_IDLE_MOTION_MUL := 0.34
 const WORK_WALK_MOTION_FLOOR := 0.45
-const HUT_APPROACH_MAX_DIST := 72.0
+## How close, in pixels, she must be to the foot line before the hut holds her.
+## A circle around the hut used to include the campfire, so she snapped back and forth.
+const HUT_LINE_SLACK := 18.0
 const CLAIM_APPROACH_RADIUS := 32.0
 const HUT_CRAFT_PROGRESS_EXTRA_ABOVE_HEAD := 22.0
 
@@ -48,8 +55,6 @@ func is_living_hut_occupant(npc: Node) -> bool:
 	var hut := _home_hut(npc)
 	if hut == null:
 		return false
-	if str(hut.get("hut_specialty")).strip_edges() == "":
-		return false
 	if _woman_in_hut_slot(npc, hut):
 		return true
 	if OccupationSystem and OccupationSystem.get_ref_state(npc) == OccupationSystem.OccupationState.OCCUPIED:
@@ -68,7 +73,7 @@ func controls_npc(npc: Node) -> bool:
 		return false
 	if _on_hut_carry_job(npc):
 		return _hut_carry_allows_presence(npc)
-	return _near_hut_work_line(npc)
+	return _on_hut_foot_line(npc)
 
 
 func _hut_carry_allows_presence(npc: Node) -> bool:
@@ -77,7 +82,7 @@ func _hut_carry_allows_presence(npc: Node) -> bool:
 		return false
 	var phase: String = str(task.get("_phase"))
 	if phase == "wait":
-		return _near_hut_work_line(npc)
+		return _on_hut_foot_line(npc)
 	return false
 
 
@@ -92,8 +97,8 @@ func pre_physics(npc: Node, delta: float) -> void:
 	if hut == null:
 		return
 	_ensure_sprite_visible(npc)
-	_align_patrol_foot_if_near(npc, hut)
-	_update_patrol(npc, hut, delta)
+	_hold_steering(npc)
+	_update_patrol(npc, hut, delta, _is_home_hangout(hut))
 	sync_work_motion_scale(npc)
 	_sync_craft_progress(npc, hut)
 
@@ -141,22 +146,96 @@ func _carrying_stack(npc: Node) -> bool:
 	return not slot.is_empty() and int(slot.get("count", 0)) > 0
 
 
-func _near_hut_work_line(npc: Node) -> bool:
+func standing_on_hut_foot(npc: Node) -> bool:
+	return _on_hut_foot_line(npc)
+
+
+## Food in her hands is not a hut-carry job. That stack must not freeze her on the mark.
+func carrying_blocks_hangout(npc: Node) -> bool:
+	if npc == null or _on_hut_carry_job(npc):
+		return false
+	var tr: Variant = npc.get("task_runner")
+	if tr != null and is_instance_valid(tr) and tr.has_method("controls_movement") and tr.controls_movement():
+		return false
+	return _carrying_stack(npc)
+
+
+## Put a leftover gather stack into her claim. A hut-carry job keeps its load.
+func try_empty_carried_stack(npc: Node) -> bool:
+	if not carrying_blocks_hangout(npc):
+		return false
+	if not npc.has_method("get_my_land_claim"):
+		return false
+	var claim: Node = npc.get_my_land_claim()
+	if claim == null or not is_instance_valid(claim):
+		return false
+	var claim_inv: Variant = claim.get("inventory")
+	var inv: Variant = npc.get("inventory")
+	if claim_inv == null or inv == null:
+		return false
+	if not claim_inv.has_method("add_item") or not inv.has_method("get_slot") or not inv.has_method("remove_item"):
+		return false
+	var slot_count: int = int(inv.get("slot_count")) if inv.get("slot_count") != null else 0
+	for i in slot_count:
+		var slot: Dictionary = inv.get_slot(i)
+		if slot.is_empty():
+			continue
+		var count: int = int(slot.get("count", 0))
+		if count <= 0 or slot.get("type") == null:
+			continue
+		var item_type: ResourceData.ResourceType = int(slot.get("type")) as ResourceData.ResourceType
+		if not claim_inv.add_item(item_type, count):
+			break
+		if not inv.remove_item(item_type, count):
+			if claim_inv.has_method("remove_item"):
+				claim_inv.remove_item(item_type, count)
+			break
+	return not _carrying_stack(npc)
+
+
+func steer_to_hut_foot(npc: Node) -> void:
+	var hut := _home_hut(npc)
+	if hut == null or npc == null:
+		return
+	var agent: Node = npc.get("steering_agent")
+	if agent == null:
+		return
+	var stand := hut_approach_position(hut)
+	# SEEK aimed at a point she already stands on restarts the walk every few frames.
+	if npc.global_position.distance_to(stand) <= HUT_LINE_SLACK:
+		if agent.has_method("hold_still"):
+			agent.hold_still()
+		npc.velocity = Vector2.ZERO
+		return
+	var mode: int = int(agent.get("current_mode"))
+	var seek_mode: int = int(agent.SteeringMode.SEEK)
+	if mode == seek_mode and agent.target_position.distance_to(stand) <= 8.0:
+		return
+	# Arrive creeps the last stretch and then the hut line pops her. Walk the whole way.
+	if agent.has_method("retarget_seek"):
+		agent.retarget_seek(stand)
+	else:
+		agent.target_position = stand
+		agent.target_node = null
+		agent.current_mode = seek_mode
+		agent._pending_intent_time = 0.0
+
+
+func _hold_steering(npc: Node) -> void:
+	var agent: Node = npc.get("steering_agent")
+	if agent and agent.has_method("hold_still"):
+		agent.hold_still()
+
+
+func _on_hut_foot_line(npc: Node) -> bool:
 	var hut := _home_hut(npc)
 	if hut == null:
 		return false
-	var stand := hut_approach_position(hut)
-	return npc.global_position.distance_to(stand) <= HUT_APPROACH_MAX_DIST
-
-
-func _align_patrol_foot_if_near(npc: Node, hut: Node2D) -> void:
-	if not _near_hut_work_line(npc):
-		return
 	var bounds := _patrol_bounds(hut)
 	var pos: Vector2 = npc.global_position
-	pos.y = bounds.foot_y
-	pos.x = clampf(pos.x, bounds.left_x, bounds.right_x)
-	npc.global_position = pos
+	if absf(pos.y - bounds.foot_y) > HUT_LINE_SLACK:
+		return false
+	return pos.x >= bounds.left_x - HUT_LINE_SLACK and pos.x <= bounds.right_x + HUT_LINE_SLACK
 
 
 func _ensure_sprite_visible(npc: Node) -> void:
@@ -177,14 +256,26 @@ func _sync_patrol_facing(npc: Node, dir: float) -> void:
 		npc.set("_last_facing", Vector2(-1.0 if dir < 0.0 else 1.0, 0.0))
 
 
-func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
+func _is_home_hangout(hut: Node) -> bool:
+	return hut != null and str(hut.get("hut_specialty")).strip_edges() == ""
+
+
+func _update_patrol(npc: Node, hut: Node2D, delta: float, home_hangout: bool) -> void:
 	var bounds := _patrol_bounds(hut)
 	var pos: Vector2 = npc.global_position
-	pos.y = bounds.foot_y
 	var phase: String = str(npc.get_meta("hut_work_phase", "walk"))
 	var dir: float = float(npc.get_meta("hut_work_dir", 1.0))
 	if dir == 0.0:
 		dir = 1.0
+	var speed := HOME_PATROL_SPEED if home_hangout else PATROL_SPEED
+	var y_gap: float = bounds.foot_y - pos.y
+	var y_step: float = maxf(speed, 80.0) * delta
+	if absf(y_gap) <= y_step:
+		pos.y = bounds.foot_y
+	else:
+		pos.y += signf(y_gap) * y_step
+	var end_pause := HOME_END_PAUSE_CHANCE if home_hangout else END_PAUSE_CHANCE
+	var walk_pause := HOME_RANDOM_PAUSE_WHILE_WALK_CHANCE if home_hangout else RANDOM_PAUSE_WHILE_WALK_CHANCE
 	if phase == "pause":
 		var pause_left: float = float(npc.get_meta("hut_work_pause_left", 0.0)) - delta
 		npc.set_meta("hut_work_vx", 0.0)
@@ -195,7 +286,7 @@ func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
 			if npc.has_method("npc_randf") and npc.npc_randf() < 0.5:
 				dir = -dir
 				npc.set_meta("hut_work_dir", dir)
-			_begin_ease_from_pause(npc)
+			_begin_ease_from_pause(npc, home_hangout)
 		else:
 			npc.set_meta("hut_work_pause_left", pause_left)
 		pos.x = clampf(pos.x, bounds.left_x, bounds.right_x)
@@ -205,9 +296,9 @@ func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
 		var slow_left: float = float(npc.get_meta("hut_work_slow_left", 0.0)) - delta
 		var slow_u: float = clampf(slow_left / SLOW_TO_PAUSE_SEC, 0.0, 1.0)
 		var slow_scale: float = slow_u * slow_u
-		_apply_patrol_step(npc, pos, bounds, dir, delta, slow_scale)
+		pos = _apply_patrol_step(npc, pos, bounds, dir, delta, slow_scale, speed)
 		if slow_left <= 0.0:
-			_begin_pause(npc)
+			_begin_pause(npc, home_hangout)
 		else:
 			npc.set_meta("hut_work_slow_left", slow_left)
 		npc.global_position = pos
@@ -216,7 +307,7 @@ func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
 		var ease_left: float = float(npc.get_meta("hut_work_ease_left", 0.0)) - delta
 		var ease_u: float = 1.0 - clampf(ease_left / EASE_FROM_PAUSE_SEC, 0.0, 1.0)
 		var ease_scale: float = ease_u * ease_u
-		_apply_patrol_step(npc, pos, bounds, dir, delta, ease_scale)
+		pos = _apply_patrol_step(npc, pos, bounds, dir, delta, ease_scale, speed)
 		if ease_left <= 0.0:
 			npc.set_meta("hut_work_phase", "walk")
 		else:
@@ -226,7 +317,7 @@ func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
 	# walk
 	npc.set_meta("hut_work_speed_scale", 1.0)
 	npc.set_meta("hut_work_walking", true)
-	var vx: float = dir * PATROL_SPEED
+	var vx: float = dir * speed
 	npc.set_meta("hut_work_vx", vx)
 	_sync_patrol_facing(npc, dir)
 	pos.x += vx * delta
@@ -241,25 +332,26 @@ func _update_patrol(npc: Node, hut: Node2D, delta: float) -> void:
 	if hit_left or hit_right:
 		npc.set_meta("hut_work_dir", dir)
 		_sync_patrol_facing(npc, dir)
-		if npc.has_method("npc_randf") and npc.npc_randf() < END_PAUSE_CHANCE:
+		if npc.has_method("npc_randf") and npc.npc_randf() < end_pause:
 			_begin_slow_to_pause(npc)
-	elif npc.has_method("npc_randf") and npc.npc_randf() < RANDOM_PAUSE_WHILE_WALK_CHANCE:
+	elif npc.has_method("npc_randf") and npc.npc_randf() < walk_pause:
 		_begin_slow_to_pause(npc)
 	pos.x = clampf(pos.x, bounds.left_x, bounds.right_x)
 	npc.global_position = pos
 
 
-func _apply_patrol_step(npc: Node, pos: Vector2, bounds: Dictionary, dir: float, delta: float, speed_scale: float) -> void:
+func _apply_patrol_step(npc: Node, pos: Vector2, bounds: Dictionary, dir: float, delta: float, speed_scale: float, speed: float) -> Vector2:
 	var scale: float = clampf(speed_scale, 0.0, 1.0)
 	npc.set_meta("hut_work_speed_scale", scale)
 	var walking: bool = scale >= WALK_ANIM_MIN_SPEED_SCALE
 	npc.set_meta("hut_work_walking", walking)
-	var vx: float = dir * PATROL_SPEED * scale
+	var vx: float = dir * speed * scale
 	npc.set_meta("hut_work_vx", vx)
 	if walking:
 		_sync_patrol_facing(npc, dir)
 	pos.x += vx * delta
-	pos.x = clampf(pos.x, bounds.left_x, bounds.right_x)  # slow / ease_walk
+	pos.x = clampf(pos.x, bounds.left_x, bounds.right_x)
+	return pos
 
 
 func _begin_slow_to_pause(npc: Node) -> void:
@@ -267,18 +359,19 @@ func _begin_slow_to_pause(npc: Node) -> void:
 	npc.set_meta("hut_work_slow_left", SLOW_TO_PAUSE_SEC)
 
 
-func _begin_ease_from_pause(npc: Node) -> void:
+func _begin_ease_from_pause(npc: Node, _home_hangout: bool = false) -> void:
 	npc.set_meta("hut_work_phase", "ease_walk")
 	npc.set_meta("hut_work_ease_left", EASE_FROM_PAUSE_SEC)
 	npc.set_meta("hut_work_vx", 0.0)
 	npc.set_meta("hut_work_walking", false)
 
 
-func _begin_pause(npc: Node) -> void:
+func _begin_pause(npc: Node, home_hangout: bool = false) -> void:
 	npc.set_meta("hut_work_phase", "pause")
-	var dur := PAUSE_MIN_SEC
+	var dur := HOME_PAUSE_MIN_SEC if home_hangout else PAUSE_MIN_SEC
+	var dur_max := HOME_PAUSE_MAX_SEC if home_hangout else PAUSE_MAX_SEC
 	if npc.has_method("npc_randf_range"):
-		dur = npc.npc_randf_range(PAUSE_MIN_SEC, PAUSE_MAX_SEC)
+		dur = npc.npc_randf_range(dur, dur_max)
 	npc.set_meta("hut_work_pause_left", dur)
 	npc.set_meta("hut_work_vx", 0.0)
 	npc.set_meta("hut_work_walking", false)

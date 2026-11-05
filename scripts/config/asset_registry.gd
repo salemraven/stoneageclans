@@ -4,8 +4,7 @@ extends Node
 # Use load() at runtime (preload fails when .godot/imported cache is missing).
 # Centralizes paths for reuse; consider preload() once import cache exists for browser export.
 
-# NPC sprites (player, woman, sheep, goat, baby, mammoth)
-const PLAYER_PATH := "res://assets/sprites/PlayerB.png"
+# NPC sprites (woman, sheep, goat, baby, mammoth). People use placeholder cards, not a baked body.
 const WOMAN_PATH := "res://assets/sprites/woman.png"
 const SHEEP_PATH := "res://assets/sprites/sheep.png"
 const GOAT_PATH := "res://assets/sprites/goat.png"
@@ -22,7 +21,6 @@ const TRAVOIS_PATH := "res://assets/sprites/travois.png"
 const TREESS_PATH := "res://assets/sprites/treess.png"
 
 # Lazy-loaded textures (cached after first access)
-var _player_sprite: Texture2D
 var _woman_sprite: Texture2D
 var _sheep_sprite: Texture2D
 var _goat_sprite: Texture2D
@@ -35,11 +33,6 @@ var _oven_cook_sheet: Texture2D
 var _campfire_sprite: Texture2D
 var _travois_sprite: Texture2D
 var _treess_sprite: Texture2D
-
-func get_player_sprite() -> Texture2D:
-	if not _player_sprite:
-		_player_sprite = load(PLAYER_PATH) as Texture2D
-	return _player_sprite
 
 func get_woman_sprite() -> Texture2D:
 	if not _woman_sprite:

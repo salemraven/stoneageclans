@@ -72,8 +72,9 @@ These are **planned** extensions; the first implementation can be **placement + 
 | System | Intent |
 |--------|--------|
 | **Succession mode** | Set **primogeniture (sons)** vs **seniority (oldest clansman)**; stored per clan; preview **heir** under current law. **Locked 2026-10-13:** the default law is **oldest living son first, else oldest clansman**; this building switches the law later. See [director_locks_2026_10.md](director_locks_2026_10.md) §1. |
+| **Clan hierarchy** | Drag-and-drop **heir** box plus high seats. Laws: warriors, shamans, elders, and later hunters, hearth, blood. Seats weigh the clan average. Idea only: [future implementations/clan_hierarchy.md](future%20implementations/clan_hierarchy.md). |
 | **Relics / trophies** | Deposit items for **display** and **buffs** (narrow modifiers, data-driven). |
-| **Clan info** | Read-only roster, lineage summary, optional alerts. |
+| **Clan info** | The hierarchy screen: heir, high seats, clan traits, morale, buffs and debuffs. One window. [future implementations/clan_hierarchy.md](future%20implementations/clan_hierarchy.md). |
 
 ---
 
