@@ -175,7 +175,7 @@ Canon glossary: [fight_or_flight.md](fight_or_flight.md).
 | **Trait** | Same as **perk** in new docs. Old text may say “trait” for species bonuses. |
 | **Gene** | Optional **allele** layer (dominant/recessive) for a trait — finer reproduction model in design docs. |
 | **Hybridization** | Child **species** from parents (e.g. 50/50 which parent’s species); **traits** can mix across species pools. |
-| **Core attribute** | One of **eight** stored stats (Strength, Intelligence, Endurance, Agility, Perception, Social, Constitution, Bravery). Build spec: [future implementations/character_attributes.md](future%20implementations/character_attributes.md). |
+| **Core attribute** | One of **eight** stored stats (Strength, Intelligence, Endurance, Agility, Perception, Social, Toughness, Bravery). Build spec: [future implementations/character_attributes.md](future%20implementations/character_attributes.md). |
 | **Derived statistic** | Gameplay value computed from a core (and traits, gear, context). Not a separate core; usually not its own UI bar. |
 | **Stats** | **Eight cores** at birth (average of parents ± mutation). Old nine-stat code is pre-spec. |
 | **Appearance (2D)** | Look = **sprite sheets** / **DirectionalSpriteSheet** / **AssetRegistry** — **not** MakeHuman, morph genomes, or Mixamo. |

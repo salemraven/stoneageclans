@@ -14,7 +14,7 @@ Each has 3–4 unique traits (stat buffs, behavior tweaks). Base stats 50/100 �
 
 2. **Neanderthal** (Tough warriors – tanky for defense/raids)
    - Traits:
-     - "Robust" (+20 % Strength, +15 % Endurance – melee damage, wound resistance)
+     - "Robust" (+20 % Strength, +15 % Toughness – melee damage, wound resistance)
      - "Pain Resistant" (+25 % Pain Tolerance – shorter debuff duration)
      - "Hunter's Grit" (+10 % Aggression – higher attack vs flee chance)
      - Role: Frontline fighters, hunters.

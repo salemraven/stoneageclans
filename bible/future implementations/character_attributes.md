@@ -1,6 +1,6 @@
 # Character attributes (build spec)
 
-**Status:** Director decisions **2026-11-04**. **Build to this spec.** Not fully implemented in code today (`stats.gd` and `character_menu_ui.gd` still use the older nine-stat shape).
+**Status:** Director decisions **2026-11-04**; core #7 renamed **Constitution → Toughness** **2026-11-05**. **Build to this spec.** Not fully implemented in code today (`stats.gd` and `character_menu_ui.gd` still use the older nine-stat shape).
 **Locks:** [director_locks_2026_10.md](../director_locks_2026_10.md) §4 (updated same day). **UI:** [UI.md](../UI.md) § Character menu.
 
 Each person has **eight core attributes** stored at birth and allowed to drift slowly where noted. Each core feeds **four derived statistics** used by gameplay. Derived values are **computed in code**. They are **not** separate bars on the character sheet unless a tooltip or combat panel needs one.
@@ -95,16 +95,16 @@ Interaction and relationships.
 | Mating compatibility | Reproductive social pairing |
 | Leadership influence | Nudge to follow orders and volunteer — **hook**; hierarchy **seats** still weigh clan average separately |
 
-### 7. Constitution
+### 7. Toughness
 
-Physical resilience and bodily health.
+Physical resilience and bodily health. (Locked name **2026-11-05**; was *Constitution* in the 2026-11-04 draft.)
 
 | Derived | Effect |
 |---------|--------|
 | Maximum health | Total health capacity |
 | Pain tolerance | Shorter debuffs, tougher through wounds (**replaces** old standalone pain_tolerance core) |
 | Recovery rate | Speed of physical healing |
-| Exhaustion sickness | **Deferred.** Slot reserved; no disease sim in v1. Do not show a fourth constitution bar until illness exists |
+| Exhaustion sickness | **Deferred.** Slot reserved; no disease sim in v1. Do not show a fourth Toughness-derived bar until illness exists |
 
 ### 8. Bravery
 
@@ -135,7 +135,7 @@ Emotional disposition and nerve over a **life** (core #8). Not a separate “tem
 | Movement speed, attack speed, dodge | Agility |
 | Detection radius, resource detection, threat detection | Perception |
 | Herding, storytelling (showings), mating compatibility | Social |
-| Max health, pain tolerance, recovery rate | Constitution |
+| Max health, pain tolerance, recovery rate | Toughness |
 | Aggression threshold, patience, fear resistance, stress tolerance | Bravery |
 
 Everything marked **hook** or **deferred** above may return a neutral multiplier until its system exists.
@@ -154,7 +154,8 @@ Use when refactoring `stats.gd`, saves, and UI.
 | `agility` | Core **Agility** |
 | `perception` | Core **Perception** |
 | `social` | Core **Social** |
-| `pain_tolerance` | **Constitution** → derived **Pain tolerance** |
+| `pain_tolerance` | **Toughness** → derived **Pain tolerance** |
+| `constitution` (2026-11-04 draft name) | Core **Toughness** — use `toughness` in new saves/code |
 | `carry_capacity` | **Strength** → derived **Carry capacity** |
 | `bravery` (0–1 on `npc_base`) | Core **Bravery** (rescale to 0–100 in new code) |
 | `aggression` on Stats | Retire into Bravery derived; not a core |

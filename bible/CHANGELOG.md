@@ -4,6 +4,10 @@ This document tracks updates to guides based on implementation changes and desig
 
 ## November 5, 2026 (AI camp pacing, party UI lock, RTS doc sync)
 
+### Character attributes
+
+- **Core #7 renamed Constitution → Toughness** — [character_attributes.md](future%20implementations/character_attributes.md), [director_locks_2026_10.md](director_locks_2026_10.md) §4, [traits.md](traits.md), [game_dictionary.md](game_dictionary.md), [README.md](README.md), [hominids.md](hominids.md). Bridge table: use `toughness` in new code/saves.
+
 ### Simulation & AI clans
 
 - **People clocks** — Herd/hut/pregnancy/baby growth advance on real delta while dormant; settlement slice skips duplicate people tick when `is_dormant`.

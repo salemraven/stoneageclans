@@ -41,7 +41,7 @@ Each hominid contributes from its pool at founding and through fathers at birth.
 
 | Perk | Modifiers |
 |------|-----------|
-| **Robust** | Strength **+20%**, Constitution **+15%** → melee damage, max health, pain tolerance derived |
+| **Robust** | Strength **+20%**, Toughness **+15%** → melee damage, max health, pain tolerance derived |
 | **Pain Resistant** | Pain tolerance derived **+25%** |
 | **Hunter's Grit** | Aggression threshold derived **+10%** |
 
@@ -67,7 +67,7 @@ Each hominid contributes from its pool at founding and through fathers at birth.
 |------|-----------|
 | **Swarm Instinct** | Social **+20%** → herding; mating compatibility **+10%**; reproduction chance **hook +10%** |
 | **Nimble** | Agility **+15%** → movement, dodge, attack speed |
-| **Compact** | Baby growth **hook +10%**; Constitution max health **−5%** (tradeoff) |
+| **Compact** | Baby growth **hook +10%**; Toughness max health **−5%** (tradeoff) |
 
 ---
 
