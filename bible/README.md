@@ -144,7 +144,7 @@ Everything under **[future implementations/](future%20implementations/)** — vi
 
 **Clan feud (locked 2026-11-04, not built):** [future implementations/clan_feud.md](future%20implementations/clan_feud.md) — the nemesis is a clan. Brains remember who killed whom. One stamped rival. Unseen blood raids kill two named fighters once. A rival cannot force a suicide march.
 
-**Character attributes (locked 2026-11-04, build spec):** [future implementations/character_attributes.md](future%20implementations/character_attributes.md) — eight cores, four derived each; Spirituality, Storytelling, Constitution + pain tolerance; UI Born / Learned / Now / Under pressure / Life.
+**Character attributes (locked 2026-11-04, build spec):** [future implementations/character_attributes.md](future%20implementations/character_attributes.md) — eight cores, four derived each; Spirituality, Storytelling, Toughness + pain tolerance; UI Born / Learned / Now / Under pressure / Life. (*Core #7 renamed Constitution → Toughness, 2026-11-05.*)
 
 **Perks (locked 2026-11-04):** [traits.md](traits.md) — 15 species + 12 v1 general perks; clan quorum at 40%; core/derived modifiers.
 

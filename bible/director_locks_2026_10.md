@@ -1,6 +1,6 @@
 # Director locks — October 2026 interview
 
-**Status:** Design locks agreed with the director on **2026-10-13**, plus **The Land** on **2026-10-18** (§10), plus the **memory system** on **2026-10-31** (§5), plus **clan feuds** on **2026-11-04** (§11), plus **eight core attributes**, **perks**, and **fight or flight** vocabulary on **2026-11-04** (§4, §12, [fight_or_flight.md](fight_or_flight.md)). This is design, not code. Each row says what the code does today.
+**Status:** Design locks agreed with the director on **2026-10-13**, plus **The Land** on **2026-10-18** (§10), plus the **memory system** on **2026-10-31** (§5), plus **clan feuds** on **2026-11-04** (§11), plus **eight core attributes**, **perks**, and **fight or flight** vocabulary on **2026-11-04** (§4, §12, [fight_or_flight.md](fight_or_flight.md)); core **#7 Toughness** (renamed from Constitution **2026-11-05**). This is design, not code. Each row says what the code does today.
 **Wins over:** `bible.md`, `raid.md`, `ai_clan_brain.md`, `economy_catalog.md`, `production_tiers.md`, `clan_founding_and_exile.md`, and `leader_hut.md` wherever they disagree with this file. Those docs now point here.
 **Does not override:** `systems/*_canon.md` locks that this file does not mention.
 **Story record details:** [story_data.md](story_data.md).
@@ -55,7 +55,7 @@ Full build spec: [future implementations/character_attributes.md](future%20imple
 
 The in-fight **nerve bar** and personal **break line** are `built` ([morale_bar_flight.md](future%20implementations/morale_bar_flight.md)). Wiring them to **core Bravery** is `pending`.
 
-- **Eight cores** at birth (0–100 design scale): Strength, Intelligence, Endurance, Agility, Perception, Social, Constitution, **Bravery**. Parent average ± mutation. **Carry capacity** is derived from Strength, not a core. **Pain tolerance** is derived from Constitution, not a core.
+- **Eight cores** at birth (0–100 design scale): Strength, Intelligence, Endurance, Agility, Perception, Social, **Toughness**, **Bravery**. Parent average ± mutation. **Carry capacity** is derived from Strength, not a core. **Pain tolerance** is derived from **Toughness**, not a core. (*Core #7 was named Constitution in the 2026-11-04 lock; renamed Toughness 2026-11-05.*)
 - **Bravery (core #8)** is disposition over a life. Derived: aggression threshold, patience, fear resistance, stress tolerance. Kills raise the core slowly; scars, lost kin, and a sticking **times picked on** tally lower it. One shove does not.
 - **Fight or flight** ([fight_or_flight.md](fight_or_flight.md)): player **Fight** = **`agro_meter` at max** + attacking + red **`!!!`**. Player **Flight** = morale below flight line + yellow **`!!`**. **`agro_meter`**, AOA, **`agro_state`**, and RTS **Agro mode** stay as **technical agro** names in code.
 - Fast attack ↔ flee and the **nerve bar** (0–100) are computed from Bravery + orders. **Not** a ninth core. Show under **Under pressure**, not Born with.
